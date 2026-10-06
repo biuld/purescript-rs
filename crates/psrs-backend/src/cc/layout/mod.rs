@@ -8,13 +8,16 @@ use std::collections::{HashMap, HashSet};
 
 mod aggregate;
 mod captures;
+mod declaration;
 mod functions;
+pub(crate) mod protocols;
 mod scalar;
 
 #[cfg(test)]
 mod tests;
 
 use captures::module_has_integer_capture;
+pub(super) use declaration::declaration_call_parts;
 pub(crate) use functions::function_signature;
 pub(super) use scalar::{declaration_shape, is_abstract_type, scalar_type};
 
@@ -287,6 +290,7 @@ pub(super) fn type_layout(
         representations.set(id, Representation::Variant { cases });
     }
 
+    protocols::append(&mut representations);
     let function_slot = crate::boundary::function_slot_protocol(&mut representations);
     Ok(TypeLayout {
         function_slot,

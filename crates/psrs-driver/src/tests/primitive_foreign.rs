@@ -459,6 +459,19 @@ fn library_array_operations_match_pinned_official_observations() {
 }
 
 #[test]
+fn library_array_callbacks_match_pinned_official_observations() {
+    let source = include_str!("../../tests/fixtures/stdlib-array-callbacks/Main.purs");
+    let Some(output) = run_library_program_with_wasmtime(&[("Main.purs", source)]) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+    assert!(
+        output.stdout.is_empty() && output.stderr.is_empty(),
+        "{output:?}"
+    );
+}
+
+#[test]
 fn library_array_extend_matches_pinned_official_observations() {
     let golden = include_str!("../../tests/fixtures/stdlib-array-extend/Golden.purs");
     let signature = golden

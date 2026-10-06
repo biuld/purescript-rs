@@ -6,7 +6,7 @@ use crate::{
     BackendError,
     cc::{RecoveryEvidence, RefShape, Reference, ValueConversion, ValueShape},
 };
-use psrs_core::{Instantiation, Type, TypeId};
+use psrs_core::{Instantiation, Type, TypeConstructor, TypeId};
 use psrs_span::TextRange;
 
 fn abstract_head(module: &psrs_core::Module, ty: TypeId) -> Option<psrs_hir::TypeVariableId> {
@@ -40,6 +40,70 @@ impl FunctionLowerer<'_> {
         span: TextRange,
         evidence: Option<&Instantiation<'_>>,
     ) -> Result<Option<ValueConversion>, Vec<BackendError>> {
+        let source_head = abstract_head(self.module, source);
+        let target_head = abstract_head(self.module, target);
+        let array_boundary = match (
+            source_head,
+            target_head,
+            super::super::super::layout::array_element_type(self.module, source),
+            super::super::super::layout::array_element_type(self.module, target),
+        ) {
+            (Some(variable), None, _, Some(element)) => Some((variable, false, target, element)),
+            (None, Some(variable), Some(element), _) => Some((variable, true, source, element)),
+            _ => None,
+        };
+        if let Some((variable, entering, concrete_type, element_type)) = array_boundary {
+            let (constructor, fixed) = evidence
+                .and_then(|proof| proof.constructor(variable))
+                .ok_or_else(|| {
+                    conversion_error(span, "array constructor transport has no checked binding")
+                })?;
+            if constructor != TypeConstructor::Array || !fixed.is_empty() {
+                return Err(conversion_error(
+                    span,
+                    "array transport binding is not the unary Array constructor",
+                ));
+            }
+            let erased_element = super::erased_shape();
+            let protocol = self.representations.representations.iter().position(|representation|
+                matches!(representation, crate::cc::Representation::Array { element } if *element == erased_element))
+                .map(|index| crate::cc::ReprId(index as u32))
+                .ok_or_else(|| conversion_error(span, "Array owner has no erased storage protocol"))?;
+            let concrete = self
+                .array_types
+                .get(&concrete_type)
+                .copied()
+                .ok_or_else(|| conversion_error(span, "array transport has no concrete layout"))?;
+            let element_shape = self.value_shape(element_type, span)?;
+            let protocol_shape = ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(protocol),
+            });
+            return Ok(Some(if entering {
+                let element = self.erase_payload(element_shape, span)?;
+                sequence(vec![
+                    ValueConversion::ArrayMap {
+                        source: concrete,
+                        target: protocol,
+                        element: Box::new(element),
+                    },
+                    ValueConversion::EraseReference,
+                ])
+            } else {
+                let element = self.recover_payload(element_shape, span)?;
+                sequence(vec![
+                    ValueConversion::RecoverReference {
+                        destination: protocol_shape,
+                        evidence: RecoveryEvidence::TypeInstantiation,
+                    },
+                    ValueConversion::ArrayMap {
+                        source: protocol,
+                        target: concrete,
+                        element: Box::new(element),
+                    },
+                ])
+            }));
+        }
         let boundary = match (
             abstract_head(self.module, source),
             abstract_head(self.module, target),

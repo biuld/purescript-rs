@@ -278,7 +278,15 @@ fn verify_evidence(evidence: &Evidence, module: &Module, errors: &mut Vec<Verify
                 return;
             };
             match fields.iter().find(|(label, _)| label == field) {
-                Some((_, field_ty)) if semantics::types_equal(*field_ty, evidence.ty, module) => {}
+                Some((_, field_ty))
+                    if crate::arrow_parts(types, *field_ty).is_some_and(
+                        |(parameter, result)| {
+                            matches!(
+                                types.get(parameter.0 as usize),
+                                Some(Type::Constructor(crate::TypeConstructor::Unit))
+                            ) && semantics::types_equal(result, evidence.ty, module)
+                        },
+                    ) => {}
                 _ => errors.push(VerifyError {
                     span: evidence.span,
                     message: "superclass evidence field has the wrong type",

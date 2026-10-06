@@ -148,6 +148,9 @@ pub enum CaseBranchCoverage {
     Guarded,
     /// A generated fallthrough or guard test is excluded from diagnostics.
     Generated,
+    /// A checked explicit `Partial` scope authorizes this generated trap
+    /// fallback. Source syntax and desugaring never produce this marker.
+    PartialFallback,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

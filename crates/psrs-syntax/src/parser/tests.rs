@@ -3,6 +3,23 @@ use crate::{add_layout, lex};
 use psrs_cst::{Declaration, ExprKind, PatternKind, TypeExprKind, ValueRhs};
 use psrs_span::SourceFile;
 
+#[test]
+fn parses_qualified_symbolic_operators_with_symbolic_dots_and_sections() {
+    let module = parse("module Main where\na = 2 A... 5\nb = 4 Foo.Bar.-#- 10\nc = (_ A.!! 1)\nd = (2 A.: _)\ne = A.(..) 2 5\nf = A.(:) 2 []\n").unwrap();
+    for (declaration, expected) in module.declarations[..2].iter().zip(["A...", "Foo.Bar.-#-"]) {
+        let ExprKind::Operator { operator, .. } = &plain_value(as_value(declaration)).kind else {
+            panic!("expected qualified infix operator");
+        };
+        assert_eq!(operator.text, expected);
+    }
+    for declaration in &module.declarations[2..4] {
+        assert!(matches!(
+            plain_value(as_value(declaration)).kind,
+            ExprKind::OperatorSection { .. }
+        ));
+    }
+}
+
 fn parse(source: &str) -> Result<Module, ParseError> {
     let source_file = SourceFile::new("test.purs", source);
     let (tokens, errors) = lex(source);
@@ -448,4 +465,15 @@ fn record_projection_and_update_bind_before_value_application() {
             );
         }
     }
+}
+
+#[test]
+fn empty_braces_are_a_record_argument() {
+    let module = parse("module Main where\nforce action = action {}\n").unwrap();
+    let expression = plain_value(as_value(&module.declarations[0]));
+    let ExprKind::Application(function, argument) = &expression.kind else {
+        panic!("expected an application: {expression:?}");
+    };
+    assert!(matches!(&function.kind, ExprKind::Name(name) if name.text == "action"));
+    assert!(matches!(&argument.kind, ExprKind::Record { fields, .. } if fields.is_empty()));
 }

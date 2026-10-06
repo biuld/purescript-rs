@@ -9,6 +9,7 @@ mod closure_protocol;
 mod coercion;
 mod data_function;
 mod data_tuple;
+mod declaration_calls;
 mod deriving;
 mod diagnosis_trace;
 mod effect_arity;

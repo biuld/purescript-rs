@@ -23,5 +23,6 @@ pub(crate) fn instantiation<'a>(
     Some(Instantiation {
         module,
         replacements: matcher.replacements,
+        rows: matcher.row_forms,
     })
 }

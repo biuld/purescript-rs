@@ -35,11 +35,14 @@ impl Types {
             thir::Type::RowEmpty,
             thir::Type::RowExtend {
                 label: "isPositive".into(),
-                ty: self.method,
+                ty: thir::TypeId(11),
                 tail: thir::TypeId(5),
             },
             thir::Type::Constructor(thir::TypeConstructor::Record),
             thir::Type::Application(thir::TypeId(7), thir::TypeId(6)),
+            thir::Type::Constructor(thir::TypeConstructor::Unit),
+            thir::Type::Application(thir::TypeId(2), thir::TypeId(9)),
+            thir::Type::Application(thir::TypeId(10), self.method),
         ]
     }
 }

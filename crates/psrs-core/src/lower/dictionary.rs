@@ -29,16 +29,46 @@ pub(super) fn lower_evidence(
             // dictionary type the evidence already carries.
             ExprKind::Record { fields: Vec::new() }
         }
-        EvidenceKind::Superclass { parent, field } => ExprKind::FieldAccess {
-            record: Box::new(lower_evidence(
-                parent,
-                types,
-                externals,
-                constructors,
-                context,
-            )?),
-            field: field.clone(),
-        },
+        EvidenceKind::Superclass { parent, field } => {
+            let fields = psrs_thir::record_fields(types, parent.ty).ok_or(LowerError {
+                span,
+                message: "superclass evidence parent is not a dictionary record",
+            })?;
+            let field_type = fields
+                .iter()
+                .find(|(label, _)| label == field)
+                .map(|(_, ty)| *ty)
+                .ok_or(LowerError {
+                    span,
+                    message: "superclass dictionary has no selected field",
+                })?;
+            let (parameter, _) = psrs_thir::arrow_parts(types, field_type).ok_or(LowerError {
+                span,
+                message: "superclass dictionary field is not a thunk",
+            })?;
+            let function = Expr {
+                kind: ExprKind::FieldAccess {
+                    record: Box::new(lower_evidence(
+                        parent,
+                        types,
+                        externals,
+                        constructors,
+                        context,
+                    )?),
+                    field: field.clone(),
+                },
+                ty: TypeId(field_type.0),
+                span,
+            };
+            ExprKind::Application(
+                Box::new(function),
+                Box::new(Expr {
+                    kind: ExprKind::Unit,
+                    ty: TypeId(parameter.0),
+                    span,
+                }),
+            )
+        }
         EvidenceKind::Instance {
             constructor,
             constructor_type,

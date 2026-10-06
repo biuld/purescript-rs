@@ -4,7 +4,6 @@ use super::{
 };
 use crate::BackendError;
 use crate::cc::{RefShape, Reference, ReprId, Signature, SignatureId, ValueShape};
-use psrs_core::ExprKind;
 use psrs_core::{Module as CoreModule, Type, TypeConstructor, TypeId};
 use psrs_hir::TypeId as HirTypeId;
 use psrs_span::TextRange;
@@ -21,85 +20,25 @@ pub(crate) fn declaration_shape(
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<Signature, Vec<BackendError>> {
-    // Declaration-level quantifiers describe the polymorphic value, not an
-    // extra runtime layer around its closure. Strip only those leading
-    // quantifiers; a quantifier in a result type remains a separate closure.
-    let mut ty = unquantified_type(module, declaration.ty);
-    let mut parameters = Vec::new();
-    let mut value = &declaration.value;
-    if let Some((closure_parameters, result)) = psrs_core::closure_parts(&module.types, ty) {
-        // The value is this closure when it binds the closure's parameter
-        // list. An alias of a closure value contributes no parameters.
-        let closure_parameters = closure_parameters.to_vec();
-        let mut peeled = 0;
-        for parameter_ty in &closure_parameters {
-            let ExprKind::Lambda { binder, body } = &value.kind else {
-                break;
-            };
-            if !module.types_equivalent(binder.ty, *parameter_ty) {
-                return Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    binder.span,
-                    "lambda binder type differs from the function parameter type",
-                )]);
-            }
-            parameters.push(scalar_type(
+    let call = super::declaration_call_parts(module, declaration)?;
+    let ty = call.result;
+    let parameters = call
+        .parameters
+        .into_iter()
+        .map(|(ty, span)| {
+            scalar_type(
                 module,
-                binder.ty,
-                binder.span,
+                ty,
+                span,
                 enum_types,
                 aggregate_types,
                 newtype_ids,
                 array_types,
                 record_types,
                 function_types,
-            )?);
-            value = body;
-            peeled += 1;
-        }
-        if peeled == closure_parameters.len() {
-            ty = result;
-        } else if peeled != 0 {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                declaration.span,
-                "closure declaration is missing a parameter",
-            )]);
-        }
-    }
-    while let ExprKind::Lambda { binder, body } = &value.kind {
-        // A closure result is a value of this function. Its parameter list is
-        // not part of this signature.
-        if psrs_core::closure_parts(&module.types, ty).is_some() {
-            break;
-        }
-        let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, ty) else {
-            break;
-        };
-        if !module.types_equivalent(parameter, binder.ty) {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                binder.span,
-                "lambda binder type differs from the function parameter type",
-            )]);
-        }
-        ty = result;
-        parameters.push(scalar_type(
-            module,
-            binder.ty,
-            binder.span,
-            enum_types,
-            aggregate_types,
-            newtype_ids,
-            array_types,
-            record_types,
-            function_types,
-        )?);
-        value = body;
-        if psrs_core::forall_parts(&module.types, ty).is_some() {
-            break;
-        }
-    }
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     if is_callable_type(module, ty) {
         return Ok(Signature {
             parameters,

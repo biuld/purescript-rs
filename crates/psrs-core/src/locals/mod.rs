@@ -1,4 +1,7 @@
 //! Shared collision-free local allocation for Core rewrites.
+mod alpha;
+pub(crate) use alpha::clone_with_fresh_locals;
+
 use crate::{Expr, ExprKind, LocalId, Pattern, PatternKind};
 use std::collections::HashSet;
 

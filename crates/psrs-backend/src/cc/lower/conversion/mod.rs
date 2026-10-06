@@ -3,8 +3,8 @@ use super::super::layout::{
     user_type_id,
 };
 use super::super::{
-    AggregateConvert, Assignment, AssignmentKind, BoxKind, RecoveryEvidence, RefShape, Reference,
-    ReprId, ValueConversion, ValueId, ValueShape,
+    AggregateConvert, Assignment, AssignmentKind, RecoveryEvidence, RefShape, Reference, ReprId,
+    ValueConversion, ValueId, ValueShape,
 };
 use super::FunctionLowerer;
 use crate::BackendError;
@@ -130,56 +130,10 @@ impl FunctionLowerer<'_> {
             );
         }
         if is_abstract_type(self.module, destination_type) {
-            if let ValueShape::Reference(Reference {
-                heap: RefShape::Closure(signature),
-                ..
-            }) = source_shape
-            {
-                let adapter = self.erase_function_slot(signature, span)?;
-                return Ok(sequence(vec![adapter, ValueConversion::EraseReference]));
-            }
-            return match source_shape {
-                ValueShape::Integer | ValueShape::Boolean => self
-                    .box_plan(BoxKind::Integer, self.boxed_integer_type, span)
-                    .map(|boxed| sequence(vec![boxed, ValueConversion::EraseReference])),
-                ValueShape::Number => self
-                    .box_plan(BoxKind::Number, self.boxed_number_type, span)
-                    .map(|boxed| sequence(vec![boxed, ValueConversion::EraseReference])),
-                // A `String` is already a GC reference in the `eq` hierarchy, so
-                // it is erased and recovered by cast, not by the integer box.
-                ValueShape::String | ValueShape::Reference(_) => {
-                    Ok(ValueConversion::EraseReference)
-                }
-            };
+            return self.erase_payload(source_shape, span);
         }
         if is_abstract_type(self.module, source_type) {
-            if let ValueShape::Reference(Reference {
-                heap: RefShape::Closure(signature),
-                ..
-            }) = destination_shape
-            {
-                return self.recover_function_slot(signature, span);
-            }
-            return match destination_shape {
-                ValueShape::Integer | ValueShape::Boolean => self.unbox_plan(
-                    BoxKind::Integer,
-                    self.boxed_integer_type,
-                    destination_shape,
-                    span,
-                ),
-                ValueShape::Number => self.unbox_plan(
-                    BoxKind::Number,
-                    self.boxed_number_type,
-                    destination_shape,
-                    span,
-                ),
-                ValueShape::String | ValueShape::Reference(_) => {
-                    Ok(ValueConversion::RecoverReference {
-                        destination: destination_shape,
-                        evidence: RecoveryEvidence::TypeInstantiation,
-                    })
-                }
-            };
+            return self.recover_payload(destination_shape, span);
         }
         // An abstract aggregate value and the concrete variant representation of
         // the same declaration are related by a reference cast (DEC-13).
@@ -385,6 +339,10 @@ impl FunctionLowerer<'_> {
             && is_abstract_type(self.module, template_type)
             && matches!(target_shape, ValueShape::Reference(reference) if !matches!(reference.heap, RefShape::Closure(_)))
             && target_shape != erased_shape()
+            && !matches!(target_shape, ValueShape::Reference(Reference { heap: RefShape::Repr(id), .. })
+                if matches!(self.representations.representation(id), Some(crate::cc::Representation::Array { .. })))
+            && !matches!(target_shape, ValueShape::Reference(Reference { heap: RefShape::Repr(id), .. })
+                if self.representations.product_labels(id).is_some())
         {
             return Ok(ValueConversion::RecoverReference {
                 destination: target_shape,

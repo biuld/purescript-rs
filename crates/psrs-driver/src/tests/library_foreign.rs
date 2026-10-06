@@ -112,3 +112,18 @@ fn an_unimplemented_library_foreign_value_is_an_explicit_linking_error() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn an_unused_static_library_import_does_not_require_a_target_implementation() {
+    let sources = [
+        (
+            "Native.purs",
+            "module Native where\nforeign import missing :: Int -> Int\nanswer :: Int\nanswer = 42\n",
+        ),
+        (
+            "Main.purs",
+            "module Main where\nimport Native\nmain = answer\n",
+        ),
+    ];
+    crate::compile_program_sources(&sources).expect("only reached static imports require linking");
+}

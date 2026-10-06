@@ -29,7 +29,7 @@ impl<'a> Parser<'a> {
                 };
                 continue;
             }
-            if !self.starts_atom() {
+            if self.qualified_operator().is_some() || !self.starts_atom() {
                 break;
             }
             let argument = self.parse_postfix_atom()?;
@@ -306,6 +306,14 @@ impl<'a> Parser<'a> {
                 self.bump();
                 let operator_token = self.current().clone();
                 let operator = match operator_token.kind {
+                    LayoutTokenKind::Raw(RawTokenKind::Colon) => {
+                        self.bump();
+                        ":".to_owned()
+                    }
+                    LayoutTokenKind::Raw(RawTokenKind::DotDot) => {
+                        self.bump();
+                        "..".to_owned()
+                    }
                     LayoutTokenKind::Raw(RawTokenKind::Operator(text))
                     | LayoutTokenKind::Raw(RawTokenKind::LowerIdent(text))
                     | LayoutTokenKind::Raw(RawTokenKind::UpperIdent(text)) => {

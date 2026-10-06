@@ -234,11 +234,11 @@ impl TypeMatcher<'_> {
                 variables: expected_variables,
                 body: expected_body,
             } = expected_type
+                && actual_variables.len() == expected_variables.len()
             {
-                if actual_variables.len() != expected_variables.len()
-                    || actual_variables
-                        .iter()
-                        .any(|variable| self.alpha.contains_key(variable))
+                if actual_variables
+                    .iter()
+                    .any(|variable| self.alpha.contains_key(variable))
                 {
                     self.active
                         .remove(&(Variance::Subsumption, actual, expected));
@@ -265,6 +265,12 @@ impl TypeMatcher<'_> {
                     .remove(&(Variance::Subsumption, actual, expected));
                 return false;
             }
+            // A more general actual value can instantiate only some of its
+            // binders, retaining the expected rank-N universal. For example,
+            // `forall a b. (a -> b -> b) -> b -> f a -> b` can be used at
+            // `forall b. (Int -> b -> b) -> b -> f Int -> b`. Expected binders
+            // remain rigid in the recursive relation; their count is not an
+            // arity restriction on value subsumption.
             let added = actual_variables
                 .iter()
                 .copied()

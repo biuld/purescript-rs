@@ -40,6 +40,14 @@ impl Checker {
         let mut result_ty = expected;
         let mut inferred = Vec::with_capacity(branches.len());
         for branch in branches {
+            if branch.coverage == hir::CaseBranchCoverage::PartialFallback {
+                self.state.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::InvalidHir,
+                    branch.span,
+                    "partial fallback authorization must be issued by type checking",
+                ));
+                return None;
+            }
             let mut inserted = Vec::new();
             let pattern = self.check_pattern(&branch.pattern, &scrutinee.ty, &mut inserted)?;
             let value = self.infer_expr_with_expected(&branch.value, result_ty.clone())?;
@@ -58,6 +66,37 @@ impl Checker {
             });
         }
         let ty = result_ty.unwrap_or_else(|| self.fresh());
+        // Report-only Partial has no runtime dictionary, but its checked
+        // authorization must survive erasure. Reuse the generated empty-case
+        // failure representation used by guard desugaring; the marked fallback
+        // contributes coverage and never hides redundant source alternatives.
+        if !branches.is_empty()
+            && self.scope.givens.iter().any(|(constraint, _)| {
+                constraint.class_id == hir::TypeId::PRIM_PARTIAL && constraint.arguments.is_empty()
+            })
+        {
+            inferred.push(InferredCaseBranch {
+                pattern: InferredPattern {
+                    kind: InferredPatternKind::Wildcard,
+                    ty: scrutinee.ty.clone(),
+                    span,
+                },
+                value: InferredExpr {
+                    kind: InferredExprKind::Case {
+                        scrutinee: Box::new(InferredExpr {
+                            kind: InferredExprKind::Integer(0),
+                            ty: InferType::Constructor(TypeConstructor::Int),
+                            span,
+                        }),
+                        branches: Vec::new(),
+                    },
+                    ty: ty.clone(),
+                    span,
+                },
+                span,
+                coverage: hir::CaseBranchCoverage::PartialFallback,
+            });
+        }
         Some(InferredExpr {
             kind: InferredExprKind::Case {
                 scrutinee: Box::new(scrutinee),

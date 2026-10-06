@@ -11,6 +11,8 @@ use psrs_core::{Instantiation, Module as CoreModule, TypeConstructor, TypeId};
 use psrs_hir::TypeVariableId;
 use std::collections::{HashMap, HashSet};
 
+mod newtypes;
+
 /// A representation owner's policy for the runtime form of a source
 /// constructor. It records the constructor's fixed calling-convention
 /// parameters; the payload is the value's declared result.
@@ -22,6 +24,15 @@ pub(crate) enum RepresentationPolicy {
     /// The owner registered explicit fixed parameters (the Effect runtime
     /// token). The payload remains the application's result.
     Fixed(Vec<TypeId>),
+    /// Domains of a transparent newtype's checked callable field. A domain
+    /// is either independent of constructor arguments or one fixed argument.
+    Newtype(Vec<ProtocolParameter>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ProtocolParameter {
+    Fixed(TypeId),
+    Argument(usize),
 }
 
 /// The registry of representation owners, keyed by source constructor.
@@ -37,6 +48,21 @@ pub(crate) struct RepresentationRegistry {
 }
 
 impl RepresentationRegistry {
+    /// The checked newtype field owns its erased callable representation.
+    /// Register only domains expressible without inventing source type nodes.
+    pub(crate) fn register_newtypes(&mut self, module: &CoreModule) {
+        for id in &module.newtype_ids {
+            if self.policies.contains_key(&TypeConstructor::User(*id)) {
+                continue;
+            }
+            if let Some(parameters) = newtypes::parameters(module, *id) {
+                self.register(
+                    TypeConstructor::User(*id),
+                    RepresentationPolicy::Newtype(parameters),
+                );
+            }
+        }
+    }
     /// The built-in owners. `Function` is representation-directed by its own
     /// checked instantiation arguments.
     pub(crate) fn new() -> Self {
@@ -63,6 +89,13 @@ impl RepresentationRegistry {
         Some(match self.policies.get(&constructor)? {
             RepresentationPolicy::InstantiationArguments => arguments.to_vec(),
             RepresentationPolicy::Fixed(parameters) => parameters.clone(),
+            RepresentationPolicy::Newtype(parameters) => parameters
+                .iter()
+                .map(|parameter| match parameter {
+                    ProtocolParameter::Fixed(ty) => Some(*ty),
+                    ProtocolParameter::Argument(index) => arguments.get(*index).copied(),
+                })
+                .collect::<Option<Vec<_>>>()?,
         })
     }
 }

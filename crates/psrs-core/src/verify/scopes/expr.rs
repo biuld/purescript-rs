@@ -29,8 +29,14 @@ pub(super) fn scoped_expr(
         // check, and neither mentions a binder.
         ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
         ExprKind::Constructor { arguments, .. } => {
+            // Constructor lowering collapses a THIR application spine. Its
+            // result quantifiers still bind the corresponding free variables
+            // in instantiated constructor fields, just as for Application.
+            let binders = leading_foralls(module, expression.ty);
             for argument in arguments {
-                scoped_expr(argument, module, scope, errors);
+                let mut argument_scope = scope.clone();
+                open_child_binders(argument, &binders, module, &mut argument_scope, errors);
+                scoped_expr(argument, module, &mut argument_scope, errors);
             }
         }
         ExprKind::IntrinsicCall { arguments, .. } => {

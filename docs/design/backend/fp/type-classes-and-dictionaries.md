@@ -61,9 +61,9 @@ Dict(C, a) = {
     m_1 : τ_1(a),
     ...,
     m_n : τ_n(a),
-    super_1 : Dict(S_1, a),
+    super_1 : Unit -> Dict(S_1, a),
     ...,
-    super_k : Dict(S_k, a),
+    super_k : Unit -> Dict(S_k, a),
 }
 ```
 
@@ -73,8 +73,12 @@ index, not by a target offset.
 
 An **instance** `instance C T` supplies one dictionary value of type
 `Dict(C, T)`: each method field is a closure (or the top-level method
-implementation), and each superclass field is a dictionary value that the
-instance provides. An instance with an **instance context**, such as
+implementation), and each superclass field is a checked `Unit -> Dict(S_j, T)` thunk that
+the instance provides. Construction must not evaluate these thunks: a method
+implementation may reference a subclass instance whose superclass is this
+instance. Eager superclass construction would make valid mutually referring
+instance values recurse before any method executes. Selection forces the thunk
+with the unique builtin `Unit` value. An instance with an **instance context**, such as
 `instance eqList :: Eq a => Eq (List a)`, is a function from its context
 dictionaries to its dictionary.
 
@@ -182,13 +186,14 @@ Core lowering turns this evidence into dictionary values and projections:
 
 ```text
 lower_evidence(Given(local)) = local
-lower_evidence(Superclass(parent, field)) = Project(field, lower_evidence(parent))
+lower_evidence(Superclass(parent, field)) = Apply(Project(field, lower_evidence(parent)), Unit)
 lower_evidence(Instance(instance, context)) =
     Apply(instance_dictionary_constructor(instance), map(lower_evidence, context))
 ```
 
 An instance dictionary constructor builds a record from its method values and
-superclass dictionaries. A constrained declaration becomes a lambda over its
+superclass thunks. THIR verification checks each thunk's Unit domain and selected
+dictionary result; Core lowering emits ordinary projection and application. A constrained declaration becomes a lambda over its
 given dictionaries. Method and superclass field indices are fixed by the class
 record and checked by the Core and CC verifiers. This lowering cannot choose a
 different instance or resolve a new constraint.

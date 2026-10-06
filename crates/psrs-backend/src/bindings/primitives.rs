@@ -2,7 +2,7 @@
 
 use crate::BackendError;
 use psrs_core::{Binder, Declaration, Expr, ExprKind, Module, arrow_parts, scheme_parts};
-use psrs_hir::{ExternalKind, IntrinsicCategory, LocalId};
+use psrs_hir::{ExternalKind, Intrinsic, IntrinsicCategory, LocalId};
 
 #[cfg(test)]
 mod tests;
@@ -80,7 +80,8 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
                 | IntrinsicCategory::ArrayWrite
                 | IntrinsicCategory::StringToBytes
                 | IntrinsicCategory::BytesToString
-        ) {
+        ) && intrinsic != Intrinsic::UnsafeCoerce
+        {
             return Err(error(format!(
                 "primitive binding `{}` has no foreign-function implementation yet",
                 intrinsic.descriptor().name
@@ -110,21 +111,19 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
                 intrinsic.descriptor().name
             )));
         }
-        let mut value = Expr {
-            kind: ExprKind::IntrinsicCall {
-                intrinsic,
-                arguments: parameters
-                    .iter()
-                    .map(|binder| Expr {
-                        kind: ExprKind::Local(binder.id),
-                        ty: binder.ty,
-                        span,
-                    })
-                    .collect(),
-            },
-            ty: result,
+        let mut value = psrs_core::primitive::primitive_value(
+            intrinsic,
+            parameters
+                .iter()
+                .map(|binder| Expr {
+                    kind: ExprKind::Local(binder.id),
+                    ty: binder.ty,
+                    span,
+                })
+                .collect(),
+            result,
             span,
-        };
+        );
         for (binder, ty) in parameters.into_iter().zip(arrows).rev() {
             value = Expr {
                 kind: ExprKind::Lambda {

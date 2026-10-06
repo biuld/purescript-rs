@@ -85,3 +85,18 @@ node ../psrs-stdlib/tools/conformance.mjs run \
 Both array algorithms are PureScript target library implementations. The oracle
 fixtures copy the official public signature and import that implementation;
 there is no whole-function compiler intrinsic for either operation.
+
+For array callback counts, visit order and short-circuiting:
+
+```sh
+node ../psrs-stdlib/conformance/array-callbacks.mjs \
+  /private/tmp/ps-pkgs/purescript-arrays /tmp/psrs-array-callback-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-array-callback-oracle/Main.purs \
+  --out /tmp/psrs-array-callback-runtime
+```
+
+These observations execute target helpers. Public `Data.Array` wrapper execution
+remains blocked by unsupported `Data.Array.ST` bindings in its import closure;
+helper acceptance does not establish public API or whole-library acceptance.

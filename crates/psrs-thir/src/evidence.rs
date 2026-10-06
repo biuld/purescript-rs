@@ -42,6 +42,7 @@ pub enum EvidenceKind {
     /// A dictionary value already bound by the class elaborator.
     Global(SymbolId),
     /// A dictionary obtained from a superclass field of another dictionary.
+    /// Selects and forces a checked Unit thunk in the parent dictionary.
     Superclass {
         parent: Box<Evidence>,
         field: String,

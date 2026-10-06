@@ -397,12 +397,11 @@ adapt(value, checked_boundary, producer_policy, consumer_requirement):
         report a source-spanned unsupported conversion
 ```
 
-Supplying a value to a bare erased parameter may erase an aggregate reference
-without copying it, as in `Hold a`. Supplying it to a generic aggregate such
-as `Array a` may need `AggregateConvert` first. Recovery from an erased ADT
-field likewise depends on the declared field template: `a` can recover a
-concrete reference directly, while `Array a` first recovers its canonical
-array and then maps to a concrete array when required. Aggregate conversions
+Supplying arrays and ordinary closed records to a bare erased parameter uses
+their owner's canonical element or field protocol. Generic aggregate parameters
+and erased ADT fields use the same recursive conversions. Recovery reads the
+canonical storage before constructing the consumer's concrete layout. Nominal
+references retain the identity policy established by their producer. Aggregate conversions
 are never implemented as `RepresentationCast`s between distinct nominal
 layouts.
 
@@ -614,6 +613,21 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
 - **To [canonical ABI](../wasm/canonical-abi-and-wit.md):** erased values never
   reach the ABI boundary; ABI adaptation happens on concrete canonical
   signatures only.
+
+### Closed local row instantiations
+
+Before CC layout, checked nonrecursive local lambdas with row quantifiers may
+be expanded at finite closed uses. The Core checking relation owns each row
+solution, including residual fields with no existing type-arena node. Explicit
+materialization appends row nodes without changing the source arena's existing
+identities; capture-avoiding substitution discharges the scheme's quantifiers
+and freshens local identities. This preparation is independent of optimization
+budgets and preserves evaluation of captured computations.
+
+An unresolved use, recursive binding, or scheme with additional unresolved
+quantifiers retains its full source scheme. Open runtime rows remain an explicit
+unsupported layout; this preparation does not define an open-row ABI or narrow
+the source model. Input and output Core verification remain mandatory.
 
 ## Open questions and future work
 

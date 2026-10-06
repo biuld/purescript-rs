@@ -233,11 +233,14 @@ fn verifier_accepts_alpha_equivalent_superclass_field_types() {
             Type::Application(TypeId(11), TypeId(10)),
             Type::RowExtend {
                 label: "super".into(),
-                ty: TypeId(12),
+                ty: TypeId(18),
                 tail: TypeId(0),
             },
             Type::Constructor(TypeConstructor::Record),
             Type::Application(TypeId(14), TypeId(13)),
+            Type::Constructor(TypeConstructor::Unit),
+            Type::Application(TypeId(2), TypeId(16)),
+            Type::Application(TypeId(17), TypeId(12)),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -273,6 +276,15 @@ fn verifier_accepts_alpha_equivalent_superclass_field_types() {
     };
 
     assert!(module.verify().is_ok());
+    let mut invalid = module;
+    invalid.types[16] = Type::Constructor(TypeConstructor::Boolean);
+    assert!(
+        invalid
+            .verify()
+            .unwrap_err()
+            .iter()
+            .any(|error| error.message == "superclass evidence field has the wrong type")
+    );
 }
 
 /// A module carrying `Proxy 1` and `Proxy 2` and one global reference at each.

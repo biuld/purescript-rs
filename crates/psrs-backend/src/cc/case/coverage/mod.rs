@@ -44,7 +44,12 @@ pub(super) fn analyze(
     }
     let matrix = branches
         .iter()
-        .filter(|branch| branch.coverage == CaseBranchCoverage::Source)
+        .filter(|branch| {
+            matches!(
+                branch.coverage,
+                CaseBranchCoverage::Source | CaseBranchCoverage::PartialFallback
+            )
+        })
         .map(|branch| vec![coverage_pattern(&branch.pattern)])
         .collect::<Vec<Vec<SurfacePattern>>>();
     let query = vec![SurfacePattern::Any { ty: scrutinee_type }];
@@ -54,7 +59,10 @@ pub(super) fn analyze(
     let mut prior = Vec::new();
     let mut redundant_branches = Vec::new();
     for (index, branch) in branches.iter().enumerate() {
-        if branch.coverage == CaseBranchCoverage::Generated {
+        if matches!(
+            branch.coverage,
+            CaseBranchCoverage::Generated | CaseBranchCoverage::PartialFallback
+        ) {
             continue;
         }
         let query = vec![coverage_pattern(&branch.pattern)];

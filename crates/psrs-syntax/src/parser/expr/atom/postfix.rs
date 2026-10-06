@@ -51,7 +51,11 @@ impl Parser<'_> {
                 };
                 continue;
             }
-            if self.current().kind == LayoutTokenKind::Raw(RawTokenKind::LBrace) {
+            // Empty braces are a record argument, never a record update.
+            // Nonempty updates must contain at least one assignment.
+            if self.current().kind == LayoutTokenKind::Raw(RawTokenKind::LBrace)
+                && self.peek(1).kind != LayoutTokenKind::Raw(RawTokenKind::RBrace)
+            {
                 let checkpoint = self.cursor;
                 match self.parse_record_update(function.clone()) {
                     Ok(updated) => {

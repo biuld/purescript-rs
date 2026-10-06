@@ -5,12 +5,7 @@ use crate::{Type, TypeId, record_row};
 use psrs_hir::TypeVariableId;
 use std::collections::{HashMap, HashSet};
 
-/// A row variable instantiated to a residual that has no single type-table node.
-#[derive(Clone, Debug)]
-pub(super) struct RowForm {
-    fields: Vec<(String, TypeId)>,
-    tail: Option<TypeId>,
-}
+pub(super) use crate::instantiation::RowInstantiation as RowForm;
 
 enum TailKind {
     Closed,

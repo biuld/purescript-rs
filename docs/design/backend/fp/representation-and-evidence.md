@@ -186,6 +186,26 @@ reachable representation and does not merge by physical shape. This preserves
 single erased layout for a parameterized data type. Open rows have no canonical
 product and remain unsupported.
 
+### Aggregates in bare polymorphic slots
+
+The Array owner normalizes an array entering a bare variable or abstract Array
+constructor slot to an array of non-null erased elements. The closed-record
+owner normalizes a record to a product with the same ordered logical labels
+and one non-null erased field per label. These protocols apply recursively to
+nested arrays, records, and callable fields. Recovery first reads the owner's
+canonical storage, then converts each element or field to the checked use
+representation. A direct cast to the consumer's specialized aggregate layout
+cannot establish this contract.
+
+Canonical protocols are registered by the layout owner for the aggregate
+layouts a module contains before conversion planning; a module with no array or
+record layout gains no protocol representation. Arrays and ordinary records have
+no observable identity, so these conversions may construct new aggregates.
+Mutable cells and other nominal references keep their owner's identity protocol;
+they are not reconstructed as records. Checked storage primitives consume their
+checked use representations before ABI erasure, preserving writes to the owning
+storage object.
+
 ### Bare polymorphic function slots
 
 A bare type variable stores functions using one registered unary protocol:
@@ -487,8 +507,9 @@ cast is needed.
 array, and stores that reference in the variant's canonical field. `unwrap`
 reads the canonical layout directly, and the outer boundary maps it back to
 `Array Int`. No runtime tag and no nominal array cast is used. A bare-variable
-field such as `data Hold a = Hold a` instead stores the concrete reference
-directly in the erased slot and needs no array map.
+field such as `data Hold a = Hold a` also uses the Array owner's erased-element
+protocol when its checked value is an array. It maps specialized arrays before
+storing them and maps them back on recovery.
 
 ## Boundaries and interfaces
 

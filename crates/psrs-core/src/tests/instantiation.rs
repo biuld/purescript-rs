@@ -121,6 +121,7 @@ fn constructor_binding_rejects_unsolved_variables_and_cycles() {
     let solved_module = bare(types);
     let solved = Instantiation {
         module: &solved_module,
+        rows: HashMap::new(),
         replacements: HashMap::from([(variable, function_int)]),
     };
     assert_eq!(
@@ -130,6 +131,7 @@ fn constructor_binding_rejects_unsolved_variables_and_cycles() {
 
     let unsolved = Instantiation {
         module: &solved_module,
+        rows: HashMap::new(),
         replacements: HashMap::from([(variable, TypeId(1))]),
     };
     assert_eq!(unsolved.constructor(variable), None);
@@ -137,6 +139,7 @@ fn constructor_binding_rejects_unsolved_variables_and_cycles() {
     let cyclic_module = bare(vec![Type::Application(TypeId(0), TypeId(0))]);
     let cyclic = Instantiation {
         module: &cyclic_module,
+        rows: HashMap::new(),
         replacements: HashMap::from([(variable, TypeId(0))]),
     };
     assert_eq!(cyclic.constructor(variable), None);
@@ -189,4 +192,45 @@ fn type_level_literals_match_by_value_in_invariant_applications() {
                 .is_none()
         );
     }
+}
+
+#[test]
+fn row_evidence_retains_residuals_without_an_arena_node() {
+    let variable = TypeVariableId(40);
+    let mut types = vec![
+        Type::Constructor(TypeConstructor::Int),
+        Type::RowEmpty,
+        Type::Variable(variable),
+        Type::Constructor(TypeConstructor::Record),
+    ];
+    let generic_row = TypeId(types.len() as u32);
+    types.push(Type::RowExtend {
+        label: "b".into(),
+        ty: TypeId(0),
+        tail: TypeId(2),
+    });
+    let generic = apply(&mut types, TypeId(3), generic_row);
+    let mut row = TypeId(1);
+    for label in ["c", "b", "a"] {
+        let id = TypeId(types.len() as u32);
+        types.push(Type::RowExtend {
+            label: label.into(),
+            ty: TypeId(0),
+            tail: row,
+        });
+        row = id;
+    }
+    let concrete = apply(&mut types, TypeId(3), row);
+    let module = bare(types);
+    let evidence = module
+        .checked_instantiation(generic, &[variable], concrete)
+        .unwrap();
+    let residual = evidence.row(variable).unwrap();
+    assert_eq!(
+        residual.fields,
+        vec![("a".into(), TypeId(0)), ("c".into(), TypeId(0))]
+    );
+    assert_eq!(residual.tail, None);
+    assert_eq!(evidence.constructor(variable), None);
+    assert_eq!(evidence.row(TypeVariableId(41)).map(|row| row.fields), None);
 }

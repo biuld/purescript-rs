@@ -266,11 +266,21 @@ pub(crate) fn lower_module_with_relations(
     mut module: CoreModule,
     bindings: ExternalBindings,
     source: Option<&CoreModule>,
-    registry: RepresentationRegistry,
+    mut registry: RepresentationRegistry,
 ) -> Result<BackendInput, Vec<BackendError>> {
     crate::bindings::lower_primitives(&mut module, source)?;
     bindings.validate_core(&module)?;
+    module = psrs_core::instantiate_local_rows(module, source).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|error| {
+                BackendError::new("P8 local row instantiation", error.span, error.message)
+                    .with_module(error.module)
+            })
+            .collect::<Vec<_>>()
+    })?;
     let relations = source.unwrap_or(&module);
+    registry.register_newtypes(relations);
     if let Err(errors) = module.verify_with_source(relations) {
         return Err(annotate_errors(
             errors

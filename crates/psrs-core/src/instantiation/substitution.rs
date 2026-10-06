@@ -4,7 +4,7 @@ use crate::{
 use psrs_hir::{SymbolId, TypeVariableId};
 use std::collections::{HashMap, HashSet};
 
-pub(in crate::opt::specialize) fn instantiate_declaration(
+pub(crate) fn instantiate_declaration(
     module: &mut Module,
     declaration: &Declaration,
     replacements: &HashMap<TypeVariableId, TypeId>,
@@ -30,6 +30,7 @@ pub(in crate::opt::specialize) fn instantiate_declaration(
         shadowed: HashSet::new(),
         renamed: HashMap::new(),
         active: HashSet::new(),
+        discharged: HashSet::new(),
     };
     let ty = substitution.type_id(declaration.ty)?;
     let value = substitution.expression(&declaration.value)?;
@@ -44,6 +45,35 @@ pub(in crate::opt::specialize) fn instantiate_declaration(
     })
 }
 
+pub(super) fn instantiate_expression(
+    module: &mut Module,
+    expression: &Expr,
+    replacements: &HashMap<TypeVariableId, TypeId>,
+) -> Option<Expr> {
+    let mut replacement_free_variables = HashSet::new();
+    for id in replacements.values() {
+        free_variables(
+            module,
+            *id,
+            &mut HashSet::new(),
+            &mut HashSet::new(),
+            &mut replacement_free_variables,
+        );
+    }
+    let used_variables = all_variables(module);
+    TypeSubstitution {
+        module,
+        replacements,
+        replacement_free_variables,
+        used_variables,
+        shadowed: HashSet::new(),
+        renamed: HashMap::new(),
+        active: HashSet::new(),
+        discharged: replacements.keys().copied().collect(),
+    }
+    .expression(expression)
+}
+
 struct TypeSubstitution<'a> {
     module: &'a mut Module,
     replacements: &'a HashMap<TypeVariableId, TypeId>,
@@ -52,6 +82,7 @@ struct TypeSubstitution<'a> {
     shadowed: HashSet<TypeVariableId>,
     renamed: HashMap<TypeVariableId, TypeVariableId>,
     active: HashSet<TypeId>,
+    discharged: HashSet<TypeVariableId>,
 }
 
 impl TypeSubstitution<'_> {
@@ -76,6 +107,13 @@ impl TypeSubstitution<'_> {
                 let function = self.type_id(function)?;
                 let argument = self.type_id(argument)?;
                 self.intern(Type::Application(function, argument))?
+            }
+            Type::ForAll { variables, body }
+                if variables
+                    .iter()
+                    .all(|variable| self.discharged.contains(variable)) =>
+            {
+                self.type_id(body)?
             }
             Type::ForAll { variables, body } => {
                 let mut renamed_variables = variables.clone();

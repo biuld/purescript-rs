@@ -1,6 +1,7 @@
 mod atom;
 mod compound;
 mod pattern;
+mod qualified;
 
 use crate::{LayoutTokenKind, RawTokenKind};
 use psrs_cst::{CstName, Expr, ExprKind};
@@ -66,6 +67,26 @@ impl<'a> Parser<'a> {
                     };
                 }
                 left = combined;
+                continue;
+            }
+            if let Some((operator, precedence, tokens)) = self.qualified_operator() {
+                if precedence < min_precedence {
+                    break;
+                }
+                for _ in 0..tokens {
+                    self.bump();
+                }
+                let right =
+                    self.parse_expression_impl(precedence + 1, allow_backtick, allow_section)?;
+                let span = TextRange::new(left.span.start, right.span.end);
+                left = Expr {
+                    kind: ExprKind::Operator {
+                        operator,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    span,
+                };
                 continue;
             }
             let (operator, operator_span) = match &self.current().kind {

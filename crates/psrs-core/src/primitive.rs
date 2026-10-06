@@ -4,9 +4,39 @@
 //! must use the checked type at each occurrence; adapting a polymorphic array
 //! wrapper by copying its inputs would change mutation and reference identity.
 use crate::locals::FreshLocals;
-use crate::{Binder, Expr, ExprKind, Module, Type, VerifyError, arrow_parts, scheme_parts};
+use crate::{Binder, Expr, ExprKind, Module, Type, TypeId, VerifyError, arrow_parts, scheme_parts};
 use psrs_hir::{Intrinsic, SymbolId};
+use psrs_span::TextRange;
 use std::collections::HashMap;
+
+/// The value operation of a checked explicit primitive. Unsafe coercion is a
+/// representation boundary, matching source coercion lowering, not a target
+/// arithmetic instruction. The caller validates its signature and operands.
+pub fn primitive_value(
+    intrinsic: Intrinsic,
+    arguments: Vec<Expr>,
+    result: TypeId,
+    span: TextRange,
+) -> Expr {
+    let kind = if intrinsic == Intrinsic::UnsafeCoerce && arguments.len() == 1 {
+        let value = arguments.into_iter().next().expect("one checked operand");
+        ExprKind::RepresentationCast {
+            source_type: value.ty,
+            target_type: result,
+            value: Box::new(value),
+        }
+    } else {
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        }
+    };
+    Expr {
+        kind,
+        ty: result,
+        span,
+    }
+}
 
 /// The caller supplies verified Core and validated operation identities. Work
 /// on a candidate and verify the complete result before publishing it; failures
@@ -60,21 +90,19 @@ fn rewrite(
                     parameters.push((binder, cursor));
                     cursor = result;
                 }
-                let mut body = Expr {
-                    kind: ExprKind::IntrinsicCall {
-                        intrinsic: *intrinsic,
-                        arguments: parameters
-                            .iter()
-                            .map(|(binder, _)| Expr {
-                                kind: ExprKind::Local(binder.id),
-                                ty: binder.ty,
-                                span: expression.span,
-                            })
-                            .collect(),
-                    },
-                    ty: cursor,
-                    span: expression.span,
-                };
+                let mut body = primitive_value(
+                    *intrinsic,
+                    parameters
+                        .iter()
+                        .map(|(binder, _)| Expr {
+                            kind: ExprKind::Local(binder.id),
+                            ty: binder.ty,
+                            span: expression.span,
+                        })
+                        .collect(),
+                    cursor,
+                    expression.span,
+                );
                 for (binder, ty) in parameters.into_iter().rev() {
                     body = Expr {
                         kind: ExprKind::Lambda {

@@ -8,7 +8,7 @@ pub mod opt;
 mod pattern;
 pub mod primitive;
 mod records;
-pub use instantiation::Instantiation;
+pub use instantiation::{Instantiation, RowInstantiation, instantiate_local_rows};
 mod types;
 mod verify;
 

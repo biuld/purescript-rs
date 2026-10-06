@@ -101,11 +101,30 @@ impl Checker {
         {
             let super_dictionary = self.dictionary_type(&super_constraint);
             let wanted = self.push_wanted(super_constraint, super_dictionary.clone());
+            // Superclass construction must be delayed: method closures may
+            // reference a subclass instance whose superclass is this instance.
+            let parameter = InferType::Constructor(TypeConstructor::Unit);
+            let id = LocalId(self.state.next_dictionary_local);
+            self.state.next_dictionary_local += 1;
             fields.push((
                 field,
                 InferredExpr {
-                    kind: InferredExprKind::Evidence(wanted),
-                    ty: super_dictionary,
+                    kind: InferredExprKind::Lambda {
+                        binder: InferredBinder {
+                            binder: LocalBinder {
+                                id,
+                                name: "superclass_unit".into(),
+                                span: instance.span,
+                            },
+                            scheme: Scheme::monomorphic(parameter.clone()),
+                        },
+                        body: Box::new(InferredExpr {
+                            kind: InferredExprKind::Evidence(wanted),
+                            ty: super_dictionary.clone(),
+                            span: instance.span,
+                        }),
+                    },
+                    ty: arrow(parameter, super_dictionary),
                     span: instance.span,
                 },
             ));

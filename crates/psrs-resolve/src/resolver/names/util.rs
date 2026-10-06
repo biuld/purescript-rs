@@ -23,10 +23,21 @@ pub(in crate::resolver) fn split_qualified(text: &str) -> Option<(&str, &str)> {
         return is_module_qualifier(qualifier)
             .then_some((qualifier, &text[index + 2..text.len() - 1]));
     }
+    // A symbolic member can itself contain dots. Walk module components
+    // from the left rather than mistaking the last operator dot for a separator.
+    for (index, _) in text.match_indices('.') {
+        let qualifier = &text[..index];
+        let member = &text[index + 1..];
+        if is_module_qualifier(qualifier)
+            && !member.is_empty()
+            && !member.chars().next().is_some_and(char::is_uppercase)
+        {
+            return Some((qualifier, member));
+        }
+    }
     let index = text.rfind('.')?;
-    let qualifier = &text[..index];
-    let member = &text[index + 1..];
-    (is_module_qualifier(qualifier) && !member.is_empty()).then_some((qualifier, member))
+    (is_module_qualifier(&text[..index]) && index + 1 < text.len())
+        .then_some((&text[..index], &text[index + 1..]))
 }
 
 fn is_module_qualifier(qualifier: &str) -> bool {
@@ -91,5 +102,9 @@ mod tests {
             split_qualified("Data.Int.Bits.(.&.)"),
             Some(("Data.Int.Bits", ".&."))
         );
+        assert_eq!(split_qualified("A..."), Some(("A", "..")));
+        assert_eq!(split_qualified("Foo.Bar..&."), Some(("Foo.Bar", ".&.")));
+        assert_eq!(split_qualified("Data.Array"), Some(("Data", "Array")));
+        assert_eq!(split_qualified("A."), None);
     }
 }

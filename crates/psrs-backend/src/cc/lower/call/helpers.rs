@@ -160,11 +160,16 @@ pub(super) fn declaration_parameter_types(
     else {
         return Vec::new();
     };
-    function_arrow_parameters(module, declaration.ty).0
+    super::super::super::layout::declaration_call_parts(module, declaration)
+        .expect("declaration calling boundary was checked before expression lowering")
+        .parameters
+        .into_iter()
+        .map(|(ty, _)| ty)
+        .collect()
 }
 
 /// The value type a declaration produces after its ordinary arguments: its
-/// declared type with every arrow peeled, stopping before a callable
+/// declared type with its leading lambda parameters peeled, stopping before a callable
 /// constructor's hidden parameters. For `discard :: Effect a -> (a -> Effect
 /// b) -> Effect b` this is `Effect b`, not the value `b` inside the effect.
 pub(super) fn declaration_result_type(
@@ -175,7 +180,11 @@ pub(super) fn declaration_result_type(
         .declarations
         .iter()
         .find(|declaration| declaration.symbol == symbol)?;
-    Some(function_arrow_parameters(module, declaration.ty).1)
+    Some(
+        super::super::super::layout::declaration_call_parts(module, declaration)
+            .expect("declaration calling boundary was checked before expression lowering")
+            .result,
+    )
 }
 
 /// The result type of a (possibly curried) function type: the value produced

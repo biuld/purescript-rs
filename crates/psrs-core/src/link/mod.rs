@@ -260,6 +260,24 @@ pub fn prune_unreachable(module: &mut Module, root: SymbolId) {
     module
         .declarations
         .retain(|declaration| reachable.contains(&declaration.symbol));
+    // Static library imports follow the same executable dependency graph as
+    // library declarations. Target protocols (WIT and explicit primitives)
+    // retain their source-wide conformance obligations even when unused.
+    let discarded_imports = module
+        .externals
+        .iter()
+        .filter(|external| {
+            matches!(external.kind, psrs_hir::ExternalKind::Library { .. })
+                && !reachable.contains(&external.symbol)
+        })
+        .map(|external| external.symbol)
+        .collect::<HashSet<_>>();
+    module
+        .externals
+        .retain(|external| !discarded_imports.contains(&external.symbol));
+    module
+        .external_types
+        .retain(|external| !discarded_imports.contains(&external.symbol));
     // A reachable constructor keeps every case of its type so the variant
     // layout stays complete. Unused library types drop out with their cases.
     used_types.extend(

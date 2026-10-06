@@ -18,6 +18,14 @@ Whole stdlib functions are not automatically intrinsic candidates.
 Library source changes cannot compensate for compiler defects. Follow the
 [source-fidelity contract](../workflow/stdlib-vendoring.md).
 
+Executable Core linking retains static library foreign declarations and their
+checked signatures only when reached from the entry, just as it retains ordinary
+library values. A reached unimplemented binding remains a linking error.
+Explicit primitive and WIT declarations retain source-wide protocol validation,
+including unused declarations. This executable reachability contract does not
+establish library support: inventories and public API execution cases must expose
+missing implementations independently of dead-code removal.
+
 `psrs-stdlib/tools/conformance.mjs` is a library-owned Node component. It compares
 source inventories, evaluates pinned upstream JavaScript implementations, and
 runs a compiler executable and Wasmtime. Inputs are package paths, manifests,

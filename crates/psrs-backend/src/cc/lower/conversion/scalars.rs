@@ -15,6 +15,12 @@ impl FunctionLowerer<'_> {
         if shape == erased_shape() {
             return Ok(ValueConversion::Identity);
         }
+        if let Some(plan) = self.array_payload(shape, true, span)? {
+            return Ok(plan);
+        }
+        if let Some(plan) = self.record_payload(shape, true, span)? {
+            return Ok(plan);
+        }
         if let ValueShape::Reference(Reference {
             heap: RefShape::Closure(signature),
             ..
@@ -43,6 +49,12 @@ impl FunctionLowerer<'_> {
         if shape == erased_shape() {
             return Ok(ValueConversion::Identity);
         }
+        if let Some(plan) = self.array_payload(shape, false, span)? {
+            return Ok(plan);
+        }
+        if let Some(plan) = self.record_payload(shape, false, span)? {
+            return Ok(plan);
+        }
         if let ValueShape::Reference(Reference {
             heap: RefShape::Closure(signature),
             ..
@@ -64,6 +76,153 @@ impl FunctionLowerer<'_> {
                 })
             }
         }
+    }
+
+    fn array_payload(
+        &mut self,
+        shape: ValueShape,
+        entering: bool,
+        span: TextRange,
+    ) -> Result<Option<ValueConversion>, Vec<BackendError>> {
+        let ValueShape::Reference(Reference {
+            heap: RefShape::Repr(concrete),
+            ..
+        }) = shape
+        else {
+            return Ok(None);
+        };
+        let Some(crate::cc::Representation::Array { element }) =
+            self.representations.representation(concrete)
+        else {
+            return Ok(None);
+        };
+        let element_shape = *element;
+        let protocol = self.representations.representations.iter().position(|representation|
+            matches!(representation, crate::cc::Representation::Array { element } if *element == erased_shape()))
+            .map(|index| ReprId(index as u32))
+            .ok_or_else(|| conversion_error(span, "Array owner has no erased storage protocol"))?;
+        let protocol_shape = ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Repr(protocol),
+        });
+        if concrete == protocol {
+            return Ok(Some(if entering {
+                ValueConversion::EraseReference
+            } else {
+                ValueConversion::RecoverReference {
+                    destination: shape,
+                    evidence: RecoveryEvidence::TypeInstantiation,
+                }
+            }));
+        }
+        if entering {
+            let element = self.erase_payload(element_shape, span)?;
+            Ok(Some(sequence(vec![
+                ValueConversion::ArrayMap {
+                    source: concrete,
+                    target: protocol,
+                    element: Box::new(element),
+                },
+                ValueConversion::EraseReference,
+            ])))
+        } else {
+            let element = self.recover_payload(element_shape, span)?;
+            Ok(Some(sequence(vec![
+                ValueConversion::RecoverReference {
+                    destination: protocol_shape,
+                    evidence: RecoveryEvidence::TypeInstantiation,
+                },
+                ValueConversion::ArrayMap {
+                    source: protocol,
+                    target: concrete,
+                    element: Box::new(element),
+                },
+            ])))
+        }
+    }
+
+    fn record_payload(
+        &mut self,
+        shape: ValueShape,
+        entering: bool,
+        span: TextRange,
+    ) -> Result<Option<ValueConversion>, Vec<BackendError>> {
+        let ValueShape::Reference(Reference {
+            heap: RefShape::Repr(concrete),
+            ..
+        }) = shape
+        else {
+            return Ok(None);
+        };
+        let Some(labels) = self
+            .representations
+            .product_labels(concrete)
+            .map(<[String]>::to_vec)
+        else {
+            return Ok(None);
+        };
+        let Some(crate::cc::Representation::Product { fields }) =
+            self.representations.representation(concrete)
+        else {
+            return Err(conversion_error(
+                span,
+                "record owner labels do not name a product",
+            ));
+        };
+        let fields = fields.clone();
+        let protocol =
+            super::super::super::layout::protocols::record(self.representations, &labels)
+                .ok_or_else(|| {
+                    conversion_error(span, "record owner has no erased field protocol")
+                })?;
+        if concrete == protocol {
+            return Ok(Some(if entering {
+                ValueConversion::EraseReference
+            } else {
+                ValueConversion::RecoverReference {
+                    destination: shape,
+                    evidence: RecoveryEvidence::TypeInstantiation,
+                }
+            }));
+        }
+        let plans = fields
+            .into_iter()
+            .map(|field| {
+                if entering {
+                    self.erase_payload(field, span)
+                } else {
+                    self.recover_payload(field, span)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(if entering {
+            sequence(vec![
+                ValueConversion::ProductMap {
+                    source: concrete,
+                    target: protocol,
+                    labels,
+                    fields: plans,
+                },
+                ValueConversion::EraseReference,
+            ])
+        } else {
+            let protocol_shape = ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(protocol),
+            });
+            sequence(vec![
+                ValueConversion::RecoverReference {
+                    destination: protocol_shape,
+                    evidence: RecoveryEvidence::TypeInstantiation,
+                },
+                ValueConversion::ProductMap {
+                    source: protocol,
+                    target: concrete,
+                    labels,
+                    fields: plans,
+                },
+            ])
+        }))
     }
 
     pub(super) fn box_plan(
