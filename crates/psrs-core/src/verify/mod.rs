@@ -161,18 +161,6 @@ pub(crate) fn module(module: &Module, source: Option<&Module>) -> Result<(), Vec
 }
 
 fn external_scheme(module: &Module, ty: TypeId) -> Option<SchemeType> {
-    let mut current = ty;
-    let mut quantified = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    while seen.insert(current) {
-        let Some((variables, body)) = crate::forall_parts(&module.types, current) else {
-            return Some(SchemeType {
-                ty: current,
-                quantified,
-            });
-        };
-        quantified.extend_from_slice(variables);
-        current = body;
-    }
-    None
+    let (quantified, ty) = crate::scheme_parts(&module.types, ty)?;
+    Some(SchemeType { ty, quantified })
 }

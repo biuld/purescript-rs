@@ -48,3 +48,20 @@ skip. No runner command publishes or modifies upstream checkouts.
 
 See [the repository boundary](../design/D-17-stdlib-and-conformance-boundaries.md)
 for ownership, package locking, and the limits of this evidence.
+
+The library owns non-scalar case generators as well. For array application:
+
+```sh
+node ../psrs-stdlib/conformance/arrays.mjs \
+  /private/tmp/purescript-prelude /tmp/psrs-array-oracle
+python3 -m stdlib_conformance run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-array-oracle/Golden.purs \
+  --input /tmp/psrs-array-oracle/Main.purs \
+  --out /tmp/psrs-array-runtime
+```
+
+The generator verifies the clean upstream revision, evaluates the official JS
+function, copies the actual vendored binding signature, and emits value checks.
+Keep generators and cases in the library package; the independent runtime runner
+continues to consume executable and source paths without compiler-internal APIs.

@@ -57,6 +57,28 @@ impl FunctionLowerer<'_> {
                     assignment.span,
                 )?;
             }
+            AssignmentKind::ArrayApply {
+                destination,
+                functions,
+                values,
+                functions_representation,
+                values_representation,
+                result_representation,
+                invoker,
+                ..
+            } => {
+                current = self.lower_array_apply(
+                    current,
+                    *destination,
+                    *functions,
+                    *values,
+                    *functions_representation,
+                    *values_representation,
+                    *result_representation,
+                    *invoker,
+                    assignment.span,
+                )?;
+            }
             AssignmentKind::StringToBytes {
                 destination,
                 representation,

@@ -334,8 +334,16 @@ pub(super) fn verify_assignments(
             | AssignmentKind::ArrayGet { .. }
             | AssignmentKind::ArrayClone { .. }
             | AssignmentKind::ArraySet { .. }
-            | AssignmentKind::ArrayAppend { .. } => {
-                arrays::verify_array_assignment(assignment, declared, table, &mut uses)?;
+            | AssignmentKind::ArrayAppend { .. }
+            | AssignmentKind::ArrayApply { .. } => {
+                arrays::verify_array_assignment(
+                    assignment,
+                    declared,
+                    table,
+                    &mut uses,
+                    signatures,
+                    functions.is_some(),
+                )?;
             }
             AssignmentKind::StringToBytes {
                 representation,

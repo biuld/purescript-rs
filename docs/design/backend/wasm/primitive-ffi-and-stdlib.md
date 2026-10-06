@@ -601,3 +601,36 @@ These source instances do not change native tuple syntax or WIT tuple layout.
   `string`, and tuples.
 - Issue #56, whose request to grow compiler source types for `Maybe`, `Either`,
   and tuples this contract replaces. The user-facing types remain library types.
+
+## Polymorphic primitive foreign functions
+
+An explicit primitive binding retains its checked source signature. P8 reads
+its leading lexical quantifiers through Core's shared scheme operation and
+moves their identities into the generated declaration scope. It peels only the
+body's leading arrows, preserves the declared element relationships, and uses
+Core's intrinsic verifier before publishing the generated function. Unsupported
+categories and malformed signatures still fail, including unused declarations.
+This supports the existing array and UTF-8 byte primitives as ordinary foreign
+functions without weakening their type contracts.
+
+`arrayApply` has scheme `forall a b. Array (a -> b) -> Array a -> Array b`.
+Core verifies both element relationships. CC records the three array
+representations, the actual callback signature, and an invocation helper.
+The helper consumes exactly one source argument through the common application
+lowering, including partial application when the callback returns a function.
+The full CC verifier requires that helper to exist with the checked input/output
+ABI; per-function verification defers helper existence to that module check.
+Reachability retains the helper, callback signature, and array representations.
+
+MIR allocates once and emits nested loops in function-major order. Each function
+is cached for its entire value traversal; inputs are preserved. Nullable storage
+views permit references to cross structured control labels and are refined at
+use sites. These refinements preserve the existing calling convention; callable
+adaptation remains owned by the common checked conversion/application protocol.
+Negative source lengths and products outside signed i32 capacity trap before
+allocation or callbacks. Empty inputs invoke no callbacks.
+
+The library owns its pinned JS oracle and source binding in `psrs-stdlib`;
+see its `docs/array-apply.md` and `conformance/arrays.mjs`. Whole-library compile
+acceptance and runtime/FFI acceptance remain independent of this operation's
+focused behavior evidence.

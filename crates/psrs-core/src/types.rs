@@ -113,3 +113,58 @@ pub fn forall_parts(types: &[Type], id: TypeId) -> Option<(&[TypeVariableId], Ty
         _ => None,
     }
 }
+
+/// Reads a binding's leading lexical quantifiers without crossing an arrow.
+/// Returns `None` for a dangling or cyclic spine; callers must report invalid IR.
+/// The variable identities and their order are preserved for declaration scope.
+pub fn scheme_parts(types: &[Type], mut id: TypeId) -> Option<(Vec<TypeVariableId>, TypeId)> {
+    let mut quantified = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    while seen.insert(id) {
+        match types.get(id.0 as usize)? {
+            Type::ForAll { variables, body } => {
+                quantified.extend_from_slice(variables);
+                id = *body;
+            }
+            _ => return Some((quantified, id)),
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod scheme_tests {
+    use super::*;
+
+    #[test]
+    fn binding_scheme_preserves_variables_and_stops_before_a_result_quantifier() {
+        let a = TypeVariableId(7);
+        let b = TypeVariableId(8);
+        let types = vec![
+            Type::Constructor(TypeConstructor::Function),
+            Type::Variable(a),
+            Type::Variable(b),
+            Type::ForAll {
+                variables: vec![b],
+                body: TypeId(2),
+            },
+            Type::Application(TypeId(0), TypeId(1)),
+            Type::Application(TypeId(4), TypeId(3)),
+            Type::ForAll {
+                variables: vec![a],
+                body: TypeId(5),
+            },
+        ];
+        assert_eq!(scheme_parts(&types, TypeId(6)), Some((vec![a], TypeId(5))));
+    }
+
+    #[test]
+    fn invalid_scheme_spines_are_rejected_without_fresh_unknowns() {
+        let types = vec![Type::ForAll {
+            variables: vec![TypeVariableId(0)],
+            body: TypeId(0),
+        }];
+        assert!(scheme_parts(&types, TypeId(0)).is_none());
+        assert!(scheme_parts(&types, TypeId(1)).is_none());
+    }
+}

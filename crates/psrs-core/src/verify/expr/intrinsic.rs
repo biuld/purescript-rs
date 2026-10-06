@@ -28,6 +28,9 @@ impl Context<'_> {
             Intrinsic::ArrayAppend => {
                 self.verify_array_append(expression, &arguments[0], &arguments[1])
             }
+            Intrinsic::ArrayApply => {
+                self.verify_array_apply(expression, &arguments[0], &arguments[1])
+            }
             Intrinsic::StringToBytes => self.verify_string_to_bytes(expression, &arguments[0]),
             Intrinsic::BytesToString => self.verify_bytes_to_string(expression, &arguments[0]),
             _ => match intrinsic.descriptor().category {

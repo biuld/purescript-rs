@@ -58,6 +58,41 @@ impl Context<'_> {
         );
     }
 
+    pub(super) fn verify_array_apply(
+        &mut self,
+        expression: &Expr,
+        functions: &Expr,
+        values: &Expr,
+    ) {
+        self.expr(functions, None);
+        self.expr(values, None);
+        let shapes = array_element(functions.ty, self.module)
+            .and_then(|ty| crate::arrow_parts(&self.module.types, ty))
+            .zip(array_element(values.ty, self.module))
+            .zip(array_element(expression.ty, self.module));
+        let Some((((parameter, result), element), output)) = shapes else {
+            self.errors.push(error(self.owner, expression.span,
+                "arrayApply expects an array of unary functions, an argument array, and an array result"));
+            return;
+        };
+        compatible(
+            parameter,
+            element,
+            self.module,
+            self.owner,
+            values.span,
+            self.errors,
+        );
+        compatible(
+            result,
+            output,
+            self.module,
+            self.owner,
+            expression.span,
+            self.errors,
+        );
+    }
+
     pub(super) fn verify_array_index(&mut self, expression: &Expr, array: &Expr, index: &Expr) {
         let Some(element_type) = array_element(array.ty, self.module) else {
             self.errors.push(error(

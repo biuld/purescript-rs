@@ -1,7 +1,7 @@
 //! Discharges explicit primitive bindings into verified ordinary Core functions.
 
 use crate::BackendError;
-use psrs_core::{Binder, Declaration, Expr, ExprKind, Module, arrow_parts};
+use psrs_core::{Binder, Declaration, Expr, ExprKind, Module, arrow_parts, scheme_parts};
 use psrs_hir::{ExternalKind, IntrinsicCategory, LocalId};
 
 #[cfg(test)]
@@ -66,14 +66,27 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
         };
         if !matches!(
             intrinsic.descriptor().category,
-            IntrinsicCategory::UnaryScalar | IntrinsicCategory::BinaryScalar
+            IntrinsicCategory::UnaryScalar
+                | IntrinsicCategory::BinaryScalar
+                | IntrinsicCategory::ArrayLength
+                | IntrinsicCategory::ArrayIndex
+                | IntrinsicCategory::ArrayUpdate
+                | IntrinsicCategory::ArrayAppend
+                | IntrinsicCategory::ArrayApply
+                | IntrinsicCategory::StringToBytes
+                | IntrinsicCategory::BytesToString
         ) {
             return Err(error(format!(
                 "primitive binding `{}` has no foreign-function implementation yet",
                 intrinsic.descriptor().name
             )));
         }
-        let mut result = checked.ty;
+        let Some((quantified, body_type)) = scheme_parts(&candidate.types, checked.ty) else {
+            return Err(error(
+                "primitive binding has an invalid checked scheme".into(),
+            ));
+        };
+        let mut result = body_type;
         let mut parameters = Vec::new();
         let mut arrows = Vec::new();
         while let Some((parameter, tail)) = arrow_parts(&candidate.types, result) {
@@ -121,8 +134,8 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
             symbol: external.symbol,
             name: external.name,
             name_span: span,
-            quantified: Vec::new(),
-            ty: checked.ty,
+            quantified,
+            ty: body_type,
             value,
             span,
         };

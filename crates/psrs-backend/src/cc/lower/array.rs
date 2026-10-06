@@ -80,6 +80,66 @@ impl FunctionLowerer<'_> {
         Ok(destination)
     }
 
+    pub(super) fn lower_array_apply(
+        &mut self,
+        expression: &Expr,
+        functions: &Expr,
+        values: &Expr,
+        ty: ValueShape,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let representations =
+            [functions.ty, values.ty, expression.ty].map(|ty| self.array_types.get(&ty).copied());
+        let [
+            Some(functions_representation),
+            Some(values_representation),
+            Some(result_representation),
+        ] = representations
+        else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "arrayApply has no checked array representation",
+            )]);
+        };
+        let Some(super::super::Representation::Array {
+            element:
+                ValueShape::Reference(Reference {
+                    nullable: false,
+                    heap: RefShape::Closure(signature),
+                }),
+        }) = self
+            .representations
+            .representation(functions_representation)
+        else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "arrayApply has no checked callback signature",
+            )]);
+        };
+        let signature = *signature;
+        let invoker = self.array_apply_invoker(functions.ty, values.ty, expression.span)?;
+        let functions = self.lower_value(functions, assignments)?;
+        let values = self.lower_value(values, assignments)?;
+        let destination = self.fresh(ty);
+        assignments.push(Assignment {
+            destination,
+            kind: AssignmentKind::ArrayApply {
+                destination,
+                functions,
+                values,
+                functions_representation,
+                values_representation,
+                result_representation,
+                signature,
+                invoker,
+            },
+            span: expression.span,
+        });
+        Ok(destination)
+    }
+
     pub(super) fn lower_array_append(
         &mut self,
         expression: &Expr,

@@ -13,7 +13,9 @@ mod verify;
 pub use link::{link, prune_unreachable};
 pub use pattern::{Literal, Pattern, PatternKind};
 pub use records::{record_row, row_fields};
-pub use types::{Type, TypeConstructor, TypeId, arrow_parts, closure_parts, forall_parts};
+pub use types::{
+    Type, TypeConstructor, TypeId, arrow_parts, closure_parts, forall_parts, scheme_parts,
+};
 
 use psrs_hir::{
     CaseBranchCoverage, ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId,
