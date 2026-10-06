@@ -87,6 +87,7 @@ pub fn contract(artifact: &RuntimeArtifact) -> ArtifactContract {
             },
             heap_start: artifact.storage.heap_start,
             minimum_pages: artifact.storage.minimum_pages,
+            stack_pointer_global: artifact.storage.stack_pointer_global,
             stack_bound_bytes: artifact.storage.stack_bound_bytes,
             stack_bound_evidence: artifact.storage.stack_bound_evidence.to_string(),
         }),

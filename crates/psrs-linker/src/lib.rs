@@ -19,6 +19,7 @@ mod digest;
 mod error;
 pub mod plan;
 pub mod runtime;
+mod stack;
 mod target;
 mod verify;
 
@@ -27,6 +28,7 @@ pub use definitions::{ResolvedWorldContext, resolve_default_definitions, resolve
 pub use digest::sha256_hex;
 pub use error::{LinkError, LinkErrors, LinkStage};
 pub use plan::{CheckedLinkPlan, MemoryPlan, ResolvedBinding, plan};
+pub use stack::{StackBound, measure_stack_bound};
 pub use target::{
     ArtifactContract, ArtifactKind, ArtifactReference, BindingRequirement, Boundary, CoreSignature,
     CoreType, DeclaredExport, DeclaredGlobal, DeclaredImport, DeclaredTable, ExportKind,

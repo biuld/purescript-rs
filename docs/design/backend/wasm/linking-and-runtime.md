@@ -474,10 +474,12 @@ are not yet selected. Their ownership and checked-plan obligations are defined
 above; general component loading remains unsupported until that entry point and
 its verification exist. Do not imply a new supported CLI flag in documentation.
 
-Runtime stack-bound evidence and the exact artifact-provenance representation
-must be settled before accepting the formatter implementation. Relocatable
-object files, dynamic loading, async/WASI 0.3 composition, recursive or reentrant
-runtime libraries, and cross-module GC sharing require explicit extensions.
+The runtime stack bound is measured by a static call-graph analysis of the
+pinned nonrecursive artifact, and the artifact-provenance representation is
+settled as a catalog record; repeat builds are checked against the committed
+bytes. Relocatable object files, dynamic loading, async/WASI 0.3 composition,
+recursive or reentrant runtime libraries, and cross-module GC sharing require
+explicit extensions.
 
 Existing WIT/WASI binding code precedes this plan model. The formatter slice now
 carries one checked plan from requirement closure through artifact verification,

@@ -71,8 +71,11 @@ fn number_format_contract() -> ArtifactContract {
             },
             heap_start: psrs_runtime::HEAP_START,
             minimum_pages: 3,
-            stack_bound_bytes: 4096,
-            stack_bound_evidence: "reviewed pinned build assumption; stress evidence pending"
+            stack_pointer_global: 0,
+            stack_bound_bytes: psrs_runtime::NUMBER_FORMATTER.storage.stack_bound_bytes,
+            stack_bound_evidence: psrs_runtime::NUMBER_FORMATTER
+                .storage
+                .stack_bound_evidence
                 .into(),
         }),
         initialization: InitializationContract {
@@ -88,6 +91,18 @@ fn embedded_artifact_satisfies_its_contract() {
     let contract = number_format_contract();
     verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
         .expect("the pinned artifact should verify");
+}
+
+#[test]
+fn a_guest_component_provider_is_rejected_without_a_host_fallback() {
+    let mut contract = number_format_contract();
+    contract.kind = ArtifactKind::Component;
+    let error = verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+        .expect_err("guest components are not composable yet");
+    assert!(
+        error.to_string().contains("no silent host fallback"),
+        "{error}"
+    );
 }
 
 #[test]

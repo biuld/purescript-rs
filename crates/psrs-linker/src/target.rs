@@ -67,6 +67,9 @@ pub struct BindingRequirement {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArtifactKind {
     CoreModule,
+    /// A guest component provider. Composition is not yet supported; the linker
+    /// rejects it rather than silently falling back to a host interface.
+    Component,
 }
 
 /// The kind of a declared artifact import.
@@ -131,10 +134,12 @@ pub struct StorageContract {
     pub stack: StorageRegion,
     pub heap_start: u32,
     pub minimum_pages: u64,
+    /// The index of the mutable stack-pointer global the artifact uses.
+    pub stack_pointer_global: u32,
     /// A reviewed upper bound on stack bytes for the supported calling pattern.
     pub stack_bound_bytes: u32,
-    /// Where the stack bound comes from; a reviewed build assumption names its
-    /// pending stress evidence rather than claiming analysis that did not run.
+    /// Where the stack bound comes from; a measured static bound names the
+    /// analysis, while a reviewed build assumption names its pending evidence.
     pub stack_bound_evidence: String,
 }
 

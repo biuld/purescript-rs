@@ -184,6 +184,30 @@ fn a_world_interface_disabled_by_the_target_profile_is_rejected() {
 }
 
 #[test]
+fn a_different_world_version_does_not_satisfy_a_pinned_import() {
+    let context = resolve_default_definitions().unwrap();
+    let requirement = BindingRequirement {
+        id: RequirementId(0),
+        origin: "wasi:cli/stdout@0.2.11.get-stdout".into(),
+        boundary: Boundary::ResolvedWit {
+            interface: "wasi:cli/stdout@0.2.11".into(),
+            function: "get-stdout".into(),
+        },
+        expected: Some(CoreSignature {
+            parameters: Vec::new(),
+            result: Some(CoreType::I32),
+        }),
+        provider: Provider::HostInterface {
+            interface: "wasi:cli/stdout@0.2.11".into(),
+        },
+    };
+    assert!(
+        plan(&context, input(vec![requirement], Vec::new())).is_err(),
+        "a pinned import version must match the resolved world exactly"
+    );
+}
+
+#[test]
 fn a_reservation_overlapping_canonical_state_is_rejected() {
     let context = resolve_default_definitions().unwrap();
     let mut artifact = formatter_artifact();

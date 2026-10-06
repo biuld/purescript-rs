@@ -253,6 +253,18 @@ fn annotate_plan(call: &mut crate::trace::TraceCall, link: &linking::LinkPlan) {
             .join(";"),
     );
     call.add_parameter("external_world", plan.external_world().join(";"));
+    call.add_parameter(
+        "stack_bounds",
+        plan.artifacts()
+            .iter()
+            .filter_map(|artifact| {
+                artifact
+                    .stack_bound_bytes
+                    .map(|bound| format!("{}={bound}", artifact.id))
+            })
+            .collect::<Vec<_>>()
+            .join(";"),
+    );
     call.add_parameter("heap_start", plan.memory().heap_start.to_string());
     call.add_parameter("minimum_pages", plan.memory().minimum_pages.to_string());
 }

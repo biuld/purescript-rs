@@ -22,6 +22,8 @@ pub struct VerifiedArtifact {
     pub sha256: String,
     pub bytes: Vec<u8>,
     pub instantiate_after_shims: bool,
+    /// The measured static stack bound, when the artifact declares storage.
+    pub stack_bound_bytes: Option<u32>,
 }
 
 /// Validates `bytes` against `contract`, returning the verified artifact.
@@ -31,12 +33,15 @@ pub fn verify_artifact(
 ) -> Result<VerifiedArtifact, LinkErrors> {
     let stage = LinkStage::Verify;
     let id = &contract.id;
-    if contract.kind != ArtifactKind::CoreModule {
-        return Err(LinkErrors::one(
-            stage,
-            id,
-            "only core-module artifacts are supported",
-        ));
+    match contract.kind {
+        ArtifactKind::CoreModule => {}
+        ArtifactKind::Component => {
+            return Err(LinkErrors::one(
+                stage,
+                id,
+                "guest component providers are not yet supported; there is no silent host fallback",
+            ));
+        }
     }
     let digest = crate::sha256_hex(bytes);
     if digest != contract.sha256 {
@@ -58,12 +63,33 @@ pub fn verify_artifact(
             LinkErrors::one(stage, id, format!("artifact is not valid Wasm: {error}"))
         })?;
     check_contract(contract, &parsed)?;
+    let stack_bound_bytes = match &contract.storage {
+        Some(storage) => {
+            let measured = crate::measure_stack_bound(bytes, storage.stack_pointer_global)
+                .map_err(|message| {
+                    LinkErrors::one(stage, id, format!("stack analysis failed: {message}"))
+                })?;
+            if measured.bytes > storage.stack_bound_bytes {
+                return Err(LinkErrors::one(
+                    stage,
+                    id,
+                    format!(
+                        "artifact stack use {} exceeds its declared {} bytes",
+                        measured.bytes, storage.stack_bound_bytes
+                    ),
+                ));
+            }
+            Some(measured.bytes)
+        }
+        None => None,
+    };
     Ok(VerifiedArtifact {
         id: contract.id.clone(),
         module_name: contract.module_name.clone(),
         sha256: digest,
         bytes: bytes.to_vec(),
         instantiate_after_shims: contract.instantiate_after_shims,
+        stack_bound_bytes,
     })
 }
 

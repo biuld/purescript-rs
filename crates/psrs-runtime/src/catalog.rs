@@ -113,6 +113,8 @@ pub struct RawStorage {
     pub stack: (u32, u32),
     pub heap_start: u32,
     pub minimum_pages: u64,
+    /// The mutable stack-pointer global the artifact uses.
+    pub stack_pointer_global: u32,
     /// A reviewed upper bound on stack bytes for supported calling behavior.
     pub stack_bound_bytes: u32,
     /// Where the bound comes from, including pending evidence.
@@ -185,8 +187,9 @@ pub const NUMBER_FORMATTER: RuntimeArtifact = RuntimeArtifact {
         stack: (crate::STACK_BOTTOM, crate::HEAP_START),
         heap_start: crate::HEAP_START,
         minimum_pages: 3,
-        stack_bound_bytes: 4096,
-        stack_bound_evidence: "reviewed pinned nonrecursive build assumption; stress evidence pending",
+        stack_pointer_global: 0,
+        stack_bound_bytes: 160,
+        stack_bound_evidence: "static call-graph frame analysis of the pinned artifact (psrs-linker::measure_stack_bound)",
     },
     start_forbidden: true,
     data_range: (crate::RESERVED_START, crate::STACK_BOTTOM),
