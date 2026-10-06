@@ -15,7 +15,7 @@ pub struct LinkedArtifact {
 
 /// Composes an encoded application with the plan's verified libraries.
 ///
-/// The final component's unresolved imports must be a subset of the plan's
+/// The final component's unresolved imports must equal the plan's
 /// external world; the private runtime import must be closed.
 pub fn compose(
     context: &ResolvedWorldContext,
@@ -23,19 +23,28 @@ pub fn compose(
     application: &[u8],
 ) -> Result<LinkedArtifact, LinkErrors> {
     let stage = LinkStage::Compose;
-    let mut bytes = application.to_vec();
-    embed_component_metadata(
-        &mut bytes,
-        context.resolve(),
-        context.world(),
-        StringEncoding::UTF8,
-    )
-    .map_err(|error| {
+    if !plan.uses_context(context) {
+        return Err(LinkErrors::plain(
+            stage,
+            "WIT context differs from the checked plan",
+        ));
+    }
+    let world = context.composition_world().ok_or_else(|| {
         LinkErrors::plain(
             stage,
-            format!("failed to embed component metadata: {error}"),
+            "definition-only context cannot compose an executable component",
         )
     })?;
+    crate::application::verify(plan, application)?;
+    let mut bytes = application.to_vec();
+    embed_component_metadata(&mut bytes, context.resolve(), world, StringEncoding::UTF8).map_err(
+        |error| {
+            LinkErrors::plain(
+                stage,
+                format!("failed to embed component metadata: {error}"),
+            )
+        },
+    )?;
     let mut encoder = ComponentEncoder::default()
         .module(&bytes)
         .map_err(|error| {
@@ -81,7 +90,7 @@ pub fn compose(
         }
         // Interface imports are named by canonical id and must be permitted by
         // the world; type and function imports belong to those interfaces.
-        if import.contains('/') && !context.imports_interface(import) {
+        if !plan.external_world().contains(import) {
             return Err(LinkErrors::one(
                 stage,
                 import.clone(),
@@ -89,13 +98,22 @@ pub fn compose(
             ));
         }
     }
+    if imports != plan.external_world() {
+        return Err(LinkErrors::plain(
+            stage,
+            format!(
+                "component import closure differs from the checked plan: expected {:?}, actual {imports:?}",
+                plan.external_world()
+            ),
+        ));
+    }
     Ok(LinkedArtifact {
         bytes: output,
         external_world: imports,
     })
 }
 
-fn component_imports(bytes: &[u8]) -> Result<Vec<String>, LinkErrors> {
+pub(crate) fn component_imports(bytes: &[u8]) -> Result<Vec<String>, LinkErrors> {
     let mut imports = Vec::new();
     let mut depth = 0_usize;
     for payload in Parser::new(0).parse_all(bytes) {
@@ -123,5 +141,7 @@ fn component_imports(bytes: &[u8]) -> Result<Vec<String>, LinkErrors> {
             _ => {}
         }
     }
+    imports.sort();
+    imports.dedup();
     Ok(imports)
 }

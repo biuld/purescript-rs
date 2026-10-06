@@ -25,6 +25,28 @@ Existing Node.js APIs and JavaScript FFI modules are not supported compatibility
 targets. Programs that use unsupported syntax, types, or platform services
 receive source-oriented diagnostics rather than a malformed artifact.
 
+An already built application component can select pinned guest implementations
+for its interface imports:
+
+```sh
+psrs link main.wasm --manifest providers.json -o linked.wasm --report link.json
+```
+
+The manifest selects each guest by interface name and artifact digest. Paths are
+relative to the manifest. The linker follows the selected guests' dependencies,
+rejects incompatible exports or missing providers, and reports the exact host
+interfaces left unresolved. An explicitly selected guest does not fall back to
+a host implementation. The initial interface binding is synchronous and covers
+one whole interface, preserving resource lifetime and provider-owned memory.
+Source `build` can explicitly select the same providers with `--manifest` and
+emit a joined source/component report with `--report`. The compiler pins its
+produced root bytes; externally supplied application components require a root
+pin in the manifest. Guest executable initialization is rejected until it has
+an explicit checked effect contract.
+
+See [Explicit Component Linking](../workflow/component-linking.md) for the
+manifest format and supported boundary.
+
 The compiler selects `Main.main` when that declaration exists; otherwise it
 requires exactly one top-level declaration named `main`. The selected entry
 takes no arguments and may return `Int` or `Effect Unit`. An integer result
@@ -136,7 +158,7 @@ function calls.
 
 ## Acceptance criteria
 
-- A supported source program produces a validated core Wasm module at the
+- A supported source program produces a validated WASI component at the
   requested output path.
 - The compiler prints WAT or writes it at the requested output path.
 - The WASI artifact runs in a compatible runtime and preserves observable
@@ -145,6 +167,8 @@ function calls.
   trap.
 - Unsupported constructs fail with a source-oriented diagnostic.
 - Each added platform service has documented behavior and executable tests.
+- Explicit guest linking verifies artifact pins and interface compatibility,
+  preserves canonical ownership, and reports the permitted residual host imports.
 
 ## Initial scope
 

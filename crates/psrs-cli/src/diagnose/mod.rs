@@ -405,3 +405,40 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
     }
     Ok(snapshot)
 }
+
+/// Reuse the diagnosis schema for the source side of a build/link report.
+pub(super) fn build_lineage(
+    sources: &[(String, String)],
+    report: &psrs_driver::CompilationReport,
+) -> Result<serde_json::Value, String> {
+    let inputs = sources
+        .iter()
+        .map(|(name, text)| SourceInput {
+            name: name.clone(),
+            text: text.clone(),
+        })
+        .collect::<Vec<_>>();
+    let trace = from_report(
+        &inputs,
+        true,
+        &fingerprint_sources(&inputs),
+        &trusted_stdlib_fingerprint()?,
+        false,
+        report,
+    )?;
+    let mut value = serde_json::to_value(&trace).map_err(|error| error.to_string())?;
+    if let Some(artifact) = &report.artifact {
+        let outputs = trace
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.representation == "component_binary")
+            .collect::<Vec<_>>();
+        let [output] = outputs.as_slice() else {
+            return Err("source build must produce exactly one component trace artifact".into());
+        };
+        value["component_output"] = serde_json::json!({
+            "artifact": output.id, "sha256": psrs_linker::sha256_hex(&artifact.wasm),
+        });
+    }
+    Ok(value)
+}

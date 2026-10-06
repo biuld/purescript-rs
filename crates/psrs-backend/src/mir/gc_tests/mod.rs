@@ -39,7 +39,10 @@ fn run_gc(mir: &crate::mir::Module, expected_code: i32) {
 fn run_gc_output(mir: &crate::mir::Module) -> Option<std::process::Output> {
     let target = crate::TargetCapabilities::default();
     let mut wasi = wasi();
-    let wasm = crate::wasm::lower_module_with_capabilities(mir, &mut wasi, target)
+    let context = crate::linking::default_context().expect("default target context");
+    let link = crate::linking::plan_for_module(&context, mir, &mut wasi, target)
+        .expect("checked GC target plan");
+    let wasm = crate::wasm::lower_module_with_plan(mir, &mut wasi, target, &link)
         .expect("the GC MIR should lower to Wasm");
     let core = crate::wasm::encode_module(&wasm).expect("encoding GC Wasm");
     crate::validator_for(target)
@@ -63,7 +66,9 @@ fn run_gc_output(mir: &crate::mir::Module) -> Option<std::process::Output> {
         eprintln!("skipping: wasmtime is unusable");
         return None;
     }
-    let component = crate::linking::compose_core(&core).expect("componentizing the GC module");
+    let component =
+        crate::linking::compose(&link, &core, mir.span, mir.entry.map(|entry| entry.module))
+            .expect("componentizing the GC module");
     let path = std::env::temp_dir().join(format!(
         "psrs-gc-{}-{}.wasm",
         std::process::id(),

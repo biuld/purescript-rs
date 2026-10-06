@@ -39,7 +39,7 @@ pub fn verify_artifact(
             return Err(LinkErrors::one(
                 stage,
                 id,
-                "guest component providers are not yet supported; there is no silent host fallback",
+                "component artifacts require typed component planning, not a raw-core contract; there is no silent host fallback",
             ));
         }
     }

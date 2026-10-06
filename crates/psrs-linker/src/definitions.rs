@@ -6,11 +6,8 @@
 
 use crate::error::{LinkErrors, LinkStage};
 use psrs_runtime::{APP_WIT, DEFAULT_WORLD, WASI_WIT, WitSource, WorldIdentity};
-use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
-use wit_parser::{
-    Handle, InterfaceId, Resolve, Type, TypeDefKind, TypeId, TypeOwner, WorldId, WorldItem,
-};
+use wit_parser::{Resolve, WorldId, WorldItem};
 
 /// One immutable resolved world shared by ABI lowering and provider validation.
 pub struct ResolvedWorldContext {
@@ -65,6 +62,9 @@ impl ResolvedWorldContext {
     pub fn world(&self) -> WorldId {
         self.world.expect("a permissive context has no world")
     }
+    pub(crate) fn composition_world(&self) -> Option<WorldId> {
+        self.world
+    }
 
     /// Canonical ids of interfaces the default world imports.
     pub fn world_imports(&self) -> &[String] {
@@ -79,106 +79,6 @@ impl ResolvedWorldContext {
     /// Whether the world imports the named canonical interface.
     pub fn imports_interface(&self, canonical: &str) -> bool {
         self.imports.iter().any(|id| id == canonical)
-    }
-
-    /// The allowed residual host capabilities: the transitive WIT dependency
-    /// closure of `seeds` within the resolved world.
-    pub fn host_closure(&self, seeds: &BTreeSet<String>) -> Vec<String> {
-        let resolve = &self.resolve;
-        let mut owner = HashMap::<TypeId, InterfaceId>::new();
-        for (id, ty) in resolve.types.iter() {
-            if let TypeOwner::Interface(interface) = ty.owner {
-                owner.insert(id, interface);
-            }
-        }
-        let mut pending = Vec::new();
-        let mut seen = HashSet::<InterfaceId>::new();
-        for (id, _) in resolve.interfaces.iter() {
-            if let Some(canonical) = resolve.id_of(id)
-                && seeds.contains(&canonical)
-                && seen.insert(id)
-            {
-                pending.push(id);
-            }
-        }
-        while let Some(interface) = pending.pop() {
-            let mut referenced = Vec::new();
-            for ty in resolve.interfaces[interface].types.values() {
-                walk_type(resolve, &Type::Id(*ty), &mut referenced);
-            }
-            for function in resolve.interfaces[interface].functions.values() {
-                for param in &function.params {
-                    walk_type(resolve, &param.ty, &mut referenced);
-                }
-                if let Some(ty) = &function.result {
-                    walk_type(resolve, ty, &mut referenced);
-                }
-            }
-            for ty in referenced {
-                if let Some(dependency) = owner.get(&ty)
-                    && seen.insert(*dependency)
-                {
-                    pending.push(*dependency);
-                }
-            }
-        }
-        let mut ids = seen
-            .into_iter()
-            .filter_map(|id| resolve.id_of(id))
-            .collect::<Vec<_>>();
-        ids.sort();
-        ids
-    }
-}
-
-fn walk_type(resolve: &Resolve, ty: &Type, out: &mut Vec<TypeId>) {
-    if let Type::Id(id) = ty {
-        out.push(*id);
-        walk_kind(resolve, &resolve.types[*id].kind, out);
-    }
-}
-
-fn walk_kind(resolve: &Resolve, kind: &TypeDefKind, out: &mut Vec<TypeId>) {
-    match kind {
-        TypeDefKind::Record(record) => {
-            for field in &record.fields {
-                walk_type(resolve, &field.ty, out);
-            }
-        }
-        TypeDefKind::Tuple(tuple) => {
-            for ty in &tuple.types {
-                walk_type(resolve, ty, out);
-            }
-        }
-        TypeDefKind::Variant(variant) => {
-            for case in &variant.cases {
-                if let Some(ty) = &case.ty {
-                    walk_type(resolve, ty, out);
-                }
-            }
-        }
-        TypeDefKind::Option(ty) | TypeDefKind::List(ty) => walk_type(resolve, ty, out),
-        TypeDefKind::Result(result) => {
-            if let Some(ty) = &result.ok {
-                walk_type(resolve, ty, out);
-            }
-            if let Some(ty) = &result.err {
-                walk_type(resolve, ty, out);
-            }
-        }
-        TypeDefKind::Map(key, value) => {
-            walk_type(resolve, key, out);
-            walk_type(resolve, value, out);
-        }
-        TypeDefKind::FixedLengthList(ty, _) => walk_type(resolve, ty, out),
-        TypeDefKind::Future(Some(ty)) | TypeDefKind::Stream(Some(ty)) => {
-            walk_type(resolve, ty, out)
-        }
-        TypeDefKind::Type(ty) => walk_type(resolve, ty, out),
-        TypeDefKind::Handle(Handle::Own(id) | Handle::Borrow(id)) => {
-            walk_type(resolve, &Type::Id(*id), out);
-        }
-        _ => {}
     }
 }
 

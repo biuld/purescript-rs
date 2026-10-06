@@ -13,10 +13,13 @@
 //! compose(context, plan, encoded_application) -> LinkedArtifact
 //! ```
 
+mod application;
+mod closure;
 mod compose;
 mod definitions;
 mod digest;
 mod error;
+pub mod guest;
 pub mod plan;
 pub mod runtime;
 mod stack;

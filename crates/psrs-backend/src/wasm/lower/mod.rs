@@ -154,25 +154,29 @@ pub(crate) fn lower_module_with_plan(
                     message,
                 )]
             })?;
-        let (exit_module, exit_field) =
-            link.imports.get(&exit.symbol).cloned().ok_or_else(|| {
-                wasm_error(
-                    module.span,
-                    "the command entry exit has no checked provider",
-                )
-            })?;
-        let exit_type_index = TypeIndex(defined + types.len() as u32);
-        types.push(FuncType {
-            parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
-            results: Vec::new(),
-        });
-        let index = FunctionIndex(imports.len() as u32);
-        imports.push(Import {
-            module: exit_module,
-            name: exit_field,
-            type_index: exit_type_index,
-        });
-        Some(index)
+        if let Some(index) = import_indices.get(&exit.symbol) {
+            Some(*index)
+        } else {
+            let (exit_module, exit_field) =
+                link.imports.get(&exit.symbol).cloned().ok_or_else(|| {
+                    wasm_error(
+                        module.span,
+                        "the command entry exit has no checked provider",
+                    )
+                })?;
+            let exit_type_index = TypeIndex(defined + types.len() as u32);
+            types.push(FuncType {
+                parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
+                results: Vec::new(),
+            });
+            let index = FunctionIndex(imports.len() as u32);
+            imports.push(Import {
+                module: exit_module,
+                name: exit_field,
+                type_index: exit_type_index,
+            });
+            Some(index)
+        }
     } else {
         None
     };
@@ -258,7 +262,7 @@ pub(crate) fn lower_module_with_plan(
             index: ExportIndex::Memory(MemoryIndex(0)),
         },
     ];
-    let mut minimum = 1;
+    let minimum = link.plan.memory().minimum_pages;
     let mut realloc = None;
     if needs_realloc {
         let realloc_type = TypeIndex(defined + types.len() as u32);
@@ -286,10 +290,7 @@ pub(crate) fn lower_module_with_plan(
             },
             bytes: state,
         });
-        minimum = link.plan.memory().minimum_pages;
         realloc = Some(build_realloc(realloc_type, module.span));
-    } else if !link.plan.artifacts().is_empty() {
-        minimum = link.plan.memory().minimum_pages;
     }
     let helpers = if needs_helpers {
         let string_type = string_type.expect("a needed codec has a GC string type");

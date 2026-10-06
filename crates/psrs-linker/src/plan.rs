@@ -27,6 +27,8 @@ pub struct MemoryPlan {
     pub minimum_pages: u64,
     /// Every owned region, sorted by start address.
     pub reservations: Vec<StorageRegion>,
+    pub(crate) canonical_scratch: (u32, u32),
+    pub(crate) allocator_state: (u32, u32),
 }
 
 /// One immutable checked target link plan.
@@ -41,9 +43,17 @@ pub struct CheckedLinkPlan {
     memory: MemoryPlan,
     external_world: Vec<String>,
     digests: Vec<String>,
+    context: (
+        std::sync::Arc<wit_parser::Resolve>,
+        Option<wit_parser::WorldId>,
+    ),
 }
 
 impl CheckedLinkPlan {
+    pub(crate) fn uses_context(&self, context: &ResolvedWorldContext) -> bool {
+        std::sync::Arc::ptr_eq(&self.context.0, &context.shared_resolve())
+            && self.context.1 == context.composition_world()
+    }
     /// The binding for a requirement, when it contributes a core import.
     pub fn import(&self, requirement: RequirementId) -> Option<&ResolvedBinding> {
         self.bindings
@@ -115,7 +125,6 @@ pub fn plan(
 
     let mut verified: BTreeMap<String, VerifiedArtifact> = BTreeMap::new();
     let mut used_artifacts = BTreeSet::new();
-    let mut external = BTreeSet::new();
     // A core import identity resolves to exactly one provider and signature.
     let mut claims = BTreeMap::<(String, String), (CoreSignature, String)>::new();
     let mut bindings = Vec::new();
@@ -184,6 +193,13 @@ pub fn plan(
                 });
             }
             Provider::HostInterface { interface } => {
+                if !context.imports_interface(interface) {
+                    return Err(LinkErrors::one(
+                        stage,
+                        &requirement.origin,
+                        format!("host interface `{interface}` is outside the resolved world"),
+                    ));
+                }
                 if !policy
                     .permitted_host_interfaces
                     .iter()
@@ -217,7 +233,6 @@ pub fn plan(
                         ));
                     }
                 };
-                external.insert(interface.clone());
                 claim(
                     &mut claims,
                     (module.clone(), field.clone()),
@@ -248,12 +263,25 @@ pub fn plan(
     digests.sort();
     digests.dedup();
 
+    let external = crate::closure::host_imports(context, &bindings)?;
+    for interface in &external {
+        if !context.imports_interface(interface)
+            || !policy.permitted_host_interfaces.contains(interface)
+        {
+            return Err(LinkErrors::one(
+                stage,
+                interface,
+                "component resource dependency is outside the selected world or target profile",
+            ));
+        }
+    }
     Ok(CheckedLinkPlan {
         bindings,
         artifacts: verified.into_values().collect(),
         memory,
-        external_world: context.host_closure(&external),
+        external_world: external,
         digests,
+        context: (context.shared_resolve(), context.composition_world()),
     })
 }
 
@@ -341,6 +369,12 @@ fn plan_memory(
     }
 
     reservations.sort_by_key(|region| (region.start, region.end));
+    if reservations.iter().any(|region| region.start > region.end) {
+        return Err(LinkErrors::plain(
+            stage,
+            "storage reservation has reversed bounds",
+        ));
+    }
     for pair in reservations.windows(2) {
         if pair[1].start < pair[0].end {
             return Err(LinkErrors::one(
@@ -354,7 +388,7 @@ fn plan_memory(
         }
     }
     let alignment = demand.heap_alignment;
-    if alignment == 0 || !heap_start.is_multiple_of(alignment) {
+    if !alignment.is_power_of_two() || !heap_start.is_multiple_of(alignment) {
         return Err(LinkErrors::plain(
             stage,
             "allocator boundary is not aligned to its block granularity",
@@ -369,21 +403,35 @@ fn plan_memory(
             "a reservation extends past the allocator boundary",
         ));
     }
+    if minimum_pages > 65536 {
+        return Err(LinkErrors::plain(
+            stage,
+            "memory plan exceeds wasm32 limits",
+        ));
+    }
     if u64::from(heap_start) > minimum_pages * 0x1_0000 {
         return Err(LinkErrors::plain(
             stage,
             "declared minimum pages do not cover the allocator boundary",
         ));
     }
-    // The allocator does not grow memory; it needs at least one page of heap
+    // The allocator grows memory on demand; reserve one initial page of heap
     // beyond the boundary where every reserved region ends.
     minimum_pages = minimum_pages.max(u64::from(heap_start).div_ceil(0x1_0000) + 1);
+    if minimum_pages > 65536 {
+        return Err(LinkErrors::plain(
+            stage,
+            "memory plan exceeds wasm32 limits",
+        ));
+    }
 
     Ok(MemoryPlan {
         heap_start,
         heap_alignment: alignment,
         minimum_pages,
         reservations,
+        canonical_scratch: demand.canonical_scratch,
+        allocator_state: demand.allocator_state,
     })
 }
 

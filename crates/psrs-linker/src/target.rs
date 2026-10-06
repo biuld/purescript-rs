@@ -67,8 +67,8 @@ pub struct BindingRequirement {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArtifactKind {
     CoreModule,
-    /// A guest component provider. Composition is not yet supported; the linker
-    /// rejects it rather than silently falling back to a host interface.
+    /// A typed guest component provider. Use `guest::plan_components`; a
+    /// component cannot satisfy a raw-core artifact contract.
     Component,
 }
 

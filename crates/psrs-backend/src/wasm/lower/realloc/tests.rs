@@ -9,7 +9,7 @@ use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use wasm_encoder::{Instruction as I, MemArg, ValType};
 
-const CHECK_COUNT: u32 = 8;
+const CHECK_COUNT: u32 = 10;
 const REALLOC_INDEX: u32 = CHECK_COUNT;
 
 fn mm(align: u32) -> MemArg {
@@ -224,6 +224,39 @@ fn check_bounded_growth() -> Body {
     asm.into_body()
 }
 
+fn check_page_boundary_growth() -> Body {
+    let mut asm = Asm::new();
+    let length = (65536 - abi::HEAP_START - abi::HEADER_SIZE) as i32;
+    allocate_into(&mut asm, 0, length, 8);
+    get(&mut asm, 0);
+    constant(&mut asm, 123);
+    asm.leaf(I::I32Store8(mm(0)));
+    allocate_into(&mut asm, 1, 16, 8);
+    asm.leaf(I::MemorySize(0));
+    constant(&mut asm, 2);
+    asm.leaf(I::I32Eq);
+    get(&mut asm, 0);
+    asm.leaf(I::I32Load8U(mm(0)));
+    constant(&mut asm, 123);
+    asm.leaf(I::I32Eq);
+    asm.leaf(I::I32And);
+    free_call(&mut asm, 1, 16);
+    allocate_into(&mut asm, 2, 16, 8);
+    equal(&mut asm, 1, 2);
+    asm.leaf(I::I32And);
+    asm.into_body()
+}
+
+fn free_block_size_overflow() -> Body {
+    let mut asm = Asm::new();
+    allocate_into(&mut asm, 0, 16, 8);
+    free_call(&mut asm, 0, 16);
+    realloc_call(&mut asm, 0, 0, 8, -8);
+    asm.leaf(I::Drop);
+    constant(&mut asm, 0);
+    asm.into_body()
+}
+
 fn function(name: &str, body: Body, locals: usize) -> Function {
     Function {
         symbol: SymbolId::new(ModuleId(0), 0),
@@ -250,6 +283,12 @@ fn fixture() -> Module {
         function("grow_failure", grow_failure(), 0),
         function("address_overflow", address_overflow(), 0),
         function("check_bounded_growth", check_bounded_growth(), 2),
+        function(
+            "check_page_boundary_growth",
+            check_page_boundary_growth(),
+            3,
+        ),
+        function("free_block_size_overflow", free_block_size_overflow(), 1),
     ];
     let realloc_type = TypeIndex(1);
     functions.push(build_realloc(realloc_type, span()));
@@ -358,6 +397,7 @@ fn realloc_reclaims_reuses_coalesces_aligns_and_traps() {
         "check_reuse_and_coalesce",
         "check_alignment_and_resize",
         "check_bounded_growth",
+        "check_page_boundary_growth",
     ] {
         let output = run(export);
         assert!(output.status.success(), "{export} trapped: {output:?}");
@@ -373,6 +413,7 @@ fn realloc_reclaims_reuses_coalesces_aligns_and_traps() {
         "mismatched_length",
         "grow_failure",
         "address_overflow",
+        "free_block_size_overflow",
     ] {
         let output = run(export);
         assert!(!output.status.success(), "{export} unexpectedly succeeded");

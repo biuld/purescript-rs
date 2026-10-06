@@ -269,7 +269,13 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         span: span(),
     };
 
-    let wasm = crate::wasm::lower_module(&mir, &mut registry()).expect("lowering to Wasm");
+    let context = crate::linking::default_context().expect("resolved world");
+    let mut wasi = registry();
+    let target = crate::TargetCapabilities::default();
+    let link = crate::linking::plan_for_module(&context, &mir, &mut wasi, target)
+        .expect("checked target plan");
+    let wasm = crate::wasm::lower_module_with_plan(&mir, &mut wasi, target, &link)
+        .expect("lowering to Wasm");
     let core = crate::wasm::encode_module(&wasm).expect("encoding");
     crate::validator()
         .validate_all(&core)
@@ -283,7 +289,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         eprintln!("skipping: wasmtime is not installed");
         return;
     }
-    let component = crate::linking::compose_core(&core).expect("componentizing");
+    let component = crate::linking::compose(&link, &core, mir.span, None).expect("componentizing");
     let path = std::env::temp_dir().join(format!("psrs-mir-gc-{}.wasm", std::process::id()));
     std::fs::write(&path, &component).unwrap();
     let output = std::process::Command::new("wasmtime")

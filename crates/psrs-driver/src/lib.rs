@@ -7,6 +7,7 @@ pub use prelude::{StandardLibraryInfo, standard_library_info};
 mod program;
 
 pub use diagnostics::{CompilationReport, FrontendPassTrace, IrDumpArtifacts, PartialIrDumps};
+pub use psrs_backend::TargetCapabilities;
 pub use psrs_backend::trace::*;
 
 pub use loader::{

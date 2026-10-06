@@ -303,32 +303,3 @@ fn attach(error: BackendError, owner: Option<ModuleId>) -> BackendError {
         None => error,
     }
 }
-
-#[cfg(test)]
-pub(crate) fn empty_plan(context: &ResolvedWorldContext) -> CheckedLinkPlan {
-    psrs_linker::plan(
-        context,
-        TargetLinkInput {
-            requirements: Vec::new(),
-            artifacts: Vec::new(),
-            policy: TargetPolicy::default(),
-            memory: memory_demand(),
-        },
-    )
-    .expect("an empty plan is valid")
-}
-
-#[cfg(test)]
-pub(crate) fn compose_core(core: &[u8]) -> Result<Vec<u8>, String> {
-    let context = default_context().map_err(|errors| {
-        errors
-            .into_iter()
-            .map(|error| error.message)
-            .collect::<Vec<_>>()
-            .join("; ")
-    })?;
-    let plan = empty_plan(&context);
-    psrs_linker::compose(&context, &plan, core)
-        .map(|artifact| artifact.bytes)
-        .map_err(|errors| errors.to_string())
-}

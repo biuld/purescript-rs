@@ -224,3 +224,24 @@ main = show Box
         "expected NoInstanceFound, got {errors:?}"
     );
 }
+
+#[test]
+fn retained_show_strings_survive_wasi_allocation_and_memory_growth() {
+    // The formatter's initial heap has one page. A 70,000-byte canonical
+    // random result must grow shared memory while the GC String stays live.
+    let source = r#"module Main where
+import Prelude
+import Effect.Console (log)
+import WASI.Random (randomBytes)
+main = let retained = show 1.0e21
+           first = runEffect (log retained)
+           large = runEffect (randomBytes 70000)
+           next = runEffect (log (show 5.0e-324))
+           last = runEffect (log retained)
+       in if arrayLength large == 70000 && retained == "1e+21" then 42 else 1
+"#;
+    let output = run_with_wasmtime(source).expect("Wasmtime required for growth evidence");
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+    assert_eq!(output.stdout, b"1e+21\n5e-324\n1e+21\n");
+    assert!(output.stderr.is_empty(), "{output:?}");
+}

@@ -94,11 +94,11 @@ fn embedded_artifact_satisfies_its_contract() {
 }
 
 #[test]
-fn a_guest_component_provider_is_rejected_without_a_host_fallback() {
+fn a_component_contract_cannot_use_raw_core_verification() {
     let mut contract = number_format_contract();
     contract.kind = ArtifactKind::Component;
     let error = verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
-        .expect_err("guest components are not composable yet");
+        .expect_err("component bytes cannot satisfy a raw-core contract");
     assert!(
         error.to_string().contains("no silent host fallback"),
         "{error}"
@@ -131,4 +131,72 @@ fn an_overlapping_data_range_is_rejected() {
     let mut contract = number_format_contract();
     contract.initialization.data_range = (0, 16);
     assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+}
+
+#[test]
+fn storage_cannot_name_an_absent_immutable_or_displaced_stack_pointer() {
+    for index in [1, 99] {
+        let mut contract = number_format_contract();
+        contract.storage.as_mut().unwrap().stack_pointer_global = index;
+        assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+    }
+    let mut contract = number_format_contract();
+    contract.storage.as_mut().unwrap().stack.end += 8;
+    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+}
+
+#[test]
+fn independent_export_table_and_feature_contract_drift_is_rejected() {
+    let mut contract = number_format_contract();
+    contract.exports[0].signature.as_mut().unwrap().parameters[0] = CoreType::F32;
+    assert!(
+        verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("signature")
+    );
+    let mut contract = number_format_contract();
+    let mut missing = contract.exports[0].clone();
+    missing.name = "absent-export".into();
+    contract.exports.push(missing);
+    assert!(
+        verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("missing declared export")
+    );
+    let mut contract = number_format_contract();
+    contract.tables[0].minimum = 0;
+    assert!(
+        verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("tables")
+    );
+    let mut contract = number_format_contract();
+    contract.required_features.clear();
+    assert!(
+        verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("not valid Wasm")
+    );
+}
+
+#[test]
+fn a_valid_but_undeclared_eager_initializer_is_rejected() {
+    let text = wasmprinter::print_bytes(psrs_runtime::NUMBER_FORMATTER.bytes).unwrap();
+    let prefix = text.trim_end().strip_suffix(')').unwrap();
+    let bytes = wat::parse_str(format!("{prefix}(func $eager) (start $eager))")).unwrap();
+    wasmparser::Validator::new()
+        .validate_all(&bytes)
+        .expect("valid initializer module");
+    let mut contract = number_format_contract();
+    contract.sha256 = crate::sha256_hex(&bytes);
+    assert!(
+        verify_artifact(&contract, &bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("start function")
+    );
 }

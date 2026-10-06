@@ -1,8 +1,9 @@
 # Linking and Runtime Implementations
 
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
-**Status:** Implemented for the core-Wasm formatter slice. General guest WIT
-provider composition remains unsupported; see the open questions below.  
+**Status:** Core-Wasm formatter linking and explicit synchronous guest interface
+composition are implemented; general loading extensions remain future work.
+
 **Prerequisites:** [IR boundaries](../00-ir-boundaries.md),
 [primitive FFI](primitive-ffi-and-stdlib.md),
 [canonical ABI and WIT](canonical-abi-and-wit.md),
@@ -212,7 +213,7 @@ closure, not every interface mentioned in the package's default world.
 Resolve all needed WIT definitions for type checking, but select executable
 providers only for reachable interfaces and retained initialization needs.
 Provider bindings are explicit build inputs: current compiler-owned WASI bindings
-select host interfaces; future guest bindings select pinned component exports.
+select host interfaces; explicit component bindings select pinned guest exports.
 Merely placing WIT files in a directory never selects a provider.
 
 For a host binding, verify that the selected target world permits that interface
@@ -270,9 +271,17 @@ other export/import must be understood and declared, not blanket-accepted.
 The pinned nonrecursive formatter's maximum stack use must be established by
 artifact analysis or an explicit reviewed build assumption plus stress evidence.
 Checking the initial stack pointer alone does not prove a bound. Reentrancy,
-callbacks, memory growth, or a different runtime provider requires revisiting
-the storage contract. Additional artifacts need disjoint reservations or an
-explicit shared allocator; the linker must not reuse this fixed region blindly.
+callbacks, or a different runtime provider requires revisiting the storage
+contract. For the current allocator, successful memory growth preserves existing
+addresses and bytes: reservations stay below the fixed heap boundary and the
+runtime stack pointer does not move. Block metadata is committed only after
+growth succeeds, with unsigned overflow checks before capacity calculations.
+Allocator execution checks the exact page boundary, growth failure and wrapped
+free-list sizes; source execution interleaves a 70,000-byte canonical WASI
+allocation with formatting and retained GC Strings. This establishes growth
+under the current nonreentrant calling protocol. Additional artifacts need
+disjoint reservations or an explicit shared allocator; the linker must not reuse
+this fixed region blindly.
 
 This extends the strict "canonical ABI only" linear-memory clause of DEC-09/10
 to permit declared private runtime execution storage. Language values remain on
@@ -467,12 +476,54 @@ digests, plan inputs, checks, and failures as explicit lineage alongside MIR and
 binary artifacts. Runtime observations remain separate evidence. A valid link
 plan proves binding/layout checks, not official-library semantic conformance.
 
-## Open questions and future work
+## Supported component entry and future work
 
-The concrete manifest syntax and CLI for independently supplied WIT providers
-are not yet selected. Their ownership and checked-plan obligations are defined
-above; general component loading remains unsupported until that entry point and
-its verification exist. Do not imply a new supported CLI flag in documentation.
+The initial guest entry point is `psrs link application.wasm --manifest
+providers.json -o linked.wasm [--report report.json]`. It consumes an already
+validated application component, pinned executable guest components and explicit
+whole-interface bindings. The version-1 manifest and report are specified in
+[Explicit Component Linking](../../../workflow/component-linking.md).
+`psrs build` owns source compilation and accepts `--manifest` explicitly after
+completing the checked core runtime plan. It computes the produced application's
+pin rather than requiring the user to predict its bytes. An optional supplied
+root pin is still checked. `--report` joins the source diagnosis artifact to
+component composition by exact digest. Standalone `psrs link` requires all pins;
+neither command discovers providers.
+
+`psrs-linker::guest::plan_components` uses the pinned `wasm-compose` 0.245.1
+in-memory graph API. Every participating component is parsed with the same
+validator so cross-component resource identities share one type universe.
+Closure starts at the application, follows explicit guest edges, and retains
+only permitted unbound interface instances as host imports. Unused candidates
+are omitted. Duplicate bindings, digest drift, incompatible interfaces, missing
+exports and instantiation cycles fail closed. An explicitly selected guest
+never falls back to the host. Canonical adaptation preserves each component's
+memory, realloc and post-return operations through typed instance connections.
+
+The core `CheckedLinkPlan` remains bound to one immutable resolved WIT context,
+raw import signatures and memory reservations. Composition independently checks
+the actual application's imports, minimum memory and active initialization
+before attaching core libraries. Component composition uses a distinct sealed
+`CheckedComponentPlan`: its memories remain component-owned, so it does not
+fabricate an application-wide linear memory plan. The component plan holds the
+validated graph encoding, exact root digest, selected binding edges, artifact
+pins, validator feature policy and residual host imports. Emission accepts only
+the root bytes checked by that plan. Both plans are linker-owned target records;
+neither contains compiler IR or reinterprets source types.
+
+Guest graph closure requires exact equality with the encoded outer imports.
+WIT type dependencies are not independent executable capabilities. The core-to-component path derives the same projection by encoding the planned
+WIT function signatures in a nonexecuted import-only module. The authoritative
+component encoder determines resource-owner imports, without expanding unused
+interface methods. Final composition independently requires exact import-set
+equality with this projection. Every retained resource owner must also satisfy
+world membership and target policy.
+
+Only synchronous whole-interface instance imports with matching canonical
+interface names are supported by the initial entry point. Non-interface
+imports, implicit version adaptation, partial method providers, cyclic
+instantiation, dynamic discovery and asynchronous composition require explicit
+extensions. A definition-only WIT package is not an executable provider.
 
 The runtime stack bound is measured by a static call-graph analysis of the
 pinned nonrecursive artifact, and the artifact-provenance representation is
@@ -484,10 +535,13 @@ explicit extensions.
 Existing WIT/WASI binding code precedes this plan model. The formatter slice now
 carries one checked plan from requirement closure through artifact verification,
 Wasm emission, and component assembly, with a target-only linker test suite and
-an end-to-end formatter execution test. The stack bound is still a reviewed
-pinned-build assumption pending stress evidence, and general guest WIT component
-linking remains unimplemented; no general-linker claim follows from the
-formatter slice.
+an end-to-end formatter execution test. The stack bound is measured over a restricted
+frame protocol: one constant prologue, an immutable saved frame and checked restoration before returning.
+Unrecognized stack-pointer access, indirect/imported calls, recursion, exception
+unwinding and suspension are rejected. The declared stack-pointer global must
+be mutable and initialize at the reserved stack top. These checks establish the
+formatter bound; they do not establish arbitrary runtime-library memory safety.
+Guest execution evidence is recorded separately from the formatter slice.
 
 ## References
 

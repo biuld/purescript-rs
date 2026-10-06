@@ -1,7 +1,8 @@
 # DEC-18 — Unified Target Linking
 
-**Status:** Accepted; implemented for the core-Wasm formatter slice. General
-guest WIT provider composition remains unimplemented.
+**Status:** Accepted; core-Wasm formatter linking and explicit synchronous
+guest interface composition are implemented.
+
 **Date:** 2026-10-07.
 
 ## Context and constraints
@@ -101,8 +102,10 @@ are not implied by this decision. Artifact composition must respect each chosen
 boundary. Additional supported input formats need their own conversion and
 verification contracts.
 
-The existing uncommitted Show/runtime prototype is not evidence that this
-contract is implemented. Its late attachment, duplicated checks, and fixed
-reservation must be reconciled with the checked plan before acceptance. General
-guest WIT component linking remains unimplemented; the design preserves its
-requirements rather than describing the prototype as a complete linker.
+The formatter implementation now carries one checked core link plan through
+emission and composition. Explicit synchronous guest interface composition uses
+a checked component graph after source-to-component lowering; it preserves
+component-owned memory and canonical ownership rather than applying core memory
+reservations to separate components. Its supported entry point and remaining
+obligations are recorded in the design and acceptance checklist. Neither slice
+establishes arbitrary dynamic component loading or shared GC representations.

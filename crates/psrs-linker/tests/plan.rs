@@ -99,22 +99,11 @@ fn a_live_formatter_requirement_reserves_storage_and_closes_the_private_import()
         link.import(RequirementId(0)).unwrap().module,
         psrs_runtime::MODULE_NAME
     );
-    // The external world is the transitive closure of the used host interface.
-    assert!(
-        link.external_world()
-            .iter()
-            .any(|id| id == "wasi:cli/stdout@0.2.12")
-    );
-    assert!(
-        link.external_world()
-            .iter()
-            .any(|id| id == "wasi:io/streams@0.2.12")
-    );
-    assert!(
-        !link
-            .external_world()
-            .iter()
-            .any(|id| id == psrs_runtime::MODULE_NAME)
+    // The encoder retains only the live resource owner, not unused methods'
+    // dependencies (`error` and `poll` belong to other streams operations).
+    assert_eq!(
+        link.external_world(),
+        &["wasi:cli/stdout@0.2.12", "wasi:io/streams@0.2.12"]
     );
     assert_eq!(link.digests().len(), 1);
     assert_eq!(
@@ -266,5 +255,63 @@ fn a_definition_contract_does_not_satisfy_execution() {
             input(vec![formatter_requirement()], vec![artifact])
         )
         .is_err()
+    );
+}
+
+#[test]
+fn the_policy_cannot_introduce_an_interface_absent_from_the_world() {
+    let context = resolve_default_definitions().unwrap();
+    let mut requirement = stdout_requirement(0);
+    let interface = "wasi:cli/stdout@99.0.0";
+    requirement.boundary = Boundary::ResolvedWit {
+        interface: interface.into(),
+        function: "get-stdout".into(),
+    };
+    requirement.provider = Provider::HostInterface {
+        interface: interface.into(),
+    };
+    let mut input = input(vec![requirement], Vec::new());
+    input
+        .policy
+        .permitted_host_interfaces
+        .push(interface.into());
+    assert!(
+        plan(&context, input)
+            .unwrap_err()
+            .to_string()
+            .contains("outside the resolved world")
+    );
+}
+
+#[test]
+fn impossible_memory_demands_are_rejected_before_arithmetic() {
+    let context = resolve_default_definitions().unwrap();
+    for (range, alignment) in [((16, 0), 8), ((0, 16), 3), ((0, 16), 0)] {
+        let mut input = input(Vec::new(), Vec::new());
+        input.memory.canonical_scratch = range;
+        input.memory.heap_alignment = alignment;
+        assert!(plan(&context, input).is_err());
+    }
+    let mut artifact = formatter_artifact();
+    artifact.contract.storage.as_mut().unwrap().minimum_pages = u64::MAX;
+    assert!(
+        plan(
+            &context,
+            input(vec![formatter_requirement()], vec![artifact])
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn a_resource_owner_disabled_by_policy_cannot_hide_behind_a_live_method() {
+    let context = resolve_default_definitions().unwrap();
+    let mut input = input(vec![stdout_requirement(0)], Vec::new());
+    input.policy.permitted_host_interfaces = vec!["wasi:cli/stdout@0.2.12".into()];
+    assert!(
+        plan(&context, input)
+            .unwrap_err()
+            .to_string()
+            .contains("resource dependency")
     );
 }

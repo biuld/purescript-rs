@@ -45,8 +45,13 @@ pub(super) fn emit_allocate(asm: &mut Asm) {
     get(asm, L_PNODE);
     get(asm, L_NODE);
     asm.leaf(Instruction::I32Sub);
+    set(asm, L_FRONT);
+    get(asm, L_FRONT);
     get(asm, NEW_LEN);
     asm.leaf(Instruction::I32Add);
+    set(asm, L_TMP2);
+    local_trap_if_wrapped(asm, L_TMP2, L_FRONT);
+    get(asm, L_TMP2);
     set(asm, L_FRONT);
     checked_align_up_const(asm, L_FRONT, abi::MIN_BLOCK);
     // front <= size: this block fits
@@ -96,8 +101,6 @@ fn emit_bump(asm: &mut Asm) {
     get(asm, L_BREAK);
     asm.leaf(Instruction::I32Sub);
     set(asm, L_TMP);
-    word_store(asm, L_BREAK, 0, L_TMP);
-    word_store(asm, L_BREAK, 4, NEW_LEN);
     // pages = ceil(END / 65536)
     get(asm, L_END);
     constant(asm, 16);
@@ -125,6 +128,9 @@ fn emit_bump(asm: &mut Asm) {
     asm.leaf(Instruction::Unreachable);
     asm.end();
     asm.end();
+    // Commit metadata only after the entire block is addressable.
+    word_store(asm, L_BREAK, 0, L_TMP);
+    word_store(asm, L_BREAK, 4, NEW_LEN);
     state_store(asm, 4, L_END);
 }
 

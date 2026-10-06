@@ -70,6 +70,26 @@ pub(super) fn check_contract(
             "artifact globals do not match the declared contract",
         ));
     }
+    if let Some(storage) = &contract.storage {
+        let pointer = parsed
+            .globals
+            .get(storage.stack_pointer_global as usize)
+            .ok_or_else(|| LinkErrors::one(stage, id, "stack pointer global is absent"))?;
+        if !pointer.mutable
+            || pointer.initial != storage.stack.end
+            || storage.stack.start >= storage.stack.end
+            || storage.static_data.start > storage.static_data.end
+            || contract.initialization.data_range.0 < storage.static_data.start
+            || contract.initialization.data_range.1 > storage.static_data.end
+            || storage.stack_bound_bytes > storage.stack.end - storage.stack.start
+        {
+            return Err(LinkErrors::one(
+                stage,
+                id,
+                "execution storage disagrees with the artifact stack pointer or initialization",
+            ));
+        }
+    }
     if parsed.has_elements {
         return Err(LinkErrors::one(
             stage,

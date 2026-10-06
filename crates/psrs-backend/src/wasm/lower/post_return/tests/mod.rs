@@ -16,15 +16,8 @@ fn span() -> TextRange {
     TextRange::new(0, 1)
 }
 
-/// Composes a fixture core module against its own custom world and an empty
-/// checked plan; these fixtures declare no artifact requirements.
-fn componentize(core: &[u8], resolve: Resolve, world: WorldId) -> Result<Vec<u8>, String> {
-    let context = psrs_linker::ResolvedWorldContext::from_resolve(resolve, world);
-    let plan = crate::linking::empty_plan(&context);
-    psrs_linker::compose(&context, &plan, core)
-        .map(|artifact| artifact.bytes)
-        .map_err(|errors| errors.to_string())
-}
+mod composition;
+use composition::componentize;
 
 #[test]
 fn post_return_drops_an_owned_export_handle() {
@@ -33,10 +26,13 @@ fn post_return_drops_an_owned_export_handle() {
             interface types {
                 resource thing;
             }
+            interface api {
+                use types.{thing};
+                take: func() -> thing;
+            }
             world guest {
                 import types;
-                use types.{thing};
-                export take: func() -> thing;
+                export api;
             }
         "#;
     let mut resolve = Resolve::default();
@@ -48,12 +44,20 @@ fn post_return_drops_an_owned_export_handle() {
         .get("guest")
         .copied()
         .expect("guest world");
-    let export = match &resolve.worlds[world].exports.values().next() {
-        Some(WorldItem::Function(function)) => function.name.clone(),
-        other => panic!("expected one function export, found {other:?}"),
+    let (key, item) = resolve.worlds[world].exports.iter().next().unwrap();
+    let WorldItem::Interface { id, .. } = item else {
+        panic!("interface export");
     };
-    assert_eq!(export, "take");
-    assert_eq!(post_return_name(&export), "cabi_post_take");
+    let export = format!(
+        "{}#{}",
+        resolve.name_world_key(key),
+        resolve.interfaces[*id].functions["take"].name
+    );
+    assert_eq!(export, "fixture:handles/api@0.1.0#take");
+    assert_eq!(
+        post_return_name(&export),
+        "cabi_post_fixture:handles/api@0.1.0#take"
+    );
 
     let drop_type = TypeIndex(0);
     let take_type = TypeIndex(1);
@@ -68,7 +72,7 @@ fn post_return_drops_an_owned_export_handle() {
     );
     assert_eq!(post_signature.parameters, vec![ValType::I32]);
     assert!(post_signature.results.is_empty());
-    assert_eq!(post_export.name, "cabi_post_take");
+    assert_eq!(post_export.name, post_return_name(&export));
 
     let module = Module {
         name: "Handles".into(),
@@ -126,8 +130,22 @@ fn post_return_drops_an_owned_export_handle() {
         helpers: Vec::new(),
         span: span(),
     };
-    let core = crate::wasm::encode_module(&module).expect("encoding the core module");
-    let component = componentize(&core, resolve, world).expect("componentizing post-return");
+    let interface = "fixture:handles/types@0.1.0".to_string();
+    let requirement = psrs_linker::BindingRequirement {
+        id: psrs_linker::RequirementId(0),
+        origin: "owned handle post-return".into(),
+        boundary: psrs_linker::Boundary::ResolvedWit {
+            interface: interface.clone(),
+            function: "[resource-drop]thing".into(),
+        },
+        expected: Some(psrs_linker::CoreSignature {
+            parameters: vec![psrs_linker::CoreType::I32],
+            result: None,
+        }),
+        provider: psrs_linker::Provider::HostInterface { interface },
+    };
+    let component = componentize(module, resolve, world, vec![requirement])
+        .expect("componentizing post-return");
     crate::validator()
         .validate_all(&component)
         .expect("the component should validate");
@@ -137,7 +155,7 @@ fn post_return_drops_an_owned_export_handle() {
         "post-return should lower to canon resource.drop: {text}"
     );
     assert!(
-        text.contains("cabi_post_take") || text.contains("post-return"),
+        text.contains("cabi_post_fixture:handles/api@0.1.0#take") || text.contains("post-return"),
         "the export should have a post-return: {text}"
     );
 }
@@ -418,10 +436,9 @@ fn buffer_post_return_frees_the_returned_string() {
 #[test]
 fn component_attaches_the_buffer_post_return() {
     let module = buffer_post_return_module();
-    let binary = crate::wasm::encode_module(&module).expect("Wasm encodes");
     let (resolve, world) = string_world();
     let component =
-        componentize(&binary, resolve, world).expect("componentizing the string export");
+        componentize(module, resolve, world, Vec::new()).expect("componentizing the string export");
     crate::validator()
         .validate_all(&component)
         .expect("the component should validate");
