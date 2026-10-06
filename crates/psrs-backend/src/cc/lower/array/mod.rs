@@ -1,3 +1,5 @@
+mod storage;
+
 use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId, ValueShape};
 use super::FunctionLowerer;
 use crate::BackendError;

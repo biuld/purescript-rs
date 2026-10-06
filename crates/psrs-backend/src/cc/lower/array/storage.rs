@@ -1,11 +1,11 @@
 //! Low-level initialized allocation and unsafe writes; library code owns loops.
-use super::FunctionLowerer;
+use super::super::FunctionLowerer;
 use crate::BackendError;
 use crate::cc::{Assignment, AssignmentKind, ValueId, ValueShape};
 use psrs_core::Expr;
 
 impl FunctionLowerer<'_> {
-    pub(super) fn lower_array_fill(
+    pub(in crate::cc::lower) fn lower_array_fill(
         &mut self,
         expression: &Expr,
         length: &Expr,
@@ -35,7 +35,7 @@ impl FunctionLowerer<'_> {
         });
         Ok(destination)
     }
-    pub(super) fn lower_array_write(
+    pub(in crate::cc::lower) fn lower_array_write(
         &mut self,
         expression: &Expr,
         array: &Expr,
