@@ -11,11 +11,20 @@ module Data.Tuple
   , swap
   ) where
 
+import Data.Eq (class Eq)
 import Data.Functor (class Functor)
+import Data.Ord (class Ord)
+import Data.Show (class Show, show)
+import Data.Semigroup ((<>))
 
 data Tuple a b = Tuple a b
 
+derive instance eqTuple :: (Eq a, Eq b) => Eq (Tuple a b)
+derive instance ordTuple :: (Ord a, Ord b) => Ord (Tuple a b)
 derive instance functorTuple :: Functor (Tuple a)
+
+instance showTuple :: (Show a, Show b) => Show (Tuple a b) where
+  show (Tuple first second) = "(Tuple " <> show first <> " " <> show second <> ")"
 
 -- | The first component. `fst (Tuple x y)` is `x`.
 fst :: forall a b. Tuple a b -> a

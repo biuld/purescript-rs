@@ -576,6 +576,11 @@ not in `Prelude` and not compiler builtins. Nullary enum, closed record, and
 flags-record foreign imports still lower; new library code should not use that
 path. Handles are declared as the `Resource a` newtype over `Int`.
 
+`Data.Tuple.Tuple` is an ordinary two-field ADT. Its `Eq` instance compares
+both fields, its `Ord` instance compares them lexicographically, and its `Show`
+instance renders `(Tuple <first> <second>)` using each field's `Show` instance.
+These source instances do not change native tuple syntax or WIT tuple layout.
+
 ## References
 
 - [DEC-11 — Primitive foreign imports and standard-library wrappers](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
