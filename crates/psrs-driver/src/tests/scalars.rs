@@ -135,6 +135,7 @@ import Data.Int.Bits ((.&.))
 main = if intEq (6 .&. 3) 2 then 0 else 1
 "#;
     let sources = [("Main.purs", main)];
+    let (sources, _) = crate::prelude::prepend(&sources).expect("the standard library should load");
     let Some(output) = super::run_program_with_wasmtime(&sources) else {
         eprintln!("skipping execution: wasmtime is not installed");
         return;
@@ -322,13 +323,21 @@ fn assert_runtime_trap(source: &str, needle: &str) {
 }
 
 #[test]
-fn truncated_and_floor_division_trap_on_zero_divisor_and_signed_overflow() {
+fn truncated_and_floor_division_zero_and_signed_overflow() {
+    // `Data.EuclideanRing`'s Euclidean `div` (`/`) returns 0 for a zero divisor,
+    // matching the official purescript-prelude implementation, so it does not
+    // trap. The truncating `%` operator and the explicit `intDiv`/`intMod`
+    // intrinsics reach the trapping Wasm instructions.
+    let Some(output) =
+        super::run_with_wasmtime("module Main where\nimport Prelude\nmain = 1 / 0\n")
+    else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+
     assert_runtime_trap(
-        "module Main where\nmain = 1 / 0\n",
-        "integer divide by zero",
-    );
-    assert_runtime_trap(
-        "module Main where\nmain = 1 % 0\n",
+        "module Main where\nimport Prelude\nmain = 1 % 0\n",
         "integer divide by zero",
     );
     assert_runtime_trap(
@@ -340,11 +349,11 @@ fn truncated_and_floor_division_trap_on_zero_divisor_and_signed_overflow() {
         "integer divide by zero",
     );
     assert_runtime_trap(
-        "module Main where\nmain = ((intNeg 2147483647) - 1) / (intNeg 1)\n",
+        "module Main where\nimport Prelude\nmain = ((intNeg 2147483647) - 1) / (intNeg 1)\n",
         "integer overflow",
     );
     assert_runtime_trap(
-        "module Main where\nmain = intDiv ((intNeg 2147483647) - 1) (intNeg 1)\n",
+        "module Main where\nimport Prelude\nmain = intDiv ((intNeg 2147483647) - 1) (intNeg 1)\n",
         "integer overflow",
     );
 }

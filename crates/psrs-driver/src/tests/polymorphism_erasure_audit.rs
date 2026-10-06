@@ -269,7 +269,7 @@ fn linked_modules_round_trip_an_erased_high_bit_int() {
     );
     let consumer = (
         "Main.purs",
-        "module Main where\nimport Producer\nmain = identity 2000000000 - 1999999958\n",
+        "module Main where\nimport Producer\nmain = intSub (identity 2000000000) 1999999958\n",
     );
     let core = lower_program_to_core(&[producer, consumer])
         .expect("the linked erased program should lower to Core");

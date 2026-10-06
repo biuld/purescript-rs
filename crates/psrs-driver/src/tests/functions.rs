@@ -197,6 +197,7 @@ fn runs_a_recursive_polymorphic_reference_identity() {
     // optimizer must prune that dead arm before verifying.
     let source = r#"module Main where
 import Data.Eq ((==))
+import Data.Ring ((-))
 lastArr :: forall a. Int -> Array a -> Array a
 lastArr n x = if n == 0 then x else lastArr (n - 1) x
 main = arrayIndex (lastArr 3 [40, 42]) 1

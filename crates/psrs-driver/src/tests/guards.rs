@@ -382,12 +382,13 @@ fn official_guard_and_case_sources_lower_through_p2() {
 
 #[test]
 fn user_defined_false_otherwise_does_not_prove_guard_coverage() {
-    let constants = "module Boolean.Constants (otherwise) where\nimport Prelude\notherwise :: Boolean\notherwise = false\n";
-    let boolean = "module Data.Boolean (otherwise) where\nimport Boolean.Constants (otherwise)\n";
-    let main = "module Main where\nimport Prelude\nimport Data.Boolean (otherwise)\nread n\n  | otherwise = n\nmain = read 1\n";
+    let constants =
+        "module Boolean.Constants (otherwise) where\notherwise :: Boolean\notherwise = false\n";
+    let alias = "module Boolean.Alias (otherwise) where\nimport Boolean.Constants (otherwise)\n";
+    let main = "module Main where\nimport Boolean.Alias (otherwise)\nread n\n  | otherwise = n\nmain = read 1\n";
     let errors = compile_program_sources_with_prelude(&[
         ("Boolean.Constants.purs", constants),
-        ("Data.Boolean.purs", boolean),
+        ("Boolean.Alias.purs", alias),
         ("Main.purs", main),
     ])
     .expect_err("an arbitrary binding named otherwise is not a coverage proof");
@@ -403,13 +404,12 @@ fn user_defined_false_otherwise_does_not_prove_guard_coverage() {
 
 #[test]
 fn cross_module_true_alias_is_a_verified_unconditional_guard() {
-    let constants =
-        "module Boolean.Constants (truth) where\nimport Prelude\ntruth :: Boolean\ntruth = true\n";
-    let boolean = "module Data.Boolean (otherwise) where\nimport Prelude\nimport Boolean.Constants (truth)\notherwise :: Boolean\notherwise = truth\n";
-    let main = "module Main where\nimport Prelude\nimport Data.Boolean (otherwise)\nread n\n  | otherwise = n\nmain = read 11\n";
+    let constants = "module Boolean.Constants (truth) where\ntruth :: Boolean\ntruth = true\n";
+    let alias = "module Boolean.Alias (otherwise) where\nimport Boolean.Constants (truth)\notherwise :: Boolean\notherwise = truth\n";
+    let main = "module Main where\nimport Boolean.Alias (otherwise)\nread n\n  | otherwise = n\nmain = read 11\n";
     let artifact = compile_program_sources_with_prelude(&[
         ("Boolean.Constants.purs", constants),
-        ("Data.Boolean.purs", boolean),
+        ("Boolean.Alias.purs", alias),
         ("Main.purs", main),
     ])
     .expect("resolved aliases to true prove guard coverage");

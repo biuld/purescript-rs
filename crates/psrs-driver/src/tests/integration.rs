@@ -96,7 +96,9 @@ fn compiles_if_expression_through_cfg_to_structured_wasm() {
 
 #[test]
 fn folds_top_level_scalar_references_to_constants() {
-    let source = "module Main where\nimport Prelude\nanswer = 40\nmain = answer + 2\n";
+    // `intAdd` is the scalar integer primitive; the library `+` is a class
+    // method and is not a constant-foldable scalar operation.
+    let source = "module Main where\nanswer = 40\nmain = intAdd answer 2\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("i32.const 42"));
 }

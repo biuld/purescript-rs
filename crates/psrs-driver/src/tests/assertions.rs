@@ -129,11 +129,9 @@ fn assert_true_and_assert_false_report_the_value_that_did_not_hold() {
         return;
     };
     // The message names the value that did not hold, the way the official
-    // module's `assertTrue` does.
-    assert_trapped_after_message(
-        &output,
-        "Assertion failed: Expected: true\nActual:   false\n",
-    );
+    // module's `assertTrue` does: `assertEqual'` renders `Expected`/`Actual`
+    // without an extra prefix.
+    assert_trapped_after_message(&output, "Expected: true\nActual:   false\n");
 }
 
 /// The renderings `Data.Show` produces, so this fails if `logShow` grows a
