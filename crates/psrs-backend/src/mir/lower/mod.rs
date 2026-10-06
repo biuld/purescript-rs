@@ -28,7 +28,7 @@ fn layout_error(span: TextRange, error: LayoutError) -> Vec<BackendError> {
     vec![BackendError::new(
         "P9 MIR lowering",
         span,
-        format!("invalid concrete layout request: {error:?}"),
+        format!("invalid concrete layout request: {error}"),
     )]
 }
 
@@ -118,7 +118,7 @@ pub(super) struct FunctionLowerer<'a> {
     next_value: u32,
     wit_imports: &'a HashMap<SymbolId, BoundWasiImport>,
     scalar_helpers: &'a ScalarHelpers,
-    layout: &'a PlannedLayout,
+    pub(in crate::mir) layout: &'a PlannedLayout,
     conversion_helpers: Option<&'a mut ConversionHelpers>,
     literals: Option<&'a mut StringLiterals>,
 }

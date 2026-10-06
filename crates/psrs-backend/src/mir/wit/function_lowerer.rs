@@ -169,6 +169,34 @@ impl WitCallLowerer for FunctionLowerer<'_> {
         self.resolved_guest_layout(shape)
     }
 
+    fn wit_payload_conversion(
+        &mut self,
+        block: BlockId,
+        value: ValueId,
+        shape: crate::cc::ValueShape,
+        entering: bool,
+        span: TextRange,
+    ) -> Result<(BlockId, ValueId), Vec<BackendError>> {
+        use crate::cc::payload::PayloadPlanner;
+        let mut planner =
+            crate::cc::payload::StoragePayloadPlanner(self.layout.representation_table());
+        let plan = if entering {
+            planner.erase_payload(shape, span)?
+        } else {
+            planner.recover_payload(shape, span)?
+        };
+        let source = if entering {
+            shape
+        } else {
+            crate::cc::ValueShape::Reference(crate::cc::Reference {
+                nullable: false,
+                heap: crate::cc::RefShape::Erased,
+            })
+        };
+        let (block, value, _) = self.lower_value_conversion(block, value, source, &plan, span)?;
+        Ok((block, value))
+    }
+
     fn wit_repr_index(&self, repr: crate::cc::ReprId) -> Option<crate::types::DefinedTypeId> {
         self.resolved_repr_index(repr)
     }

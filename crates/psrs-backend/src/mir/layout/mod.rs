@@ -368,9 +368,10 @@ impl PlannedLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum LayoutError {
     UnknownRepresentation,
+    InvalidPayloadConversion(String),
     UnknownSignature,
     UnknownField,
     MissingIntegerBox,
@@ -380,6 +381,17 @@ pub(crate) enum LayoutError {
     UnsupportedClosureTarget,
     IncompatibleVariant,
     UnsupportedValue,
+}
+
+impl std::fmt::Display for LayoutError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidPayloadConversion(message) => {
+                write!(f, "invalid payload storage conversion: {message}")
+            }
+            other => write!(f, "{other:?}"),
+        }
+    }
 }
 
 /// The concrete Wasm value type behind a MIR value type. `Boolean` and `I32`

@@ -206,6 +206,14 @@ they are not reconstructed as records. Checked storage primitives consume their
 checked use representations before ABI erasure, preserving writes to the owning
 storage object.
 
+Canonical ABI adapters follow the same owner protocols for aggregates in
+bare erased fields. Decoding first constructs the checked concrete value, then
+normalizes it before storing the field; parameter lowering recovers the checked
+concrete value before flattening it. CC conversion and ABI lowering share the
+recursive storage conversion planner. Layout reachability traverses these ABI
+conversion plans before assigning target types, retaining their protocol
+representations and scalar boxes. Missing owner protocols are errors.
+
 ### Bare polymorphic function slots
 
 A bare type variable stores functions using one registered unary protocol:
@@ -441,6 +449,8 @@ implementation target is split across the topic owners:
 ```text
 cc/lower/conversion/   the planner and emission: scalar, reference, callable and
                        aggregate leaves, and the generated adapters
+cc/payload.rs          bare-slot storage plans shared by CC and canonical ABI
+mir/reachable/         projection and storage-plan layout requirements
 cc/layout/             constructor policies for the local constructors
                        (Function, Array, data, newtype) and signature interning
 cc/verify/             conversion-plan endpoint, capture and call-signature checks

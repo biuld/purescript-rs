@@ -2,6 +2,7 @@ use super::*;
 
 mod do_notation;
 mod filesystem;
+mod payloads;
 mod wat;
 mod where_clause;
 use wat::*;

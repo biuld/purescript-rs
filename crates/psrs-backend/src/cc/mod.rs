@@ -11,6 +11,7 @@ mod case;
 mod convert;
 mod layout;
 mod lower;
+pub(crate) mod payload;
 mod projection;
 mod representation;
 mod scalar;

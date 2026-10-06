@@ -148,7 +148,7 @@ pub(super) fn add_assignments(
     }
 }
 
-fn add_conversion(
+pub(super) fn add_conversion(
     conversion: &ValueConversion,
     direct_calls: &mut HashSet<SymbolId>,
     representations: &mut HashSet<ReprId>,

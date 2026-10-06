@@ -125,6 +125,22 @@ pub(crate) trait WitCallLowerer {
         None
     }
 
+    /// Converts an aggregate into or out of its bare-slot storage protocol.
+    fn wit_payload_conversion(
+        &mut self,
+        _block: BlockId,
+        _value: ValueId,
+        _shape: ValueShape,
+        _entering: bool,
+        span: TextRange,
+    ) -> Result<(BlockId, ValueId), Vec<BackendError>> {
+        Err(vec![BackendError::new(
+            "P9 MIR lowering",
+            span,
+            "canonical aggregate payload has no storage conversion",
+        )])
+    }
+
     /// The concrete GC type of a representation handle.
     fn wit_repr_index(&self, _repr: crate::cc::ReprId) -> Option<crate::types::DefinedTypeId> {
         None
