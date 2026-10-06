@@ -658,3 +658,15 @@ Wasm/WASI adaptation belongs in source library code whenever these operations
 and ordinary language features can express it. See the independent package's
 `docs/array-kernels.md` and official JS generators for behavior evidence. Focused
 observations do not establish whole-library compile or runtime/FFI acceptance.
+
+`Control.Monad.ST` follows the same boundary without a new intrinsic. The target
+module `PSRS.ST` represents an action as a suspended `Unit -> a` thunk and a
+reference as a fresh one-element mutable array over the private storage
+primitives. `Control.Monad.ST.Internal` keeps the official `ST`/`STRef` newtypes
+and every class instance, because this compiler does not resolve an instance
+whose type is imported from another module; each operation is a thin adapter over
+the target module. `STFn{N}` stays abstract as a newtype over the curried action
+so rank-2 `STFn` arguments typecheck. The target's `ST` thunk and the compiler's
+scalar-token `Effect` closure are not representationally equal, so
+`Control.Monad.ST.Global.toEffect`'s `unsafeCoerce` is linked but not sound. See
+the independent package's `docs/st.md`.

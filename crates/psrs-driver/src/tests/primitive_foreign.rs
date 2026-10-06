@@ -352,6 +352,50 @@ fn library_array_bind_matches_pinned_official_observations() {
 }
 
 #[test]
+fn library_st_matches_pinned_official_observations() {
+    let modules = crate::prelude::sources().unwrap();
+    let internal = modules
+        .iter()
+        .find(|module| module.module_name == "Control.Monad.ST.Internal")
+        .unwrap();
+    for signature in [
+        "run :: forall a. (forall r. ST r a) -> a",
+        "while :: forall r a. ST r Boolean -> ST r a -> ST r Unit",
+        "for :: forall r a. Int -> Int -> (Int -> ST r a) -> ST r Unit",
+        "foreach :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit",
+        "new :: forall a r. a -> ST r (STRef r a)",
+        "read :: forall a r. STRef r a -> ST r a",
+        "modifyImpl :: forall r a b. (a -> { state :: a, value :: b }) -> STRef r a -> ST r b",
+        "write :: forall a r. a -> STRef r a -> ST r a",
+    ] {
+        assert!(
+            internal.text.lines().any(|line| line == signature),
+            "missing official ST signature: {signature}"
+        );
+    }
+    let uncurried = modules
+        .iter()
+        .find(|module| module.module_name == "Control.Monad.ST.Uncurried")
+        .unwrap();
+    for signature in [
+        "mkSTFn1 :: forall a t r.",
+        "runSTFn1 :: forall a t r.",
+        "mkSTFn10 :: forall a b c d e f g h i j t r.",
+        "runSTFn10 :: forall a b c d e f g h i j t r.",
+    ] {
+        assert!(
+            uncurried.text.lines().any(|line| line == signature),
+            "missing official STFn signature: {signature}"
+        );
+    }
+    let source = include_str!("../../tests/fixtures/stdlib-st/Main.purs");
+    let Some(output) = run_library_program_with_wasmtime(&[("Main.purs", source)]) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
 fn library_array_extend_matches_pinned_official_observations() {
     let golden = include_str!("../../tests/fixtures/stdlib-array-extend/Golden.purs");
     let signature = golden

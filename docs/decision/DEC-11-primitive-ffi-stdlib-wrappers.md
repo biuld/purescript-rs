@@ -124,3 +124,13 @@ must retain aliasing instead of copying arrays through a polymorphic wrapper.
 This amendment does not authorize rewriting valid official pure definitions,
 introducing per-function naming heuristics, or treating unimplemented FFI as an
 empty result. Source diffs and official behavior evidence remain required.
+
+The same boundary covers mutable references. `Control.Monad.ST` keeps its
+official `ST`/`STRef` newtypes and class instances in the library module, because
+a class instance whose type is imported from another module is an orphan that
+this compiler does not resolve. A Prelude-free target module owns the suspended
+action, the fresh cell over the private storage primitives, and the loops; the
+official module's operations are thin adapters. A representation that differs
+from the compiler's scalar-token `Effect` closure makes `unsafeCoerce`-based
+conversions such as `Control.Monad.ST.Global.toEffect` linked but unsound, and
+that limit must be recorded rather than hidden.
