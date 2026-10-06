@@ -41,6 +41,10 @@ pub enum ExprKind {
     Char(char),
     Array(Vec<Expr>),
     Record(Vec<(String, Expr)>),
+    /// An ordered product of independent match scrutinees. Unlike a source
+    /// record literal, its fields retain polymorphism until pattern checking.
+    /// P5 checks the fields and converts the product to an ordinary typed record.
+    MatchProduct(Vec<(String, Expr)>),
     RecordUpdate {
         expression: Box<Expr>,
         fields: Vec<(String, Expr)>,

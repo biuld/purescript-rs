@@ -178,6 +178,12 @@ impl Resolver {
                     .map(|(label, value)| Some((label, self.resolve_expr(value)?)))
                     .collect::<Option<Vec<_>>>()?,
             ),
+            AstExprKind::MatchProduct(fields) => ExprKind::MatchProduct(
+                fields
+                    .into_iter()
+                    .map(|(label, value)| Some((label, self.resolve_expr(value)?)))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
             AstExprKind::RecordUpdate { expression, fields } => {
                 self.resolve_record_update(*expression, fields, span)?
             }

@@ -88,7 +88,7 @@ fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
                 check_normalized_expr(item, errors);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 check_normalized_expr(value, errors);
             }

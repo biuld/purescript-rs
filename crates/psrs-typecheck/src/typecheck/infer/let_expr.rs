@@ -239,7 +239,9 @@ fn expr_mentions(expression: &hir::Expr, ids: &HashSet<hir::LocalId>) -> bool {
         hir::ExprKind::Array(elements) => {
             elements.iter().any(|element| expr_mentions(element, ids))
         }
-        hir::ExprKind::Record(fields) => fields.iter().any(|(_, value)| expr_mentions(value, ids)),
+        hir::ExprKind::Record(fields) | hir::ExprKind::MatchProduct(fields) => {
+            fields.iter().any(|(_, value)| expr_mentions(value, ids))
+        }
         hir::ExprKind::RecordUpdate { expression, fields } => {
             expr_mentions(expression, ids)
                 || fields.iter().any(|(_, value)| expr_mentions(value, ids))

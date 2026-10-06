@@ -245,7 +245,7 @@ pub(crate) fn lower_case_scrutinees(
         lowered.pop().expect("one case scrutinee").1
     } else {
         Expr {
-            kind: ExprKind::Record(
+            kind: ExprKind::MatchProduct(
                 lowered
                     .into_iter()
                     .map(|(index, value)| (tuple_label(index), value))

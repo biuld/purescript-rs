@@ -239,6 +239,11 @@ impl Checker {
                 }
             }
             hir::ExprKind::Record(fields) => self.infer_record(fields, span)?,
+            hir::ExprKind::MatchProduct(fields) => {
+                self.infer_record_fields(fields, span, |checker, _, value| {
+                    checker.infer_pattern_scrutinee(value, false)
+                })?
+            }
             hir::ExprKind::RecordUpdate { expression, fields } => {
                 self.infer_record_update(expression, fields, span)?
             }

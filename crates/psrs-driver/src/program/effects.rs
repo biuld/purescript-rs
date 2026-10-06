@@ -230,7 +230,7 @@ fn collect_runner_references(expression: &Expr, runner: SymbolId, spans: &mut Ve
                 collect_runner_references(element, runner, spans);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 collect_runner_references(value, runner, spans);
             }

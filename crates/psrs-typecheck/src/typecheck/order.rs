@@ -60,7 +60,7 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
                 collect_globals(element, out);
             }
         }
-        hir::ExprKind::Record(fields) => {
+        hir::ExprKind::Record(fields) | hir::ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 collect_globals(value, out);
             }

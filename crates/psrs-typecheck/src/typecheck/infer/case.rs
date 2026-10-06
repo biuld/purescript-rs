@@ -20,7 +20,23 @@ impl Checker {
         let requires_monotype = branches
             .iter()
             .any(|branch| pattern_requires_monotype(&branch.pattern));
-        let scrutinee = self.infer_pattern_scrutinee(scrutinee, requires_monotype)?;
+        let scrutinee = if let hir::ExprKind::MatchProduct(fields) = &scrutinee.kind {
+            let (kind, ty) =
+                self.infer_record_fields(fields, scrutinee.span, |checker, label, value| {
+                    let requires_monotype = branches.iter().any(|branch| {
+                        product_field_pattern(&branch.pattern, label)
+                            .is_none_or(pattern_requires_monotype)
+                    });
+                    checker.infer_pattern_scrutinee(value, requires_monotype)
+                })?;
+            InferredExpr {
+                kind,
+                ty,
+                span: scrutinee.span,
+            }
+        } else {
+            self.infer_pattern_scrutinee(scrutinee, requires_monotype)?
+        };
         let mut result_ty = expected;
         let mut inferred = Vec::with_capacity(branches.len());
         for branch in branches {
@@ -55,7 +71,7 @@ impl Checker {
     /// A local pattern-matching scrutinee retains structural `forall` types so
     /// a typed binder can check a rank-N pattern against the value's declared
     /// type. Ordinary local references still instantiate those quantifiers.
-    fn infer_pattern_scrutinee(
+    pub(super) fn infer_pattern_scrutinee(
         &mut self,
         expression: &hir::Expr,
         requires_monotype: bool,
@@ -122,6 +138,17 @@ impl Checker {
             .map(|field| self.elaborate_type(field, &mut variables))
             .collect();
         (result, fields)
+    }
+}
+
+fn product_field_pattern<'a>(pattern: &'a hir::Pattern, label: &str) -> Option<&'a hir::Pattern> {
+    match &pattern.kind {
+        hir::PatternKind::Record { fields, .. } => fields
+            .iter()
+            .find(|(field, _)| field == label)
+            .map(|(_, pattern)| pattern),
+        hir::PatternKind::Named { pattern, .. } => product_field_pattern(pattern, label),
+        _ => None,
     }
 }
 

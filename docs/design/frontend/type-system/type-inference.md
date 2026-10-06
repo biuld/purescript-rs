@@ -39,6 +39,14 @@ Inference state has three owners with distinct lifetimes. The `SemanticEnv` is i
 
 Infer synthesizable expressions and check expressions with expected types. Instantiate `forall` and solve constrained uses through class entailment. When checking a signature or higher-rank argument, skolemize expected quantifiers, perform structural subsumption, and check that skolems do not escape. Function parameter comparison is contravariant and result comparison covariant; record subsumption compares common labels and checks closed-row extras and omissions. Evidence can be inserted at elaboration sites, while comparison under a type constructor cannot invent term-level dictionaries.
 
+A multi-scrutinee case or multi-equation declaration retains a `MatchProduct`
+until checking. Its fields are independent pattern scrutinees: a local
+structural `forall` survives variable patterns, and each branch instantiates
+its own bound value at use. Patterns requiring a monotype instantiate only
+that field. The checked product becomes a closed record in THIR. Ordinary
+source record construction continues to instantiate field expressions once.
+Guard fallthrough captures the saved product to preserve the same rule.
+
 Coercion primitives checked against an expected arrow take its parameter and
 result as their exact source and target boundary types. Function variance must
 not instantiate a quantified input and leave the cast's stored source at an

@@ -38,7 +38,7 @@ pub(crate) fn verify_expr(
                 verify_expr(element, globals, visible_locals, declared_locals, errors);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 verify_expr(value, globals, visible_locals, declared_locals, errors);
             }

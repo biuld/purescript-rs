@@ -30,7 +30,7 @@ impl Checker<'_> {
                     self.check_expression_annotations(element);
                 }
             }
-            ExprKind::Record(fields) => {
+            ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
                 for (_, value) in fields {
                     self.check_expression_annotations(value);
                 }

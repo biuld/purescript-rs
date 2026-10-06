@@ -52,7 +52,7 @@ pub(super) fn visit_expr_patterns<'a>(expression: &'a Expr, output: &mut Vec<&'a
                 visit_expr_patterns(element, output);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 visit_expr_patterns(value, output);
             }
@@ -140,7 +140,7 @@ pub(super) fn visit_expr_guards<'a>(expression: &'a Expr, output: &mut Vec<&'a G
                 visit_expr_guards(element, output);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 visit_expr_guards(value, output);
             }

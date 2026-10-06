@@ -63,7 +63,7 @@ fn validate_expr(expression: &Expr, errors: &mut Vec<DesugarError>) {
                 validate_expr(element, errors);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 validate_expr(value, errors);
             }
