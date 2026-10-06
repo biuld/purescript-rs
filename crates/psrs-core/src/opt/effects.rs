@@ -119,6 +119,8 @@ fn intrinsic_may_trap(intrinsic: Intrinsic) -> bool {
         intrinsic,
         Intrinsic::ArrayIndex
             | Intrinsic::ArrayUpdate
+            | Intrinsic::ArrayFill
+            | Intrinsic::ArrayWrite
             | Intrinsic::StringToBytes
             | Intrinsic::BytesToString
             | Intrinsic::I32DivS

@@ -42,24 +42,6 @@ pub(super) fn add_assignments(
             AssignmentKind::IndirectCall { signature, .. } => {
                 add_signature(*signature, signatures, signature_work);
             }
-            AssignmentKind::ArrayApply {
-                signature,
-                functions_representation,
-                values_representation,
-                result_representation,
-                invoker,
-                ..
-            } => {
-                direct_calls.insert(*invoker);
-                add_signature(*signature, signatures, signature_work);
-                for representation in [
-                    functions_representation,
-                    values_representation,
-                    result_representation,
-                ] {
-                    add_representation(*representation, representations, representation_work);
-                }
-            }
             AssignmentKind::RepresentationTest { reference, .. }
             | AssignmentKind::RepresentationCast { reference, .. } => add_reference(
                 reference,
@@ -80,6 +62,7 @@ pub(super) fn add_assignments(
             | AssignmentKind::VariantTag { representation, .. }
             | AssignmentKind::VariantGet { representation, .. }
             | AssignmentKind::ArrayNew { representation, .. }
+            | AssignmentKind::ArrayFill { representation, .. }
             | AssignmentKind::ArrayGet { representation, .. }
             | AssignmentKind::ArrayClone { representation, .. }
             | AssignmentKind::ArraySet { representation, .. }

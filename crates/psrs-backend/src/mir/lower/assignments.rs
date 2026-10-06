@@ -188,7 +188,7 @@ impl FunctionLowerer<'_> {
                 AssignmentKind::ArrayNew { .. }
                 | AssignmentKind::ArrayLen { .. }
                 | AssignmentKind::ArrayAppend { .. }
-                | AssignmentKind::ArrayApply { .. }
+                | AssignmentKind::ArrayFill { .. }
                 | AssignmentKind::StringToBytes { .. }
                 | AssignmentKind::BytesToString { .. }
                 | AssignmentKind::ArrayGet { .. }

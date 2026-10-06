@@ -69,3 +69,19 @@ The compiler retains its package lock and Rust regression tests. A cargo xtask
 wrapper, if added, should delegate to this CLI. The former Python component and
 compiler-local compatibility scripts were removed after report-equivalent Node
 validation. Historical evidence retains the commands used at that time.
+
+For library array binding, generate the independent official observations and
+run them through the same executable boundary:
+
+```sh
+node ../psrs-stdlib/conformance/array-bind.mjs \
+  /private/tmp/purescript-prelude /tmp/psrs-bind-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-bind-oracle/Golden.purs \
+  --input /tmp/psrs-bind-oracle/Main.purs --out /tmp/psrs-bind-runtime
+```
+
+Both array algorithms are PureScript target library implementations. The oracle
+fixtures copy the official public signature and import that implementation;
+there is no whole-function compiler intrinsic for either operation.

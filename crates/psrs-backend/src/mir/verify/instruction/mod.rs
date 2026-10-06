@@ -378,6 +378,9 @@ pub(super) fn verify_instruction(
         Instruction::ArrayGet { .. } => {
             arrays::verify_array_get(function, instruction, false, definitions, defined)?
         }
+        Instruction::ArrayNewFilled { .. } => {
+            arrays::verify_array_new_filled(function, instruction, definitions, defined)?;
+        }
         Instruction::ArrayGetU { .. } => {
             arrays::verify_array_get(function, instruction, true, definitions, defined)?
         }

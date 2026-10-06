@@ -33,6 +33,59 @@ impl FunctionLowerer<'_> {
                 },
                 assignment.span,
             )?,
+            AssignmentKind::ArrayFill {
+                destination,
+                representation,
+                length,
+                value,
+            } => {
+                // A negative source Int is an error, not an unsigned huge allocation.
+                let zero = self.fresh(crate::types::ValueType::I32);
+                self.append_instruction(
+                    current,
+                    Instruction::Constant {
+                        destination: zero,
+                        value: 0,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?;
+                let negative = self.fresh(crate::types::ValueType::Boolean);
+                self.append_instruction(
+                    current,
+                    Instruction::Primitive {
+                        destination: negative,
+                        op: crate::mir::NumericOp::I32LtS,
+                        left: *length,
+                        right: zero,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?;
+                self.append_instruction(
+                    current,
+                    Instruction::TrapIf {
+                        condition: negative,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?;
+                let type_index = self
+                    .layout
+                    .repr_index(*representation)
+                    .map_err(|error| layout_error(assignment.span, error))?;
+                self.append_instruction(
+                    current,
+                    Instruction::ArrayNewFilled {
+                        destination: *destination,
+                        type_index,
+                        length: *length,
+                        value: *value,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?;
+            }
             AssignmentKind::ArrayLen { destination, value } => self.append_instruction(
                 current,
                 Instruction::ArrayLen {
@@ -54,28 +107,6 @@ impl FunctionLowerer<'_> {
                     *representation,
                     *left,
                     *right,
-                    assignment.span,
-                )?;
-            }
-            AssignmentKind::ArrayApply {
-                destination,
-                functions,
-                values,
-                functions_representation,
-                values_representation,
-                result_representation,
-                invoker,
-                ..
-            } => {
-                current = self.lower_array_apply(
-                    current,
-                    *destination,
-                    *functions,
-                    *values,
-                    *functions_representation,
-                    *values_representation,
-                    *result_representation,
-                    *invoker,
                     assignment.span,
                 )?;
             }

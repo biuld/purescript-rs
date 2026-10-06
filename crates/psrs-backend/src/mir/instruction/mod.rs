@@ -190,6 +190,14 @@ pub enum Instruction {
         length: ValueId,
         span: TextRange,
     },
+    /// Fresh fully initialized allocation; the element must fit the storage type.
+    ArrayNewFilled {
+        destination: ValueId,
+        type_index: DefinedTypeId,
+        length: ValueId,
+        value: ValueId,
+        span: TextRange,
+    },
     ArrayGet {
         destination: ValueId,
         type_index: DefinedTypeId,

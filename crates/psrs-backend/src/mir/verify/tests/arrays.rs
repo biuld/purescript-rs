@@ -300,3 +300,28 @@ fn rejects_array_clone_of_an_immutable_array() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn filled_arrays_require_a_checked_initializer_and_integer_length() {
+    use crate::types::{DefinedTypeId, StorageType};
+    for (storage, length, accepted) in [
+        (StorageType::I32, ValueType::I32, true),
+        (StorageType::F64, ValueType::I32, false),
+        (StorageType::I32, ValueType::F64, false),
+    ] {
+        let (mut function, types) = array_conversion_function(storage, length, ValueType::I32);
+        function.blocks[0].instructions[2] = Instruction::ArrayNewFilled {
+            destination: ValueId(3),
+            type_index: DefinedTypeId(0),
+            length: ValueId(1),
+            value: ValueId(0),
+            span: span(),
+        };
+        let result = verify_module(&module_with_function(function, types));
+        assert_eq!(
+            result.is_ok(),
+            accepted,
+            "{storage:?}/{length:?}: {result:?}"
+        );
+    }
+}

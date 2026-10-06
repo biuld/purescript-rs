@@ -16,8 +16,6 @@ pub(super) fn verify_array_assignment(
     declared: &HashMap<ValueId, ValueShape>,
     table: &RepresentationTable,
     uses: &mut Vec<ValueId>,
-    signatures: &HashMap<psrs_hir::SymbolId, crate::cc::Signature>,
-    complete: bool,
 ) -> Result<(), Vec<BackendError>> {
     match &assignment.kind {
         AssignmentKind::ArrayNew {
@@ -49,6 +47,24 @@ pub(super) fn verify_array_assignment(
                 "array construction has an incompatible result shape",
             )?;
             uses.extend(elements.iter().copied());
+        }
+        AssignmentKind::ArrayFill {
+            destination,
+            representation,
+            length,
+            value,
+        } => {
+            verify_embedded_destination(assignment, *destination)?;
+            let element = verify_array_representation(table, *representation, assignment)?;
+            require_value_shape(declared, *length, ValueShape::Integer, assignment)?;
+            require_value_shape(declared, *value, element, assignment)?;
+            require_destination(
+                declared,
+                assignment,
+                repr_shape(*representation),
+                "arrayFill has an incompatible result shape",
+            )?;
+            uses.extend([*length, *value]);
         }
         AssignmentKind::ArrayLen { destination, value } => {
             verify_embedded_destination(assignment, *destination)?;
@@ -132,152 +148,7 @@ pub(super) fn verify_array_assignment(
             )?;
             uses.extend([*left, *right]);
         }
-        AssignmentKind::ArrayApply {
-            destination,
-            functions,
-            values,
-            functions_representation,
-            values_representation,
-            result_representation,
-            signature,
-            invoker,
-        } => {
-            verify_embedded_destination(assignment, *destination)?;
-            let callback =
-                verify_array_representation(table, *functions_representation, assignment)?;
-            let argument = verify_array_representation(table, *values_representation, assignment)?;
-            let result = verify_array_representation(table, *result_representation, assignment)?;
-            let contract = table_signature(table, *signature, assignment)?;
-            if callback != closure_shape(*signature)
-                || contract.parameters.first() != Some(&argument)
-            {
-                return Err(assignment_error(
-                    assignment,
-                    "arrayApply callback ABI does not match its array elements",
-                ));
-            }
-            if complete {
-                let expected = crate::cc::Signature {
-                    parameters: vec![callback, argument],
-                    result,
-                };
-                if signatures.get(invoker) != Some(&expected) {
-                    return Err(assignment_error(
-                        assignment,
-                        "arrayApply invoker is missing or has an incompatible ABI",
-                    ));
-                }
-            }
-            verify_array_value(
-                declared,
-                *functions,
-                table,
-                Some(*functions_representation),
-                assignment,
-            )?;
-            verify_array_value(
-                declared,
-                *values,
-                table,
-                Some(*values_representation),
-                assignment,
-            )?;
-            require_destination(
-                declared,
-                assignment,
-                repr_shape(*result_representation),
-                "arrayApply has an incompatible result shape",
-            )?;
-            uses.extend([*functions, *values]);
-        }
         _ => unreachable!("array verifier received another assignment"),
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cc::{ReprId, Signature, SignatureId};
-    use psrs_hir::{ModuleId, SymbolId};
-    use psrs_span::TextRange;
-
-    #[test]
-    fn array_apply_requires_a_real_invoker_with_the_checked_abi() {
-        let callback = closure_shape(SignatureId(0));
-        let table = RepresentationTable {
-            signatures: vec![Signature {
-                parameters: vec![ValueShape::Integer],
-                result: ValueShape::Number,
-            }],
-            representations: vec![
-                Representation::Array { element: callback },
-                Representation::Array {
-                    element: ValueShape::Integer,
-                },
-                Representation::Array {
-                    element: ValueShape::Number,
-                },
-            ],
-            ..Default::default()
-        };
-        let invoker = SymbolId::new(ModuleId(9), 1);
-        let assignment = Assignment {
-            destination: ValueId(2),
-            span: TextRange::new(0, 1),
-            kind: AssignmentKind::ArrayApply {
-                destination: ValueId(2),
-                functions: ValueId(0),
-                values: ValueId(1),
-                functions_representation: ReprId(0),
-                values_representation: ReprId(1),
-                result_representation: ReprId(2),
-                signature: SignatureId(0),
-                invoker,
-            },
-        };
-        let declared = (0..3)
-            .map(|id| (ValueId(id), repr_shape(ReprId(id))))
-            .collect();
-        let mut signatures = HashMap::new();
-        assert!(
-            verify_array_assignment(
-                &assignment,
-                &declared,
-                &table,
-                &mut Vec::new(),
-                &signatures,
-                true
-            )
-            .is_err()
-        );
-        signatures.insert(
-            invoker,
-            Signature {
-                parameters: vec![callback, ValueShape::Integer],
-                result: ValueShape::Integer,
-            },
-        );
-        assert!(
-            verify_array_assignment(
-                &assignment,
-                &declared,
-                &table,
-                &mut Vec::new(),
-                &signatures,
-                true
-            )
-            .is_err()
-        );
-        signatures.get_mut(&invoker).unwrap().result = ValueShape::Number;
-        verify_array_assignment(
-            &assignment,
-            &declared,
-            &table,
-            &mut Vec::new(),
-            &signatures,
-            true,
-        )
-        .unwrap();
-    }
 }

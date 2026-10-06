@@ -30,8 +30,10 @@ pub enum IntrinsicCategory {
     ArrayUpdate,
     /// `Array.append`: `forall a. Array a -> Array a -> Array a`.
     ArrayAppend,
-    /// `forall a b. Array (a -> b) -> Array a -> Array b`.
-    ArrayApply,
+    /// `forall a. Int -> a -> Array a`.
+    ArrayFill,
+    /// `forall a. Array a -> Int -> a -> Array a`, in place.
+    ArrayWrite,
     /// A source `String` to its canonical UTF-8 bytes.
     StringToBytes,
     /// Canonical UTF-8 bytes back to a source `String`.
@@ -144,7 +146,8 @@ descriptors! {
     Unit => "unit", 0, Nullary, scheme::unit;
     ArrayAppend => "arrayAppend", 2, ArrayAppend, scheme::array_append;
     UnsafeCoerce => "__psrs_unsafe_coerce", 1, Coercion, scheme::unsafe_coerce;
-    ArrayApply => "arrayApply", 2, ArrayApply, scheme::array_apply;
+    ArrayFill => "arrayFill", 2, ArrayFill, scheme::array_fill;
+    ArrayWrite => "arrayWrite", 3, ArrayWrite, scheme::array_update;
 }
 
 /// The HIR type schemes. Each returns a fresh [`Type`], so a caller that
@@ -327,13 +330,10 @@ mod scheme {
         )
     }
 
-    pub(super) fn array_apply() -> Type {
+    pub(super) fn array_fill() -> Type {
         forall(
-            &["a", "b"],
-            arrow(
-                array(arrow(variable("a"), variable("b"))),
-                arrow(array(variable("a")), array(variable("b"))),
-            ),
+            &["a"],
+            arrow(int(), arrow(variable("a"), array(variable("a")))),
         )
     }
 

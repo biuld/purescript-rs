@@ -62,11 +62,18 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
+            Intrinsic::ArrayFill => {
+                self.lower_array_fill(expression, &arguments[0], &arguments[1], ty, assignments)
+            }
+            Intrinsic::ArrayWrite => self.lower_array_write(
+                expression,
+                &arguments[0],
+                &arguments[1],
+                &arguments[2],
+                assignments,
+            ),
             Intrinsic::ArrayAppend => {
                 self.lower_array_append(expression, &arguments[0], &arguments[1], ty, assignments)
-            }
-            Intrinsic::ArrayApply => {
-                self.lower_array_apply(expression, &arguments[0], &arguments[1], ty, assignments)
             }
             Intrinsic::StringToBytes => {
                 self.lower_string_to_bytes(expression, &arguments[0], ty, assignments)

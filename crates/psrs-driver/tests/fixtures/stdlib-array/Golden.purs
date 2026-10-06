@@ -1,2 +1,4 @@
 module Golden where
-foreign import "psrs:intrinsic#arrayApply" arrayApply :: forall a b. Array (a -> b) -> Array a -> Array b
+import PSRS.Array as Target.Array
+arrayApply :: forall a b. Array (a -> b) -> Array a -> Array b
+arrayApply = Target.Array.arrayApply

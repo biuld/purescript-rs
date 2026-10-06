@@ -602,35 +602,53 @@ These source instances do not change native tuple syntax or WIT tuple layout.
 - Issue #56, whose request to grow compiler source types for `Maybe`, `Either`,
   and tuples this contract replaces. The user-facing types remain library types.
 
-## Polymorphic primitive foreign functions
+## Primitive callable and array storage boundaries
 
 An explicit primitive binding retains its checked source signature. P8 reads
-its leading lexical quantifiers through Core's shared scheme operation and
-moves their identities into the generated declaration scope. It peels only the
-body's leading arrows, preserves the declared element relationships, and uses
-Core's intrinsic verifier before publishing the generated function. Unsupported
-categories and malformed signatures still fail, including unused declarations.
-This supports the existing array and UTF-8 byte primitives as ordinary foreign
-functions without weakening their type contracts.
+leading lexical quantifiers through Core's shared scheme operation, preserves
+their identities in the declaration scope, and verifies the generated primitive
+body. Unsupported categories and invalid signatures fail even when unused.
+The complete candidate is published only after successful verification.
 
-`arrayApply` has scheme `forall a b. Array (a -> b) -> Array a -> Array b`.
-Core verifies both element relationships. CC records the three array
-representations, the actual callback signature, and an invocation helper.
-The helper consumes exactly one source argument through the common application
-lowering, including partial application when the callback returns a function.
-The full CC verifier requires that helper to exist with the checked input/output
-ABI; per-function verification defers helper existence to that module check.
-Reachability retains the helper, callback signature, and array representations.
+Core then expands each checked primitive global occurrence into a typed lambda
+at that occurrence's already checked type. This is mandatory elaboration,
+independent of P7 optimization budgets. Shared Core local allocation prevents
+capture. It handles bare values and partial/saturated applications with the
+ordinary lambda/application path. A polymorphic array wrapper followed by an
+array-mapping ABI adapter is insufficient for mutation: the adapter can copy the
+array and direct writes at the copy. Occurrence expansion retains the exact
+array representation required by the call, including aliases and partial calls.
 
-MIR allocates once and emits nested loops in function-major order. Each function
-is cached for its entire value traversal; inputs are preserved. Nullable storage
-views permit references to cross structured control labels and are refined at
-use sites. These refinements preserve the existing calling convention; callable
-adaptation remains owned by the common checked conversion/application protocol.
-Negative source lengths and products outside signed i32 capacity trap before
-allocation or callbacks. Empty inputs invoke no callbacks.
+The compiler provides small storage operations, not one intrinsic per stdlib
+algorithm. `arrayFill :: forall a. Int -> a -> Array a` allocates a fresh array
+fully initialized with one checked value; a negative length traps. Its MIR form
+validates the length, initializer, storage and destination types and lowers to
+Wasm GC `array.new`. It never exposes uninitialized or default-null logical
+elements. `arrayWrite :: forall a. Array a -> Int -> a -> Array a` is an unsafe
+in-place write and returns the same array; invalid indices trap. Core checks
+all element relationships and MIR preserves the write as an observable effect.
+The raw writes are private to target library code with fresh output ownership.
 
-The library owns its pinned JS oracle and source binding in `psrs-stdlib`;
-see its `docs/array-apply.md` and `conformance/arrays.mjs`. Whole-library compile
-acceptance and runtime/FFI acceptance remain independent of this operation's
-focused behavior evidence.
+`psrs-stdlib/lib/PSRS/Array.purs` owns `arrayApply` and `arrayBind`. Original
+Prelude exports and public signatures remain; only their foreign implementation
+slots delegate to this target module. Class/instance and other pure code remain
+official. No compiler registry entry, CC operation, callback invoker or MIR loop
+is dedicated to either algorithm. Recursion and callbacks use ordinary checked
+PureScript calls, closure adaptation and tail-call lowering.
+
+The library applies functions in function-major order, caching each function
+for its value traversal and invoking it once per pair. Bind visits inputs in
+order, invokes each callback once, snapshots its returned array immediately,
+and flattens the snapshots. The immediate shallow copy preserves the official
+behavior when a later callback mutates a previously returned array. Storage and
+copy work are linear in input/result size. Array apply checks signed-i32 product
+capacity before callbacks; bind checks cumulative capacity before accepting a
+chunk. Allocation exhaustion and unrepresentable sizes trap as target resource
+boundaries. Empty inputs invoke no callbacks.
+
+Primitive additions require a runtime/storage justification and checked contracts.
+Missing JS FFI alone does not justify a new whole-function intrinsic. Generic
+Wasm/WASI adaptation belongs in source library code whenever these operations
+and ordinary language features can express it. See the independent package's
+`docs/array-kernels.md` and official JS generators for behavior evidence. Focused
+observations do not establish whole-library compile or runtime/FFI acceptance.

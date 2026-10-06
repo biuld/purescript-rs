@@ -22,14 +22,14 @@ impl Context<'_> {
             Intrinsic::ArrayIndex => {
                 self.verify_array_index(expression, &arguments[0], &arguments[1])
             }
-            Intrinsic::ArrayUpdate => {
+            Intrinsic::ArrayFill => {
+                self.verify_array_fill(expression, &arguments[0], &arguments[1])
+            }
+            Intrinsic::ArrayWrite | Intrinsic::ArrayUpdate => {
                 self.verify_array_update(expression, &arguments[0], &arguments[1], &arguments[2])
             }
             Intrinsic::ArrayAppend => {
                 self.verify_array_append(expression, &arguments[0], &arguments[1])
-            }
-            Intrinsic::ArrayApply => {
-                self.verify_array_apply(expression, &arguments[0], &arguments[1])
             }
             Intrinsic::StringToBytes => self.verify_string_to_bytes(expression, &arguments[0]),
             Intrinsic::BytesToString => self.verify_bytes_to_string(expression, &arguments[0]),

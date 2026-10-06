@@ -12,6 +12,9 @@ compiler's `stdlib/` subtree history; the move preserves source bytes.
 
 The compiler owns language semantics, checked foreign binding identity and type
 evidence, supported binding protocols, lowering, and runtime representation.
+The library owns array algorithms over small runtime/storage primitives;
+checked primitive calls and allocation/write semantics belong to the compiler.
+Whole stdlib functions are not automatically intrinsic candidates.
 Library source changes cannot compensate for compiler defects. Follow the
 [source-fidelity contract](../workflow/stdlib-vendoring.md).
 

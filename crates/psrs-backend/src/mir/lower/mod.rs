@@ -13,7 +13,6 @@ use psrs_span::TextRange;
 use std::collections::HashMap;
 
 mod aggregate;
-mod array_apply;
 mod array_assignments;
 mod assignment_array;
 mod assignment_string;

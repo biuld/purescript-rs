@@ -42,6 +42,10 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
     let mut probe = module.clone();
     probe.declarations.clear();
     probe.entry = None;
+    let operations = bindings
+        .iter()
+        .map(|(external, intrinsic)| (external.symbol, *intrinsic))
+        .collect();
     for (external, intrinsic) in bindings {
         let span = external
             .signature
@@ -72,7 +76,8 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
                 | IntrinsicCategory::ArrayIndex
                 | IntrinsicCategory::ArrayUpdate
                 | IntrinsicCategory::ArrayAppend
-                | IntrinsicCategory::ArrayApply
+                | IntrinsicCategory::ArrayFill
+                | IntrinsicCategory::ArrayWrite
                 | IntrinsicCategory::StringToBytes
                 | IntrinsicCategory::BytesToString
         ) {
@@ -168,6 +173,28 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
         }
         probe.declarations.clear();
     }
+    psrs_core::primitive::expand_primitive_globals(&mut candidate, &operations).map_err(
+        |errors| {
+            errors
+                .into_iter()
+                .map(|error| {
+                    BackendError::invalid_ir("P8 primitive linking", error.span, error.message)
+                        .with_module(error.module)
+                })
+                .collect::<Vec<_>>()
+        },
+    )?;
+    candidate
+        .verify_with_source(source.unwrap_or(&candidate))
+        .map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| {
+                    BackendError::invalid_ir("P8 primitive linking", error.span, error.message)
+                        .with_module(error.module)
+                })
+                .collect::<Vec<_>>()
+        })?;
     *module = candidate;
     Ok(())
 }

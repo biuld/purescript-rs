@@ -159,6 +159,12 @@ pub enum AssignmentKind {
         representation: ReprId,
         elements: Vec<ValueId>,
     },
+    ArrayFill {
+        destination: ValueId,
+        representation: ReprId,
+        length: ValueId,
+        value: ValueId,
+    },
     ArrayLen {
         destination: ValueId,
         value: ValueId,
@@ -171,18 +177,6 @@ pub enum AssignmentKind {
         representation: ReprId,
         left: ValueId,
         right: ValueId,
-    },
-    /// Apply every callback to every argument in function-major order.
-    /// The representations and callback signature describe the checked ABI.
-    ArrayApply {
-        destination: ValueId,
-        functions: ValueId,
-        values: ValueId,
-        invoker: SymbolId,
-        functions_representation: ReprId,
-        values_representation: ReprId,
-        result_representation: ReprId,
-        signature: SignatureId,
     },
     /// A source `String`'s canonical UTF-8 bytes as an `Array Int`. A source
     /// string is a sequence of Unicode scalar values, so this is lossless.

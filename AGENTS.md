@@ -48,6 +48,11 @@ uncommitted work.
   APIs execute, that every declaration survives backend lowering, or that FFI
   behavior agrees with its contract.
 
+- Prefer small checked runtime/storage primitives and ordinary target library
+  wrappers. Keep stdlib algorithms, traversal order, and callbacks in
+  `psrs-stdlib`; missing JS FFI alone does not justify a whole-function intrinsic.
+  Validate primitive values at their checked use types before ABI erasure;
+  copying a polymorphic array argument cannot preserve an in-place write.
 - Use the library-owned Node [conformance commands](docs/workflow/stdlib-conformance.md)
   in `psrs-stdlib/tools/` for source and runtime comparisons. Maintain tool code
   and case engines in that repository; keep compiler locks and Rust tests here.
