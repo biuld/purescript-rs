@@ -73,10 +73,7 @@ impl Checker {
             if let Some(solution) = self.given_solution(constraint, depth) {
                 return Some(solution);
             }
-            if policy == UnsolvedPolicy::Retain
-                && is_report_only(class_id)
-                && self.can_generalize_constraint(constraint)
-            {
+            if is_report_only(class_id) && self.policy_keeps_unsolved(policy, constraint) {
                 return None;
             }
         }
@@ -270,10 +267,7 @@ impl Checker {
                 let has_nested_diagnostic = self.state.errors[errors_before..]
                     .iter()
                     .any(|error| error.kind.reports_constraint_failure());
-                if !has_nested_diagnostic
-                    && policy == UnsolvedPolicy::Retain
-                    && self.can_generalize_constraint(&wanted)
-                {
+                if !has_nested_diagnostic && self.policy_keeps_unsolved(policy, &wanted) {
                     // The selected instance's dictionary needs this context
                     // dictionary; the declaration can supply it as a generalized
                     // parameter. The stable id lets evidence elaboration read the

@@ -255,6 +255,18 @@ so the body's evidence and the parameter the scheme hands on are one dictionary.
 `group.rs` runs the sequence and `entry.rs` hands it the module. A wanted from an
 earlier declaration is not re-solved: that declaration has already generalized or
 reported it, so a second attempt could bind a variable it has since quantified.
+A local `let` or `where` binding is a nested generalization, not an obligation
+of the enclosing signature. Before the binding is quantified, its new wanteds
+are solved under `Defer`: nothing is reported yet. A constraint whose flexible
+variables were all allocated inside that binding, and that exactly one binding's
+type determines, is retained on the binding. It becomes dictionary parameters,
+and each use instantiates it, so `go succ` can solve `Bind Maybe` after `succ`
+fixes the monad. A constraint that still mentions an outer unknown stays
+unsolved for the enclosing declaration. A recursive local group does not
+quantify a variable an undischarged constraint still shares; that constraint
+stays with the enclosing declaration, the same rule that refuses polymorphic
+recursion at the top level. An abstracted dictionary is a nested binding's
+parameter, so the enclosing ambiguity check does not measure it again.
 The scheme records the kind of each quantified variable, read through the kind
 owner, so an instantiation carries the declaration's own polymorphism rather than
 reading it back from the solver table.

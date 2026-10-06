@@ -141,7 +141,7 @@ impl Checker {
             {
                 return;
             }
-            if policy == UnsolvedPolicy::Retain && self.can_generalize_constraint(&constraint) {
+            if self.policy_keeps_unsolved(policy, &constraint) {
                 self.state.wanted.push(constraint);
                 return;
             }

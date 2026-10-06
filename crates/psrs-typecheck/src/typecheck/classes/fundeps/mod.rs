@@ -252,6 +252,13 @@ impl Checker {
             if constraint.solution.is_none() {
                 continue;
             }
+            // An abstracted dictionary belongs to a nested binding that already
+            // measured the constraint against its own result. This declaration's
+            // residuals are still unsolved here; `check_residual_ambiguity`
+            // measures them after solving returns.
+            if matches!(constraint.solution, Some(WantedSolution::Abstracted(_))) {
+                continue;
+            }
             // A wanted discharged using a lexical dictionary, directly or
             // through the context of a selected instance, is determined by
             // that dictionary's scope. This commonly occurs inside a rank-N

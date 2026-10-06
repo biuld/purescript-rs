@@ -5,6 +5,7 @@ mod case;
 mod construct;
 mod expected;
 mod intrinsics;
+mod let_expr;
 mod pattern;
 mod records;
 mod visible_type_application;
@@ -347,62 +348,6 @@ impl Checker {
             }
         };
         Some(InferredExpr { kind, ty, span })
-    }
-
-    pub(super) fn infer_let_expression(
-        &mut self,
-        bindings: &[hir::LocalBinding],
-        body: &hir::Expr,
-        expected: Option<InferType>,
-    ) -> Option<(InferredExprKind, InferType)> {
-        // The binding bodies are inferred one level deeper, so their unknowns are
-        // generalized against this level; the body is checked back at it.
-        let outer_level = self.state.level;
-        let (inferred_bindings, body) = self.in_nested_level(|checker| {
-            let mut binders = Vec::with_capacity(bindings.len());
-            for binding in bindings {
-                let ty = checker.fresh();
-                checker
-                    .scope
-                    .locals
-                    .insert(binding.binder.id, Scheme::monomorphic(ty.clone()));
-                binders.push(InferredBinder {
-                    binder: binding.binder.clone(),
-                    scheme: Scheme::monomorphic(ty),
-                });
-            }
-            let mut inferred_bindings = Vec::with_capacity(bindings.len());
-            for (binding, binder) in bindings.iter().zip(binders) {
-                if let Some(value) = checker.infer_expr(&binding.value) {
-                    checker.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
-                    inferred_bindings.push(InferredBinding {
-                        binder,
-                        value,
-                        span: binding.span,
-                    });
-                }
-            }
-            for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
-                let scheme = checker.generalize(&[], &inferred.binder.scheme.ty, &[], outer_level);
-                inferred.binder.scheme = scheme.clone();
-                checker.scope.locals.insert(binding.binder.id, scheme);
-            }
-            checker.state.level = outer_level;
-            let body = checker.infer_expr_with_expected(body, expected);
-            for binding in bindings {
-                checker.scope.locals.remove(&binding.binder.id);
-            }
-            (inferred_bindings, body)
-        });
-        let body = body?;
-        let ty = body.ty.clone();
-        Some((
-            InferredExprKind::Let {
-                bindings: inferred_bindings,
-                body: Box::new(body),
-            },
-            ty,
-        ))
     }
 }
 

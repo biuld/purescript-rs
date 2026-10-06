@@ -16,6 +16,7 @@ mod effects;
 mod foldable;
 mod functor;
 mod guard_coverage;
+mod let_constraints;
 mod operators;
 mod partial_application;
 mod scalars;
