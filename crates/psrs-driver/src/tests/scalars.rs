@@ -134,13 +134,7 @@ module Main where
 import Data.Int.Bits ((.&.))
 main = if intEq (6 .&. 3) 2 then 0 else 1
 "#;
-    let sources = [
-        (
-            "Data.Int.Bits.purs",
-            include_str!("../../../../stdlib/lib/Data/Int/Bits.purs"),
-        ),
-        ("Main.purs", main),
-    ];
+    let sources = [("Main.purs", main)];
     let Some(output) = super::run_program_with_wasmtime(&sources) else {
         eprintln!("skipping execution: wasmtime is not installed");
         return;

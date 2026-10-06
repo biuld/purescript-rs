@@ -24,8 +24,11 @@ uncommitted work.
   the change at the right layer.
 - Review the local diff and run the validation relevant to the files changed.
 
-### Standard-library vendoring
+### Standard-library package
 
+- Keep official library sources and case data in the independent `psrs-stdlib`
+  repository. The compiler consumes `stdlib.lock.json`; use `PSRS_STDLIB_ROOT`
+  only for an explicit development package.
 - Follow [the stdlib source-fidelity contract](docs/workflow/stdlib-vendoring.md)
   when importing or changing official library sources.
 - Pin upstream package versions and commits. Preserve official pure functions,
@@ -44,6 +47,10 @@ uncommitted work.
   claims. Importing every module with an unused `main` does not prove that the
   APIs execute, that every declaration survives backend lowering, or that FFI
   behavior agrees with its contract.
+
+- Use the standalone [conformance commands](docs/workflow/stdlib-conformance.md)
+  for source and runtime comparisons. The tool consumes executable and package
+  paths; it must not depend on compiler-internal representations.
 
 ### Commit granularity
 

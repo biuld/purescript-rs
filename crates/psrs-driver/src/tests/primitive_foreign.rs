@@ -93,21 +93,12 @@ fn primitive_foreign_bindings_match_pinned_official_scalar_observations() {
             include_str!("../../tests/fixtures/stdlib-scalar/Main.purs"),
         ),
     ];
-    let vendor = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../stdlib/lib");
-    let modules = [
-        "Data/Int.purs",
-        "Data/Int/Bits.purs",
-        "Data/Eq.purs",
-        "Data/Ring.purs",
-        "Data/Semiring.purs",
-        "Data/HeytingAlgebra.purs",
-    ]
-    .map(|path| std::fs::read_to_string(vendor.join(path)).unwrap());
+    let modules = crate::prelude::sources().unwrap();
     for declaration in sources[0].1.lines().skip(1) {
         assert!(
             modules
                 .iter()
-                .any(|module| module.lines().any(|line| line == declaration)),
+                .any(|module| module.text.lines().any(|line| line == declaration)),
             "oracle fixture must retain the actual vendored binding: {declaration}"
         );
     }

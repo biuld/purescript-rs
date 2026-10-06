@@ -1,6 +1,6 @@
 # Standard-library source fidelity
 
-The vendored standard library preserves the official PureScript source contract.
+The independent `psrs-stdlib` package preserves the official PureScript source contract.
 The only permitted semantic differences have a concrete Wasm/WASI target or
 DEC-16 Unicode scalar/UTF-8 representation justification. This policy governs
 both new imports and repairs of the existing library.
@@ -88,3 +88,11 @@ tests for each restored interaction, and capture comparable compile diagnoses.
 Update roadmap measurements only after the required full scoreboard run. Do not
 claim completion while any required API, binding, source-restoration obligation,
 or behavior evidence remains missing.
+
+## Independent package workflow
+
+The library owns source revisions, upstream pins, target adaptations, and case
+data. The compiler owns checked binding protocols and source loading. Follow
+[the repository boundary](../design/D-17-stdlib-and-conformance-boundaries.md)
+and [the conformance commands](stdlib-conformance.md) for locked consumption,
+source audits, official scalar oracles, and mandatory runtime observations.

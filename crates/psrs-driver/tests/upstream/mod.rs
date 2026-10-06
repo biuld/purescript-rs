@@ -53,6 +53,14 @@ fn purs_accepts_sources(name: &str, sources: &[SourceFile]) -> bool {
 /// Runs `purs` on the sources and returns its captured output. Used to compare
 /// diagnostic codes, not only acceptance.
 fn purs_sources_output(name: &str, sources: &[(&str, &str)]) -> std::process::Output {
+    purs_sources_with_foreign_output(name, sources, &[])
+}
+
+fn purs_sources_with_foreign_output(
+    name: &str,
+    sources: &[(&str, &str)],
+    foreign_sources: &[(&str, &str)],
+) -> std::process::Output {
     let case_dir =
         std::env::temp_dir().join(format!("psrs-purs-upstream-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&case_dir);
@@ -72,6 +80,9 @@ fn purs_sources_output(name: &str, sources: &[(&str, &str)]) -> std::process::Ou
             path
         })
         .collect::<Vec<_>>();
+    for (name, source) in foreign_sources {
+        std::fs::write(case_dir.join(name), source).expect("write supplied official FFI fixture");
+    }
     let output_dir = case_dir.join("output");
     let output = Command::new("purs")
         .arg("compile")

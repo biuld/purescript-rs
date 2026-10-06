@@ -28,6 +28,11 @@ measured number.
   baseline, locate the responsible stage contract, implement a bounded fix, and
   compare the same cases afterward.
 
+- [Standard-library conformance](workflow/stdlib-conformance.md): audit pinned
+  upstream sources and compare explicit runtime observations.
+- [Standard-library boundaries](design/D-17-stdlib-and-conformance-boundaries.md):
+  independent package ownership and locked compiler consumption.
+
 ## Compiler design
 
 The [frontend design](design/frontend/README.md) groups syntax, semantic

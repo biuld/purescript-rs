@@ -145,7 +145,7 @@ consolidated capability layout: `WASI.Resource`, `WASI.IO`, `WASI.Console`,
 
 | Feature | Owner | State |
 | --- | --- | --- |
-| On-disk `stdlib/lib` and the trusted prefix | WASI-10 | Done. The driver reads `stdlib/lib/trusted`. |
+| On-disk `psrs-stdlib/lib` and the trusted prefix | WASI-10 | Done. The driver reads `psrs-stdlib/lib/trusted`. |
 | Exported wrappers | This library, [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md) | Every service wrapper, plus the `WASI` umbrella. Raw imports stay unexported. |
 | `wasi:cli/exit.exit` (`status: result`) | Not wrapped | One canonical `i32`, and still not a library wrapper. See below. |
 | `Effect` as `foreign import data` | [Effects](../fp/effects.md) | Trusted library binding carries the resolved constructor and operation identities. Effect lowering turns applications into generic one-parameter closures, and import wrappers come only from plans formed from checked external schemes before `Effect` erasure. |
@@ -232,8 +232,8 @@ observes the trailing constant, which exists to give the entry its declared
 
 ### The platform library
 
-The platform library is source code under `stdlib/lib`, read from disk and
-resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
+The platform library is source code under `psrs-stdlib/lib`, read from disk and
+resolved, type-checked, and linked like any module. `psrs-stdlib/lib/trusted` fixes
 the trusted prefix order (`Prelude`, `Data.Function`, `Data.Semigroup`,
 `Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, `WASI`). `Data.Function`
 declares the application operators and their fixities; `Data.Semigroup`
@@ -383,7 +383,7 @@ Responsibilities and required entry points:
   encode, call `command_world` and `componentize`, validate with the target's
   features, and return the component and its WAT form.
 - The WASI library must be ordinary PureScript source resolved, type-checked,
-  and linked like any other module. The driver loads it from `stdlib/lib`
+  and linked like any other module. The driver loads it from `psrs-stdlib/lib`
   rather than embedding it, and defines `log`, `error`, `now`, `randomBytes`,
   `randomU64`, `exitWithCode`, and `arguments` over WIT imports; the portable
   `Prelude` must
@@ -449,7 +449,7 @@ wrapped. `WASI.Process.arguments` and `WASI.Process.environment` wrap
 with execution tests. `WASI.Network` wraps the socket services and lowers; it
 has no execution test, and HTTP/TLS are not implemented, so their capability
 flags stay disabled in the default profile. The standard library is read from
-`stdlib/lib` at runtime (`stdlib/lib/trusted` lists `Prelude`, `Data.Function`,
+`psrs-stdlib/lib` at runtime (`psrs-stdlib/lib/trusted` lists `Prelude`, `Data.Function`,
 `Data.Semigroup`, `Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, and `WASI` in
 trusted-prefix order). The driver discovers user modules from the entry files'
 directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "psrs-stdlib-conformance"
+version = "0.1.0"
+description = "Independent PureScript source fidelity and target conformance tools"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+psrs-stdlib-conformance = "stdlib_conformance.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+stdlib_conformance = ["*.mjs"]

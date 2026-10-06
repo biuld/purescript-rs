@@ -1,9 +1,10 @@
 //! The on-disk PureScript standard library.
 //!
-//! Sources are read from `stdlib/lib` at runtime (not embedded). `lib/trusted`
-//! names the modules that form the trusted prefix, in order. The directory is
-//! resolved from the crate location first, so `cargo test` and the CLI do not
-//! depend on the process current directory.
+//! Sources come from the locked external `psrs-stdlib` package at runtime.
+//! `PSRS_STDLIB_ROOT` explicitly selects an unlocked development package.
+
+mod package;
+pub use package::StandardLibraryInfo;
 
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -21,7 +22,12 @@ pub(crate) struct ModuleSource {
 }
 
 struct Library {
+    info: StandardLibraryInfo,
     modules: Vec<ModuleSource>,
+}
+
+pub fn standard_library_info() -> Result<StandardLibraryInfo, String> {
+    Ok(load()?.info.clone())
 }
 
 pub(crate) fn sources() -> Result<&'static [ModuleSource], String> {
@@ -86,8 +92,8 @@ fn load() -> Result<&'static Library, String> {
 }
 
 fn read_library() -> Result<Library, String> {
-    let root = find_stdlib_root()?;
-    let lib = root.join("lib");
+    let info = package::select()?;
+    let lib = info.root.join("lib");
     let names = read_trusted_names(&lib.join("trusted"))?;
     let mut modules = Vec::with_capacity(names.len());
     for name in names {
@@ -129,7 +135,10 @@ fn read_library() -> Result<Library, String> {
                 .collect(),
         });
     }
-    Ok(Library { modules })
+    if package::fingerprint(&info.root)? != info.source_fingerprint {
+        return Err("standard-library package changed during loading".into());
+    }
+    Ok(Library { modules, info })
 }
 
 fn read_trusted_names(path: &Path) -> Result<Vec<String>, String> {
@@ -170,57 +179,4 @@ fn module_file(lib: &Path, module_name: &str) -> PathBuf {
     }
     path.push(format!("{file_stem}.purs"));
     path
-}
-
-fn find_stdlib_root() -> Result<PathBuf, String> {
-    let mut tried = Vec::new();
-    for candidate in stdlib_candidates() {
-        if is_stdlib_root(&candidate) {
-            return candidate
-                .canonicalize()
-                .map_err(|error| format!("{}: {error}", candidate.display()));
-        }
-        if !tried.iter().any(|existing| existing == &candidate) {
-            tried.push(candidate);
-        }
-    }
-    Err(format!(
-        "could not find the standard library (expected stdlib/lib/trusted and stdlib/lib/Prelude.purs); looked in {}",
-        tried
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    ))
-}
-
-fn is_stdlib_root(path: &Path) -> bool {
-    path.join("lib/trusted").is_file() && path.join("lib/Prelude.purs").is_file()
-}
-
-fn stdlib_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    // Anchored at this crate: `crates/psrs-driver` -> repository `stdlib/`.
-    candidates.push(crate_dir.join("../../stdlib"));
-    push_ancestor_stdlibs(&crate_dir, &mut candidates);
-    if let Ok(current) = std::env::current_dir() {
-        push_ancestor_stdlibs(&current, &mut candidates);
-    }
-    if let Ok(executable) = std::env::current_exe()
-        && let Some(parent) = executable.parent()
-    {
-        push_ancestor_stdlibs(parent, &mut candidates);
-    }
-    candidates
-}
-
-fn push_ancestor_stdlibs(start: &Path, candidates: &mut Vec<PathBuf>) {
-    let mut directory = start.to_path_buf();
-    loop {
-        candidates.push(directory.join("stdlib"));
-        if !directory.pop() {
-            break;
-        }
-    }
 }

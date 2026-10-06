@@ -270,6 +270,8 @@ dependencies = [
  "psrs-syntax",
  "psrs-thir",
  "psrs-typecheck",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

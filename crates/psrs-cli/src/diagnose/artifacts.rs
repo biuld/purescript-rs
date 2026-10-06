@@ -174,22 +174,7 @@ fn trace_replay_argv(paths: &[String]) -> Option<Vec<String>> {
 }
 
 pub(super) fn trusted_stdlib_fingerprint() -> Result<String, String> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../stdlib/lib");
-    let trusted_path = root.join("trusted");
-    let trusted = fs::read_to_string(&trusted_path)
-        .map_err(|error| format!("{}: {error}", trusted_path.display()))?;
-    let mut bytes = trusted.as_bytes().to_vec();
-    for name in trusted
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-    {
-        let path = root.join(format!("{}.purs", name.replace('.', "/")));
-        let text = fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-        bytes.extend_from_slice(path.to_string_lossy().as_bytes());
-        bytes.extend_from_slice(&text);
-    }
-    Ok(hash_bytes(&bytes))
+    Ok(psrs_driver::standard_library_info()?.source_fingerprint)
 }
 
 pub(super) fn compiler_revision() -> CompilerRevision {

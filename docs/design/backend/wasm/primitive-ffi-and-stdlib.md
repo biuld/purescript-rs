@@ -349,7 +349,7 @@ application world, and embedding stay in
 [canonical ABI and WIT](canonical-abi-and-wit.md).
 
 ```text
-stdlib/lib/
+psrs-stdlib/lib/
   Prelude.purs                 the Effect interface: pure, bind, runEffect, trap
   Data/Function.purs           const, flip, apply, applyFlipped, on, $, #
   Data/Semigroup.purs          class Semigroup, append, <>

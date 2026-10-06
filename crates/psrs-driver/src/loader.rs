@@ -1,6 +1,6 @@
 //! Filesystem discovery for the transitive source graph.
 //!
-//! The standard library is read from `stdlib/lib`; user modules are discovered
+//! The standard library is read from the locked `psrs-stdlib` package; user modules are discovered
 //! from the filesystem. Given the entry files, this loader scans their
 //! directories for `.purs` files, indexes them by declared module name, and
 //! follows the `import` graph until it closes. Modules supplied by the
