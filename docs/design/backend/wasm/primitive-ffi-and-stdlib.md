@@ -670,3 +670,10 @@ so rank-2 `STFn` arguments typecheck. The target's `ST` thunk and the compiler's
 scalar-token `Effect` closure are not representationally equal, so
 `Control.Monad.ST.Global.toEffect`'s `unsafeCoerce` is linked but not sound. See
 the independent package's `docs/st.md`.
+
+Uncurried functions follow the same representation rule. `Data.Function.Uncurried`
+keeps `Fn1` as a synonym and represents `Fn0` and `Fn2`..`Fn10` as abstract
+newtypes over the curried function, so `mkFn{N}`/`runFn{N}` adapt currying and
+rank-2 arguments stay abstract. This is a prerequisite for `Data.Array`, whose
+foreign signatures use `Fn2` and `Fn3`. See the independent package's
+`docs/function-uncurried.md`.

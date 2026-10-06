@@ -396,6 +396,31 @@ fn library_st_matches_pinned_official_observations() {
 }
 
 #[test]
+fn library_uncurried_matches_pinned_official_observations() {
+    let modules = crate::prelude::sources().unwrap();
+    let uncurried = modules
+        .iter()
+        .find(|module| module.module_name == "Data.Function.Uncurried")
+        .unwrap();
+    for signature in [
+        "mkFn0 :: forall a. (Unit -> a) -> Fn0 a",
+        "mkFn2 :: forall a b c. (a -> b -> c) -> Fn2 a b c",
+        "runFn0 :: forall a. Fn0 a -> a",
+        "runFn10 :: forall a b c d e f g h i j k. Fn10 a b c d e f g h i j k -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k",
+    ] {
+        assert!(
+            uncurried.text.lines().any(|line| line == signature),
+            "missing official signature: {signature}"
+        );
+    }
+    let source = include_str!("../../tests/fixtures/stdlib-uncurried/Main.purs");
+    let Some(output) = run_library_program_with_wasmtime(&[("Main.purs", source)]) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
 fn library_array_extend_matches_pinned_official_observations() {
     let golden = include_str!("../../tests/fixtures/stdlib-array-extend/Golden.purs");
     let signature = golden
