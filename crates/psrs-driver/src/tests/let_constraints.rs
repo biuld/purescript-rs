@@ -142,14 +142,16 @@ instance ordInt :: Ord Int where
 
 infix 4 le as <=
 
-class BoundedEnum a where
+class Ord a <= BoundedEnum a where
   toEnum :: Int -> Maybe a
   fromEnum :: a -> Int
 
 data Maybe a = Nothing | Just a
 data Tuple a b = Tuple a b
 
-fromJust :: forall a. Maybe a -> a
+class Partial
+
+fromJust :: forall a. Partial => Maybe a -> a
 fromJust (Just value) = value
 
 class Functor f where
@@ -166,12 +168,16 @@ class Semigroupoid a where
 instance semigroupoidFn :: Semigroupoid (->) where
   compose f g value = f (g value)
 
+composeFlipped :: forall a b c d. Semigroupoid a => a b c -> a c d -> a b d
 composeFlipped f g = compose g f
 
 infixr 9 composeFlipped as >>>
 
-unsafePartial :: forall a. a -> a
-unsafePartial value = value
+unsafePartial :: forall a. (Partial => a) -> a
+unsafePartial = discharge
+
+discharge :: forall a b. a -> b
+discharge value = discharge value
 
 otherwise = true
 
@@ -216,5 +222,49 @@ main = bad 1
                 && error.diagnostic.message.contains("Need Int")
         }),
         "expected a missing Need Int instance, got {errors:?}"
+    );
+}
+
+#[test]
+fn a_local_constraint_does_not_choose_an_unrelated_lexical_given() {
+    assert_checks(
+        r#"
+module Main where
+
+class Measure a where
+  measure :: a -> Int
+
+instance measureInt :: Measure Int where
+  measure value = value
+
+outer :: forall a. Measure a => a -> Int
+outer value = measured 1
+  where
+    measured input = measure input
+
+main :: Int
+main = outer 0
+"#,
+    );
+}
+
+#[test]
+fn a_superclass_functional_dependency_improves_a_local_result() {
+    assert_checks(
+        r#"
+module Main where
+
+class Convert a b | a -> b where
+  convert :: a -> b
+
+class Convert a b <= Middle a b
+class Middle a b <= Child a b
+
+outer :: forall a b. Child a b => a -> Int
+outer value = let converted = convert value in 0
+
+main :: Int
+main = 0
+"#,
     );
 }

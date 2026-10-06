@@ -138,11 +138,7 @@ impl Checker {
     ) -> Option<WantedSolution> {
         for (given, solution) in self.scope.givens.clone() {
             if given.class_id == constraint.class_id
-                && self.constraint_arguments_match_or_unify(
-                    &given.arguments,
-                    &constraint.arguments,
-                    constraint.span,
-                )
+                && self.constraint_arguments_match(&given.arguments, &constraint.arguments)
             {
                 return Some(solution);
             }
@@ -193,11 +189,7 @@ impl Checker {
                 field,
             };
             if edge.class_id == wanted.class_id
-                && self.constraint_arguments_match_or_unify(
-                    &edge.arguments,
-                    &wanted.arguments,
-                    wanted.span,
-                )
+                && self.constraint_arguments_match(&edge.arguments, &wanted.arguments)
             {
                 return Some(solution);
             }
@@ -214,28 +206,15 @@ impl Checker {
         None
     }
 
-    /// Matches a wanted constraint against a given or projected superclass.
-    /// Wanted type variables can be refined to the known argument types, but a
-    /// failed candidate must leave no substitution, level, kind, or evidence
-    /// behind. Its diagnostic is discarded, because a candidate that does not
-    /// match is not itself an error.
-    fn constraint_arguments_match_or_unify(
-        &mut self,
-        expected: &[InferType],
-        actual: &[InferType],
-        span: TextRange,
-    ) -> bool {
-        if expected.len() != actual.len() {
-            return false;
-        }
-        self.speculate(|checker| {
-            let errors_before = checker.state.errors.len();
-            for (expected, actual) in expected.iter().zip(actual) {
-                checker.unify(actual.clone(), expected.clone(), span);
-            }
-            (checker.state.errors.len() == errors_before).then_some(())
-        })
-        .is_some()
+    /// A given proves only its existing argument types. Entailment must not
+    /// choose an unknown wanted argument by unifying it with a dictionary in
+    /// scope; functional-dependency improvement owns permitted refinement.
+    fn constraint_arguments_match(&self, expected: &[InferType], actual: &[InferType]) -> bool {
+        expected.len() == actual.len()
+            && expected
+                .iter()
+                .zip(actual)
+                .all(|(expected, actual)| self.infer_types_equal(expected, actual))
     }
 
     /// Solves one instance's context and, on success, returns the instance

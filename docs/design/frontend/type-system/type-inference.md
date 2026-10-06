@@ -39,6 +39,17 @@ Inference state has three owners with distinct lifetimes. The `SemanticEnv` is i
 
 Infer synthesizable expressions and check expressions with expected types. Instantiate `forall` and solve constrained uses through class entailment. When checking a signature or higher-rank argument, skolemize expected quantifiers, perform structural subsumption, and check that skolems do not escape. Function parameter comparison is contravariant and result comparison covariant; record subsumption compares common labels and checks closed-row extras and omissions. Evidence can be inserted at elaboration sites, while comparison under a type constructor cannot invent term-level dictionaries.
 
+Lexical givens and their superclass projections discharge a wanted only when
+all resolved argument types already agree. Dictionary lookup does not unify an
+unconstrained wanted variable with a given's skolem: that would prematurely
+choose the type of a local binding before its uses instantiate it. Functional
+dependency improvement remains the owner of permitted argument refinement,
+including dependencies exposed by the instantiated superclass closure of each
+lexical given.
+For example, under `BoundedEnum a` with an `Ord a` superclass, a local integer
+stepper's `Ord ?state` must stay residual until generalized or fixed by its
+integer seed; the superclass dictionary proves `Ord a`, not `Ord ?state`.
+
 Infer a recursive SCC with shared placeholders, respecting explicit signatures, then solve and generalize only variables permitted by the environment and remaining constraints. Use kind-correct constructor and pattern types; type-check case alternatives, literals, arrays, record operations, newtypes, and foreign imports. Visible type application `e @T` substitutes `T` for the operand's outermost quantifier after a kind check and is erased, and `e @_` consumes that quantifier without choosing a type. Typed holes follow the official source rules. A quantified kind argument is instantiated implicitly, because no source form applies one to a type constructor. Build THIR only after zonking, ambiguity checks, and evidence elaboration.
 
 A declaration's scheme carries the constraints that were inferred for it, whether or not the source declared them. Generalization is therefore one sequence and not two:

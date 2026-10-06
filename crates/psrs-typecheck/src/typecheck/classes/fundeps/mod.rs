@@ -51,13 +51,18 @@ impl Checker {
         if class.fundeps.is_empty() {
             return false;
         }
+        let givens = constraint
+            .givens
+            .iter()
+            .flat_map(|(given, _)| self.superclass_closure(given))
+            .collect::<Vec<_>>();
         let mut changed = false;
         for fundep in &class.fundeps {
             if !self.determiners_are_known(&constraint.arguments, &fundep.determining) {
                 continue;
             }
             let mut sources: Vec<Vec<InferType>> = Vec::new();
-            for (given, _) in constraint.givens.clone() {
+            for given in &givens {
                 if given.class_id == constraint.class_id
                     && fundep.determining.iter().all(|&index| {
                         self.infer_types_equal(
