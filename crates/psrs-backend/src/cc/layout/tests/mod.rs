@@ -5,6 +5,7 @@ use psrs_core::{
 };
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
+mod opaque;
 mod records;
 
 fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {

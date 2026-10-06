@@ -181,7 +181,15 @@ pub(crate) fn declaration_shape(
                     "the first backend slice cannot represent aggregate or parameterized types",
                 )]);
             };
-            if enum_types.contains(&type_id) {
+            if module.opaque_ids.contains(&type_id) {
+                // An applied foreign type is not a nullary handle. It has no
+                // constructors, so its value uses the erased reference until a
+                // later calling convention gives that type its own layout.
+                Ok(Signature {
+                    parameters,
+                    result: erased_reference(),
+                })
+            } else if enum_types.contains(&type_id) {
                 Ok(Signature {
                     parameters,
                     result: ValueShape::Integer,
@@ -328,6 +336,9 @@ pub(crate) fn scalar_type(
                     "aggregate and parameterized types are not supported by the first backend slice",
                 )]);
             };
+            if module.opaque_ids.contains(&type_id) {
+                return Ok(erased_reference());
+            }
             if enum_types.contains(&type_id) {
                 Ok(ValueShape::Integer)
             } else if aggregate_types.contains(&type_id) {
@@ -415,6 +426,13 @@ pub(super) fn function_parameter_shape(
         record_types,
         function_types,
     )
+}
+
+fn erased_reference() -> ValueShape {
+    ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Erased,
+    })
 }
 
 fn aggregate_value_type() -> ValueShape {
