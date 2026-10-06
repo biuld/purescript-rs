@@ -48,9 +48,10 @@ uncommitted work.
   APIs execute, that every declaration survives backend lowering, or that FFI
   behavior agrees with its contract.
 
-- Use the standalone [conformance commands](docs/workflow/stdlib-conformance.md)
-  for source and runtime comparisons. The tool consumes executable and package
-  paths; it must not depend on compiler-internal representations.
+- Use the library-owned Node [conformance commands](docs/workflow/stdlib-conformance.md)
+  in `psrs-stdlib/tools/` for source and runtime comparisons. Maintain tool code
+  and case engines in that repository; keep compiler locks and Rust tests here.
+  The tool consumes executable and package paths; it must not depend on compiler-internal representations.
 
 ### Commit granularity
 

@@ -20,8 +20,10 @@ compiler and tooling source. Do not split official modules to satisfy that rule.
 The initial complete audit and pinned comparison baselines are recorded in
 [the source audit](../implementation/stdlib/vendor-audit-2026-10-06/report.md).
 That audit describes revision 67369ba, including defects; it is not an approved
-patch manifest. Its repeatable inventory tool is
-[audit-stdlib-vendor.py](tools/audit-stdlib-vendor.py).
+patch manifest. The current repeatable inventory tool is owned by `psrs-stdlib`:
+see [the Node conformance commands](stdlib-conformance.md). Historical reports
+retain their original Python commands; the Node port preserves their evidence
+fields and uses Git for unified patch generation.
 
 The [restoration checkpoint](../implementation/stdlib/vendor-restoration-2026-10-06/report.md)
 records restored sources, remaining target adaptations, and missing foreign

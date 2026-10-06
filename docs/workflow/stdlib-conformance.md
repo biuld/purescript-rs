@@ -1,19 +1,17 @@
 # Standard-library conformance commands
 
-The standalone component is in `tools/stdlib-conformance`. It requires Python
-3.9 or newer; scalar oracle generation also requires Node with ES module
-support. Run it directly without installing dependencies:
+The library-owned Node component is `../psrs-stdlib/tools/conformance.mjs`.
+It requires Node 22.7 or newer and has no npm dependencies. Run it directly:
 
 ```sh
-export PYTHONPATH=tools/stdlib-conformance/src
-python3 -m stdlib_conformance --help
+node ../psrs-stdlib/tools/conformance.mjs --help
 ```
 
 A pinned complete source audit accepts the independent package and upstream
 checkout directories. Supply the lock to reject a different upstream baseline:
 
 ```sh
-python3 -m stdlib_conformance audit \
+node ../psrs-stdlib/tools/conformance.mjs audit \
   --vendor ../psrs-stdlib/lib \
   --inventory ../psrs-stdlib/upstream-lock.json \
   --upstream /private/tmp/ps-pkgs \
@@ -27,14 +25,14 @@ its differences. Check the actual pinned checkout locations before running.
 Generate and execute the currently implemented scalar cases:
 
 ```sh
-python3 -m stdlib_conformance scalar-oracle \
+node ../psrs-stdlib/tools/conformance.mjs scalar-oracle \
   --vendor ../psrs-stdlib/lib \
   --inventory ../psrs-stdlib/upstream-lock.json \
   --cases ../psrs-stdlib/conformance/scalars.json \
   --upstream purescript-prelude=/private/tmp/purescript-prelude \
   --upstream purescript-integers=/private/tmp/ps-pkgs/purescript-integers \
   --out /tmp/psrs-stdlib-oracle
-python3 -m stdlib_conformance run \
+node ../psrs-stdlib/tools/conformance.mjs run \
   --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
   --input /tmp/psrs-stdlib-oracle/Golden.purs \
   --input /tmp/psrs-stdlib-oracle/Main.purs \
@@ -54,7 +52,7 @@ The library owns non-scalar case generators as well. For array application:
 ```sh
 node ../psrs-stdlib/conformance/arrays.mjs \
   /private/tmp/purescript-prelude /tmp/psrs-array-oracle
-python3 -m stdlib_conformance run \
+node ../psrs-stdlib/tools/conformance.mjs run \
   --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
   --input /tmp/psrs-array-oracle/Golden.purs \
   --input /tmp/psrs-array-oracle/Main.purs \
@@ -65,3 +63,9 @@ The generator verifies the clean upstream revision, evaluates the official JS
 function, copies the actual vendored binding signature, and emits value checks.
 Keep generators and cases in the library package; the independent runtime runner
 continues to consume executable and source paths without compiler-internal APIs.
+
+Tool changes and their tests belong in `psrs-stdlib`; run `npm test` there.
+The compiler retains its package lock and Rust regression tests. A cargo xtask
+wrapper, if added, should delegate to this CLI. The former Python component and
+compiler-local compatibility scripts were removed after report-equivalent Node
+validation. Historical evidence retains the commands used at that time.

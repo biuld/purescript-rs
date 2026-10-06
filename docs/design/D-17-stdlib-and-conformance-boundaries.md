@@ -15,10 +15,13 @@ evidence, supported binding protocols, lowering, and runtime representation.
 Library source changes cannot compensate for compiler defects. Follow the
 [source-fidelity contract](../workflow/stdlib-vendoring.md).
 
-`tools/stdlib-conformance` is a standalone Python/Node component. It compares
+`psrs-stdlib/tools/conformance.mjs` is a library-owned Node component. It compares
 source inventories, evaluates pinned upstream JavaScript implementations, and
 runs a compiler executable and Wasmtime. Inputs are package paths, manifests,
-case data, and executable paths. It has no compiler-internal Rust dependency.
+case data, and executable paths. It uses Node built-ins, requires no npm
+installation, and has no compiler-internal Rust dependency. Its implementation
+and tests evolve with the library; the compiler retains package locking and
+Rust integration tests.
 A future cargo xtask may invoke these commands without becoming their owner.
 
 ## Package selection
@@ -47,11 +50,13 @@ remain in the driver and resolver respectively.
 
 The `fnv1a64-v1:` identifier is a reproducibility fingerprint, not a cryptographic
 integrity check. Starting at FNV-1a's 64-bit offset basis, hash the bytes
-`psrs-stdlib-content-v1` followed by NUL. Sort all relative file paths from
-`lib/`, `conformance/`, `manifest.json`, and `upstream-lock.json`. For each,
+`psrs-stdlib-content-v1` followed by NUL. Sort relative paths lexicographically
+by UTF-8 path components from `lib/`, `conformance/`, `manifest.json`, and `upstream-lock.json`. For each,
 hash its UTF-8 path, NUL, file length as unsigned 64-bit little-endian bytes,
 and the exact file bytes. FNV multiplication wraps at 64 bits. Package symlinks
 and special files are rejected. The upstream lock retains cryptographic hashes.
+Tooling and docs are outside this package content fingerprint; record the library tool revision with evidence.
+Moving tools does not change the source/case fingerprint.
 
 The CLI obtains the fingerprint from the driver's selected package, including
 an override. This changes the diagnosis cohort identity from the previous
