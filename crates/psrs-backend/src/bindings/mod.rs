@@ -6,6 +6,9 @@ use psrs_core::{Module as CoreModule, TypeId as CoreTypeId};
 use psrs_hir::{ExternalKind, ModuleId, SymbolId};
 use std::collections::{HashMap, HashSet};
 
+mod primitives;
+pub(crate) use primitives::lower as lower_primitives;
+
 /// The complete input consumed by P9. Platform binding metadata is kept beside
 /// CC rather than embedded in the CC module itself.
 #[derive(Clone, Debug, PartialEq, Eq)]

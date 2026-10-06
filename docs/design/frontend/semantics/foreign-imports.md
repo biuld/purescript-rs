@@ -28,6 +28,18 @@ reject a library value without a registered target implementation explicitly.
 This supports faithful source inventory and checking, not JavaScript execution
 or an assertion that all library values already have Wasm implementations.
 
+An explicit `"psrs:intrinsic#operation"` binding selects an operation from the
+authoritative intrinsic registry. Resolution records `Primitive(Intrinsic)`;
+the declaration still owns its source type and symbol. P8 linking generates an
+ordinary typed Core function, checks its operand and result identities with the
+existing Core intrinsic verifier, and discharges the external only after those
+checks succeed. The generated function supports ordinary first-class use and
+partial application. A wrong type is rejected even if the binding is unused.
+The initial foreign-binding implementation covers monomorphic unary and binary
+scalar operations. Other registered operations remain explicit unsupported
+bindings until their full checked implementation exists. The binding string,
+never the source function's name or declaring module, selects the operation.
+
 ## Scope
 
 This document owns foreign value imports and foreign data declarations from
@@ -62,6 +74,7 @@ corresponds to a handle.
 
 ```text
 ForeignValue = { name, binding: Optional(Interface "#" Function), type, span }
+Binding = WIT(Interface, Function) | Primitive(Intrinsic) | Library(Module, Symbol)
 ForeignData  = { name, kind, span }
 OpaqueType   = nominal TypeId with no constructors
 SourceResource = { type_id: TypeId }

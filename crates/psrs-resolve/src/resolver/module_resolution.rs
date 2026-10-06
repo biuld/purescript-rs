@@ -120,9 +120,21 @@ pub(crate) fn resolve_ast_module(
                     });
                     continue;
                 };
-                ExternalKind::Wit {
-                    interface: interface.into(),
-                    function: function.into(),
+                if interface == "psrs:intrinsic" {
+                    let Some(intrinsic) = hir::Intrinsic::from_binding(function) else {
+                        resolver.errors.push(ResolveError {
+                            kind: ResolveErrorKind::InvalidHir,
+                            span: foreign.span,
+                            message: format!("unknown primitive binding `{function}`"),
+                        });
+                        continue;
+                    };
+                    ExternalKind::Primitive(intrinsic)
+                } else {
+                    ExternalKind::Wit {
+                        interface: interface.into(),
+                        function: function.into(),
+                    }
                 }
             }
         };

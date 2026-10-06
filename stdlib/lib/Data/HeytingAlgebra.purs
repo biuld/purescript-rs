@@ -100,9 +100,9 @@ instance heytingAlgebraRecord :: (RL.RowToList row list, HeytingAlgebraRecord li
   implies = impliesRecord (Proxy :: Proxy list)
   not = notRecord (Proxy :: Proxy list)
 
-foreign import boolConj :: Boolean -> Boolean -> Boolean
-foreign import boolDisj :: Boolean -> Boolean -> Boolean
-foreign import boolNot :: Boolean -> Boolean
+foreign import "psrs:intrinsic#booleanAnd" boolConj :: Boolean -> Boolean -> Boolean
+foreign import "psrs:intrinsic#booleanOr" boolDisj :: Boolean -> Boolean -> Boolean
+foreign import "psrs:intrinsic#booleanNot" boolNot :: Boolean -> Boolean
 
 -- | A class for records where all fields have `HeytingAlgebra` instances, used
 -- | to implement the `HeytingAlgebra` instance for records.

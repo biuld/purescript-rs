@@ -20,6 +20,7 @@ mod let_constraints;
 mod library_foreign;
 mod operators;
 mod partial_application;
+mod primitive_foreign;
 mod scalars;
 mod semigroup;
 mod show;

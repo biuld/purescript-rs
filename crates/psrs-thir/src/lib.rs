@@ -177,10 +177,11 @@ pub struct ConstructorInfo {
     pub parameters: Vec<TypeVariableId>,
 }
 
-/// The normalized checked scheme for one WIT value import. Unlike the HIR
+/// The normalized checked scheme for one source foreign value import. Unlike the HIR
 /// signature kept for names and diagnostics, `ty` has had type synonyms
-/// expanded by the type checker and uses this module's type table. Intrinsics
-/// use registry-owned contracts and do not appear in this table.
+/// expanded by the type checker and uses this module's type table. Bootstrap
+/// intrinsics use registry-owned contracts; explicit primitive bindings still
+/// require the checked source scheme recorded here.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalType {
     pub symbol: SymbolId,

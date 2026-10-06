@@ -110,6 +110,13 @@ impl Intrinsic {
         registry::descriptor(self)
     }
 
+    /// Resolves an explicit primitive binding using the authoritative registry.
+    pub fn from_binding(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|value| value.descriptor().name == name)
+    }
+
     /// Every variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
     pub const ALL: [Intrinsic; 61] = [

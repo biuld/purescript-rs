@@ -51,8 +51,8 @@ instance ringRecord :: (RL.RowToList row list, RingRecord list row row) => Ring 
 negate :: forall a. Ring a => a -> a
 negate a = zero - a
 
-foreign import intSub :: Int -> Int -> Int
-foreign import numSub :: Number -> Number -> Number
+foreign import "psrs:intrinsic#intSub" intSub :: Int -> Int -> Int
+foreign import "psrs:intrinsic#numberSub" numSub :: Number -> Number -> Number
 
 -- | A class for records where all fields have `Ring` instances, used to
 -- | implement the `Ring` instance for records.

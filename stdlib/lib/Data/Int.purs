@@ -78,7 +78,7 @@ unsafeClamp x
 
 -- | Converts an `Int` value back into a `Number`. Any `Int` is a valid `Number`
 -- | so there is no loss of precision with this function.
-foreign import toNumber :: Int -> Number
+foreign import "psrs:intrinsic#intToNumber" toNumber :: Int -> Number
 
 -- | Reads an `Int` from a `String` value. The number must parse as an integer
 -- | and fall within the valid range of values for the `Int` type, otherwise

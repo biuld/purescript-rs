@@ -135,6 +135,9 @@ pub enum ExternalKind {
     /// Its identity is the declaring module and the external value's name;
     /// absence of an implementation must remain an explicit linking failure.
     Library { module: String },
+    /// A source value explicitly bound to a compiler primitive. Its checked
+    /// declaration type remains authoritative until target linking verifies it.
+    Primitive(Intrinsic),
 }
 
 impl ExternalKind {

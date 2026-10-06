@@ -74,10 +74,10 @@ instance eqRec :: (RL.RowToList row list, EqRecord list row) => Eq (Record row) 
 instance eqProxy :: Eq (Proxy a) where
   eq _ _ = true
 
-foreign import eqBooleanImpl :: Boolean -> Boolean -> Boolean
-foreign import eqIntImpl :: Int -> Int -> Boolean
-foreign import eqNumberImpl :: Number -> Number -> Boolean
-foreign import eqCharImpl :: Char -> Char -> Boolean
+foreign import "psrs:intrinsic#booleanEq" eqBooleanImpl :: Boolean -> Boolean -> Boolean
+foreign import "psrs:intrinsic#intEq" eqIntImpl :: Int -> Int -> Boolean
+foreign import "psrs:intrinsic#numberEq" eqNumberImpl :: Number -> Number -> Boolean
+foreign import "psrs:intrinsic#charEq" eqCharImpl :: Char -> Char -> Boolean
 foreign import eqStringImpl :: String -> String -> Boolean
 
 foreign import eqArrayImpl :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Boolean

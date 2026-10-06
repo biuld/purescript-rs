@@ -38,8 +38,9 @@ pub struct ConstructorInfo {
     pub parameters: Vec<TypeVariableId>,
 }
 
-/// The checked, synonym-expanded signature of a WIT value import. Compiler
-/// intrinsics use registry-owned contracts and do not appear in this table.
+/// The checked, synonym-expanded signature of a source foreign value import.
+/// Bootstrap intrinsics use registry-owned contracts and do not appear here;
+/// explicit primitive bindings retain their source signature until linking.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalType {
     pub symbol: SymbolId,
@@ -55,7 +56,7 @@ pub struct Module {
     pub id: ModuleId,
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
-    /// Checked WIT import signatures projected from THIR. Backend binding and
+    /// Checked source foreign signatures projected from THIR. Backend binding and
     /// representation lowering must consume these schemes rather than
     /// reconstructing types from raw HIR annotations.
     pub external_types: Vec<ExternalType>,

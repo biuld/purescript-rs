@@ -86,10 +86,10 @@ instance semiringRecord :: (RL.RowToList row list, SemiringRecord list row row) 
   one = oneRecord (Proxy :: Proxy list) (Proxy :: Proxy row)
   zero = zeroRecord (Proxy :: Proxy list) (Proxy :: Proxy row)
 
-foreign import intAdd :: Int -> Int -> Int
+foreign import "psrs:intrinsic#intAdd" intAdd :: Int -> Int -> Int
 foreign import intMul :: Int -> Int -> Int
-foreign import numAdd :: Number -> Number -> Number
-foreign import numMul :: Number -> Number -> Number
+foreign import "psrs:intrinsic#numberAdd" numAdd :: Number -> Number -> Number
+foreign import "psrs:intrinsic#numberMul" numMul :: Number -> Number -> Number
 
 -- | A class for records where all fields have `Semiring` instances, used to
 -- | implement the `Semiring` instance for records.
