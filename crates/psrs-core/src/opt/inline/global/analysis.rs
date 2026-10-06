@@ -1,5 +1,5 @@
 use crate::{Expr, ExprKind, Type, TypeId};
-use psrs_hir::{SymbolId, TypeVariableId};
+use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn application_parts(expression: &Expr) -> (&Expr, Vec<&Expr>) {
@@ -37,26 +37,6 @@ fn type_has_forall(id: TypeId, types: &[Type], seen: &mut HashSet<TypeId>) -> bo
         }
         _ => false,
     }
-}
-
-/// Leading quantifiers of an expression type. A beta-reduced let keeps this
-/// type, and Core opens those binders for the let body only. Bindings need the
-/// same binders in `quantified` when the inlined callee or its argument
-/// mentions them.
-pub(in crate::opt::inline) fn leading_foralls(
-    mut id: TypeId,
-    types: &[Type],
-) -> Vec<TypeVariableId> {
-    let mut binders = Vec::new();
-    let mut seen = HashSet::new();
-    while let Some(Type::ForAll { variables, body }) = types.get(id.0 as usize) {
-        if !seen.insert(id) {
-            break;
-        }
-        binders.extend(variables.iter().copied());
-        id = *body;
-    }
-    binders
 }
 
 pub(in crate::opt::inline) fn expr_introduces_type_binders(

@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "diagnoses": {
+    "d": {
+      "before": {
+        "compiler": {
+          "head": "11db1757c20b76b5231e033395f000714f279baa",
+          "dirty": true,
+          "working_tree_fingerprint": "fnv1a64:35c7343b32dd42cc",
+          "binary_fingerprint": "fnv1a64:6e3f9e8e06b2a857"
+        },
+        "cohort": {
+          "mode": "file",
+          "corpus": null,
+          "filter": null,
+          "limit": null,
+          "timeout_seconds": 30,
+          "trusted_stdlib_fingerprint": "fnv1a64-v1:b2890fecd9c42aa3"
+        },
+        "input_fingerprint": "fnv1a64:6b1b440f4fc6ba6b",
+        "status": "passed",
+        "first_blocker": null,
+        "diagnostics": []
+      },
+      "after": {
+        "compiler": {
+          "head": "11db1757c20b76b5231e033395f000714f279baa",
+          "dirty": true,
+          "working_tree_fingerprint": "fnv1a64:790e9733c3f1e58b",
+          "binary_fingerprint": "fnv1a64:0532bc7848f9b3ae"
+        },
+        "cohort": {
+          "mode": "file",
+          "corpus": null,
+          "filter": null,
+          "limit": null,
+          "timeout_seconds": 30,
+          "trusted_stdlib_fingerprint": "fnv1a64-v1:b2890fecd9c42aa3"
+        },
+        "input_fingerprint": "fnv1a64:6b1b440f4fc6ba6b",
+        "status": "failed",
+        "first_blocker": {
+          "stage": "P5 typecheck",
+          "category": "AmbiguousTypeVariables",
+          "message": "ambiguous constraint C _T3 in the type inferred for `f`: _T3 is not determined by the result type or a functional dependency"
+        },
+        "diagnostics": [
+          {
+            "origin": "source",
+            "source": "/tmp/psrs-d-ambiguity.purs",
+            "stage": "P5 typecheck",
+            "start": 55,
+            "end": 56,
+            "code": "AmbiguousTypeVariables",
+            "kind": null,
+            "message": "ambiguous constraint C _T3 in the type inferred for `f`: _T3 is not determined by the result type or a functional dependency"
+          }
+        ]
+      }
+    }
+  }
+}

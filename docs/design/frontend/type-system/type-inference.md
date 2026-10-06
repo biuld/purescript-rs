@@ -14,7 +14,7 @@ This document owns schemes, instantiation, generalization, bidirectional checkin
 
 ## Background
 
-HM inference explains unannotated let polymorphism, but PureScript additionally supports `forall` beneath arrows, constrained types, explicit type application, and row-polymorphic records. A use of a polymorphic value instantiates its `forall`; checking against an expected `forall` skolemizes it and rejects escaping skolems. Subsumption handles function variance and inserts dictionary evidence at permitted expression boundaries. Recursive declarations are checked as dependency groups; signatures supply polymorphic recursion where accepted by the source language.
+HM inference supplies declaration generalization; unannotated local bindings remain monomorphic. PureScript additionally supports `forall` beneath arrows, constrained types, explicit type application, and row-polymorphic records. A use of a polymorphic value instantiates its `forall`; checking against an expected `forall` skolemizes it and rejects escaping skolems. Subsumption handles function variance and inserts dictionary evidence at permitted expression boundaries. Recursive declarations are checked as dependency groups; signatures supply polymorphic recursion where accepted by the source language.
 
 ## Model
 
@@ -57,13 +57,13 @@ This contextual boundary check does not change ordinary function subsumption.
 Lexical givens and their superclass projections discharge a wanted only when
 all resolved argument types already agree. Dictionary lookup does not unify an
 unconstrained wanted variable with a given's skolem: that would prematurely
-choose the type of a local binding before its uses instantiate it. Functional
+choose the type of an unannotated local binding before its uses constrain it. Functional
 dependency improvement remains the owner of permitted argument refinement,
 including dependencies exposed by the instantiated superclass closure of each
 lexical given.
 For example, under `BoundedEnum a` with an `Ord a` superclass, a local integer
-stepper's `Ord ?state` must stay residual until generalized or fixed by its
-integer seed; the superclass dictionary proves `Ord a`, not `Ord ?state`.
+stepper's `Ord ?state` must stay residual until its enclosing declaration
+generalizes it or it is fixed by its integer seed; the superclass dictionary proves `Ord a`, not `Ord ?state`.
 
 Infer a recursive SCC with shared placeholders, respecting explicit signatures, then solve and generalize only variables permitted by the environment and remaining constraints. Use kind-correct constructor and pattern types; type-check case alternatives, literals, arrays, record operations, newtypes, and foreign imports. Visible type application `e @T` substitutes `T` for the operand's outermost quantifier after a kind check and is erased, and `e @_` consumes that quantifier without choosing a type. Typed holes follow the official source rules. A quantified kind argument is instantiated implicitly, because no source form applies one to a type constructor. Build THIR only after zonking, ambiguity checks, and evidence elaboration.
 
@@ -213,7 +213,7 @@ Every THIR expression and binder has a kind-valid type; every reference is resol
 
 ## Worked example
 
-`apply :: (forall a. a -> a) -> Int` requires an argument polymorphic at the call site. `apply (\x -> x)` checks the lambda against a skolemized `forall a. a -> a`; a monomorphic `Int -> Int` argument fails. By contrast, `let id = \x -> x in id id` generalizes `id` and instantiates its two uses independently.
+`apply :: (forall a. a -> a) -> Int` requires an argument polymorphic at the call site. `apply (\x -> x)` checks the lambda against a skolemized `forall a. a -> a`; a monomorphic `Int -> Int` argument fails. A local binding needs an explicit polymorphic annotation for independent instantiation: `let id = (\x -> x) :: forall a. a -> a in id id`. An unannotated local identity is monomorphic, so self-application is an infinite type.
 
 For `class C a where method :: a -> a`, the declaration `f x = method x` has one wanted `C ?a` that no instance discharges. Generalization retains it, checks that `?a` occurs in `f`'s result type `?a -> ?a`, quantifies `?a` with kind `Type`, and gives `f` the scheme `forall a. C a => a -> a` with one dictionary parameter. `f 1` then instantiates that scheme and solves `C Int` at the use, while `f (\y -> y)` is rejected for lacking `C (Int -> Int)` if no such instance exists.
 
@@ -294,25 +294,26 @@ explicit THIR scope for internal types without choosing a default type or
 adding evidence for an unsolved obligation; unused binders in the public type
 remain meaningful when the implementation mentions them.
 
-A solved obligation in a local binding may mention a variable that its local
-scheme quantifies. An enclosing declaration's ambiguity check treats that
-variable as already bound, even when the local's result does not escape into
-the enclosing type. This does not determine an unknown that the local scheme
-never quantified: such a variable remains subject to the enclosing ambiguity
-check. Generalization's recorded binder identities distinguish the two cases.
+Unannotated local `let` and `where` bindings are monomorphic, as in official
+PureScript's `inferLetBinding`. They share the enclosing declaration's inference
+unknowns and wanted constraints. Local uses can solve those unknowns before the
+enclosing binding group solves, checks ambiguity, and generalizes. A local's
+unused class obligation is still an obligation of that declaration: `f y = let
+g x = method x in y` is ambiguous when `method :: C a => a -> a`, because the
+result of `f` does not determine `a`. Functional dependencies use the same
+closure over all retained constraints before deciding ambiguity.
 
-A local `let` or `where` binding is a nested generalization, not an obligation
-of the enclosing signature. Before the binding is quantified, its new wanteds
-are solved under `Defer`: nothing is reported yet. A constraint whose flexible
-variables were all allocated inside that binding, and that exactly one binding's
-type determines, is retained on the binding. It becomes dictionary parameters,
-and each use instantiates it, so `go succ` can solve `Bind Maybe` after `succ`
-fixes the monad. A constraint that still mentions an outer unknown stays
-unsolved for the enclosing declaration. A recursive local group does not
-quantify a variable an undischarged constraint still shares; that constraint
-stays with the enclosing declaration, the same rule that refuses polymorphic
-recursion at the top level. An abstracted dictionary is a nested binding's
-parameter, so the enclosing ambiguity check does not measure it again.
+An explicit polymorphic local annotation owns its checked quantifiers and
+constraint dictionaries. Each use instantiates that declared type; it does not
+share the unannotated-binding unknowns. An enclosing body traversal preserves
+these structural binders and must not capture them again. When a checked `let`
+expression carries a leading `forall`, its binders scope both local definitions
+and the body in THIR and Core. Beta reduction retains the quantifier on the
+whole `let`; its argument binding remains monomorphic rather than rebinding
+the same type variable. Local bindings do not infer a qualified scheme or abstract unsolved dictionaries independently of
+the enclosing declaration. This also prevents implicit polymorphic recursion
+in a local recursive group.
+
 The scheme records the kind of each quantified variable, read through the kind
 owner, so an instantiation carries the declaration's own polymorphism rather than
 reading it back from the solver table.

@@ -305,8 +305,10 @@ fn verify_expr_scope(
             verify_expr_scope(body, types, &mut body_scope, errors);
         }
         ExprKind::Let { bindings, body } => {
+            let mut body_scope = scope.clone();
+            open_expression_binders(expression, types, &mut body_scope, errors);
             for binding in bindings {
-                let mut binding_scope = scope.clone();
+                let mut binding_scope = body_scope.clone();
                 enter_binders(
                     &binding.quantified,
                     &mut binding_scope,
@@ -324,8 +326,6 @@ fn verify_expr_scope(
                 );
                 verify_expr_scope(&binding.value, types, &mut binding_scope, errors);
             }
-            let mut body_scope = scope.clone();
-            open_expression_binders(expression, types, &mut body_scope, errors);
             verify_expr_scope(body, types, &mut body_scope, errors);
         }
         ExprKind::If {

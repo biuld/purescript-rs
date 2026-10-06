@@ -1,5 +1,5 @@
 use super::super::util::{FreshLocals, count_nodes, next_locals, substitute_locals};
-use super::global::analysis::{expr_introduces_type_binders, leading_foralls};
+use super::global::analysis::expr_introduces_type_binders;
 use crate::{Binding, Expr, ExprKind, Module, Type};
 use std::collections::HashMap;
 
@@ -132,12 +132,8 @@ fn inline_expr(
                     span: expression.span,
                 };
                 let body = substitute_locals(&body, &HashMap::from([(binder.id, replacement)]));
-                // The result type's leading quantifiers covered both the
-                // callee and the argument. The let body reopens them from
-                // its type; the binding does not, so they have to be named
-                // here. Newtype deriving casts an entire quantified method
-                // under an unknown constructor, and that variable occurs in
-                // the wrapped dictionary's type.
+                // The enclosing let's result quantifiers scope both its
+                // argument binding and body; the binding stays monomorphic.
                 ExprKind::Let {
                     bindings: vec![Binding {
                         binder: crate::Binder {
@@ -146,7 +142,7 @@ fn inline_expr(
                             ty: binder.ty,
                             span: binder.span,
                         },
-                        quantified: leading_foralls(expression.ty, types),
+                        quantified: Vec::new(),
                         value: argument,
                         span: expression.span,
                     }],

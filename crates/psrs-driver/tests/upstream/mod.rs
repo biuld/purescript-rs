@@ -6,6 +6,7 @@ mod deriving;
 mod library_foreign;
 mod rank_n;
 mod reports;
+mod residual_constraints;
 mod rows;
 mod symbol_reflection;
 

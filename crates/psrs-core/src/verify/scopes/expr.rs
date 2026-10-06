@@ -107,8 +107,10 @@ pub(super) fn scoped_expr(
             scoped_expr(body, module, &mut body_scope, errors);
         }
         ExprKind::Let { bindings, body } => {
+            let mut body_scope = scope.clone();
+            open_expression_binders(expression, module, &mut body_scope, errors);
             for binding in bindings {
-                let mut binding_scope = scope.clone();
+                let mut binding_scope = body_scope.clone();
                 enter(
                     &binding.quantified,
                     &mut binding_scope,
@@ -127,8 +129,6 @@ pub(super) fn scoped_expr(
                 );
                 scoped_expr(&binding.value, module, &mut binding_scope, errors);
             }
-            let mut body_scope = scope.clone();
-            open_expression_binders(expression, module, &mut body_scope, errors);
             scoped_expr(body, module, &mut body_scope, errors);
         }
         ExprKind::If {

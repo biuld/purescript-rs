@@ -1,7 +1,6 @@
-//! Constraints inferred inside a local binding stay with that binding when the
-//! enclosing declaration has a signature. The use instantiates them, so a
-//! monad that is still unknown while the binding is checked can be `Maybe` at
-//! the call.
+//! Monomorphic local bindings share unknowns and constraints with the enclosing
+//! declaration. A local call can determine a previously unknown monad as `Maybe`;
+//! the enclosing declaration solves the resulting obligation.
 
 fn assert_checks(source: &str) {
     crate::check_program(&[("Main.purs", source)])
@@ -9,7 +8,7 @@ fn assert_checks(source: &str) {
 }
 
 #[test]
-fn a_signed_function_generalizes_constraints_of_its_where_binding() {
+fn a_signed_function_solves_constraints_of_its_where_binding() {
     let source = r#"
 module Main where
 
@@ -270,7 +269,7 @@ main = 0
 }
 
 #[test]
-fn a_solved_local_dictionary_uses_the_local_schemes_quantified_variables() {
+fn a_solved_local_dictionary_uses_the_enclosing_methods_quantified_variables() {
     assert_checks(
         r#"
 module Main where

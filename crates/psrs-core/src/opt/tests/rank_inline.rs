@@ -177,7 +177,7 @@ fn global_inline_keeps_a_forall_signature_with_an_empty_quantified_list() {
 }
 
 #[test]
-fn local_inline_keeps_a_result_quantifier_on_the_binding() {
+fn local_inline_keeps_a_result_quantifier_on_the_enclosing_let() {
     let variable = TypeId(0);
     let int_type = TypeId(1);
     let mut types = vec![
@@ -229,5 +229,5 @@ fn local_inline_keeps_a_result_quantifier_on_the_binding() {
     let ExprKind::Let { bindings, .. } = &optimized.declarations[0].value.kind else {
         panic!("the coercion lambda should beta-reduce: {optimized:?}");
     };
-    assert_eq!(bindings[0].quantified, vec![TypeVariableId(0)]);
+    assert!(bindings[0].quantified.is_empty());
 }
