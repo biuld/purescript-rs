@@ -128,6 +128,56 @@ main = let ignored = log (show 1.0e21) in 0
 }
 
 #[test]
+fn show_covers_number_and_aggregate_boundaries() {
+    let source = r#"
+module Main where
+
+import Prelude
+import Effect.Console (log)
+
+checks :: Effect Unit
+checks = do
+  log (show (0.0 / 0.0))
+  log (show (1.0 / 0.0))
+  log (show ((0.0 - 1.0) / 0.0))
+  log (show (numberNeg 0.0))
+  log (show 1.0e-6)
+  log (show 1.0e-7)
+  log (show 1.0e20)
+  log (show 5.0e-324)
+  log (show ([] :: Array Int))
+  log (show [[1, 2], [3]])
+  pure unit
+
+main = let ignored = runEffect checks in 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = concat!(
+        "NaN\n",
+        "Infinity\n",
+        "-Infinity\n",
+        "0.0\n",
+        "0.000001\n",
+        "1e-7\n",
+        "100000000000000000000.0\n",
+        "5e-324\n",
+        "[]\n",
+        "[[1,2],[3]]\n",
+    );
+    assert_eq!(
+        stdout.as_ref(),
+        expected,
+        "stdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn formats_many_numbers_without_exhausting_the_runtime_stack() {
     // The formatter is nonrecursive; a large array of numbers calls its raw
     // export once per element through the same private stack region.

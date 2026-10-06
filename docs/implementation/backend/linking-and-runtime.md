@@ -68,6 +68,9 @@ Wasm validation, execution, and official oracle agreement are separate evidence.
   executes `Data.Show` under Wasmtime and asserts byte-exact stdout across Int,
   Number (including `1e+21` and `1e-5`), Char, String escapes, unit, booleans,
   and arrays, interleaving formatting with WASI output and retained strings.
+  `tests::show::show_covers_number_and_aggregate_boundaries` adds NaN,
+  ±Infinity, negative zero, the `1e-6`/`1e-7` and `1e20` notation boundaries,
+  the minimum subnormal, the empty array, and a nested array.
   `tests::show::formats_many_numbers_without_exhausting_the_runtime_stack`
   formats a 64-element Number array through the same private stack region.
   Memory growth is not exercised; the application allocator is pre-sized by the
