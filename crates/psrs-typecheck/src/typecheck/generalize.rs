@@ -9,6 +9,8 @@
 
 use super::*;
 
+mod body;
+
 impl Checker {
     /// Generalizes a declaration into a scheme.
     ///
@@ -17,7 +19,7 @@ impl Checker {
     /// them, because they are the polymorphism the source declared rather than a
     /// side effect of the level a binder was allocated at. A binder that no
     /// surviving part of the type or the constraints mentions is not quantified:
-    /// a quantifier no occurrence refers to has no meaning.
+    /// body-only occurrences are handled by `generalize_body` after solving.
     ///
     /// `outer_level` is the level the declaration's scope sits at. A variable
     /// at that level or below belongs to the enclosing scope and is left alone,

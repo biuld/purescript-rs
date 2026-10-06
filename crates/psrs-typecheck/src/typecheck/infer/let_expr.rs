@@ -171,6 +171,7 @@ impl Checker {
                 ),
                 &parameters,
             );
+            scheme = self.generalize_body(scheme, &binding.value, outer_level);
             self.scope
                 .locals
                 .insert(binding.binder.binder.id, scheme.clone());

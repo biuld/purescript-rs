@@ -268,3 +268,150 @@ main = 0
 "#,
     );
 }
+
+#[test]
+fn a_solved_local_dictionary_uses_the_local_schemes_quantified_variables() {
+    assert_checks(
+        r#"
+module Main where
+
+class Delay l where
+  delay :: (Int -> l) -> l
+
+data List a = Nil | Cons a (List a)
+
+instance delayList :: Delay (List a) where
+  delay thunk = thunk 0
+
+class Build f where
+  build :: forall a. a -> f a
+
+instance buildList :: Build List where
+  build = go
+    where
+      go value = delay (\_ -> Cons value Nil)
+
+main :: Int
+main = 0
+"#,
+    );
+}
+
+#[test]
+fn an_unquantified_variable_of_a_solved_local_constraint_stays_ambiguous() {
+    let source = r#"
+module Main where
+
+class Delay l where
+  delay :: (Int -> l) -> l
+
+data List a = Nil
+instance delayList :: Delay (List a) where
+  delay thunk = thunk 0
+
+class Choose a where
+  choose :: List a -> Int
+
+instance chooseInt :: Choose Int where
+  choose _ = 0
+
+class Build f where
+  build :: forall a. a -> f a
+
+instance buildList :: Build List where
+  build _ = let discarded = choose (delay (\_ -> Nil)) in Nil
+
+main :: Int
+main = 0
+"#;
+    let errors = crate::check_program(&[("Main.purs", source)])
+        .expect_err("the local result does not quantify the delayed element type");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("AmbiguousTypeVariables")),
+        "expected the unquantified constraint to stay ambiguous: {errors:?}"
+    );
+}
+
+#[test]
+fn a_signed_body_owns_its_unobservable_instantiation_variables() {
+    assert_checks(
+        r#"
+module Main where
+
+data Proxy a = Proxy
+
+discard :: forall a. Proxy a -> Int
+discard _ = 0
+
+main :: Int
+main = discard Proxy
+"#,
+    );
+}
+
+#[test]
+fn a_local_body_owns_its_unobservable_instantiation_variables() {
+    assert_checks(
+        r#"
+module Main where
+
+data Proxy a = Proxy
+
+discard :: forall a. Proxy a -> Int
+discard _ = 0
+
+main = let discarded = discard Proxy in 0
+"#,
+    );
+}
+
+#[test]
+fn an_instance_body_owns_its_unobservable_instantiation_variables() {
+    assert_checks(
+        r#"
+module Main where
+
+data Proxy a = Proxy
+
+discard :: forall a. Proxy a -> Int
+discard _ = 0
+
+class Measure f where
+  measure :: forall a. f a -> Int
+
+instance measureProxy :: Measure Proxy where
+  measure _ = discard Proxy
+
+main :: Int
+main = 0
+"#,
+    );
+}
+
+#[test]
+fn body_only_quantifiers_preserve_execution() {
+    let source = r#"
+module Main where
+
+data Proxy a = Proxy
+
+discard :: forall a. Proxy a -> Int
+discard _ = 21
+
+class Measure f where
+  measure :: forall a. f a -> Int
+
+instance measureProxy :: Measure Proxy where
+  measure _ = discard Proxy
+
+main :: Int
+main = let part = discard Proxy in intAdd part (measure Proxy)
+"#;
+    let Some(output) = super::run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}

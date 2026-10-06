@@ -287,6 +287,10 @@ impl Checker {
                 // not become an unconstrained variable of the declaration
                 // currently discharging the worklist.
                 .filter(|variable| !self.state.rigid.contains(variable))
+                // A solved local obligation may still refer to its binding's
+                // quantified variables. They are parameters of that checked
+                // local scheme, not unknowns of the enclosing dictionary.
+                .filter(|variable| !self.state.generic_variables.contains(variable))
                 .copied()
                 .collect::<Vec<_>>();
             if ambiguous.is_empty() {

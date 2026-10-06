@@ -282,6 +282,7 @@ impl Checker {
         };
         let scheme = self.generalize(&member.quantified, &monomorphic, &retained, TOP_LEVEL);
         let value = self.wrap_dictionary_lambdas(value, &member.parameters);
+        let scheme = self.generalize_body(scheme, &value, TOP_LEVEL);
         self.state
             .pending_signatures
             .insert(member.symbol, member.parameters.clone());

@@ -273,6 +273,26 @@ so the body's evidence and the parameter the scheme hands on are one dictionary.
 `group.rs` runs the sequence and `entry.rs` hands it the module. A wanted from an
 earlier declaration is not re-solved: that declaration has already generalized or
 reported it, so a second attempt could bind a variable it has since quantified.
+
+A finished binding also owns the flexible implementation variables that no
+public result type mentions, such as the phantom argument in `discard Proxy`.
+After solving and ambiguity checking, generalization traverses its checked
+expression, patterns, cast boundaries, and solved evidence. It records the
+remaining free variables as additional scheme binders with their checked
+kinds. Variables already bound by a nested scheme or rigid quantifier are not
+captured, and variables belonging to an outer level stay in that scope. This
+applies to declarations, local bindings, and instance dictionaries. It supplies
+explicit THIR scope for internal types without choosing a default type or
+adding evidence for an unsolved obligation; unused binders in the public type
+remain meaningful when the implementation mentions them.
+
+A solved obligation in a local binding may mention a variable that its local
+scheme quantifies. An enclosing declaration's ambiguity check treats that
+variable as already bound, even when the local's result does not escape into
+the enclosing type. This does not determine an unknown that the local scheme
+never quantified: such a variable remains subject to the enclosing ambiguity
+check. Generalization's recorded binder identities distinguish the two cases.
+
 A local `let` or `where` binding is a nested generalization, not an obligation
 of the enclosing signature. Before the binding is quantified, its new wanteds
 are solved under `Defer`: nothing is reported yet. A constraint whose flexible

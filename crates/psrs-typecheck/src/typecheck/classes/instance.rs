@@ -219,6 +219,7 @@ impl Checker {
         }
         let head_variables = head_variables.into_iter().collect::<Vec<_>>();
         let scheme = self.generalize_instance_dictionary(&head_variables, &value.ty);
+        let scheme = self.generalize_body(scheme, &value, TOP_LEVEL);
         Some(InferredDeclaration {
             symbol: instance.symbol,
             name: instance.name.clone(),
