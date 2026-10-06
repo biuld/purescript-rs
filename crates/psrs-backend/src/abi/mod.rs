@@ -6,11 +6,13 @@
 use crate::TargetCapabilities;
 use crate::types::ValueType;
 use psrs_hir::{ModuleId, SymbolId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
 
 pub(crate) mod canonical;
+mod definitions;
 mod handles;
 pub(crate) mod layout;
 pub(crate) mod link;
@@ -22,10 +24,13 @@ use canonical::{
     CanonicalType, FnAbi, Ownership, function_abi, function_abi_from_types,
     resolve as resolve_canonical,
 };
+pub(crate) use definitions::load_wit;
+use definitions::supported_interfaces;
 pub use handles::{HandleMode, HandleResource};
 #[cfg(test)]
 pub(crate) use link::intern_source_type;
-use validation::{unsupported_shape, wasi_interface_enabled};
+use validation::unsupported_shape;
+pub(crate) use validation::wasi_interface_enabled;
 
 /// Maps a resolved WIT core value type to the backend's value type.
 fn value_type(ty: wit_parser::abi::WasmType) -> Result<ValueType, String> {
@@ -98,11 +103,15 @@ pub(crate) const VALIDATE_STEP_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRIN
 /// string boundary. Any other intrinsic-symbol allocator (for example the
 /// aggregate conversion helpers, which allocate downward from `u32::MAX`) must
 /// skip these.
-pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 4] = [
+pub(crate) const NUMBER_TO_STRING_SYMBOL: SymbolId =
+    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 5);
+
+pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 5] = [
     REALLOC_SYMBOL,
     STRING_TO_BYTES_SYMBOL,
     BYTES_TO_STRING_SYMBOL,
     VALIDATE_STEP_SYMBOL,
+    NUMBER_TO_STRING_SYMBOL,
 ];
 
 /// WASI interfaces and functions the backend itself references. The standard
@@ -163,10 +172,12 @@ impl WasiImport {
 /// Resolves WASI imports against the vendored WIT, interning each distinct
 /// `(module, name)` to a stable [`SymbolId`].
 pub struct WasiRegistry {
-    resolve: Resolve,
+    resolve: Arc<Resolve>,
     imports: Vec<WasiImport>,
     keys: HashMap<(String, String), usize>,
     target: TargetCapabilities,
+    /// Canonical ids of the interfaces the default world permits.
+    supported: HashSet<String>,
 }
 
 impl WasiRegistry {
@@ -175,11 +186,20 @@ impl WasiRegistry {
     const SYMBOL_BASE: u32 = 1 << 20;
 
     pub(crate) fn from_resolve(resolve: Resolve, target: TargetCapabilities) -> Self {
+        Self::from_shared_resolve(Arc::new(resolve), target)
+    }
+
+    /// Builds a registry over the linker's resolved-world context. The same
+    /// parsed definitions are shared, so interface identities are not
+    /// regenerated.
+    pub(crate) fn from_shared_resolve(resolve: Arc<Resolve>, target: TargetCapabilities) -> Self {
+        let supported = supported_interfaces(&resolve);
         Self {
             resolve,
             imports: Vec::new(),
             keys: HashMap::new(),
             target,
+            supported,
         }
     }
 
@@ -187,10 +207,11 @@ impl WasiRegistry {
         Self::load_with_capabilities(TargetCapabilities::default())
     }
 
-    /// Loads the vendored WIT with the service families enabled by `target`.
+    /// Loads the pinned WIT from the runtime catalog with the service families
+    /// enabled by `target`.
     pub fn load_with_capabilities(target: TargetCapabilities) -> Result<Self, String> {
         let mut resolve = Resolve::default();
-        crate::component::load_vendored_wasi(&mut resolve)?;
+        load_wit(&mut resolve)?;
         Ok(Self::from_resolve(resolve, target))
     }
 
@@ -279,7 +300,7 @@ impl WasiRegistry {
                 })
             })
             .or_else(|| {
-                (!crate::component::component_interface_supported(&module)).then(|| {
+                (!self.supported.contains(&module)).then(|| {
                     format!(
                         "WASI interface `{module}` is not in the current component capability profile"
                     )
@@ -354,6 +375,12 @@ impl WasiRegistry {
 
     pub fn imports(&self) -> &[WasiImport] {
         &self.imports
+    }
+
+    /// A shared handle to the parsed definitions this registry resolves
+    /// against. Isolated lowering fixtures wrap it in a permissive context.
+    pub(crate) fn shared_resolve(&self) -> Arc<Resolve> {
+        Arc::clone(&self.resolve)
     }
 
     /// The core import module and field for an interned import symbol. This is

@@ -18,7 +18,9 @@ emission. It does not own:
 - concrete scalar, GC, and closure layouts, which MIR fixes;
 - canonical ABI adaptation, which is [canonical ABI and WIT](canonical-abi-and-wit.md);
 - target capability policy, which is the [capability profile](capability-profile.md);
-- component packaging and WASI services, which is the
+- target-provider selection, memory reservations, and artifact composition,
+  specified by the draft [linking and runtime](linking-and-runtime.md) design;
+- the command world and WASI services, specified by the
   [WASI platform library](wasi-platform-library.md).
 
 ## Background
@@ -207,6 +209,13 @@ them, and emits a single *declared* element segment (`Elements::Functions`). No
 table is installed; the segment exists only to satisfy the declaration rule.
 
 ### Data segments and the allocator
+
+Under the [target linking contract](linking-and-runtime.md), P10 consumes
+checked memory reservations and an allocator boundary from the same link plan
+used by component assembly. It does not choose libraries or derive storage
+ownership by scanning import names. This plan integration is implemented for
+the formatter slice; the emitter consumes the plan's import names, heap start,
+and minimum pages.
 
 String literals are collected once, deduplicated by content, and placed in
 passive data segments. Each distinct literal used by the module is interned in

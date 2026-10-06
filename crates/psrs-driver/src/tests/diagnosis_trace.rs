@@ -122,6 +122,48 @@ fn frontend_rejection_has_diagnostics_but_no_backend_trace_or_core_output() {
 }
 
 #[test]
+fn target_plan_records_provider_and_memory_lineage() {
+    let source = "module Main where\nmain = 42\n";
+    let report = compile_program_sources_with_prelude_diagnosis(&[("Main.purs", source)], false);
+    assert!(
+        report.artifact.is_some(),
+        "program should compile: {:?}",
+        report.diagnostics
+    );
+    let trace = report.backend_trace.expect("backend pass trace");
+    let plan = trace
+        .executions
+        .iter()
+        .find(|execution| execution.pass_key == "backend.target.plan")
+        .expect("the checked plan is an observed execution");
+    assert_eq!(plan.status, TracePassStatus::Completed);
+    let parameter = |key: &str| {
+        plan.parameters
+            .iter()
+            .find(|parameter| parameter.key == key)
+            .map(|parameter| parameter.value.as_str())
+    };
+    assert_eq!(parameter("artifacts"), Some("0"));
+    assert_eq!(parameter("heap_start"), Some("24"));
+    assert!(
+        parameter("selected_providers")
+            .expect("selected providers are recorded")
+            .contains("wasi:cli/exit"),
+        "{:?}",
+        plan.parameters
+    );
+    assert!(
+        parameter("external_world")
+            .expect("the external world is recorded")
+            .contains("wasi:cli/exit"),
+    );
+    assert!(trace.artifacts.iter().any(|artifact| {
+        artifact.representation == TraceRepresentation::LinkPlan
+            && artifact.state == TraceArtifactState::Produced
+    }));
+}
+
+#[test]
 fn target_rejection_keeps_prior_artifacts_and_maps_errors_to_its_execution() {
     let prepared = crate::prepare_sources(&[("Main.purs", "module Main where\nmain = 42\n")])
         .expect("frontend should produce checked Core");

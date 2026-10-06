@@ -18,6 +18,7 @@ mod assignment_array;
 mod assignment_string;
 mod assignments;
 mod conversion_helpers;
+mod number_string;
 mod tail;
 mod variant;
 pub(super) use conversion_helpers::ConversionHelpers;

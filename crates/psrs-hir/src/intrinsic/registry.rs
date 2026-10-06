@@ -148,6 +148,7 @@ descriptors! {
     UnsafeCoerce => "__psrs_unsafe_coerce", 1, Coercion, scheme::unsafe_coerce;
     ArrayFill => "arrayFill", 2, ArrayFill, scheme::array_fill;
     ArrayWrite => "arrayWrite", 3, ArrayWrite, scheme::array_update;
+    NumberToString => "numberToString", 1, UnaryScalar, scheme::number_string;
 }
 
 /// The HIR type schemes. Each returns a fresh [`Type`], so a caller that
@@ -277,6 +278,10 @@ mod scheme {
 
     pub(super) fn int_number() -> Type {
         unary(BuiltinType::Int, BuiltinType::Number)
+    }
+
+    pub(super) fn number_string() -> Type {
+        unary(BuiltinType::Number, BuiltinType::String)
     }
 
     pub(super) fn number_int() -> Type {

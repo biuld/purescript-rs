@@ -63,9 +63,7 @@ fn run_gc_output(mir: &crate::mir::Module) -> Option<std::process::Output> {
         eprintln!("skipping: wasmtime is unusable");
         return None;
     }
-    let (resolve, world) = crate::component::command_world().expect("WASI WIT should load");
-    let component = crate::component::componentize(&core, &resolve, world)
-        .expect("componentizing the GC module");
+    let component = crate::linking::compose_core(&core).expect("componentizing the GC module");
     let path = std::env::temp_dir().join(format!(
         "psrs-gc-{}-{}.wasm",
         std::process::id(),

@@ -21,6 +21,16 @@ impl FunctionLowerer<'_> {
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         match intrinsic {
+            Intrinsic::NumberToString => {
+                let value = self.lower_value(&arguments[0], assignments)?;
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::NumberToString { value },
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
             Intrinsic::ArrayIndex => {
                 let array = &arguments[0];
                 let Some(representation) = self.array_types.get(&array.ty).copied() else {

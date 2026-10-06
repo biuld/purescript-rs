@@ -35,6 +35,8 @@ mod gc_tests;
 #[cfg(test)]
 mod indirect_tests;
 #[cfg(test)]
+mod number_format_tests;
+#[cfg(test)]
 mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -185,6 +187,19 @@ pub fn lower_module_with_bindings(
     lower_module_after_binding_validation(module, bindings, target, wasi)
 }
 
+/// Lowers CC to MIR over the linker's shared resolved definitions, so the
+/// registry borrows the same parsed WIT rather than loading a second copy.
+pub fn lower_module_with_bindings_and_resolve(
+    module: cc::Module,
+    bindings: crate::ExternalBindings,
+    target: TargetCapabilities,
+    resolve: std::sync::Arc<wit_parser::Resolve>,
+) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
+    bindings.validate_cc(&module)?;
+    let wasi = WasiRegistry::from_shared_resolve(resolve, target);
+    lower_module_after_binding_validation(module, bindings, target, wasi)
+}
+
 #[cfg(test)]
 pub(crate) fn lower_module_with_registry(
     module: cc::Module,
@@ -332,6 +347,9 @@ fn lower_module_after_binding_validation(
             parameters: vec![ValueType::I32; 4],
             result: Some(ValueType::I32),
         });
+    }
+    if used.contains(&crate::target_runtime::NUMBER_FORMAT.symbol) {
+        imports.push(crate::target_runtime::NUMBER_FORMAT.import());
     }
     // The canonical ABI boundary transcodes between the GC string's UTF-16 and
     // the component's UTF-8. The adapter calls these reserved helpers, which P10

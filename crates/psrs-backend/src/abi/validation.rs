@@ -136,7 +136,7 @@ pub(super) fn enum_cases(
     )
 }
 
-pub(super) fn wasi_interface_enabled(target: TargetCapabilities, module: &str) -> bool {
+pub(crate) fn wasi_interface_enabled(target: TargetCapabilities, module: &str) -> bool {
     let package_path = module
         .split_once('/')
         .map_or(module, |(package, _)| package);

@@ -71,6 +71,26 @@ mapping does not learn them.
 
 ## Model
 
+### Intrinsic target implementations and linking
+
+`psrs:intrinsic#` selects a checked language primitive, not a raw runtime
+function. An implementation may be a direct Wasm operation, a generated helper,
+or an embedded target-library export. Backend implementation descriptors join
+the HIR identity to the raw export signature and recovery protocol; a target
+link plan verifies reachable imports, validates the runtime artifact, reserves
+shared-memory regions, and schedules instantiation. See
+[the linking design](linking-and-runtime.md) and
+[DEC-18](../../../decision/DEC-18-unified-target-linking.md). The formatter slice
+implements this contract.
+
+For `numberToString :: Number -> String`, the runtime receives a binary64 value
+and a caller-owned 32-byte output buffer, returns its initialized UTF-8 length,
+and retains nothing. MIR recovers a GC String and releases the temporary buffer.
+The linker packages the pinned formatter and closes the private import inside
+the emitted component. `Data.Show` keeps the official `.0` wrapper and ordinary
+PureScript escaping and array callbacks in the library. The formatter's raw
+signature is never substituted for the primitive's language signature.
+
 ### The primitive set
 
 A foreign import the lowerer accepts uses only these source types:

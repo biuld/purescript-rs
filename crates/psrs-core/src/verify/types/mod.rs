@@ -73,13 +73,14 @@ pub(super) fn primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId,
 }
 
 pub(super) fn unary_primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId, TypeId) {
-    use TypeConstructor::{Boolean, Char, Int, Number};
+    use TypeConstructor::{Boolean, Char, Int, Number, String};
     let (operand, result) = match intrinsic {
         Intrinsic::IntNeg | Intrinsic::IntComplement => (Int, Int),
         Intrinsic::NumberNeg => (Number, Number),
         Intrinsic::BooleanNot => (Boolean, Boolean),
         Intrinsic::IntToNumber => (Int, Number),
         Intrinsic::NumberToInt => (Number, Int),
+        Intrinsic::NumberToString => (Number, String),
         Intrinsic::BooleanToInt => (Boolean, Int),
         Intrinsic::IntToBoolean => (Int, Boolean),
         Intrinsic::CharToInt => (Char, Int),

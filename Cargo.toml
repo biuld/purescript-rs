@@ -11,6 +11,8 @@ members = [
     "crates/psrs-desugar",
     "crates/psrs-core",
     "crates/psrs-backend",
+    "crates/psrs-linker",
+    "crates/psrs-runtime",
     "crates/psrs-driver",
     "crates/psrs-syntax",
     "crates/psrs-cli",
@@ -35,8 +37,18 @@ psrs-kind = { path = "crates/psrs-kind" }
 psrs-desugar = { path = "crates/psrs-desugar" }
 psrs-core = { path = "crates/psrs-core" }
 psrs-backend = { path = "crates/psrs-backend" }
+psrs-linker = { path = "crates/psrs-linker" }
+psrs-runtime = { path = "crates/psrs-runtime" }
 psrs-driver = { path = "crates/psrs-driver" }
 psrs-syntax = { path = "crates/psrs-syntax" }
 wasm-encoder = "=0.245.1"
 wasmparser = "=0.245.1"
 wasmprinter = "=0.245.1"
+
+[profile.target-runtime]
+inherits = "release"
+panic = "abort"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

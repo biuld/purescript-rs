@@ -100,6 +100,14 @@ impl FunctionLowerer<'_> {
                     )?;
                     self.append_instruction(current, instruction, assignment.span)?;
                 }
+                AssignmentKind::NumberToString { value } => {
+                    self.lower_number_to_string(
+                        current,
+                        assignment.destination,
+                        *value,
+                        assignment.span,
+                    )?;
+                }
                 AssignmentKind::Unary { op, value } => self.append_instruction(
                     current,
                     Instruction::UnaryPrimitive {

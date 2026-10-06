@@ -90,6 +90,70 @@ main = let ignored = runEffect checks in 0
 }
 
 #[test]
+fn formatter_plan_records_the_pinned_artifact_digest() {
+    let source = r#"
+module Main where
+
+import Prelude
+import Effect.Console (log)
+
+main = let ignored = log (show 1.0e21) in 0
+"#;
+    let report = compile_program_sources_with_prelude_diagnosis(&[("Main.purs", source)], false);
+    assert!(
+        report.artifact.is_some(),
+        "show should compile: {:?}",
+        report.diagnostics
+    );
+    let trace = report.backend_trace.expect("backend pass trace");
+    let plan = trace
+        .executions
+        .iter()
+        .find(|execution| execution.pass_key == "backend.target.plan")
+        .expect("the checked plan is an observed execution");
+    let parameter = |key: &str| {
+        plan.parameters
+            .iter()
+            .find(|parameter| parameter.key == key)
+            .map(|parameter| parameter.value.as_str())
+    };
+    assert_eq!(parameter("artifacts"), Some("1"));
+    let digests = parameter("artifact_digests").expect("artifact digests are recorded");
+    assert!(digests.contains("psrs:runtime-number-format"), "{digests}");
+    assert!(
+        parameter("selected_providers")
+            .expect("selected providers are recorded")
+            .contains("NumberToString"),
+    );
+}
+
+#[test]
+fn formats_many_numbers_without_exhausting_the_runtime_stack() {
+    // The formatter is nonrecursive; a large array of numbers calls its raw
+    // export once per element through the same private stack region.
+    let mut elements = String::new();
+    for index in 0..64 {
+        if index > 0 {
+            elements.push(',');
+        }
+        elements.push_str(&format!("{index}.5"));
+    }
+    let source = format!(
+        "module Main where\n\nimport Prelude\nimport Effect.Console (log)\n\nmain = let ignored = runEffect (log (show [{elements}])) in 0\n"
+    );
+    let Some(output) = run_with_wasmtime(&source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.starts_with("[0.5,1.5,") && stdout.ends_with("63.5]\n"),
+        "stdout should hold every formatted element: {stdout}"
+    );
+}
+
+#[test]
 fn a_type_without_show_is_rejected() {
     let source = r#"
 module Main where

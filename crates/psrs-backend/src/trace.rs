@@ -21,6 +21,8 @@ pub enum TraceRepresentation {
     WatText,
     WitWorld,
     WasiRegistry,
+    /// The checked target link plan produced after MIR optimization.
+    LinkPlan,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -194,6 +196,14 @@ pub(crate) struct TraceCall {
     pass_key: &'static str,
     validation_coverage: TraceValidationCoverage,
     parameters: Vec<TraceParameter>,
+}
+
+impl TraceCall {
+    /// Records an additional lineage parameter after the pass has produced a
+    /// result but before it is completed or rejected.
+    pub(crate) fn add_parameter(&mut self, key: &'static str, value: String) {
+        self.parameters.push(TraceParameter { key, value });
+    }
 }
 
 impl TraceRecorder {

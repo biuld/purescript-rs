@@ -17,6 +17,7 @@ fn representation_key(value: TraceRepresentation) -> &'static str {
         TraceRepresentation::WatText => "wat_text",
         TraceRepresentation::WitWorld => "wit_world",
         TraceRepresentation::WasiRegistry => "wasi_registry",
+        TraceRepresentation::LinkPlan => "link_plan",
     }
 }
 

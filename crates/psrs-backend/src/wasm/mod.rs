@@ -13,6 +13,7 @@ mod verify;
 mod tests;
 
 pub use encode::encode_module;
+pub(crate) use lower::lower_module_with_plan;
 pub use lower::{lower_module, lower_module_with_capabilities};
 
 /// Final index domains assigned by P10. These are deliberately distinct from

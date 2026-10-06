@@ -1,0 +1,86 @@
+//! Artifact contract validation over the actual bytes.
+//!
+//! The contract declares what a pinned artifact must contain. Verification
+//! parses the real module and rejects any stale digest, unexplained export,
+//! import, table, global, feature, data range, or initialization path.
+
+use crate::error::{LinkErrors, LinkStage};
+use crate::target::{ArtifactContract, ArtifactKind};
+use wasmparser::WasmFeatures;
+
+mod parse;
+#[cfg(test)]
+mod tests;
+
+use parse::{check_contract, parse_core_module};
+
+/// A verified core artifact ready for planning and composition.
+#[derive(Clone, Debug)]
+pub struct VerifiedArtifact {
+    pub id: String,
+    pub module_name: String,
+    pub sha256: String,
+    pub bytes: Vec<u8>,
+    pub instantiate_after_shims: bool,
+}
+
+/// Validates `bytes` against `contract`, returning the verified artifact.
+pub fn verify_artifact(
+    contract: &ArtifactContract,
+    bytes: &[u8],
+) -> Result<VerifiedArtifact, LinkErrors> {
+    let stage = LinkStage::Verify;
+    let id = &contract.id;
+    if contract.kind != ArtifactKind::CoreModule {
+        return Err(LinkErrors::one(
+            stage,
+            id,
+            "only core-module artifacts are supported",
+        ));
+    }
+    let digest = crate::sha256_hex(bytes);
+    if digest != contract.sha256 {
+        return Err(LinkErrors::one(
+            stage,
+            id,
+            format!(
+                "artifact digest mismatch: declared {}, actual {digest}",
+                contract.sha256
+            ),
+        ));
+    }
+    let parsed = parse_core_module(bytes).map_err(|message| LinkErrors::one(stage, id, message))?;
+    let features = wasm_features(&contract.required_features)
+        .map_err(|message| LinkErrors::one(stage, id, message))?;
+    wasmparser::Validator::new_with_features(features)
+        .validate_all(bytes)
+        .map_err(|error| {
+            LinkErrors::one(stage, id, format!("artifact is not valid Wasm: {error}"))
+        })?;
+    check_contract(contract, &parsed)?;
+    Ok(VerifiedArtifact {
+        id: contract.id.clone(),
+        module_name: contract.module_name.clone(),
+        sha256: digest,
+        bytes: bytes.to_vec(),
+        instantiate_after_shims: contract.instantiate_after_shims,
+    })
+}
+
+fn wasm_features(names: &[String]) -> Result<WasmFeatures, String> {
+    let mut features = WasmFeatures::MVP;
+    for name in names {
+        features |= match name.as_str() {
+            "mutable-globals" => WasmFeatures::MUTABLE_GLOBAL,
+            "sign-extension" => WasmFeatures::SIGN_EXTENSION,
+            "saturating-float-to-int" => WasmFeatures::SATURATING_FLOAT_TO_INT,
+            "multi-value" => WasmFeatures::MULTI_VALUE,
+            "bulk-memory" => WasmFeatures::BULK_MEMORY,
+            "reference-types" => WasmFeatures::REFERENCE_TYPES,
+            "function-references" => WasmFeatures::FUNCTION_REFERENCES,
+            "gc" => WasmFeatures::GC,
+            other => return Err(format!("unknown required Wasm feature `{other}`")),
+        };
+    }
+    Ok(features)
+}

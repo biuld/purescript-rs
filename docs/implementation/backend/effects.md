@@ -338,7 +338,8 @@ EF-09:
   Gaps: direct lexical reference restriction is not capability isolation; a
     runner passed from the selected entry to a helper may be invoked there.
 EF-10:
-  Implementation: crates/psrs-backend/src/component.rs,
+  Implementation: crates/psrs-backend/src/linking/mod.rs,
+    crates/psrs-linker/src/compose.rs,
     crates/psrs-backend/src/wasm/lower/mod.rs (entry wrapper),
     crates/psrs-driver/src/tests/effects.rs (component execution)
   Tests: every executed test above runs the produced component under

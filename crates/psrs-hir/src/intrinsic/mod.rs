@@ -101,6 +101,7 @@ pub enum Intrinsic {
     ArrayFill,
     /// Unsafe in-place write; returns the same array. Library internals only.
     ArrayWrite,
+    NumberToString,
 }
 
 impl Intrinsic {
@@ -123,7 +124,7 @@ impl Intrinsic {
 
     /// Every variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 63] = [
+    pub const ALL: [Intrinsic; 64] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::I32Add,
@@ -187,6 +188,7 @@ impl Intrinsic {
         Intrinsic::UnsafeCoerce,
         Intrinsic::ArrayFill,
         Intrinsic::ArrayWrite,
+        Intrinsic::NumberToString,
     ];
 }
 
@@ -195,7 +197,7 @@ impl Intrinsic {
 // cannot be added and silently left out of the bootstrap name table.
 const _: () = {
     assert!(
-        Intrinsic::ALL.len() == Intrinsic::ArrayWrite as u32 as usize + 1,
+        Intrinsic::ALL.len() == Intrinsic::NumberToString as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 = 0;

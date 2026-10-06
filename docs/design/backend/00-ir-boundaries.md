@@ -127,6 +127,14 @@ the selected target. P10 may optimize while preserving MIR types and the order
 and multiplicity of potentially effectful calls. It structures control flow and
 assigns final indices mechanically; it must not choose a representation.
 
+The draft [linking and runtime](wasm/linking-and-runtime.md) contract adds
+checked target requirements alongside MIR and a link plan before Wasm emission.
+The plan is metadata, not another language IR. It joins implementation/provider
+selection, memory ownership, and component composition without moving WIT names
+into CC or reinterpreting source types after ABI lowering. P10 and P11 consume
+the same checked plan for the formatter slice; general guest providers are not
+yet implemented.
+
 ## Model
 
 ### Boundary
@@ -320,7 +328,8 @@ lib.rs            crate surface: `compile` / `compile_with_target`, `ExternalBin
 capability.rs     `TargetCapabilities` and validator feature mapping
 types.rs          shared Wasm value/type model
 abi/              WIT registry, canonical ABI classification, checked source signatures
-component.rs      component packaging
+linking/          checked target requirements and plan/diagnostic mapping
+target_runtime.rs intrinsic-to-artifact implementation catalog
 cc/               CC IR (functional)
   mod.rs           `Module`, `Function`, `Assignment`, `AssignmentKind`, lowering entry
   representation.rs `ReprId`, `ValueShape`, `Reference`, `RefShape`, `Representation`, `RepresentationTable`

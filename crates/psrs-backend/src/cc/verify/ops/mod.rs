@@ -85,6 +85,16 @@ pub(super) fn verify_assignments(
                 verify_binary_operation(*op, *left, *right, assignment, declared)?;
                 uses.extend([*left, *right]);
             }
+            AssignmentKind::NumberToString { value } => {
+                require_value_shape(declared, *value, ValueShape::Number, assignment)?;
+                require_destination(
+                    declared,
+                    assignment,
+                    ValueShape::String,
+                    "numberToString produces String",
+                )?;
+                uses.push(*value);
+            }
             AssignmentKind::Unary { op, value } => {
                 verify_unary_operation(*op, *value, assignment, declared)?;
                 uses.push(*value);

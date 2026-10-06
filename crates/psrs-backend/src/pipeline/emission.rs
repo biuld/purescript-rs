@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::component;
+use crate::linking;
 
 pub(crate) struct EmittedWasm {
     pub module: crate::wasm::Module,
@@ -23,6 +23,42 @@ pub(crate) fn emit(
             value: format!("{target:?}"),
         }]
     };
+    let context = linking::default_context().map_err(|errors| annotate_errors(errors, owner))?;
+    let mut plan_call = trace.as_deref_mut().map(|trace| {
+        trace.begin(
+            "backend.target.plan",
+            &[
+                mir_id.expect("traced MIR before target planning"),
+                wasi_id.expect("traced WASI registry before target planning"),
+            ],
+            TraceValidationCoverage::Composite,
+            target_parameter(),
+        )
+    });
+    let link = match linking::plan_for_module(&context, mir, wasi, target) {
+        Ok(link) => link,
+        Err(errors) => {
+            if let (Some(trace), Some(call)) = (trace.as_deref_mut(), plan_call) {
+                trace.reject(call, errors.len());
+            }
+            return Err(annotate_errors(errors, owner));
+        }
+    };
+    if let Some(call) = plan_call.as_mut() {
+        annotate_plan(call, &link);
+    }
+    if let (Some(trace), Some(call)) = (trace.as_deref_mut(), plan_call) {
+        trace.complete(
+            call,
+            &[TraceRepresentation::LinkPlan],
+            &[TraceValidationSpec::output(
+                "psrs_linker::plan",
+                0,
+                TraceValidationCoverage::Composite,
+            )],
+        );
+    }
+
     let wasm_call = trace.as_deref_mut().map(|trace| {
         trace.begin(
             "backend.wasm.lower",
@@ -34,7 +70,7 @@ pub(crate) fn emit(
             target_parameter(),
         )
     });
-    let module = match crate::wasm::lower_module_with_capabilities(mir, wasi, target) {
+    let module = match crate::wasm::lower_module_with_plan(mir, wasi, target, &link) {
         Ok(module) => module,
         Err(errors) => {
             if let (Some(trace), Some(call)) = (trace.as_deref_mut(), wasm_call) {
@@ -49,7 +85,7 @@ pub(crate) fn emit(
                 call,
                 &[TraceRepresentation::WasmModule],
                 &[TraceValidationSpec::output(
-                    "wasm::lower_module_with_capabilities",
+                    "wasm::lower_module_with_plan",
                     0,
                     TraceValidationCoverage::Composite,
                 )],
@@ -86,59 +122,21 @@ pub(crate) fn emit(
         None
     };
 
-    let resolve_call = trace.as_deref_mut().map(|trace| {
-        trace.begin(
-            "backend.component.resolve_world",
-            &[],
-            TraceValidationCoverage::NotObserved,
-            vec![TraceParameter {
-                key: "wit_source",
-                value: "vendored".into(),
-            }],
-        )
-    });
-    let (resolve, world) = match component::command_world() {
-        Ok(result) => result,
-        Err(message) => {
-            if let (Some(trace), Some(call)) = (trace.as_deref_mut(), resolve_call) {
-                trace.reject(call, 1);
-            }
-            return Err(annotate_errors(
-                vec![BackendError::new("P11 component", mir.span, message)],
-                owner,
-            ));
-        }
-    };
-    let world_id = if let (Some(trace), Some(call)) = (trace.as_deref_mut(), resolve_call) {
-        trace
-            .complete(call, &[TraceRepresentation::WitWorld], &[])
-            .first()
-            .copied()
-    } else {
-        None
-    };
-
     let component_call = trace.as_deref_mut().map(|trace| {
         trace.begin(
             "backend.component.assemble",
-            &[
-                core_id.expect("traced core Wasm before component assembly"),
-                world_id.expect("traced WIT world before component assembly"),
-            ],
+            &[core_id.expect("traced core Wasm before component assembly")],
             TraceValidationCoverage::Composite,
             Vec::new(),
         )
     });
-    let binary = match component::componentize(&core, &resolve, world) {
+    let binary = match linking::compose(&link, &core, mir.span, owner) {
         Ok(binary) => binary,
-        Err(message) => {
+        Err(errors) => {
             if let (Some(trace), Some(call)) = (trace.as_deref_mut(), component_call) {
-                trace.reject(call, 1);
+                trace.reject(call, errors.len());
             }
-            return Err(annotate_errors(
-                vec![BackendError::new("P11 component", mir.span, message)],
-                owner,
-            ));
+            return Err(annotate_errors(errors, owner));
         }
     };
     let component_id = if let (Some(trace), Some(call)) = (trace.as_deref_mut(), component_call) {
@@ -147,7 +145,7 @@ pub(crate) fn emit(
                 call,
                 &[TraceRepresentation::ComponentBinary],
                 &[TraceValidationSpec::output(
-                    "wit_component::ComponentEncoder::validate_and_encode",
+                    "psrs_linker::compose",
                     0,
                     TraceValidationCoverage::Composite,
                 )],
@@ -230,4 +228,31 @@ pub(crate) fn emit(
         component: binary,
         wat,
     })
+}
+
+/// Records the checked plan's lineage: selected providers, artifact digests,
+/// memory boundary, and the planned external world.
+fn annotate_plan(call: &mut crate::trace::TraceCall, link: &linking::LinkPlan) {
+    let plan = &link.plan;
+    call.add_parameter("requirements", plan.bindings().len().to_string());
+    call.add_parameter("artifacts", plan.artifacts().len().to_string());
+    call.add_parameter(
+        "selected_providers",
+        plan.bindings()
+            .iter()
+            .map(|binding| format!("{}={}.{}", binding.origin, binding.module, binding.field))
+            .collect::<Vec<_>>()
+            .join(";"),
+    );
+    call.add_parameter(
+        "artifact_digests",
+        plan.artifacts()
+            .iter()
+            .map(|artifact| format!("{}={}", artifact.id, artifact.sha256))
+            .collect::<Vec<_>>()
+            .join(";"),
+    );
+    call.add_parameter("external_world", plan.external_world().join(";"));
+    call.add_parameter("heap_start", plan.memory().heap_start.to_string());
+    call.add_parameter("minimum_pages", plan.memory().minimum_pages.to_string());
 }

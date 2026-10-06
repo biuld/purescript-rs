@@ -36,11 +36,29 @@ pub fn lower_module(
     lower_module_with_capabilities(module, wasi, TargetCapabilities::default())
 }
 
-/// Lowers MIR using an explicit target capability profile.
+/// Lowers MIR using an explicit target capability profile. Isolated callers
+/// that already resolved custom WIT use a permissive context over their own
+/// definitions; the production pipeline calls [`lower_module_with_plan`] with
+/// the default world's checked plan.
 pub fn lower_module_with_capabilities(
     module: &mir::Module,
     wasi: &mut abi::WasiRegistry,
     target: TargetCapabilities,
+) -> Result<Module, Vec<BackendError>> {
+    let context = std::sync::Arc::new(psrs_linker::ResolvedWorldContext::permissive(
+        wasi.shared_resolve(),
+    ));
+    let link = crate::linking::plan_for_module(&context, module, wasi, target)?;
+    lower_module_with_plan(module, wasi, target, &link)
+}
+
+/// Lowers MIR using the memory and import plan of one checked link plan. The
+/// emitter cannot choose libraries or derive storage; it consumes the plan.
+pub(crate) fn lower_module_with_plan(
+    module: &mir::Module,
+    wasi: &mut abi::WasiRegistry,
+    target: TargetCapabilities,
+    link: &crate::linking::LinkPlan,
 ) -> Result<Module, Vec<BackendError>> {
     mir::verify_module_with_capabilities(module, target)?;
     let Some(entry_symbol) = module.entry else {
@@ -113,13 +131,13 @@ pub fn lower_module_with_capabilities(
                 .map(|ty| vec![val_type(ty)])
                 .unwrap_or_default(),
         });
-        let (module_name, field) = wasi.symbol_name(import.symbol).ok_or_else(|| {
-            wasm_error(module.span, "a MIR import symbol has no ABI registry entry")
+        let (module_name, field) = link.imports.get(&import.symbol).ok_or_else(|| {
+            wasm_error(module.span, "a MIR import symbol has no checked provider")
         })?;
         import_indices.insert(import.symbol, FunctionIndex(imports.len() as u32));
         imports.push(Import {
-            module: module_name.to_string(),
-            name: field.to_string(),
+            module: module_name.clone(),
+            name: field.clone(),
             type_index,
         });
     }
@@ -136,6 +154,13 @@ pub fn lower_module_with_capabilities(
                     message,
                 )]
             })?;
+        let (exit_module, exit_field) =
+            link.imports.get(&exit.symbol).cloned().ok_or_else(|| {
+                wasm_error(
+                    module.span,
+                    "the command entry exit has no checked provider",
+                )
+            })?;
         let exit_type_index = TypeIndex(defined + types.len() as u32);
         types.push(FuncType {
             parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
@@ -143,8 +168,8 @@ pub fn lower_module_with_capabilities(
         });
         let index = FunctionIndex(imports.len() as u32);
         imports.push(Import {
-            module: exit.module,
-            name: exit.name,
+            module: exit_module,
+            name: exit_field,
             type_index: exit_type_index,
         });
         Some(index)
@@ -248,9 +273,11 @@ pub fn lower_module_with_capabilities(
             index: ExportIndex::Function(index),
         });
         // The heap-state segment holds the free-list head (null) and the bump
-        // break (the first allocatable address).
+        // break (the first allocatable address). The allocator boundary is the
+        // one the checked plan reserved, after every artifact region.
+        let heap_start = link.plan.memory().heap_start;
         let mut state = 0_u32.to_le_bytes().to_vec();
-        state.extend_from_slice(&abi::HEAP_START.to_le_bytes());
+        state.extend_from_slice(&heap_start.to_le_bytes());
         data.push(DataSegment {
             id: DataId(data.len() as u32),
             index: DataIndex(data.len() as u32),
@@ -259,8 +286,10 @@ pub fn lower_module_with_capabilities(
             },
             bytes: state,
         });
-        minimum = (u64::from(abi::HEAP_START)).div_ceil(0x10000) + 1;
+        minimum = link.plan.memory().minimum_pages;
         realloc = Some(build_realloc(realloc_type, module.span));
+    } else if !link.plan.artifacts().is_empty() {
+        minimum = link.plan.memory().minimum_pages;
     }
     let helpers = if needs_helpers {
         let string_type = string_type.expect("a needed codec has a GC string type");

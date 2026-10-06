@@ -1,0 +1,16 @@
+[package]
+name = "psrs-linker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+psrs-runtime = { workspace = true, default-features = false, features = ["catalog"] }
+sha2 = "=0.10.9"
+wasm-encoder.workspace = true
+wasmparser.workspace = true
+wit-component = "=0.245.1"
+wit-parser = "=0.245.1"
+
+[dev-dependencies]
+wasmprinter.workspace = true

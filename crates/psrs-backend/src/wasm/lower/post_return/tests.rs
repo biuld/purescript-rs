@@ -7,7 +7,6 @@ use super::{
     BufferExport, post_return_name, synthesize_buffer_post_return,
     synthesize_owned_handle_post_return,
 };
-use crate::component::componentize;
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use wasm_encoder::{Instruction, ValType};
@@ -15,6 +14,16 @@ use wit_parser::{Resolve, WorldId, WorldItem};
 
 fn span() -> TextRange {
     TextRange::new(0, 1)
+}
+
+/// Composes a fixture core module against its own custom world and an empty
+/// checked plan; these fixtures declare no artifact requirements.
+fn componentize(core: &[u8], resolve: Resolve, world: WorldId) -> Result<Vec<u8>, String> {
+    let context = psrs_linker::ResolvedWorldContext::from_resolve(resolve, world);
+    let plan = crate::linking::empty_plan(&context);
+    psrs_linker::compose(&context, &plan, core)
+        .map(|artifact| artifact.bytes)
+        .map_err(|errors| errors.to_string())
 }
 
 #[test]
@@ -118,7 +127,7 @@ fn post_return_drops_an_owned_export_handle() {
         span: span(),
     };
     let core = crate::wasm::encode_module(&module).expect("encoding the core module");
-    let component = componentize(&core, &resolve, world).expect("componentizing post-return");
+    let component = componentize(&core, resolve, world).expect("componentizing post-return");
     crate::validator()
         .validate_all(&component)
         .expect("the component should validate");
@@ -412,7 +421,7 @@ fn component_attaches_the_buffer_post_return() {
     let binary = crate::wasm::encode_module(&module).expect("Wasm encodes");
     let (resolve, world) = string_world();
     let component =
-        componentize(&binary, &resolve, world).expect("componentizing the string export");
+        componentize(&binary, resolve, world).expect("componentizing the string export");
     crate::validator()
         .validate_all(&component)
         .expect("the component should validate");

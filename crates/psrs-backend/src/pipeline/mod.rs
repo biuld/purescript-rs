@@ -233,16 +233,29 @@ pub(crate) fn compile_with_context_inner(
             target_parameter(),
         )
     });
-    let (mir, mut wasi) =
-        match mir::lower_module_with_bindings(cc.clone(), lowered_cc.externals, target) {
-            Ok(result) => result,
-            Err(errors) => {
-                if let (Some(trace), Some(call)) = (trace.as_deref_mut(), mir_call) {
-                    trace.reject(call, errors.len());
-                }
-                return Err(errors);
+    let context = match crate::linking::default_context() {
+        Ok(context) => context,
+        Err(errors) => {
+            if let (Some(trace), Some(call)) = (trace.as_deref_mut(), mir_call) {
+                trace.reject(call, errors.len());
             }
-        };
+            return Err(annotate_errors(errors, cc.entry.map(|entry| entry.module)));
+        }
+    };
+    let (mir, mut wasi) = match mir::lower_module_with_bindings_and_resolve(
+        cc.clone(),
+        lowered_cc.externals,
+        target,
+        context.shared_resolve(),
+    ) {
+        Ok(result) => result,
+        Err(errors) => {
+            if let (Some(trace), Some(call)) = (trace.as_deref_mut(), mir_call) {
+                trace.reject(call, errors.len());
+            }
+            return Err(errors);
+        }
+    };
     let (mut mir, mir_ids) = if let (Some(trace), Some(call)) = (trace.as_deref_mut(), mir_call) {
         let outputs = trace.complete(
             call,

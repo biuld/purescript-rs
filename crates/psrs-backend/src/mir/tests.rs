@@ -283,8 +283,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         eprintln!("skipping: wasmtime is not installed");
         return;
     }
-    let (resolve, world) = crate::component::command_world().expect("WASI WIT should load");
-    let component = crate::component::componentize(&core, &resolve, world).expect("componentizing");
+    let component = crate::linking::compose_core(&core).expect("componentizing");
     let path = std::env::temp_dir().join(format!("psrs-mir-gc-{}.wasm", std::process::id()));
     std::fs::write(&path, &component).unwrap();
     let output = std::process::Command::new("wasmtime")

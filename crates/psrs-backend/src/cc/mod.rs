@@ -186,6 +186,10 @@ pub enum AssignmentKind {
         representation: ReprId,
         value: ValueId,
     },
+    /// ECMAScript binary64 formatting; ordinary library wrappers own Show.
+    NumberToString {
+        value: ValueId,
+    },
     /// An `Array Int` read as a source `String`. Every element must be a
     /// canonical byte and the bytes must be well-formed UTF-8.
     BytesToString {
