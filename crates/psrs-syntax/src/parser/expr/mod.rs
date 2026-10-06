@@ -26,16 +26,9 @@ impl<'a> Parser<'a> {
                 if precedence < min_precedence {
                     break;
                 }
-                let is_simple = matches!(
-                    &self.peek(1).kind,
-                    LayoutTokenKind::Raw(
-                        RawTokenKind::LowerIdent(_)
-                            | RawTokenKind::UpperIdent(_)
-                            | RawTokenKind::Operator(_)
-                    )
-                ) && self.peek(2).kind
-                    == LayoutTokenKind::Raw(RawTokenKind::Backtick);
-                if is_simple {
+                // A qualified name such as `A.zip` is one operator, not an
+                // expression applied to the left operand.
+                if self.at_simple_backticked_operator() {
                     self.bump();
                     let operator = self.parse_backticked_operator()?;
                     self.consume_raw(RawTokenKind::Backtick)?;
@@ -124,14 +117,50 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
+    fn at_simple_backticked_operator(&self) -> bool {
+        let close_at = match &self.peek(1).kind {
+            LayoutTokenKind::Raw(
+                RawTokenKind::LowerIdent(_) | RawTokenKind::Operator(_) | RawTokenKind::Colon,
+            ) => 2,
+            LayoutTokenKind::Raw(RawTokenKind::UpperIdent(_)) => {
+                let mut index = 1;
+                loop {
+                    let name = self.peek(index);
+                    let dot = self.peek(index + 1);
+                    let part = self.peek(index + 2);
+                    if !matches!(dot.kind, LayoutTokenKind::Raw(RawTokenKind::Dot))
+                        || dot.span.start != name.span.end
+                    {
+                        break;
+                    }
+                    let part_is_name = matches!(
+                        part.kind,
+                        LayoutTokenKind::Raw(
+                            RawTokenKind::LowerIdent(_) | RawTokenKind::UpperIdent(_)
+                        )
+                    );
+                    if !part_is_name || part.span.start != dot.span.end {
+                        break;
+                    }
+                    index += 2;
+                }
+                index + 1
+            }
+            _ => return false,
+        };
+        self.peek(close_at).kind == LayoutTokenKind::Raw(RawTokenKind::Backtick)
+    }
+
     fn parse_backticked_operator(&mut self) -> Result<CstName, ParseError> {
+        if matches!(
+            self.current().kind,
+            LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_) | RawTokenKind::UpperIdent(_))
+        ) {
+            return self.parse_qualified_value_name();
+        }
         let token = self.current().clone();
         match token.kind {
-            LayoutTokenKind::Raw(
-                RawTokenKind::LowerIdent(name)
-                | RawTokenKind::UpperIdent(name)
-                | RawTokenKind::Operator(name),
-            ) => {
+            LayoutTokenKind::Raw(RawTokenKind::Operator(name)) => {
                 self.bump();
                 Ok(CstName::new(name, token.span))
             }

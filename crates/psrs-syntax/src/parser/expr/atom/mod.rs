@@ -260,7 +260,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_qualified_value_name(&mut self) -> Result<CstName, ParseError> {
+    pub(super) fn parse_qualified_value_name(&mut self) -> Result<CstName, ParseError> {
         let token = self.current().clone();
         let allow_qualification = matches!(
             &token.kind,

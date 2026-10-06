@@ -77,6 +77,16 @@ fn parses_lambdas_conditionals_and_operator_precedence() {
 }
 
 #[test]
+fn parses_a_qualified_name_between_backticks_as_one_operator() {
+    let module = parse("module Main where\nzip xs ys = xs `A.zip` ys\n").unwrap();
+    let ExprKind::Operator { operator, .. } = &plain_value(as_value(&module.declarations[0])).kind
+    else {
+        panic!("expected an infix operator");
+    };
+    assert_eq!(operator.text, "A.zip");
+}
+
+#[test]
 fn distinguishes_parenthesized_negation_from_explicit_operator_sections() {
     let module = parse(
         "module Main where\nnegative = (-5)\nnegativeVariable x = (-x)\nsubtractOne = (_ - 1)\naddOne = (1 + _)\n",
