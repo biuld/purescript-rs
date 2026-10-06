@@ -2,10 +2,7 @@
 //! rule's entry into it.
 
 use super::super::super::prim::requeue::RequeueChain;
-use super::super::super::prim::{
-    PrimitiveDispatch, is_report_only, primitive_rule_precedes_givens,
-    primitive_rule_skips_given_lookup,
-};
+use super::super::super::prim::{PrimitiveDispatch, is_report_only};
 use super::super::super::unify::substitute;
 use super::super::fundeps::collect_infer_variables;
 use super::entry::{SolveDepth, UnsolvedPolicy};
@@ -14,14 +11,10 @@ impl Checker {
     /// Solves one wanted constraint, consulting givens, the primitive rule
     /// table, and instance search in that order.
     ///
-    /// The order is the one the primitive design fixes, and the one place it
-    /// varies is where a `Proof` member's rule is consulted:
-    /// [`primitive_rule_precedes_givens`] is the predicate, and it is false for
-    /// every other member. A `Proof` member's evidence is a checked boundary
-    /// rather than a dictionary, so a matching given cannot supply it — THIR
-    /// rejects a coercion whose evidence is not an explicit proof boundary — and
-    /// the rule has to derive the proof before the givens are consulted, which is
-    /// also what official solving does.
+    /// The registered rule's evidence classification owns its position. Proof
+    /// boundaries and runtime relation dictionaries precede givens; report rules
+    /// may propagate through a lexical dictionary first. A declined rule leaves
+    /// the ordinary given, superclass, and instance paths available.
     ///
     /// An instance's context is solved recursively before the instance is
     /// selected.
@@ -49,8 +42,13 @@ impl Checker {
         }
         let class_id = constraint.class_id;
         let arguments = constraint.arguments.clone();
-        let solves_before_givens = primitive_rule_precedes_givens(class_id);
-        let skips_given_lookup = primitive_rule_skips_given_lookup(class_id);
+        let rule = self.registered_primitive_rule(class_id);
+        let solves_before_givens = rule
+            .as_ref()
+            .is_some_and(|rule| rule.evidence.precedes_givens());
+        let skips_given_lookup = rule
+            .as_ref()
+            .is_some_and(|rule| !rule.evidence.accepts_a_given());
 
         // Relation rules precede ordinary dictionary lookup, as in
         // Entailment.hs:204-223. A checked proof also precedes givens, but its

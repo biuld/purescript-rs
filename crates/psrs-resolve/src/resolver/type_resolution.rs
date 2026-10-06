@@ -453,6 +453,7 @@ impl Resolver {
             name: name.text,
             name_span: name.span,
             kind,
+            compiler_class: None,
             parameters,
             constructors,
             members,

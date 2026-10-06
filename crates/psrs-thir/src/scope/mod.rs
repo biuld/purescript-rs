@@ -432,6 +432,9 @@ fn verify_evidence_scope(
         errors,
     );
     match &evidence.kind {
+        EvidenceKind::DictionaryValue(value) => {
+            verify_expr_scope(value, types, &mut scope.clone(), errors)
+        }
         EvidenceKind::Given(_) | EvidenceKind::Global(_) => {}
         EvidenceKind::Coercible {
             source_type,

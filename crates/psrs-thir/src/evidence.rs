@@ -33,6 +33,10 @@ pub struct Evidence {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EvidenceKind {
+    /// A compiler-constructed dictionary expressed as checked ordinary terms.
+    /// The verifier checks its fields, lexical scope, and dictionary type;
+    /// the frontend owns the class rule that authorizes construction.
+    DictionaryValue(Box<super::Expr>),
     /// A dictionary parameter introduced by a constrained binding.
     Given(LocalId),
     /// A dictionary value already bound by the class elaborator.

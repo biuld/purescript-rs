@@ -127,6 +127,7 @@ fn scan_pattern_locals(pattern: &psrs_thir::Pattern, max: &mut Option<u32>) {
 
 fn scan_evidence_locals(evidence: &psrs_thir::Evidence, max: &mut Option<u32>) {
     match &evidence.kind {
+        psrs_thir::EvidenceKind::DictionaryValue(value) => scan_expr_locals(value, max),
         psrs_thir::EvidenceKind::Given(id) => {
             *max = Some(max.map_or(id.0, |current| current.max(id.0)));
         }

@@ -2,10 +2,25 @@ use super::{Expr, ExprKind, LowerError, TypeId};
 use psrs_thir::{Evidence, EvidenceKind, Type};
 
 /// Erases checked class evidence into the existing Core value and call forms.
-pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr, LowerError> {
+pub(super) fn lower_evidence(
+    evidence: &Evidence,
+    types: &[Type],
+    externals: &std::collections::HashMap<psrs_hir::SymbolId, psrs_hir::ExternalKind>,
+    constructors: &std::collections::HashMap<psrs_hir::SymbolId, psrs_thir::ConstructorInfo>,
+    context: &mut super::module::LowerContext,
+) -> Result<Expr, LowerError> {
     let span = evidence.span;
     let ty = TypeId(evidence.ty.0);
     let kind = match &evidence.kind {
+        EvidenceKind::DictionaryValue(value) => {
+            return super::lower_expr(
+                value.as_ref().clone(),
+                externals,
+                constructors,
+                types,
+                context,
+            );
+        }
         EvidenceKind::Given(id) => ExprKind::Local(*id),
         EvidenceKind::Global(symbol) => ExprKind::Global(*symbol),
         EvidenceKind::Coercible { .. } | EvidenceKind::Primitive { .. } => {
@@ -15,13 +30,19 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
             ExprKind::Record { fields: Vec::new() }
         }
         EvidenceKind::Superclass { parent, field } => ExprKind::FieldAccess {
-            record: Box::new(lower_evidence(parent, types)?),
+            record: Box::new(lower_evidence(
+                parent,
+                types,
+                externals,
+                constructors,
+                context,
+            )?),
             field: field.clone(),
         },
         EvidenceKind::Instance {
             constructor,
             constructor_type,
-            context,
+            context: arguments,
         } => {
             let mut function_type = *constructor_type;
             let mut function = Expr {
@@ -29,14 +50,15 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
                 ty: TypeId(function_type.0),
                 span,
             };
-            for evidence_argument in context {
+            for evidence_argument in arguments {
                 let Some((_, result)) = psrs_thir::arrow_parts(types, function_type) else {
                     return Err(LowerError {
                         span: evidence_argument.span,
                         message: "instance dictionary constructor takes too few context arguments",
                     });
                 };
-                let argument = lower_evidence(evidence_argument, types)?;
+                let argument =
+                    lower_evidence(evidence_argument, types, externals, constructors, context)?;
                 // lower_module_inner verifies THIR before lowering. Context
                 // types are compared there by semantic equality, which also
                 // accepts separately interned alpha-equivalent method foralls.

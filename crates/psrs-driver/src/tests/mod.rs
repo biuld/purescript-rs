@@ -164,3 +164,5 @@ mod module_loader;
 mod library_types;
 
 mod tail_calls;
+
+mod symbol_reflection;

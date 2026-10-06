@@ -97,7 +97,10 @@ impl Checker {
     }
 }
 
-pub(super) fn record_field_type(record: &InferType, wanted: &str) -> Option<InferType> {
+pub(in crate::typecheck) fn record_field_type(
+    record: &InferType,
+    wanted: &str,
+) -> Option<InferType> {
     let mut row = super::super::record_row(record)?;
     loop {
         match row {

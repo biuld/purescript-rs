@@ -171,7 +171,21 @@ pub(crate) fn resolve_ast_module(
         .zip(plans)
         .filter_map(|(declaration, plan)| {
             let role = role_declarations.get(&declaration.name().text).cloned();
-            resolver.resolve_type_declaration(plan, declaration, role)
+            let mut declaration = resolver.resolve_type_declaration(plan, declaration, role)?;
+            // Bind canonical interface exports to the declaration's ordinary
+            // resolved identity. Type checking validates the interface contract.
+            declaration.compiler_class = hir::compiler_interface(&module.name.text)
+                .filter(|interface| {
+                    interface.implementation == hir::InterfaceImplementation::Source
+                })
+                .and_then(|interface| {
+                    interface
+                        .classes
+                        .iter()
+                        .find(|(name, _)| *name == declaration.name)
+                        .map(|(_, identity)| *identity)
+                });
+            Some(declaration)
         })
         .collect();
     let mut instance_names = HashSet::new();

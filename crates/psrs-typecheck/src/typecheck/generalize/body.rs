@@ -155,6 +155,9 @@ impl Checker {
             self.collect_implementation_type(ty, level, out);
         }
         match solution {
+            WantedSolution::DictionaryValue(value) => {
+                self.collect_body_variables(value, level, out)
+            }
             WantedSolution::Instance {
                 constructor_type,
                 context,

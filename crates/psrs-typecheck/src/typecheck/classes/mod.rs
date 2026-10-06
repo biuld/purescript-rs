@@ -12,6 +12,7 @@ mod coherence;
 mod deriving;
 mod environment;
 mod evidence;
+pub(in crate::typecheck) use evidence::record_field_type;
 mod fundeps;
 mod instance;
 mod locals;

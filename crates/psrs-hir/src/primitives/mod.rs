@@ -38,6 +38,7 @@ fn class(
         name: name.to_owned(),
         name_span: empty_span(),
         kind: TypeDeclarationKind::Class,
+        compiler_class: None,
         parameters: parameters
             .iter()
             .map(|name| TypeParameter {
@@ -63,6 +64,7 @@ fn foreign_type(id: TypeId, name: &str, declared_kind: Type, roles: &[Role]) -> 
         name: name.to_owned(),
         name_span: empty_span(),
         kind: TypeDeclarationKind::Foreign,
+        compiler_class: None,
         parameters: Vec::new(),
         constructors: Vec::new(),
         members: Vec::new(),

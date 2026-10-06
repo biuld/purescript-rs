@@ -223,6 +223,7 @@ fn synonym(id: u32, name: &str, parameters: &[&str], body: HirType) -> psrs_hir:
         name: name.into(),
         name_span: TextRange::new(0, 1),
         kind: psrs_hir::TypeDeclarationKind::TypeSynonym,
+        compiler_class: None,
         parameters: parameters
             .iter()
             .map(|parameter| psrs_hir::TypeParameter {
@@ -368,6 +369,7 @@ fn data_declaration(
         name: name.into(),
         name_span: TextRange::new(0, 1),
         kind: psrs_hir::TypeDeclarationKind::Data,
+        compiler_class: None,
         parameters: parameters
             .iter()
             .map(|parameter| psrs_hir::TypeParameter {

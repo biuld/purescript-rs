@@ -103,6 +103,18 @@ relation, not a raw Wasm cast: array elements, functions, records, and ADT
 payloads follow their established conversion plans, and unsupported conversion
 shapes fail lowering.
 
+Compiler-supported library class interfaces have one declared registration in
+`psrs-hir`'s compiler-interface catalog. Resolution links the canonical export
+to its normal source declaration identity; qualification, aliases, and
+re-exports retain that identity. This is an explicit language/library interface
+binding, not recognition by class shape. P5 validates the parameter kinds and
+elaborated dictionary contract before enabling synthesis. The solver dispatches
+on that recorded identity and never on a function name or the spelling of a
+literal. A synthesized runtime dictionary retains its checked ordinary terms as
+`DictionaryValue` evidence until Core lowers them. THIR checks those terms and
+their dictionary type; it trusts the frontend's registered class rule for the
+semantic authorization, as it trusts ordinary instance selection.
+
 Type-level `Symbol` values use the same Unicode scalar sequence as source
 strings ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
 `IsSymbol` evidence and `Reflectable` preserve or produce that sequence.

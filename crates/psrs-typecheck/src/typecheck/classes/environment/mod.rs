@@ -2,6 +2,7 @@ use super::super::signature::flatten_spine;
 use super::super::*;
 use super::deriving::{KnownClass, contains_wildcard};
 use super::fundeps::collect_infer_variables;
+mod compiler;
 mod method;
 
 use method::validate_method_signature;
@@ -29,6 +30,7 @@ impl Checker {
             self.env.classes.insert(
                 hir::TypeId::COERCIBLE,
                 ClassInfo {
+                    compiler_class: None,
                     parameters: vec!["source".to_owned(), "target".to_owned()],
                     superclasses: Vec::new(),
                     fundeps: Vec::new(),
@@ -83,9 +85,11 @@ impl Checker {
                     .insert(member.symbol, (declaration.id, method.clone()));
                 methods.push(method);
             }
+            let compiler_class = self.validate_compiler_class(declaration);
             self.env.classes.insert(
                 declaration.id,
                 ClassInfo {
+                    compiler_class,
                     parameters,
                     superclasses: Vec::new(),
                     fundeps,

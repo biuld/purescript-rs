@@ -236,6 +236,16 @@ fn verify_evidence(evidence: &Evidence, module: &Module, errors: &mut Vec<Verify
     let types = &module.types;
     verify_type_id(evidence.ty, types.len(), evidence.span, errors);
     match &evidence.kind {
+        EvidenceKind::DictionaryValue(value) => {
+            verify_expr(value, module, errors);
+            if !semantics::types_equal(value.ty, evidence.ty, module) {
+                errors.push(VerifyError {
+                    span: evidence.span,
+                    message: "constructed evidence has the wrong dictionary type",
+                });
+            }
+        }
+
         EvidenceKind::Given(_) | EvidenceKind::Global(_) => {}
         EvidenceKind::Coercible {
             source_type,

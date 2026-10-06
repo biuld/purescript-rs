@@ -441,3 +441,5 @@ fn verifier_rejects_coercion_evidence_for_a_different_boundary() {
         error.message == "coercion expression requires an explicit Coercible proof boundary"
     }));
 }
+
+mod constructed_dictionary;

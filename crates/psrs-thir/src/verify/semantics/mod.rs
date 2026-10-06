@@ -51,6 +51,22 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
+    fn evidence(&mut self, evidence: &crate::Evidence) {
+        match &evidence.kind {
+            crate::EvidenceKind::DictionaryValue(value) => self.expr(value, Some(evidence.ty)),
+            crate::EvidenceKind::Superclass { parent, .. } => self.evidence(parent),
+            crate::EvidenceKind::Instance { context, .. } => {
+                for child in context {
+                    self.evidence(child);
+                }
+            }
+            crate::EvidenceKind::Given(_)
+            | crate::EvidenceKind::Global(_)
+            | crate::EvidenceKind::Coercible { .. }
+            | crate::EvidenceKind::Primitive { .. } => {}
+        }
+    }
+
     fn expr(&mut self, expression: &Expr, expected: Option<TypeId>) {
         if let Some(expected) = expected {
             self.compatible(expression.ty, expected, expression.span);
@@ -147,7 +163,7 @@ impl Context<'_> {
                     self.error(expression.span, "record field is not declared");
                 }
             }
-            ExprKind::Evidence(_) => {}
+            ExprKind::Evidence(evidence) => self.evidence(evidence),
             ExprKind::Coerce {
                 value,
                 source_type,

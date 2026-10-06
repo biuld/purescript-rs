@@ -6,6 +6,7 @@ mod deriving;
 mod rank_n;
 mod reports;
 mod rows;
+mod symbol_reflection;
 
 type SourceFile = (&'static str, &'static str);
 type SourceSet<'a> = &'a [SourceFile];

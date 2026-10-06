@@ -2,6 +2,8 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 use verify::verify_expr;
 
+mod compiler_class;
+mod compiler_interface;
 mod expr;
 mod module;
 mod primitives;
@@ -9,6 +11,10 @@ mod substitution;
 mod ty;
 mod types;
 
+pub use compiler_class::CompilerClass;
+pub use compiler_interface::{
+    COMPILER_INTERFACES, CompilerInterface, InterfaceImplementation, compiler_interface,
+};
 pub use expr::{
     CaseBranch, CaseBranchCoverage, Declaration, Expr, ExprKind, Guard, GuardedExpr, LocalBinder,
     LocalBinding, Pattern, PatternKind, RecordPatternMode, ResolvedOperator, SectionSide,

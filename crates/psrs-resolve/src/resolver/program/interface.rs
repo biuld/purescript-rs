@@ -28,6 +28,18 @@ impl Interface {
             class_members: HashMap::new(),
             opaque: HashSet::new(),
         };
+        let registered = hir::compiler_interface(name)
+            .filter(|entry| entry.implementation == hir::InterfaceImplementation::Compiler);
+        if let Some(registered) = registered {
+            for &(name, intrinsic) in registered.values {
+                interface.values.insert(name.into(), intrinsic.symbol());
+            }
+            for &(name, id) in registered.types {
+                interface
+                    .types
+                    .insert(name.into(), TypeReference::Named(id));
+            }
+        }
         match name {
             "Prim" => {
                 for &(member, builtin) in &PRIM_TYPES {
@@ -42,21 +54,8 @@ impl Interface {
                     .values
                     .insert("undefined".to_owned(), Intrinsic::Undefined.symbol());
             }
-            "Safe.Coerce" => {
-                interface
-                    .values
-                    .insert("coerce".to_owned(), Intrinsic::Coerce.symbol());
-                interface.types.insert(
-                    "Coercible".to_owned(),
-                    TypeReference::Named(TypeId::COERCIBLE),
-                );
-            }
-            "Unsafe.Coerce" => {
-                interface
-                    .values
-                    .insert("unsafeCoerce".to_owned(), Intrinsic::UnsafeCoerce.symbol());
-            }
-            _ if name != "Prim.Coerce"
+            _ if registered.is_none()
+                && name != "Prim.Coerce"
                 && !hir::primitive_type_declarations()
                     .iter()
                     .any(|(owner, _)| *owner == name) =>

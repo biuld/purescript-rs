@@ -23,7 +23,8 @@ pub(super) fn solution_uses_lexical_given(
         }),
         // An abstracted dictionary is a parameter of the declaration itself, so
         // it determines nothing the result type and the dependencies do not.
-        WantedSolution::Global(_)
+        WantedSolution::DictionaryValue(_)
+        | WantedSolution::Global(_)
         | WantedSolution::Abstracted(_)
         | WantedSolution::Coercible { .. }
         | WantedSolution::Primitive { .. } => false,

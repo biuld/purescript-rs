@@ -6,6 +6,7 @@ fn class_type(module: ModuleId, index: u32) -> TypeDeclaration {
         name: format!("Class{index}"),
         name_span: TextRange::default(),
         kind: TypeDeclarationKind::Class,
+        compiler_class: None,
         parameters: Vec::new(),
         constructors: Vec::new(),
         members: Vec::new(),

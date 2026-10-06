@@ -87,6 +87,7 @@ pub(super) struct FundepInfo {
 /// functional dependencies.
 #[derive(Clone, Debug)]
 pub(super) struct ClassInfo {
+    pub(super) compiler_class: Option<hir::CompilerClass>,
     pub(super) parameters: Vec<String>,
     pub(super) superclasses: Vec<SuperclassInfo>,
     pub(super) fundeps: Vec<FundepInfo>,
@@ -117,6 +118,8 @@ pub(super) struct InstanceInfo {
 /// whose dictionaries it applies the constructor to.
 #[derive(Clone, Debug)]
 pub(super) enum WantedSolution {
+    /// A compiler-constructed dictionary with checked ordinary term fields.
+    DictionaryValue(Box<InferredExpr>),
     Given(LocalId),
     Global(SymbolId),
     Instance {
