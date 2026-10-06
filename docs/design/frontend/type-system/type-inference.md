@@ -39,6 +39,13 @@ Inference state has three owners with distinct lifetimes. The `SemanticEnv` is i
 
 Infer synthesizable expressions and check expressions with expected types. Instantiate `forall` and solve constrained uses through class entailment. When checking a signature or higher-rank argument, skolemize expected quantifiers, perform structural subsumption, and check that skolems do not escape. Function parameter comparison is contravariant and result comparison covariant; record subsumption compares common labels and checks closed-row extras and omissions. Evidence can be inserted at elaboration sites, while comparison under a type constructor cannot invent term-level dictionaries.
 
+Coercion primitives checked against an expected arrow take its parameter and
+result as their exact source and target boundary types. Function variance must
+not instantiate a quantified input and leave the cast's stored source at an
+unresolved monotype. Checked casts retain a `Coercible` obligation over those
+same boundary types; unchecked casts retain their declared unchecked origin.
+This contextual boundary check does not change ordinary function subsumption.
+
 Lexical givens and their superclass projections discharge a wanted only when
 all resolved argument types already agree. Dictionary lookup does not unify an
 unconstrained wanted variable with a given's skolem: that would prematurely

@@ -429,3 +429,21 @@ fn accepts_a_type_wildcard_in_an_instance_context() {
         panic!("a wildcard in a constraint should be accepted: {errors:?}")
     });
 }
+
+#[test]
+fn unsafe_coercion_keeps_a_polymorphic_input_boundary() {
+    let source = r#"
+module Main where
+import Unsafe.Coerce (unsafeCoerce)
+
+foreign import data Exists :: (Type -> Type) -> Type
+
+runExists :: forall f r. (forall a. f a -> r) -> Exists f -> r
+runExists = unsafeCoerce
+
+main :: Int
+main = 0
+"#;
+    crate::check_program(&[("Main.purs", source)])
+        .unwrap_or_else(|errors| panic!("rank-N cast boundary should check: {errors:?}"));
+}

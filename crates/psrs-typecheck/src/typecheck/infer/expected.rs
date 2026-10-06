@@ -243,7 +243,18 @@ impl Checker {
         // plain function type.
         let scheme = Scheme::monomorphic(inferred.ty.clone());
         let mut inferred = self.instantiate_expression_use(inferred, &scheme, expression.span);
-        self.subsume(inferred.ty.clone(), expected.clone(), expression.span);
+        if matches!(
+            inferred.kind,
+            InferredExprKind::CoerceFunction { .. } | InferredExprKind::UnsafeCoerceFunction { .. }
+        ) {
+            // A cast's source and target are exact boundary types, rather than
+            // a function implementation adapted by contravariant subsumption.
+            // In particular, keep a contextual rank-N input quantified in the
+            // source metadata that finalization emits as the cast's binder.
+            self.unify(expected.clone(), inferred.ty.clone(), expression.span);
+        } else {
+            self.subsume(inferred.ty.clone(), expected.clone(), expression.span);
+        }
         inferred.ty = expected;
         Some(inferred)
     }
