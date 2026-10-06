@@ -36,6 +36,25 @@ main = if booleanAnd checkInt (booleanAnd checkUnary (booleanAnd checkNumber (bo
 "#;
 
 #[test]
+fn hexadecimal_integer_literals_use_the_signed_32_bit_range() {
+    crate::check_program(&[(
+        "Main.purs",
+        "module Main where\nvalue :: Int\nvalue = 0xFFFF\n",
+    )])
+    .expect("0xFFFF fits in a signed 32-bit Int");
+    let errors = crate::check_program(&[(
+        "Main.purs",
+        "module Main where\nvalue :: Int\nvalue = 0x80000000\n",
+    )])
+    .expect_err("0x80000000 is outside signed 32-bit Int");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("IntOutOfRange"))
+    );
+}
+
+#[test]
 fn scalar_intrinsics_are_reachable_from_source_and_execute_with_documented_semantics() {
     let core = lower_source_to_core("Main.purs", SCALAR_SOURCE)
         .expect("typechecking and lowering source scalar intrinsics into Core");

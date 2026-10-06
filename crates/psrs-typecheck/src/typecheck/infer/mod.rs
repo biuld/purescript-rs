@@ -170,12 +170,12 @@ impl Checker {
                     }
                 }
             }
-            hir::ExprKind::Integer(text) => match text.parse::<i32>() {
-                Ok(value) => (
+            hir::ExprKind::Integer(text) => match parse_int_literal(text) {
+                Some(value) => (
                     InferredExprKind::Integer(value),
                     InferType::Constructor(TypeConstructor::Int),
                 ),
-                Err(_) => {
+                None => {
                     self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::IntegerOutOfRange,
                         span,
@@ -404,4 +404,24 @@ impl Checker {
             ty,
         ))
     }
+}
+
+/// Decimal and hexadecimal integer literals, within signed 32-bit `Int`.
+pub(super) fn parse_int_literal(text: &str) -> Option<i32> {
+    let (sign, digits) = if let Some(digits) = text.strip_prefix('-') {
+        (-1i64, digits)
+    } else if let Some(digits) = text.strip_prefix('+') {
+        (1, digits)
+    } else {
+        (1, text)
+    };
+    let magnitude = if let Some(hexadecimal) = digits
+        .strip_prefix("0x")
+        .or_else(|| digits.strip_prefix("0X"))
+    {
+        i64::from_str_radix(hexadecimal, 16).ok()?
+    } else {
+        digits.parse::<i64>().ok()?
+    };
+    i32::try_from(magnitude.checked_mul(sign)?).ok()
 }
