@@ -4,7 +4,7 @@ The compiler gains no `ST` intrinsic. `Control.Monad.ST.Internal` and
 `Control.Monad.ST.Uncurried` keep their official signatures, exports, classes,
 instances and other pure code; their foreign implementation slots delegate to
 the ordinary PureScript target module `PSRS.ST`. The independent `psrs-stdlib`
-revision is `d3a33494c85f2b5d61a9c73d20509049b9e62746` with content fingerprint
+revision is `567c00dd9d4c7dc53814f12aaf2aaf6e5b4f34d9` with content fingerprint
 `fnv1a64-v1:5b51b652c77ed0b7`.
 
 `PSRS.ST` represents an `ST` action as `Action r a`, a suspended `Unit -> a`
@@ -27,8 +27,8 @@ Validation:
   distinct cells, read, write, modify, `while`, `for`, `foreach`, and empty
   inputs that must not invoke their callbacks. The mandatory runner executes the
   Prelude-free target fixture under Wasmtime with exit 42 and empty output.
-  Observations and the runtime report are retained under
-  `docs/evidence/st-2026-10-06/`.
+  Observations and the runtime report are written to a local, git-ignored
+  directory.
 - Library-owned Node tooling regressions: 8 passed.
 - Complete pinned audit: 41 packages, 217 modules, 190 exact, 16 modified and
   11 explicitly recorded target additions; no absent official module and no

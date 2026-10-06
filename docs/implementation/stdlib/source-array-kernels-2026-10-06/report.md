@@ -2,7 +2,7 @@
 
 The compiler no longer owns whole-function array application, binding or
 extension kernels. The independent `psrs-stdlib` revision is
-`4ab3ef60b0d21dfca210e93881d596dd1cae339a`. It owns ordinary PureScript
+`e8b21f78b31d4317f330c9886571d94ebe96e24d`. It owns ordinary PureScript
 `PSRS.Array` implementations and explicit target provenance. Official
 `Control.Apply`, `Control.Bind` and `Control.Extend` only add an import and
 replace their foreign slots with target aliases; their public signatures and
@@ -35,9 +35,9 @@ Validation:
   count and immediate snapshots of a shared mutable array; extend includes suffix
   content and order, callback count and order, empty input, returned closures and
   that mutating a received suffix does not alias the source array. The 46-case
-  scalar oracle also passed. The independent library owns the generators,
-  observations and runtime reports in
-  `docs/evidence/source-array-kernels-2026-10-06/`.
+  scalar oracle also passed. The independent library owns the generators and
+  writes the observations and runtime reports to a local, git-ignored
+  directory.
 - Malformed MIR filled-array test: passed; wrong initializer or noninteger
   length is rejected, and a valid initialized allocation is accepted.
 - Transactional primitive linking tests: 3 passed.
