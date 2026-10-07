@@ -1,5 +1,7 @@
 use super::*;
 
+mod constrained;
+
 #[test]
 fn shadowed_boolean_case_guard_reports_its_source_row_and_keeps_first_match() {
     let source = "module Main where\nchoose input guard = case input of\n  true -> 11\n  true | guard -> 22\n  false -> 33\nmain = choose true false\n";

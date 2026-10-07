@@ -112,7 +112,11 @@ A failed guard proceeds to the next guard without evaluating that guard's body.
 A generated temporary binds an expression once when duplication would change
 evaluation. The saved scrutinee is bound in an outer `let`, and fallthrough helpers share
 an inner `let` with the case. They refer to outer locals and the saved product
-directly. Separating the saved value from the helper binding group preserves
+directly. Helpers exist only for rows after the first guarded row, including the
+final failure continuation. Earlier rows are checked directly as case branches
+and have no unused helper copies: such copies would create additional inferred
+class obligations without the original branch's expected result type.
+Separating the saved value from the helper binding group preserves
 its scope without making that group recursive. Its calls
 pass an empty token to delay evaluation, rather than passing the product's
 polymorphic fields through a newly inferred helper parameter. Passing one of those locals in as a value

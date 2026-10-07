@@ -3,6 +3,7 @@ use std::process::Command;
 
 mod coercion;
 mod deriving;
+mod guard_continuations;
 mod import_aliases;
 mod library_foreign;
 mod rank_n;

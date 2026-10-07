@@ -47,6 +47,24 @@ skip. No runner command publishes or modifies upstream checkouts.
 See [the repository boundary](../design/D-17-stdlib-and-conformance-boundaries.md)
 for ownership, package locking, and the limits of this evidence.
 
+For public Bounded values and Enum range interactions:
+
+```sh
+node ../psrs-stdlib/conformance/bounded.mjs \
+  /private/tmp/purescript-prelude /tmp/psrs-bounded-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-bounded-oracle/Main.purs \
+  --input /tmp/psrs-bounded-oracle/Target.purs \
+  --expected-exit 42 --out /tmp/psrs-bounded-runtime
+```
+
+The generator verifies the six typed foreign-slot delegates against the pinned
+source and reads its official JS bounds. Char's U+10FFFF target upper bound is
+an explicit DEC-16 difference from JS's U+FFFF; the three Enum range observations
+are integration checks. The library records these distinctions in
+`docs/bounded.md` and `docs/evidence/bounded/`.
+
 The library owns non-scalar case generators as well. For array application:
 
 ```sh
