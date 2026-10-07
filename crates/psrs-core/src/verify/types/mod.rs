@@ -79,7 +79,8 @@ pub(super) fn unary_primitive_types(intrinsic: Intrinsic, module: &Module) -> (T
         Intrinsic::NumberNeg
         | Intrinsic::NumberTrunc
         | Intrinsic::NumberFloor
-        | Intrinsic::NumberCeil => (Number, Number),
+        | Intrinsic::NumberCeil
+        | Intrinsic::NumberAbs => (Number, Number),
         Intrinsic::BooleanNot => (Boolean, Boolean),
         Intrinsic::IntToNumber => (Int, Number),
         Intrinsic::NumberToInt => (Number, Int),

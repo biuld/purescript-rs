@@ -113,3 +113,7 @@ compilation, source fidelity of every adaptation, or behavior of every API.
 A fresh public Number.abs (-42.5) case stops at P8 library linking because
 Data.Number.abs has no target implementation. Other Number foreign slots
 remain separate work. No official scoreboard or gate measurement changes.
+
+The subsequent [absolute-value acceptance](number-abs-2026-10-07.md) resolves
+the abs blocker with a checked scalar operation and public JS comparisons.
+The measurements above describe the preceding parsing checkpoint.

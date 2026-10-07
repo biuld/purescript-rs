@@ -106,6 +106,7 @@ descriptors! {
     NumberNeg => "numberNeg", 1, UnaryScalar, scheme::number_number;
     NumberTrunc => "numberTrunc", 1, UnaryScalar, scheme::number_number;
     NumberFloor => "numberFloor", 1, UnaryScalar, scheme::number_number;
+    NumberAbs => "numberAbs", 1, UnaryScalar, scheme::number_number;
     NumberCeil => "numberCeil", 1, UnaryScalar, scheme::number_number;
     BooleanNot => "booleanNot", 1, UnaryScalar, scheme::boolean_boolean;
     IntToNumber => "intToNumber", 1, UnaryScalar, scheme::int_number;

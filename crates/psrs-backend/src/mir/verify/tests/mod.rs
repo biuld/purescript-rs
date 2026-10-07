@@ -99,6 +99,7 @@ fn rejects_a_unary_primitive_with_mistyped_operands() {
         span: span(),
     };
     for op in [
+        crate::mir::UnaryOp::F64Abs,
         crate::mir::UnaryOp::F64Neg,
         crate::mir::UnaryOp::F64Trunc,
         crate::mir::UnaryOp::F64Floor,

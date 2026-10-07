@@ -24,9 +24,11 @@ pub(super) fn verify_unary(
         UnaryOp::I32Neg | UnaryOp::I32Complement | UnaryOp::I32Identity => {
             (ValueType::I32, ValueType::I32)
         }
-        UnaryOp::F64Neg | UnaryOp::F64Trunc | UnaryOp::F64Floor | UnaryOp::F64Ceil => {
-            (ValueType::F64, ValueType::F64)
-        }
+        UnaryOp::F64Abs
+        | UnaryOp::F64Neg
+        | UnaryOp::F64Trunc
+        | UnaryOp::F64Floor
+        | UnaryOp::F64Ceil => (ValueType::F64, ValueType::F64),
         UnaryOp::BoolNot => (ValueType::Boolean, ValueType::Boolean),
         UnaryOp::I32ToF64 => (ValueType::I32, ValueType::F64),
         UnaryOp::F64ToF32 => (ValueType::F64, ValueType::F32),

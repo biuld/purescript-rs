@@ -2,16 +2,51 @@ use super::*;
 
 #[test]
 fn optimized_and_unoptimized_number_trunc_preserve_zero_sign_and_range() {
-    check_number_rounding(crate::cc::UnaryOp::NumberTrunc, -0.9, 4294967296.0);
+    check_number_unary(
+        crate::cc::UnaryOp::NumberTrunc,
+        -0.9,
+        4294967296.5,
+        4294967296.0,
+        true,
+    );
 }
 
 #[test]
 fn optimized_and_unoptimized_number_floor_and_ceil_preserve_sign_and_range() {
-    check_number_rounding(crate::cc::UnaryOp::NumberFloor, -0.0, 4294967296.0);
-    check_number_rounding(crate::cc::UnaryOp::NumberCeil, -0.9, 4294967297.0);
+    check_number_unary(
+        crate::cc::UnaryOp::NumberFloor,
+        -0.0,
+        4294967296.5,
+        4294967296.0,
+        true,
+    );
+    check_number_unary(
+        crate::cc::UnaryOp::NumberCeil,
+        -0.9,
+        4294967296.5,
+        4294967297.0,
+        true,
+    );
 }
 
-fn check_number_rounding(operation: crate::cc::UnaryOp, input: f64, expected: f64) {
+#[test]
+fn optimized_and_unoptimized_number_abs_clear_zero_sign_and_preserve_magnitude() {
+    check_number_unary(
+        crate::cc::UnaryOp::NumberAbs,
+        -0.0,
+        -4294967296.5,
+        4294967296.5,
+        false,
+    );
+}
+
+fn check_number_unary(
+    operation: crate::cc::UnaryOp,
+    input: f64,
+    large: f64,
+    expected: f64,
+    negative: bool,
+) {
     use crate::cc::{BinaryOp, UnaryOp, ValueDecl};
     use ValueShape::{Boolean as B, Integer as I, Number as N};
     let symbol = SymbolId::new(ModuleId(0), 0);
@@ -38,7 +73,7 @@ fn check_number_rounding(operation: crate::cc::UnaryOp, input: f64, expected: f6
         span: span(),
     };
     let module = CcModule {
-        name: "NumberTruncDifferential".into(),
+        name: "NumberUnaryDifferential".into(),
         externals: Vec::new(),
         representations: RepresentationTable::default(),
         functions: vec![CcFunction {
@@ -59,8 +94,17 @@ fn check_number_rounding(operation: crate::cc::UnaryOp, input: f64, expected: f6
                 number(2, 1.0),
                 binary(3, BinaryOp::NumberDiv, 2, 1),
                 number(4, 0.0),
-                binary(5, BinaryOp::NumberLt, 3, 4),
-                number(6, 4294967296.5),
+                binary(
+                    5,
+                    if negative {
+                        BinaryOp::NumberLt
+                    } else {
+                        BinaryOp::NumberGt
+                    },
+                    3,
+                    4,
+                ),
+                number(6, large),
                 unary(7, operation, 6),
                 number(8, expected),
                 binary(9, BinaryOp::NumberEq, 7, 8),
@@ -82,7 +126,7 @@ fn check_number_rounding(operation: crate::cc::UnaryOp, input: f64, expected: f6
     };
     let target = crate::TargetCapabilities::default();
     let (mir, _) = crate::mir::lower_module_with_capabilities(module, target)
-        .expect("Number truncation should lower to MIR");
+        .expect("Number unary operation should lower to MIR");
     run_gc(&mir, 42);
     let optimized = crate::mir::opt::optimize(mir, target).expect("valid optimization");
     run_gc(&optimized, 42);

@@ -254,3 +254,21 @@ ECMAScript round tie behavior belongs to ordinary PureScript in PSRS.Number.
 Official Data.Int pure wrappers remain unchanged. Raw generated reports are
 local and ignored; summarized acceptance lives in the library's
 `docs/number-rounding.md` and the compiler's topic report.
+
+For Number absolute value through direct and higher-order public calls:
+
+```sh
+node ../psrs-stdlib/conformance/number-abs.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers /tmp/psrs-number-abs-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-number-abs-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-number-abs-runtime
+```
+
+The generator checks the complete pinned Data.Number source transformation
+and invokes its actual JS abs FFI. Reciprocal observations distinguish zero
+signs. Cases include binary64 subnormals, nonfinite values, magnitudes beyond
+i32, and deterministic generated bit patterns. The compiler's checked
+numberAbs primitive selects f64.abs; the library retains its original public
+Number signature and pure declarations.

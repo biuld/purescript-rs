@@ -19,6 +19,7 @@ mod functor;
 mod guard_coverage;
 mod let_constraints;
 mod library_foreign;
+mod number_abs;
 mod number_decimal;
 mod number_rounding;
 mod number_trunc;

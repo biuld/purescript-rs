@@ -157,6 +157,7 @@ chosen mapping is:
 | `IntNeg` | `I32Neg` | `0 - x` |
 | `IntComplement` | `I32Complement` | `x ^ -1` |
 | `NumberNeg` | `F64Neg` | `f64.neg` |
+| `NumberAbs` | `F64Abs` | `f64.abs` |
 | `NumberTrunc` | `F64Trunc` | `f64.trunc` |
 | `NumberFloor` / `NumberCeil` | `F64Floor` / `F64Ceil` | `f64.floor` / `f64.ceil` |
 | `BooleanNot` | `BoolNot` | `i32.eqz` |
@@ -191,6 +192,14 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
 ### Number arithmetic
 
 - Arithmetic maps to the four `f64` operations and negation to `f64.neg`.
+- `NumberAbs` (`numberAbs :: Number -> Number`) lowers to `f64.abs`, clearing
+  the sign bit without changing the magnitude or NaN payload. Negative zero
+  becomes positive zero, either infinity becomes positive infinity, and NaN
+  remains NaN. Core, CC and MIR require Number/F64 operands and results. This
+  implements the official Data.Number.abs foreign slot; no integer conversion
+  or library-name recognition is involved. The primitive remains explicit for
+  constant operands; no new constant folding is claimed. See the
+  [WebAssembly absolute-value semantics](https://webassembly.github.io/spec/core/exec/numerics.html#op-fabs).
 - Comparisons use the ordered `f64` operations; `NumberEq`/`NumberNe` are
   `f64.eq`/`f64.ne`, so `NaN` is unequal to itself and `+0 = -0`.
 - The current vocabulary has no `Number` remainder. If the standard library

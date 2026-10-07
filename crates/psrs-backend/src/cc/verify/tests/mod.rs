@@ -246,6 +246,7 @@ fn rejects_a_unary_operation_with_the_wrong_operand_shape() {
     };
 
     for op in [
+        super::super::UnaryOp::NumberAbs,
         super::super::UnaryOp::NumberNeg,
         super::super::UnaryOp::NumberTrunc,
         super::super::UnaryOp::NumberFloor,
