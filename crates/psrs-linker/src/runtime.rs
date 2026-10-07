@@ -4,15 +4,24 @@
 //! contract it verifies and plans against.
 
 use crate::target::{
-    ArtifactContract, ArtifactKind, CoreSignature, CoreType, DeclaredExport, DeclaredGlobal,
-    DeclaredImport, DeclaredTable, ExportKind, ImportKind, InitializationContract, StorageContract,
-    StorageRegion,
+    ArtifactContract, ArtifactKind, CoreSignature, CoreType, DeclaredElement, DeclaredExport,
+    DeclaredGlobal, DeclaredImport, DeclaredTable, ExportKind, ImportKind, InitializationContract,
+    StorageContract, StorageRegion,
 };
 use psrs_runtime::{RawType, RuntimeArtifact};
 
 /// Maps a catalog artifact into the contract its bytes must satisfy.
 pub fn contract(artifact: &RuntimeArtifact) -> ArtifactContract {
     ArtifactContract {
+        elements: artifact
+            .elements
+            .iter()
+            .map(|element| DeclaredElement {
+                table: element.table,
+                offset: element.offset,
+                functions: element.functions.to_vec(),
+            })
+            .collect(),
         id: artifact.id.to_string(),
         kind: ArtifactKind::CoreModule,
         module_name: artifact.module_name.to_string(),

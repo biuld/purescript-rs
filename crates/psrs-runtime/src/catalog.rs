@@ -106,6 +106,14 @@ pub struct RawTable {
     pub maximum: Option<u32>,
 }
 
+/// An active initializer for a private function table.
+#[derive(Clone, Copy, Debug)]
+pub struct RawElement {
+    pub table: u32,
+    pub offset: u32,
+    pub functions: &'static [u32],
+}
+
 /// Private execution storage and the allocator boundary an artifact requires.
 #[derive(Clone, Copy, Debug)]
 pub struct RawStorage {
@@ -135,6 +143,7 @@ pub struct RuntimeArtifact {
     pub function_exports: &'static [RawExport],
     pub global_exports: &'static [&'static str],
     pub tables: &'static [RawTable],
+    pub elements: &'static [RawElement],
     /// Declared globals as `(mutable, constant i32 initial)`.
     pub globals: &'static [(bool, u32)],
     pub storage: RawStorage,
@@ -143,20 +152,20 @@ pub struct RuntimeArtifact {
     pub instantiate_after_shims: bool,
 }
 
-/// The `numberToString` formatter artifact, produced by `tools/build.sh`.
-pub const NUMBER_FORMATTER: RuntimeArtifact = RuntimeArtifact {
-    id: "psrs:runtime-number-format",
+/// Numeric formatting and decimal conversion, produced by `tools/build.sh`.
+pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
+    id: "psrs:runtime-number",
     module_name: crate::MODULE_NAME,
     bytes: include_bytes!("../artifact/psrs_runtime.wasm"),
     provenance: ArtifactProvenance {
-        dependency: "ryu-js",
-        dependency_revision: "1.0.2",
+        dependency: "ryu-js and Rust core::num::dec2flt",
+        dependency_revision: "ryu-js 1.0.2; Rust 1.99.0",
         rust_toolchain: "1.99.0 (b940084d7 2026-09-28)",
         target: "wasm32-unknown-unknown",
         profile: "target-runtime",
         recipe: "tools/build.sh: --import-memory --global-base=65536 \
                  -zstack-size=65536 --export=__heap_base, then package",
-        sha256: "6ed6f666ff48d5ce12d9ffef106edd4cb2fd0629b2ebd033e0b549414c664694",
+        sha256: "c6d50a6b005471bca9777562860cd8a3b2fc1ba5227126f755ee0d10297408de",
     },
     required_features: &[
         "mutable-globals",
@@ -170,16 +179,28 @@ pub const NUMBER_FORMATTER: RuntimeArtifact = RuntimeArtifact {
         module: crate::MEMORY_MODULE,
         field: crate::MEMORY_FIELD,
     }],
-    function_exports: &[RawExport {
-        name: crate::NUMBER_EXPORT,
-        parameters: &[RawType::F64, RawType::I32, RawType::I32],
-        result: Some(RawType::I32),
-    }],
+    function_exports: &[
+        RawExport {
+            name: crate::NUMBER_EXPORT,
+            parameters: &[RawType::F64, RawType::I32, RawType::I32],
+            result: Some(RawType::I32),
+        },
+        RawExport {
+            name: crate::DECIMAL_EXPORT,
+            parameters: &[RawType::I32, RawType::I32],
+            result: Some(RawType::F64),
+        },
+    ],
     global_exports: &[crate::HEAP_BASE_EXPORT],
     tables: &[RawTable {
         element: "funcref",
-        minimum: 1,
-        maximum: Some(1),
+        minimum: 2,
+        maximum: Some(2),
+    }],
+    elements: &[RawElement {
+        table: 0,
+        offset: 1,
+        functions: &[19],
     }],
     globals: &[(true, crate::HEAP_START), (false, crate::HEAP_START)],
     storage: RawStorage {
@@ -188,7 +209,7 @@ pub const NUMBER_FORMATTER: RuntimeArtifact = RuntimeArtifact {
         heap_start: crate::HEAP_START,
         minimum_pages: 3,
         stack_pointer_global: 0,
-        stack_bound_bytes: 160,
+        stack_bound_bytes: 1680,
         stack_bound_evidence: "static call-graph frame analysis of the pinned artifact (psrs-linker::measure_stack_bound)",
     },
     start_forbidden: true,

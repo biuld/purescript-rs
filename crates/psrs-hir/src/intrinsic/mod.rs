@@ -108,6 +108,8 @@ pub enum Intrinsic {
     NumberFloor,
     /// Round a Number toward positive infinity.
     NumberCeil,
+    /// Convert a complete ASCII decimal token to binary64; invalid tokens return NaN.
+    NumberFromDecimal,
 }
 
 impl Intrinsic {
@@ -130,7 +132,7 @@ impl Intrinsic {
 
     /// Every variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 67] = [
+    pub const ALL: [Intrinsic; 68] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::I32Add,
@@ -198,6 +200,7 @@ impl Intrinsic {
         Intrinsic::NumberTrunc,
         Intrinsic::NumberFloor,
         Intrinsic::NumberCeil,
+        Intrinsic::NumberFromDecimal,
     ];
 }
 
@@ -206,7 +209,7 @@ impl Intrinsic {
 // cannot be added and silently left out of the bootstrap name table.
 const _: () = {
     assert!(
-        Intrinsic::ALL.len() == Intrinsic::NumberCeil as u32 as usize + 1,
+        Intrinsic::ALL.len() == Intrinsic::NumberFromDecimal as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 = 0;

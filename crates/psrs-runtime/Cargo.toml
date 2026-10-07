@@ -12,7 +12,7 @@ default = ["catalog", "formatter"]
 # Immutable host-consumed catalog data: WIT sources, world identity, artifact
 # bytes and provenance. Compiles no executable target code.
 catalog = []
-# The executable formatter export. The Wasm artifact build enables only this
+# The executable numeric exports. The Wasm artifact build enables only this
 # feature; the default native build enables both.
 formatter = ["dep:ryu-js"]
 

@@ -2,8 +2,8 @@
 //!
 //! Each function's prologue subtracts its frame size from the stack-pointer
 //! global. The maximum bytes an artifact can use is the largest sum of frame
-//! sizes along any call path. A call graph with a cycle is not a supported
-//! artifact and is rejected rather than bounded.
+//! sizes along a path reachable from an exported function or start function.
+//! Reachable cycles and indirect calls are rejected rather than bounded.
 
 use wasmparser::{Operator, Parser, Payload};
 
@@ -18,6 +18,8 @@ pub struct StackBound {
 /// `stack_pointer_global` is the mutable global whose prologue adjustment
 /// reserves a frame. Indirect calls and calls into imported functions make the
 /// bound unknown, so they are errors rather than silent under-approximations.
+/// Exported tables are also rejected: callers could otherwise enter a private
+/// function through them. Modules with no entry points are analyzed in full.
 pub fn measure_stack_bound(bytes: &[u8], stack_pointer_global: u32) -> Result<StackBound, String> {
     // Exception and suspension proposals require a separate frame-unwind
     // proof. They cannot enter this normal-return-only analysis.
@@ -35,8 +37,8 @@ pub fn measure_stack_bound(bytes: &[u8], stack_pointer_global: u32) -> Result<St
     wasmparser::Validator::new_with_features(features)
         .validate_all(bytes)
         .map_err(|error| error.to_string())?;
-    let mut frames = Vec::new();
-    let mut callees = Vec::new();
+    let mut bodies = Vec::new();
+    let mut roots = Vec::new();
     let mut imported_functions = 0_usize;
 
     for payload in Parser::new(0).parse_all(bytes) {
@@ -52,23 +54,45 @@ pub fn measure_stack_bound(bytes: &[u8], stack_pointer_global: u32) -> Result<St
                 }
             }
             Payload::CodeSectionEntry(body) => {
-                let (frame, calls) = analyze_body(&body, stack_pointer_global)?;
-                frames.push(frame);
-                callees.push(calls);
+                bodies.push(analyze_body(&body, stack_pointer_global));
             }
+            Payload::ExportSection(reader) => {
+                for export in reader {
+                    let export = export.map_err(|error| error.to_string())?;
+                    match export.kind {
+                        wasmparser::ExternalKind::Func => roots.push(export.index),
+                        wasmparser::ExternalKind::Table => {
+                            return Err(
+                                "an exported table makes runtime entry points unknown".into()
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Payload::StartSection { func, .. } => roots.push(func),
             _ => {}
         }
     }
 
-    let count = frames.len();
+    let count = bodies.len();
+    // A private function can only execute through an entry point's call graph.
+    // Unsupported indirect calls are still rejected on every reachable path.
+    // Definition-only test modules retain conservative whole-module analysis.
+    if roots.is_empty() {
+        roots.extend((0..count).map(|index| index as u32 + imported_functions as u32));
+    }
     let mut memo = vec![None::<u32>; count];
     let mut visiting = vec![false; count];
     let mut bound = 0_u32;
-    for index in 0..count {
+    for root in roots {
+        let index = (root as usize)
+            .checked_sub(imported_functions)
+            .filter(|index| *index < count)
+            .ok_or("an imported or unknown entry point makes the stack bound unknown")?;
         bound = bound.max(visit(
             index,
-            &frames,
-            &callees,
+            &bodies,
             &mut memo,
             &mut visiting,
             imported_functions,
@@ -224,8 +248,7 @@ fn analyze_body(
 
 fn visit(
     index: usize,
-    frames: &[u32],
-    callees: &[Vec<u32>],
+    bodies: &[Result<(u32, Vec<u32>), String>],
     memo: &mut [Option<u32>],
     visiting: &mut [bool],
     imported_functions: usize,
@@ -237,194 +260,25 @@ fn visit(
         return Err("a recursive call graph is not a supported runtime library".into());
     }
     visiting[index] = true;
+    let (frame, callees) = bodies[index].as_ref().map_err(Clone::clone)?;
     let mut deepest = 0_u32;
-    for callee in &callees[index] {
+    for callee in callees {
         let callee = *callee as usize;
         if callee < imported_functions {
             return Err("a call into an imported function makes the stack bound unknown".into());
         }
         let defined = callee - imported_functions;
-        if defined < frames.len() {
-            deepest = deepest.max(visit(
-                defined,
-                frames,
-                callees,
-                memo,
-                visiting,
-                imported_functions,
-            )?);
+        if defined < bodies.len() {
+            deepest = deepest.max(visit(defined, bodies, memo, visiting, imported_functions)?);
         } else {
             return Err("callee is outside the analyzed module".into());
         }
     }
     visiting[index] = false;
-    let total = frames[index]
-        .checked_add(deepest)
-        .ok_or("stack bound overflows")?;
+    let total = frame.checked_add(deepest).ok_or("stack bound overflows")?;
     memo[index] = Some(total);
     Ok(total)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_runtime_artifact_has_a_measured_static_bound() {
-        let bound = measure_stack_bound(psrs_runtime::NUMBER_FORMATTER.bytes, 0)
-            .expect("the formatter is nonrecursive");
-        assert_eq!(
-            bound.bytes,
-            psrs_runtime::NUMBER_FORMATTER.storage.stack_bound_bytes,
-            "the declared stack bound must match the static analysis"
-        );
-    }
-
-    #[test]
-    fn a_recursive_graph_is_rejected() {
-        // Two mutually recursive functions, each reserving a frame.
-        let bytes = recursive_module();
-        assert!(
-            measure_stack_bound(&bytes, 0)
-                .unwrap_err()
-                .contains("recursive call graph")
-        );
-    }
-
-    #[test]
-    fn unrecognized_stack_writes_and_unbalanced_frames_are_rejected() {
-        use wasm_encoder::Instruction as I;
-        let prologue = [
-            I::GlobalGet(0),
-            I::I32Const(32),
-            I::I32Sub,
-            I::LocalTee(0),
-            I::GlobalSet(0),
-        ];
-        for suffix in [
-            vec![I::I32Const(1), I::GlobalSet(0)],
-            vec![I::Return],
-            vec![I::Br(0)],
-            vec![I::I32Const(9), I::LocalSet(0)],
-            vec![I::GlobalGet(0), I::I32Const(32), I::I32Sub, I::GlobalSet(0)],
-            vec![],
-        ] {
-            let mut ops = prologue.to_vec();
-            ops.extend(suffix);
-            assert!(measure_stack_bound(&single_function(&ops), 0).is_err());
-        }
-        assert!(
-            measure_stack_bound(&single_function(&[I::I32Const(5), I::GlobalSet(0)]), 0).is_err()
-        );
-    }
-
-    #[test]
-    fn a_reference_branch_cannot_bypass_an_otherwise_valid_restoration() {
-        use wasm_encoder::Instruction as I;
-        let ops = [
-            I::GlobalGet(0),
-            I::I32Const(32),
-            I::I32Sub,
-            I::LocalTee(0),
-            I::GlobalSet(0),
-            I::RefNull(wasm_encoder::HeapType::FUNC),
-            I::BrOnNull(0),
-            I::Drop,
-            I::LocalGet(0),
-            I::I32Const(32),
-            I::I32Add,
-            I::GlobalSet(0),
-        ];
-        let bytes = single_function(&ops);
-        wasmparser::Validator::new()
-            .validate_all(&bytes)
-            .expect("valid module");
-        assert!(
-            measure_stack_bound(&bytes, 0)
-                .unwrap_err()
-                .contains("branch bypasses")
-        );
-    }
-
-    fn single_function(ops: &[wasm_encoder::Instruction<'_>]) -> Vec<u8> {
-        use wasm_encoder::*;
-        let mut module = Module::new();
-        let mut types = TypeSection::new();
-        types.ty().function([], []);
-        module.section(&types);
-        let mut functions = FunctionSection::new();
-        functions.function(0);
-        module.section(&functions);
-        let mut globals = GlobalSection::new();
-        globals.global(
-            GlobalType {
-                val_type: ValType::I32,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i32_const(1024),
-        );
-        module.section(&globals);
-        let mut function = Function::new([(1, ValType::I32)]);
-        for op in ops {
-            function.instruction(op);
-        }
-        function.instruction(&Instruction::End);
-        let mut code = CodeSection::new();
-        code.function(&function);
-        module.section(&code);
-        module.finish()
-    }
-
-    fn recursive_module() -> Vec<u8> {
-        use wasm_encoder::{
-            CodeSection, Function, FunctionSection, GlobalSection, GlobalType, Instruction, Module,
-            TypeSection, ValType,
-        };
-        let mut module = Module::new();
-        let mut types = TypeSection::new();
-        types.ty().function([], []);
-        module.section(&types);
-        let mut functions = FunctionSection::new();
-        functions.function(0);
-        functions.function(0);
-        module.section(&functions);
-        let mut globals = GlobalSection::new();
-        globals.global(
-            GlobalType {
-                val_type: ValType::I32,
-                mutable: true,
-                shared: false,
-            },
-            &wasm_encoder::ConstExpr::i32_const(1024),
-        );
-        module.section(&globals);
-        let mut code = CodeSection::new();
-        let mut first = Function::new([]);
-        first.instruction(&Instruction::GlobalGet(0));
-        first.instruction(&Instruction::I32Const(32));
-        first.instruction(&Instruction::I32Sub);
-        first.instruction(&Instruction::GlobalSet(0));
-        first.instruction(&Instruction::Call(1));
-        first.instruction(&Instruction::GlobalGet(0));
-        first.instruction(&Instruction::I32Const(32));
-        first.instruction(&Instruction::I32Add);
-        first.instruction(&Instruction::GlobalSet(0));
-        first.instruction(&Instruction::End);
-        code.function(&first);
-        let mut second = Function::new([]);
-        second.instruction(&Instruction::GlobalGet(0));
-        second.instruction(&Instruction::I32Const(32));
-        second.instruction(&Instruction::I32Sub);
-        second.instruction(&Instruction::GlobalSet(0));
-        second.instruction(&Instruction::Call(0));
-        second.instruction(&Instruction::GlobalGet(0));
-        second.instruction(&Instruction::I32Const(32));
-        second.instruction(&Instruction::I32Add);
-        second.instruction(&Instruction::GlobalSet(0));
-        second.instruction(&Instruction::End);
-        code.function(&second);
-        module.section(&code);
-        module.finish()
-    }
-}
+mod tests;

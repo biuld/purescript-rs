@@ -118,6 +118,7 @@ fn combine_all(effects: impl IntoIterator<Item = Effects>) -> Effects {
 /// Whether an intrinsic can trap. The byte conversions validate their input,
 /// the array operations can trap on a missing or out-of-range index, and the
 /// truncating and Euclidean division operations trap on a zero divisor.
+/// Numeric string conversions can trap while allocating transient buffers.
 fn intrinsic_may_trap(intrinsic: Intrinsic) -> bool {
     matches!(
         intrinsic,
@@ -127,6 +128,8 @@ fn intrinsic_may_trap(intrinsic: Intrinsic) -> bool {
             | Intrinsic::ArrayWrite
             | Intrinsic::StringToBytes
             | Intrinsic::BytesToString
+            | Intrinsic::NumberFromDecimal
+            | Intrinsic::NumberToString
             | Intrinsic::I32DivS
             | Intrinsic::I32RemS
             | Intrinsic::IntDiv

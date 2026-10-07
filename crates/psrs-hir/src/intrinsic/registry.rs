@@ -152,6 +152,7 @@ descriptors! {
     ArrayFill => "arrayFill", 2, ArrayFill, scheme::array_fill;
     ArrayWrite => "arrayWrite", 3, ArrayWrite, scheme::array_update;
     NumberToString => "numberToString", 1, UnaryScalar, scheme::number_string;
+    NumberFromDecimal => "numberFromDecimal", 1, UnaryScalar, scheme::string_number;
 }
 
 /// The HIR type schemes. Each returns a fresh [`Type`], so a caller that
@@ -281,6 +282,10 @@ mod scheme {
 
     pub(super) fn int_number() -> Type {
         unary(BuiltinType::Int, BuiltinType::Number)
+    }
+
+    pub(super) fn string_number() -> Type {
+        unary(BuiltinType::String, BuiltinType::Number)
     }
 
     pub(super) fn number_string() -> Type {

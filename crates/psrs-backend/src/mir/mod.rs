@@ -348,8 +348,10 @@ fn lower_module_after_binding_validation(
             result: Some(ValueType::I32),
         });
     }
-    if used.contains(&crate::target_runtime::NUMBER_FORMAT.symbol) {
-        imports.push(crate::target_runtime::NUMBER_FORMAT.import());
+    for implementation in crate::target_runtime::IMPLEMENTATIONS {
+        if used.contains(&implementation.symbol) {
+            imports.push(implementation.import());
+        }
     }
     // The canonical ABI boundary transcodes between the GC string's UTF-16 and
     // the component's UTF-8. The adapter calls these reserved helpers, which P10

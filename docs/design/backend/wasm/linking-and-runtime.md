@@ -268,7 +268,17 @@ consumer verifies actual globals, imports, exports, data ranges, feature needs,
 and forbidden initialization against that contract. An unexplained table or
 other export/import must be understood and declared, not blanket-accepted.
 
-The pinned nonrecursive formatter's maximum stack use must be established by
+The numeric runtime also exports complete-decimal binary64 conversion. Its
+contract declares active function-table initializers by table index, constant
+offset and complete function-index sequence; different or unsupported element
+segments are rejected. Stack analysis begins at exported functions and the
+start function and includes every reachable private callee. Private unreachable
+formatting helpers do not create entry points. Exported tables are rejected
+because they would expose additional entry points; reachable indirect calls,
+imported calls, recursion and unrecognized frames remain errors. Definition-only
+modules with no entry points retain conservative whole-module analysis.
+
+The pinned nonrecursive numeric runtime's maximum stack use must be established by
 artifact analysis or an explicit reviewed build assumption plus stress evidence.
 Checking the initial stack pointer alone does not prove a bound. Reentrancy,
 callbacks, or a different runtime provider requires revisiting the storage
@@ -532,16 +542,16 @@ bytes. Relocatable object files, dynamic loading, async/WASI 0.3 composition,
 recursive or reentrant runtime libraries, and cross-module GC sharing require
 explicit extensions.
 
-Existing WIT/WASI binding code precedes this plan model. The formatter slice now
+Existing WIT/WASI binding code precedes this plan model. The numeric runtime slice now
 carries one checked plan from requirement closure through artifact verification,
 Wasm emission, and component assembly, with a target-only linker test suite and
-an end-to-end formatter execution test. The stack bound is measured over a restricted
+end-to-end formatter and decimal-conversion execution tests. The stack bound is measured over a restricted
 frame protocol: one constant prologue, an immutable saved frame and checked restoration before returning.
-Unrecognized stack-pointer access, indirect/imported calls, recursion, exception
+Reachable unrecognized stack-pointer access, indirect/imported calls, recursion, exception
 unwinding and suspension are rejected. The declared stack-pointer global must
 be mutable and initialize at the reserved stack top. These checks establish the
-formatter bound; they do not establish arbitrary runtime-library memory safety.
-Guest execution evidence is recorded separately from the formatter slice.
+numeric runtime bound; they do not establish arbitrary runtime-library memory safety.
+Guest execution evidence is recorded separately from the numeric runtime slice.
 
 ## References
 

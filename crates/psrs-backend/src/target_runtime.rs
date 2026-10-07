@@ -14,7 +14,7 @@ use psrs_linker::{
 pub(crate) struct Implementation {
     pub intrinsic: Intrinsic,
     pub symbol: SymbolId,
-    pub abi: &'static psrs_runtime::FormatterAbi,
+    pub abi: &'static psrs_runtime::NumericAbi,
     pub artifact: &'static psrs_runtime::RuntimeArtifact,
 }
 
@@ -22,17 +22,30 @@ pub(crate) const NUMBER_FORMAT: Implementation = Implementation {
     intrinsic: Intrinsic::NumberToString,
     symbol: crate::abi::NUMBER_TO_STRING_SYMBOL,
     abi: &psrs_runtime::NUMBER_FORMAT,
-    artifact: &psrs_runtime::NUMBER_FORMATTER,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
 };
+
+pub(crate) const NUMBER_PARSE: Implementation = Implementation {
+    intrinsic: Intrinsic::NumberFromDecimal,
+    symbol: crate::abi::NUMBER_FROM_DECIMAL_SYMBOL,
+    abi: &psrs_runtime::NUMBER_PARSE,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const IMPLEMENTATIONS: [&Implementation; 2] = [&NUMBER_FORMAT, &NUMBER_PARSE];
 
 /// The registered implementation for a checked intrinsic, if any.
 pub(crate) fn implementation(intrinsic: Intrinsic) -> Option<&'static Implementation> {
-    (intrinsic == NUMBER_FORMAT.intrinsic).then_some(&NUMBER_FORMAT)
+    IMPLEMENTATIONS
+        .into_iter()
+        .find(|implementation| intrinsic == implementation.intrinsic)
 }
 
 /// The registered implementation for a MIR import symbol, if any.
 pub(crate) fn for_symbol(symbol: SymbolId) -> Option<&'static Implementation> {
-    (symbol == NUMBER_FORMAT.symbol).then_some(&NUMBER_FORMAT)
+    IMPLEMENTATIONS
+        .into_iter()
+        .find(|implementation| symbol == implementation.symbol)
 }
 
 impl Implementation {

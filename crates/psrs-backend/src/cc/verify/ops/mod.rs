@@ -95,6 +95,16 @@ pub(super) fn verify_assignments(
                 )?;
                 uses.push(*value);
             }
+            AssignmentKind::NumberFromDecimal { value } => {
+                require_value_shape(declared, *value, ValueShape::String, assignment)?;
+                require_destination(
+                    declared,
+                    assignment,
+                    ValueShape::Number,
+                    "numberFromDecimal produces Number",
+                )?;
+                uses.push(*value);
+            }
             AssignmentKind::Unary { op, value } => {
                 verify_unary_operation(*op, *value, assignment, declared)?;
                 uses.push(*value);

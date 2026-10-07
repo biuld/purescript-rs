@@ -119,6 +119,14 @@ pub struct DeclaredGlobal {
     pub initial: u32,
 }
 
+/// An explicitly declared active function-table initializer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeclaredElement {
+    pub table: u32,
+    pub offset: u32,
+    pub functions: Vec<u32>,
+}
+
 /// A declared private execution-storage region.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageRegion {
@@ -166,6 +174,7 @@ pub struct ArtifactContract {
     pub imports: Vec<DeclaredImport>,
     pub exports: Vec<DeclaredExport>,
     pub tables: Vec<DeclaredTable>,
+    pub elements: Vec<DeclaredElement>,
     pub globals: Vec<DeclaredGlobal>,
     pub storage: Option<StorageContract>,
     pub initialization: InitializationContract,

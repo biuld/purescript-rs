@@ -6,8 +6,8 @@
 //!   metadata: pinned WIT source bytes, the default command-world identity, and
 //!   the compiler-owned formatter artifact with its provenance and storage
 //!   contract. It links no executable target code.
-//! - The `formatter` module (feature `formatter`) compiles the executable
-//!   formatter export, built for `wasm32-unknown-unknown` and embedded as the
+//! - Feature `formatter` compiles the numeric formatting and complete-decimal
+//!   conversion exports, built for `wasm32-unknown-unknown` and embedded as the
 //!   pinned artifact. It embeds neither WIT text nor the catalog.
 //!
 //! The compiler depends on this crate with `default-features = false,
@@ -22,7 +22,11 @@ pub mod catalog;
 pub use catalog::*;
 
 #[cfg(feature = "formatter")]
+mod decimal;
+#[cfg(feature = "formatter")]
 mod formatter;
+#[cfg(feature = "formatter")]
+pub use decimal::number_from_decimal;
 #[cfg(feature = "formatter")]
 pub use formatter::number_to_string;
 
@@ -32,6 +36,8 @@ pub const NUMBER_CAPACITY: usize = 32;
 pub const MODULE_NAME: &str = "psrs:runtime";
 /// Exported raw formatting function.
 pub const NUMBER_EXPORT: &str = "number_to_string";
+/// Exported raw complete-decimal conversion function.
+pub const DECIMAL_EXPORT: &str = "number_from_decimal";
 /// Lower addresses remain owned by the application's canonical ABI.
 pub const RESERVED_START: u32 = 65536;
 /// Static data must end before the separately reserved 64 KiB stack.
@@ -54,17 +60,21 @@ pub enum RawType {
     F64,
 }
 
-/// The caller allocates this bounded output, recovers UTF-8, then releases it.
-pub struct FormatterAbi {
+/// A raw numeric runtime function's checked core-Wasm signature.
+pub struct NumericAbi {
     pub export: &'static str,
-    pub parameters: [RawType; 3],
+    pub parameters: &'static [RawType],
     pub result: RawType,
-    pub output_capacity: usize,
 }
 
-pub const NUMBER_FORMAT: FormatterAbi = FormatterAbi {
+pub const NUMBER_FORMAT: NumericAbi = NumericAbi {
     export: NUMBER_EXPORT,
-    parameters: [RawType::F64, RawType::I32, RawType::I32],
+    parameters: &[RawType::F64, RawType::I32, RawType::I32],
     result: RawType::I32,
-    output_capacity: NUMBER_CAPACITY,
+};
+
+pub const NUMBER_PARSE: NumericAbi = NumericAbi {
+    export: DECIMAL_EXPORT,
+    parameters: &[RawType::I32, RawType::I32],
+    result: RawType::F64,
 };

@@ -108,6 +108,14 @@ impl FunctionLowerer<'_> {
                         assignment.span,
                     )?;
                 }
+                AssignmentKind::NumberFromDecimal { value } => {
+                    self.lower_number_from_decimal(
+                        current,
+                        assignment.destination,
+                        *value,
+                        assignment.span,
+                    )?;
+                }
                 AssignmentKind::Unary { op, value } => self.append_instruction(
                     current,
                     Instruction::UnaryPrimitive {

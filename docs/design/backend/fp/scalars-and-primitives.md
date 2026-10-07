@@ -225,6 +225,32 @@ round-to-nearest with ties toward positive infinity: this differs from Wasm
 `f64.nearest` and cannot be replaced by adding 0.5 before flooring. Public
 Int.floor/ceil/round retain their unchanged finite checks and clamping wrappers.
 
+### Complete decimal conversion
+
+`NumberFromDecimal` (`numberFromDecimal :: String -> Number`) converts a complete
+ASCII signed decimal token, with an optional decimal exponent, to binary64.
+It uses the pinned Rust core parser's nearest-representable rounding, including
+ties to even, signed underflow zero, and overflow to signed infinity. Empty,
+partial, nondecimal, non-ASCII, and whitespace-containing tokens produce NaN.
+`Infinity` and `NaN` spellings are outside this primitive's grammar.
+
+Core and CC validate String input and Number output before ABI erasure. MIR
+copies canonical UTF-8 to a transient linear-memory buffer using the shared
+string boundary protocol, calls the checked numeric-runtime export, and frees
+the buffer. The runtime allocates nothing and retains no pointer. Its artifact
+contract declares both numeric exports and private table initialization;
+static stack analysis covers every path reachable from its entry points.
+The compiler preserves potentially trapping canonical-buffer allocation for
+both numeric formatting and conversion, even when the result is unused.
+
+The library owns ECMAScript whitespace, longest-prefix recognition, rollback of
+an incomplete exponent, `Infinity` recognition, and ordinary predicate/builder
+calls. It preserves the official public `Data.Number.fromString` wrapper and
+the foreign slot's rank-N `Fn4` signature. Whole parsing functions are not
+compiler intrinsics. The contracts are
+[ECMAScript parseFloat](https://tc39.es/ecma262/multipage/global-object.html#sec-parsefloat-string)
+and [Rust f64::from_str](https://doc.rust-lang.org/std/primitive.f64.html#impl-FromStr-for-f64).
+
 ### Conversions
 
 - `IntToNumber` is `f64.convert_i32_s`.

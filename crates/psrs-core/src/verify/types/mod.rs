@@ -84,6 +84,7 @@ pub(super) fn unary_primitive_types(intrinsic: Intrinsic, module: &Module) -> (T
         Intrinsic::IntToNumber => (Int, Number),
         Intrinsic::NumberToInt => (Number, Int),
         Intrinsic::NumberToString => (Number, String),
+        Intrinsic::NumberFromDecimal => (String, Number),
         Intrinsic::BooleanToInt => (Boolean, Int),
         Intrinsic::IntToBoolean => (Int, Boolean),
         Intrinsic::CharToInt => (Char, Int),

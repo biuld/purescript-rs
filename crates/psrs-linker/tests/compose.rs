@@ -64,7 +64,7 @@ fn input() -> TargetLinkInput {
                 result: Some(CoreType::I32),
             }),
             provider: Provider::ArtifactExport {
-                artifact: psrs_runtime::NUMBER_FORMATTER.id.into(),
+                artifact: psrs_runtime::NUMBER_RUNTIME.id.into(),
                 export: psrs_runtime::NUMBER_EXPORT.into(),
                 signature: CoreSignature {
                     parameters: vec![CoreType::F64, CoreType::I32, CoreType::I32],
@@ -73,8 +73,8 @@ fn input() -> TargetLinkInput {
             },
         }],
         artifacts: vec![ArtifactReference {
-            contract: psrs_linker::runtime::contract(&psrs_runtime::NUMBER_FORMATTER),
-            bytes: psrs_runtime::NUMBER_FORMATTER.bytes.to_vec(),
+            contract: psrs_linker::runtime::contract(&psrs_runtime::NUMBER_RUNTIME),
+            bytes: psrs_runtime::NUMBER_RUNTIME.bytes.to_vec(),
         }],
         policy: TargetPolicy::default(),
         memory: MemoryDemand {

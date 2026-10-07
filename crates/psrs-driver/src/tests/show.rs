@@ -119,7 +119,11 @@ main = let ignored = log (show 1.0e21) in 0
     };
     assert_eq!(parameter("artifacts"), Some("1"));
     let digests = parameter("artifact_digests").expect("artifact digests are recorded");
-    assert!(digests.contains("psrs:runtime-number-format"), "{digests}");
+    assert!(digests.contains("psrs:runtime-number"), "{digests}");
+    assert!(
+        digests.contains("c6d50a6b005471bca9777562860cd8a3b2fc1ba5227126f755ee0d10297408de"),
+        "{digests}"
+    );
     assert!(
         parameter("selected_providers")
             .expect("selected providers are recorded")

@@ -81,3 +81,7 @@ conversion primitive may own correctly rounded binary64 conversion. Validate
 against the pinned official JS FFI, including whitespace, accepted decimal
 prefixes, malformed exponents, overflow, underflow, and signed zero. Other
 Number foreign slots and whole-standard-library behavior remain separate work.
+
+The subsequent [Number parsing acceptance](number-parsing-2026-10-07.md)
+implements and executes that missing target. The replay and measurements above
+describe this earlier Core checkpoint.

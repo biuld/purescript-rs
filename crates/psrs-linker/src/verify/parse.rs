@@ -90,11 +90,11 @@ pub(super) fn check_contract(
             ));
         }
     }
-    if parsed.has_elements {
+    if parsed.elements != contract.elements {
         return Err(LinkErrors::one(
             stage,
             id,
-            "artifact element segments are not declared",
+            "artifact element segments do not match the declared contract",
         ));
     }
     for (start, length) in &parsed.data_ranges {
@@ -151,7 +151,7 @@ pub(super) struct ParsedCore {
     globals: Vec<ParsedGlobal>,
     data_ranges: Vec<(u32, u32)>,
     has_start: bool,
-    has_elements: bool,
+    elements: Vec<crate::DeclaredElement>,
 }
 
 impl ParsedTable {
@@ -191,7 +191,7 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
     let mut data_ranges = Vec::new();
     let mut memories = 0_u32;
     let mut has_start = false;
-    let mut has_elements = false;
+    let mut elements = Vec::new();
 
     for payload in Parser::new(0).parse_all(bytes) {
         match payload.map_err(|error| error.to_string())? {
@@ -314,7 +314,31 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
             }
             Payload::MemorySection(_) => memories += 1,
             Payload::StartSection { .. } => has_start = true,
-            Payload::ElementSection(_) => has_elements = true,
+            Payload::ElementSection(reader) => {
+                for element in reader {
+                    let element = element.map_err(|error| error.to_string())?;
+                    let wasmparser::ElementKind::Active {
+                        table_index,
+                        offset_expr,
+                    } = element.kind
+                    else {
+                        return Err(
+                            "artifact has unsupported passive or declarative elements".into()
+                        );
+                    };
+                    let wasmparser::ElementItems::Functions(functions) = element.items else {
+                        return Err("artifact has unsupported element expressions".into());
+                    };
+                    elements.push(crate::DeclaredElement {
+                        table: table_index.unwrap_or(0),
+                        offset: constant_i32(&offset_expr)?,
+                        functions: functions
+                            .into_iter()
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(|error| error.to_string())?,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -331,7 +355,7 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
         globals,
         data_ranges,
         has_start,
-        has_elements,
+        elements,
     })
 }
 

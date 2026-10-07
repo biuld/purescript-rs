@@ -135,6 +135,7 @@ pub(super) fn add_assignments(
             | AssignmentKind::Primitive { .. }
             | AssignmentKind::Unary { .. }
             | AssignmentKind::NumberToString { .. }
+            | AssignmentKind::NumberFromDecimal { .. }
             | AssignmentKind::ArrayLen { .. }
             | AssignmentKind::Unreachable => {}
             AssignmentKind::ClosureGetCapture { .. } => {

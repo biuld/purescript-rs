@@ -9,10 +9,15 @@ use crate::target::{
 
 fn number_format_contract() -> ArtifactContract {
     ArtifactContract {
-        id: "psrs:runtime-number-format".into(),
+        elements: vec![crate::DeclaredElement {
+            table: 0,
+            offset: 1,
+            functions: vec![19],
+        }],
+        id: "psrs:runtime-number".into(),
         kind: ArtifactKind::CoreModule,
         module_name: psrs_runtime::MODULE_NAME.into(),
-        sha256: psrs_runtime::NUMBER_FORMATTER.provenance.sha256.into(),
+        sha256: psrs_runtime::NUMBER_RUNTIME.provenance.sha256.into(),
         provenance: "test".into(),
         required_features: [
             "mutable-globals",
@@ -42,11 +47,19 @@ fn number_format_contract() -> ArtifactContract {
                 kind: ExportKind::Global,
                 signature: None,
             },
+            DeclaredExport {
+                name: psrs_runtime::DECIMAL_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::I32, CoreType::I32],
+                    result: Some(CoreType::F64),
+                }),
+            },
         ],
         tables: vec![DeclaredTable {
             element: "funcref".into(),
-            minimum: 1,
-            maximum: Some(1),
+            minimum: 2,
+            maximum: Some(2),
         }],
         globals: vec![
             DeclaredGlobal {
@@ -72,8 +85,8 @@ fn number_format_contract() -> ArtifactContract {
             heap_start: psrs_runtime::HEAP_START,
             minimum_pages: 3,
             stack_pointer_global: 0,
-            stack_bound_bytes: psrs_runtime::NUMBER_FORMATTER.storage.stack_bound_bytes,
-            stack_bound_evidence: psrs_runtime::NUMBER_FORMATTER
+            stack_bound_bytes: psrs_runtime::NUMBER_RUNTIME.storage.stack_bound_bytes,
+            stack_bound_evidence: psrs_runtime::NUMBER_RUNTIME
                 .storage
                 .stack_bound_evidence
                 .into(),
@@ -89,15 +102,34 @@ fn number_format_contract() -> ArtifactContract {
 #[test]
 fn embedded_artifact_satisfies_its_contract() {
     let contract = number_format_contract();
-    verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+    verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes)
         .expect("the pinned artifact should verify");
+}
+
+#[test]
+fn element_initializers_must_match_the_complete_declared_contract() {
+    for change in 0..4 {
+        let mut contract = number_format_contract();
+        match change {
+            0 => contract.elements.clear(),
+            1 => contract.elements[0].offset += 1,
+            2 => contract.elements[0].table += 1,
+            _ => contract.elements[0].functions[0] += 1,
+        }
+        assert!(
+            verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes)
+                .unwrap_err()
+                .to_string()
+                .contains("element segments")
+        );
+    }
 }
 
 #[test]
 fn a_component_contract_cannot_use_raw_core_verification() {
     let mut contract = number_format_contract();
     contract.kind = ArtifactKind::Component;
-    let error = verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+    let error = verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes)
         .expect_err("component bytes cannot satisfy a raw-core contract");
     assert!(
         error.to_string().contains("no silent host fallback"),
@@ -109,28 +141,28 @@ fn a_component_contract_cannot_use_raw_core_verification() {
 fn a_stale_digest_is_rejected() {
     let mut contract = number_format_contract();
     contract.sha256 = "0".repeat(64);
-    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes).is_err());
 }
 
 #[test]
 fn an_undeclared_export_is_rejected() {
     let mut contract = number_format_contract();
     contract.exports.remove(1);
-    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes).is_err());
 }
 
 #[test]
 fn an_undeclared_import_is_rejected() {
     let mut contract = number_format_contract();
     contract.imports.clear();
-    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes).is_err());
 }
 
 #[test]
 fn an_overlapping_data_range_is_rejected() {
     let mut contract = number_format_contract();
     contract.initialization.data_range = (0, 16);
-    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes).is_err());
 }
 
 #[test]
@@ -138,11 +170,11 @@ fn storage_cannot_name_an_absent_immutable_or_displaced_stack_pointer() {
     for index in [1, 99] {
         let mut contract = number_format_contract();
         contract.storage.as_mut().unwrap().stack_pointer_global = index;
-        assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+        assert!(verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes).is_err());
     }
     let mut contract = number_format_contract();
     contract.storage.as_mut().unwrap().stack.end += 8;
-    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes).is_err());
+    assert!(verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes).is_err());
 }
 
 #[test]
@@ -150,7 +182,7 @@ fn independent_export_table_and_feature_contract_drift_is_rejected() {
     let mut contract = number_format_contract();
     contract.exports[0].signature.as_mut().unwrap().parameters[0] = CoreType::F32;
     assert!(
-        verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+        verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes)
             .unwrap_err()
             .to_string()
             .contains("signature")
@@ -160,7 +192,7 @@ fn independent_export_table_and_feature_contract_drift_is_rejected() {
     missing.name = "absent-export".into();
     contract.exports.push(missing);
     assert!(
-        verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+        verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes)
             .unwrap_err()
             .to_string()
             .contains("missing declared export")
@@ -168,7 +200,7 @@ fn independent_export_table_and_feature_contract_drift_is_rejected() {
     let mut contract = number_format_contract();
     contract.tables[0].minimum = 0;
     assert!(
-        verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+        verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes)
             .unwrap_err()
             .to_string()
             .contains("tables")
@@ -176,7 +208,7 @@ fn independent_export_table_and_feature_contract_drift_is_rejected() {
     let mut contract = number_format_contract();
     contract.required_features.clear();
     assert!(
-        verify_artifact(&contract, psrs_runtime::NUMBER_FORMATTER.bytes)
+        verify_artifact(&contract, psrs_runtime::NUMBER_RUNTIME.bytes)
             .unwrap_err()
             .to_string()
             .contains("not valid Wasm")
@@ -185,7 +217,7 @@ fn independent_export_table_and_feature_contract_drift_is_rejected() {
 
 #[test]
 fn a_valid_but_undeclared_eager_initializer_is_rejected() {
-    let text = wasmprinter::print_bytes(psrs_runtime::NUMBER_FORMATTER.bytes).unwrap();
+    let text = wasmprinter::print_bytes(psrs_runtime::NUMBER_RUNTIME.bytes).unwrap();
     let prefix = text.trim_end().strip_suffix(')').unwrap();
     let bytes = wat::parse_str(format!("{prefix}(func $eager) (start $eager))")).unwrap();
     wasmparser::Validator::new()

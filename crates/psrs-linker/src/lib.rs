@@ -34,8 +34,8 @@ pub use plan::{CheckedLinkPlan, MemoryPlan, ResolvedBinding, plan};
 pub use stack::{StackBound, measure_stack_bound};
 pub use target::{
     ArtifactContract, ArtifactKind, ArtifactReference, BindingRequirement, Boundary, CoreSignature,
-    CoreType, DeclaredExport, DeclaredGlobal, DeclaredImport, DeclaredTable, ExportKind,
-    ImportKind, InitializationContract, MemoryDemand, Provider, RequirementId, StorageContract,
-    StorageRegion, TargetLinkInput, TargetPolicy,
+    CoreType, DeclaredElement, DeclaredExport, DeclaredGlobal, DeclaredImport, DeclaredTable,
+    ExportKind, ImportKind, InitializationContract, MemoryDemand, Provider, RequirementId,
+    StorageContract, StorageRegion, TargetLinkInput, TargetPolicy,
 };
 pub use verify::{VerifiedArtifact, verify_artifact};

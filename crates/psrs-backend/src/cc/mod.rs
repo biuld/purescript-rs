@@ -190,6 +190,10 @@ pub enum AssignmentKind {
     NumberToString {
         value: ValueId,
     },
+    /// Checked complete-decimal conversion through the numeric runtime.
+    NumberFromDecimal {
+        value: ValueId,
+    },
     /// An `Array Int` read as a source `String`. Every element must be a
     /// canonical byte and the bytes must be well-formed UTF-8.
     BytesToString {

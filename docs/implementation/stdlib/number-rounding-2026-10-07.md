@@ -104,3 +104,7 @@ reproducer now stops at P8 library linking because `Data.Number.fromStringImpl`
 has no target implementation. Parsing behavior and other Number FFI remain
 unverified. No scoreboard or gate measurement is changed by this focused
 behavior evidence.
+
+The subsequent [Number parsing acceptance](number-parsing-2026-10-07.md)
+implements and executes the parser. The blockers above describe the rounding
+and Core checkpoints, before that package update.

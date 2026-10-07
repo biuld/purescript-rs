@@ -34,8 +34,8 @@ fn input(
 
 fn formatter_artifact() -> ArtifactReference {
     ArtifactReference {
-        contract: psrs_linker::runtime::contract(&psrs_runtime::NUMBER_FORMATTER),
-        bytes: psrs_runtime::NUMBER_FORMATTER.bytes.to_vec(),
+        contract: psrs_linker::runtime::contract(&psrs_runtime::NUMBER_RUNTIME),
+        bytes: psrs_runtime::NUMBER_RUNTIME.bytes.to_vec(),
     }
 }
 
@@ -52,7 +52,7 @@ fn formatter_requirement() -> BindingRequirement {
             result: Some(CoreType::I32),
         }),
         provider: Provider::ArtifactExport {
-            artifact: psrs_runtime::NUMBER_FORMATTER.id.into(),
+            artifact: psrs_runtime::NUMBER_RUNTIME.id.into(),
             export: psrs_runtime::NUMBER_EXPORT.into(),
             signature: CoreSignature {
                 parameters: vec![CoreType::F64, CoreType::I32, CoreType::I32],
@@ -108,7 +108,7 @@ fn a_live_formatter_requirement_reserves_storage_and_closes_the_private_import()
     assert_eq!(link.digests().len(), 1);
     assert_eq!(
         link.digests()[0],
-        psrs_runtime::NUMBER_FORMATTER.provenance.sha256
+        psrs_runtime::NUMBER_RUNTIME.provenance.sha256
     );
 }
 
@@ -216,7 +216,7 @@ fn conflicting_providers_for_one_import_identity_are_rejected() {
     other.id = RequirementId(1);
     other.origin = "NumberToStringAgain".into();
     other.provider = Provider::ArtifactExport {
-        artifact: psrs_runtime::NUMBER_FORMATTER.id.into(),
+        artifact: psrs_runtime::NUMBER_RUNTIME.id.into(),
         export: psrs_runtime::NUMBER_EXPORT.into(),
         signature: CoreSignature {
             // A deliberately different signature for the same import identity.
@@ -242,11 +242,11 @@ fn conflicting_providers_for_one_import_identity_are_rejected() {
 #[test]
 fn a_definition_contract_does_not_satisfy_execution() {
     let mut contract: ArtifactContract =
-        psrs_linker::runtime::contract(&psrs_runtime::NUMBER_FORMATTER);
+        psrs_linker::runtime::contract(&psrs_runtime::NUMBER_RUNTIME);
     contract.exports.clear();
     let artifact = ArtifactReference {
         contract,
-        bytes: psrs_runtime::NUMBER_FORMATTER.bytes.to_vec(),
+        bytes: psrs_runtime::NUMBER_RUNTIME.bytes.to_vec(),
     };
     let context = resolve_default_definitions().unwrap();
     assert!(

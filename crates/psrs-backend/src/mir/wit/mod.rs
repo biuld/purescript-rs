@@ -18,6 +18,7 @@ mod parameters;
 pub(super) use bind::BoundFn;
 pub(super) use call_lowerer::WitCallLowerer;
 pub(super) use handles::verify_function;
+pub(super) use parameters::lower_string;
 
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
