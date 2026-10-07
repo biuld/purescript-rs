@@ -109,13 +109,16 @@ pub(crate) const NUMBER_TO_STRING_SYMBOL: SymbolId =
 pub(crate) const NUMBER_FROM_DECIMAL_SYMBOL: SymbolId =
     SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 6);
 
-pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 6] = [
+pub(crate) const NUMBER_ACOS_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 7);
+
+pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 7] = [
     REALLOC_SYMBOL,
     STRING_TO_BYTES_SYMBOL,
     BYTES_TO_STRING_SYMBOL,
     VALIDATE_STEP_SYMBOL,
     NUMBER_TO_STRING_SYMBOL,
     NUMBER_FROM_DECIMAL_SYMBOL,
+    NUMBER_ACOS_SYMBOL,
 ];
 
 /// WASI interfaces and functions the backend itself references. The standard

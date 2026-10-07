@@ -158,14 +158,14 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
     module_name: crate::MODULE_NAME,
     bytes: include_bytes!("../artifact/psrs_runtime.wasm"),
     provenance: ArtifactProvenance {
-        dependency: "ryu-js and Rust core::num::dec2flt",
-        dependency_revision: "ryu-js 1.0.2; Rust 1.99.0",
+        dependency: "ryu-js, libm, and Rust core::num::dec2flt",
+        dependency_revision: "ryu-js 1.0.2; libm 0.2.15; Rust 1.99.0",
         rust_toolchain: "1.99.0 (b940084d7 2026-09-28)",
         target: "wasm32-unknown-unknown",
         profile: "target-runtime",
         recipe: "tools/build.sh: --import-memory --global-base=65536 \
                  -zstack-size=65536 --export=__heap_base, then package",
-        sha256: "c6d50a6b005471bca9777562860cd8a3b2fc1ba5227126f755ee0d10297408de",
+        sha256: "092c1aca5a1270c0c792568da6c230ebdd25fcf536e64f17729315db75e3c683",
     },
     required_features: &[
         "mutable-globals",
@@ -190,6 +190,11 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
             parameters: &[RawType::I32, RawType::I32],
             result: Some(RawType::F64),
         },
+        RawExport {
+            name: crate::ACOS_EXPORT,
+            parameters: &[RawType::F64],
+            result: Some(RawType::F64),
+        },
     ],
     global_exports: &[crate::HEAP_BASE_EXPORT],
     tables: &[RawTable {
@@ -200,7 +205,7 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
     elements: &[RawElement {
         table: 0,
         offset: 1,
-        functions: &[19],
+        functions: &[22],
     }],
     globals: &[(true, crate::HEAP_START), (false, crate::HEAP_START)],
     storage: RawStorage {

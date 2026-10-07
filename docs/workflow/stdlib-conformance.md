@@ -287,3 +287,19 @@ node ../psrs-stdlib/tools/conformance.mjs run \
 The generator invokes the pinned official sqrt FFI. Negative zero stays
 negative zero, and negative inputs produce NaN. The compiler's checked
 numberSqrt primitive selects f64.sqrt.
+
+For Number inverse cosine through the same public-call shape:
+
+```sh
+node ../psrs-stdlib/conformance/number-acos.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers /tmp/psrs-number-acos-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-number-acos-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-number-acos-runtime
+```
+
+The generator invokes the pinned official acos FFI. Finite inputs in [-1, 1]
+match that FFI. Values outside the interval produce NaN. The compiler's
+checked numberAcos primitive calls the scalar numeric-runtime export. Wasm
+has no inverse-cosine instruction.

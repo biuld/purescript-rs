@@ -96,5 +96,7 @@ Library evidence, with the package fingerprint unchanged during each run:
   executed that artifact with exit 42 and empty stdout and stderr.
 
 This refactor does not establish whole-stdlib runtime completion. Number
-square root has a separate checked `f64.sqrt` acceptance. Other Number foreign
-slots, including `Data.Number.acos`, remain without target support.
+square root has a separate checked `f64.sqrt` acceptance, and Number inverse
+cosine has a separate checked scalar-runtime acceptance. Other Number foreign
+slots, including `Data.Number.asin`, remain without target support until a
+fresh diagnosis names the next blocker.

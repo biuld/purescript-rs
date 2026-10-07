@@ -121,7 +121,7 @@ main = let ignored = log (show 1.0e21) in 0
     let digests = parameter("artifact_digests").expect("artifact digests are recorded");
     assert!(digests.contains("psrs:runtime-number"), "{digests}");
     assert!(
-        digests.contains("c6d50a6b005471bca9777562860cd8a3b2fc1ba5227126f755ee0d10297408de"),
+        digests.contains("092c1aca5a1270c0c792568da6c230ebdd25fcf536e64f17729315db75e3c683"),
         "{digests}"
     );
     assert!(

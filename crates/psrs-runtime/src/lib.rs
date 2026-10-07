@@ -6,9 +6,10 @@
 //!   metadata: pinned WIT source bytes, the default command-world identity, and
 //!   the compiler-owned formatter artifact with its provenance and storage
 //!   contract. It links no executable target code.
-//! - Feature `formatter` compiles the numeric formatting and complete-decimal
-//!   conversion exports, built for `wasm32-unknown-unknown` and embedded as the
-//!   pinned artifact. It embeds neither WIT text nor the catalog.
+//! - Feature `formatter` compiles the numeric formatting, complete-decimal
+//!   conversion, and inverse-cosine exports, built for `wasm32-unknown-unknown`
+//!   and embedded as the pinned artifact. It embeds neither WIT text nor the
+//!   catalog.
 //!
 //! The compiler depends on this crate with `default-features = false,
 //! features = ["catalog"]`; the Wasm artifact build uses
@@ -22,9 +23,13 @@ pub mod catalog;
 pub use catalog::*;
 
 #[cfg(feature = "formatter")]
+mod acos;
+#[cfg(feature = "formatter")]
 mod decimal;
 #[cfg(feature = "formatter")]
 mod formatter;
+#[cfg(feature = "formatter")]
+pub use acos::number_acos;
 #[cfg(feature = "formatter")]
 pub use decimal::number_from_decimal;
 #[cfg(feature = "formatter")]
@@ -38,6 +43,8 @@ pub const MODULE_NAME: &str = "psrs:runtime";
 pub const NUMBER_EXPORT: &str = "number_to_string";
 /// Exported raw complete-decimal conversion function.
 pub const DECIMAL_EXPORT: &str = "number_from_decimal";
+/// Exported raw inverse-cosine function.
+pub const ACOS_EXPORT: &str = "number_acos";
 /// Lower addresses remain owned by the application's canonical ABI.
 pub const RESERVED_START: u32 = 65536;
 /// Static data must end before the separately reserved 64 KiB stack.
@@ -93,4 +100,11 @@ pub const NUMBER_PARSE: RawFunctionAbi = RawFunctionAbi {
     parameters: &[RawType::I32, RawType::I32],
     result: Some(RawType::F64),
     protocol: RawCallProtocol::Utf8Input,
+};
+
+pub const NUMBER_ACOS: RawFunctionAbi = RawFunctionAbi {
+    export: ACOS_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
 };

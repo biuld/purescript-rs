@@ -14,10 +14,11 @@ default = ["catalog", "formatter"]
 catalog = []
 # The executable numeric exports. The Wasm artifact build enables only this
 # feature; the default native build enables both.
-formatter = ["dep:ryu-js"]
+formatter = ["dep:ryu-js", "dep:libm"]
 
 [dependencies]
 ryu-js = { version = "=1.0.2", default-features = false, optional = true }
+libm = { version = "=0.2.15", optional = true }
 
 [dev-dependencies]
 wasm-encoder = { workspace = true, features = ["wasmparser"] }
