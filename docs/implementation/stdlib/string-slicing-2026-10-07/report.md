@@ -2,7 +2,7 @@
 
 The compiler prerequisite topics are committed as 138da4e (canonical qualified
 scopes), cdeefed (guard continuations and Bounded pin), and 4aa5b51 (recursive
-product coverage). This follow-up changes no Rust compiler mechanism.
+product coverage). The String library slice changes no Rust compiler mechanism.
 
 The independent library pin is c8020c00e227f256c0a365e22d5ebcbd1601607a,
 content fingerprint fnv1a64-v1:6d4f0e0ccbe37bc0. Data.String.CodeUnits keeps
@@ -42,17 +42,14 @@ Validation:
   were not repeated. That checkpoint still records three independently
   reproduced driver-library baseline failures.
 
-A separate finite-expression resource limit remains open. An ordinary module
-with Prelude and `main = if true && ... && true then 42 else 1` (448 operands)
-compiles with official purs but aborts our compiler with stack overflow even
-against the preceding Bounded-only package. A native backtrace on the ungrouped
-String oracle locates repeated P5 infer_application / infer_expr_with_expected
-frames. The oracle groups its checks into helpers of at most 24 observations;
-this fixture organization validates all 448 values and does not repair the
-compiler traversal limit. The next compiler follow-up must address the common
-expression traversal rather than specialize on String or Boolean names.
+The finite-expression stack overflow recorded for this checkpoint is repaired
+by the [compiler follow-up](../deep-expression-2026-10-07/report.md).
+The original ungrouped 448-observation String fixture now compiles and returns
+42 with empty stdout/stderr under the same library fingerprint. The library
+generator retains its grouped fixture; no library source or oracle result was
+changed to accommodate the compiler repair.
 
 Character indexing, predicate traversal, searching and other String slots
 remain explicitly unsupported. This slice does not claim full String or
-stdlib API/runtime closure, and the full 211-import reproducer was not
-remeasured after this library change.
+stdlib API/runtime closure. The later compiler follow-up separately remeasures
+the full 211-import reproducer under this library pin.

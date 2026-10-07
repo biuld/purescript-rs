@@ -98,6 +98,10 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
 }
 
 fn verify_expr(expression: &Expr, module: &Module, errors: &mut Vec<VerifyError>) {
+    psrs_span::with_sufficient_stack(|| verify_expr_inner(expression, module, errors))
+}
+
+fn verify_expr_inner(expression: &Expr, module: &Module, errors: &mut Vec<VerifyError>) {
     let types = &module.types;
     verify_type_id(expression.ty, types.len(), expression.span, errors);
     match &expression.kind {

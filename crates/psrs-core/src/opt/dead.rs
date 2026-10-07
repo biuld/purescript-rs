@@ -11,7 +11,11 @@ pub(super) fn run(mut module: Module) -> Module {
     module
 }
 
-fn eliminate_expr(mut expression: Expr) -> Expr {
+fn eliminate_expr(expression: Expr) -> Expr {
+    psrs_span::with_sufficient_stack(|| eliminate_expr_inner(expression))
+}
+
+fn eliminate_expr_inner(mut expression: Expr) -> Expr {
     expression.kind = match expression.kind {
         ExprKind::Constructor { symbol, arguments } => ExprKind::Constructor {
             symbol,
@@ -160,6 +164,10 @@ fn live_bindings(bindings: &[Binding], body: &Expr) -> Vec<Binding> {
 }
 
 fn collect_refs(expression: &Expr, references: &mut HashSet<LocalId>) {
+    psrs_span::with_sufficient_stack(|| collect_refs_inner(expression, references))
+}
+
+fn collect_refs_inner(expression: &Expr, references: &mut HashSet<LocalId>) {
     match &expression.kind {
         ExprKind::Local(id) => {
             references.insert(*id);

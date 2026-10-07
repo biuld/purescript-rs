@@ -9,6 +9,16 @@ impl Checker {
         expression: &hir::Expr,
         expected: Option<InferType>,
     ) -> Option<InferredExpr> {
+        psrs_span::with_sufficient_stack(|| {
+            self.infer_expr_with_expected_inner(expression, expected)
+        })
+    }
+
+    fn infer_expr_with_expected_inner(
+        &mut self,
+        expression: &hir::Expr,
+        expected: Option<InferType>,
+    ) -> Option<InferredExpr> {
         let Some(expected) = expected else {
             return self.infer_expr(expression);
         };

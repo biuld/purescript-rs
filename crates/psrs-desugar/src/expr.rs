@@ -32,6 +32,10 @@ impl Desugarer {
     }
 
     pub(super) fn expr(&mut self, expression: Expr) -> Expr {
+        psrs_span::with_sufficient_stack(|| self.expr_inner(expression))
+    }
+
+    fn expr_inner(&mut self, expression: Expr) -> Expr {
         let span = expression.span;
         let kind = match expression.kind {
             ExprKind::OperatorChain { .. } | ExprKind::OperatorSection { .. } => {

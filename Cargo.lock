@@ -433,6 +433,9 @@ dependencies = [
 [[package]]
 name = "psrs-span"
 version = "0.1.0"
+dependencies = [
+ "stacker",
+]
 
 [[package]]
 name = "psrs-syntax"

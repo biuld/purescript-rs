@@ -70,6 +70,15 @@ fn rewrite(
     primitives: &HashMap<SymbolId, Intrinsic>,
     fresh: &mut FreshLocals,
 ) -> Result<(), &'static str> {
+    psrs_span::with_sufficient_stack(|| rewrite_inner(expression, types, primitives, fresh))
+}
+
+fn rewrite_inner(
+    expression: &mut Expr,
+    types: &[Type],
+    primitives: &HashMap<SymbolId, Intrinsic>,
+    fresh: &mut FreshLocals,
+) -> Result<(), &'static str> {
     match &mut expression.kind {
         ExprKind::Global(symbol) => {
             if let Some(intrinsic) = primitives.get(symbol) {

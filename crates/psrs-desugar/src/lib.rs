@@ -110,6 +110,10 @@ pub fn desugar_module_with_true_symbols(
 }
 
 fn desugar_expr(expression: Expr) -> Expr {
+    psrs_span::with_sufficient_stack(|| desugar_expr_inner(expression))
+}
+
+fn desugar_expr_inner(expression: Expr) -> Expr {
     let span = expression.span;
     let kind = match expression.kind {
         ExprKind::Operator {

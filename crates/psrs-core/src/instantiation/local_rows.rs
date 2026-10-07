@@ -37,6 +37,15 @@ fn rewrite(
     fresh: &mut FreshLocals,
     scope: &mut HashMap<LocalId, Binding>,
 ) {
+    psrs_span::with_sufficient_stack(|| rewrite_inner(expr, module, fresh, scope))
+}
+
+fn rewrite_inner(
+    expr: &mut Expr,
+    module: &mut Module,
+    fresh: &mut FreshLocals,
+    scope: &mut HashMap<LocalId, Binding>,
+) {
     if let ExprKind::Local(id) = expr.kind {
         if let Some(binding) = scope.get(&id).cloned()
             && let Some(value) = instantiate(module, &binding, expr.ty, fresh)

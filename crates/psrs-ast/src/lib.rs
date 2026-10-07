@@ -184,6 +184,10 @@ pub(crate) fn check_argument_names(parameters: &[cst::Pattern]) -> Option<LowerE
 }
 
 pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
+    psrs_span::with_sufficient_stack(|| lower_expr_inner(expression))
+}
+
+fn lower_expr_inner(expression: cst::Expr) -> Result<Expr, LowerError> {
     let span = expression.span;
     let cst_kind = match expression.kind {
         CstExprKind::Let {
@@ -226,7 +230,7 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             operator,
             left,
             right,
-        } => return lower_operator_chain(operator, *left, *right, span),
+        } => return expr::lower_operator_chain(operator, *left, *right, span),
         CstExprKind::OperatorSection {
             operator,
             operand,
@@ -419,55 +423,6 @@ fn lower_lambda(binder: Binder, body: Expr) -> Expr {
             body: Box::new(body),
         },
         span,
-    }
-}
-
-fn lower_operator_chain(
-    operator: cst::CstName,
-    left: cst::Expr,
-    right: cst::Expr,
-    span: TextRange,
-) -> Result<Expr, LowerError> {
-    let mut operands = Vec::new();
-    let mut operators = Vec::new();
-    collect_operator_chain(left, &mut operands, &mut operators)?;
-    operators.push(Operator {
-        name: lower_name(operator.clone()),
-        span: operator.span,
-    });
-    collect_operator_chain(right, &mut operands, &mut operators)?;
-    Ok(Expr {
-        kind: ExprKind::OperatorChain {
-            operands,
-            operators,
-        },
-        span,
-    })
-}
-
-fn collect_operator_chain(
-    expression: cst::Expr,
-    operands: &mut Vec<Expr>,
-    operators: &mut Vec<Operator>,
-) -> Result<(), LowerError> {
-    let span = expression.span;
-    match expression.kind {
-        CstExprKind::Operator {
-            operator,
-            left,
-            right,
-        } => {
-            collect_operator_chain(*left, operands, operators)?;
-            operators.push(Operator {
-                name: lower_name(operator.clone()),
-                span: operator.span,
-            });
-            collect_operator_chain(*right, operands, operators)
-        }
-        kind => {
-            operands.push(lower_expr(cst::Expr { kind, span })?);
-            Ok(())
-        }
     }
 }
 

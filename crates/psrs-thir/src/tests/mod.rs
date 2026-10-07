@@ -455,3 +455,4 @@ fn verifier_rejects_coercion_evidence_for_a_different_boundary() {
 }
 
 mod constructed_dictionary;
+mod deep_expr;

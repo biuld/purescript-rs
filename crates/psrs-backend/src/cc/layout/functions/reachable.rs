@@ -39,6 +39,15 @@ fn record_expr(
     visiting: &mut HashSet<TypeId>,
     referenced: &mut HashSet<TypeId>,
 ) {
+    psrs_span::with_sufficient_stack(|| record_expr_inner(module, expression, visiting, referenced))
+}
+
+fn record_expr_inner(
+    module: &CoreModule,
+    expression: &Expr,
+    visiting: &mut HashSet<TypeId>,
+    referenced: &mut HashSet<TypeId>,
+) {
     record_type(module, expression.ty, visiting, referenced);
     match &expression.kind {
         ExprKind::Array { elements } => {

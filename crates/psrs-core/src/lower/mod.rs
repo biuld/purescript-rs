@@ -36,6 +36,18 @@ fn lower_expr(
     source_types: &[psrs_thir::Type],
     context: &mut module::LowerContext,
 ) -> Result<Expr, LowerError> {
+    psrs_span::with_sufficient_stack(|| {
+        lower_expr_inner(expression, externals, constructors, source_types, context)
+    })
+}
+
+fn lower_expr_inner(
+    expression: TypedExpr,
+    externals: &HashMap<SymbolId, ExternalKind>,
+    constructors: &HashMap<SymbolId, psrs_thir::ConstructorInfo>,
+    source_types: &[psrs_thir::Type],
+    context: &mut module::LowerContext,
+) -> Result<Expr, LowerError> {
     let span = expression.span;
     let ty = TypeId(expression.ty.0);
     if let Some((symbol, arguments)) = constructor_application(&expression, constructors) {
@@ -223,14 +235,14 @@ fn lower_expr(
             // A saturated intrinsic application becomes one IntrinsicCall. The
             // registry's arity decides saturation, and the per-intrinsic
             // handling lives in the intrinsic module rather than here.
-            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
-                && let Some(ExternalKind::Intrinsic(intrinsic)) = externals.get(&symbol)
-                && args.len() == intrinsic.descriptor().arity as usize
-            {
+            // The right argument is already the lowered remainder of the spine.
+            // Move that spine into the intrinsic call; cloning it recurses while
+            // these lowering frames are still live.
+            if let Some(intrinsic) = saturated_intrinsic(&function, externals) {
                 return Ok(Expr {
                     kind: ExprKind::IntrinsicCall {
-                        intrinsic: *intrinsic,
-                        arguments: args,
+                        intrinsic,
+                        arguments: unfold_application(function, argument),
                     },
                     ty,
                     span,
@@ -436,23 +448,36 @@ fn constructor_application<'a>(
     })
 }
 
-fn flatten_intrinsic(
+fn saturated_intrinsic(
     function: &Expr,
-    final_argument: Expr,
     externals: &HashMap<SymbolId, ExternalKind>,
-) -> Option<(SymbolId, Vec<Expr>)> {
-    let mut arguments = vec![final_argument];
+) -> Option<psrs_hir::Intrinsic> {
+    let mut count = 1usize;
     let mut head = function;
-    while let ExprKind::Application(next, argument) = &head.kind {
-        arguments.push((**argument).clone());
+    while let ExprKind::Application(next, _) = &head.kind {
+        count += 1;
         head = next;
     }
     let ExprKind::Global(symbol) = head.kind else {
         return None;
     };
-    if !matches!(externals.get(&symbol), Some(ExternalKind::Intrinsic(_))) {
-        return None;
+    match externals.get(&symbol) {
+        Some(ExternalKind::Intrinsic(intrinsic))
+            if count == intrinsic.descriptor().arity as usize =>
+        {
+            Some(*intrinsic)
+        }
+        _ => None,
+    }
+}
+
+fn unfold_application(function: Expr, final_argument: Expr) -> Vec<Expr> {
+    let mut arguments = vec![final_argument];
+    let mut head = function;
+    while let ExprKind::Application(next, argument) = head.kind {
+        arguments.push(*argument);
+        head = *next;
     }
     arguments.reverse();
-    Some((symbol, arguments))
+    arguments
 }

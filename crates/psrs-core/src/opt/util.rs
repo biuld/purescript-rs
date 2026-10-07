@@ -4,6 +4,10 @@ use std::collections::{HashMap, HashSet};
 pub(super) use crate::locals::FreshLocals;
 
 pub(super) fn count_nodes(expression: &Expr) -> usize {
+    psrs_span::with_sufficient_stack(|| count_nodes_inner(expression))
+}
+
+fn count_nodes_inner(expression: &Expr) -> usize {
     1 + match &expression.kind {
         ExprKind::Local(_)
         | ExprKind::Global(_)
@@ -73,6 +77,14 @@ pub(super) fn substitute_locals(expression: &Expr, substitutions: &HashMap<Local
 }
 
 fn substitute_inner(
+    expression: &Expr,
+    substitutions: &HashMap<LocalId, Expr>,
+    shadowed: &mut HashSet<LocalId>,
+) -> Expr {
+    psrs_span::with_sufficient_stack(|| substitute_inner_walk(expression, substitutions, shadowed))
+}
+
+fn substitute_inner_walk(
     expression: &Expr,
     substitutions: &HashMap<LocalId, Expr>,
     shadowed: &mut HashSet<LocalId>,

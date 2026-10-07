@@ -143,6 +143,7 @@ mod backend;
 mod declarations;
 mod integration;
 mod kinds;
+mod long_expression;
 mod resolution;
 mod typecheck;
 mod wasi;

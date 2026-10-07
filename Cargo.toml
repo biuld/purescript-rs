@@ -44,6 +44,7 @@ psrs-syntax = { path = "crates/psrs-syntax" }
 wasm-encoder = "=0.245.1"
 wasmparser = "=0.245.1"
 wasmprinter = "=0.245.1"
+stacker = "0.1.22"
 
 [profile.target-runtime]
 inherits = "release"

@@ -15,7 +15,11 @@ pub(super) fn run(mut module: Module) -> Module {
     module
 }
 
-fn simplify_expr(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
+fn simplify_expr(expression: Expr, fresh: &mut FreshLocals) -> Expr {
+    psrs_span::with_sufficient_stack(|| simplify_expr_inner(expression, fresh))
+}
+
+fn simplify_expr_inner(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
     expression.kind = match expression.kind {
         ExprKind::Constructor { symbol, arguments } => ExprKind::Constructor {
             symbol,

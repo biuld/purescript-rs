@@ -18,6 +18,18 @@ pub(crate) fn verify_expr(
     declared_locals: &mut HashSet<LocalId>,
     errors: &mut Vec<VerifyError>,
 ) {
+    psrs_span::with_sufficient_stack(|| {
+        verify_expr_inner(expression, globals, visible_locals, declared_locals, errors)
+    })
+}
+
+fn verify_expr_inner(
+    expression: &Expr,
+    globals: &HashSet<SymbolId>,
+    visible_locals: &mut HashSet<LocalId>,
+    declared_locals: &mut HashSet<LocalId>,
+    errors: &mut Vec<VerifyError>,
+) {
     match &expression.kind {
         ExprKind::Local(id) if !visible_locals.contains(id) => errors.push(VerifyError {
             span: expression.span,

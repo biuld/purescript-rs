@@ -184,6 +184,10 @@ fn shift_declaration(declaration: Declaration, offset: u32, variable_offset: u32
 }
 
 fn shift_expr(expression: Expr, offset: u32, variable_offset: u32) -> Expr {
+    psrs_span::with_sufficient_stack(|| shift_expr_inner(expression, offset, variable_offset))
+}
+
+fn shift_expr_inner(expression: Expr, offset: u32, variable_offset: u32) -> Expr {
     Expr {
         kind: shift::shift_kind(expression.kind, offset, variable_offset),
         ty: shift_id(expression.ty, offset),
@@ -349,6 +353,18 @@ fn collect_core_type_ids(
 }
 
 fn collect_references(
+    expression: &Expr,
+    out: &mut Vec<SymbolId>,
+    module: &Module,
+    used_types: &mut HashSet<psrs_hir::TypeId>,
+    visited_types: &mut HashSet<TypeId>,
+) {
+    psrs_span::with_sufficient_stack(|| {
+        collect_references_inner(expression, out, module, used_types, visited_types)
+    })
+}
+
+fn collect_references_inner(
     expression: &Expr,
     out: &mut Vec<SymbolId>,
     module: &Module,

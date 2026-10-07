@@ -38,6 +38,10 @@ fn viewed<'a>(physical: &'a Module, source: Option<&'a Module>, ids: &[TypeId]) 
 
 impl Context<'_> {
     fn expr(&mut self, expression: &Expr, expected: Option<TypeId>) {
+        psrs_span::with_sufficient_stack(|| self.expr_inner(expression, expected))
+    }
+
+    fn expr_inner(&mut self, expression: &Expr, expected: Option<TypeId>) {
         verify_type(
             expression.ty,
             self.module,

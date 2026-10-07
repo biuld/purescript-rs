@@ -149,6 +149,10 @@ impl Resolver {
     }
 
     pub(super) fn resolve_expr(&mut self, expression: ast::Expr) -> Option<Expr> {
+        psrs_span::with_sufficient_stack(|| self.resolve_expr_inner(expression))
+    }
+
+    fn resolve_expr_inner(&mut self, expression: ast::Expr) -> Option<Expr> {
         let span = expression.span;
         let kind = match expression.kind {
             AstExprKind::Name(name) => {

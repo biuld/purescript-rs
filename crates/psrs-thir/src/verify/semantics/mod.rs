@@ -68,6 +68,10 @@ impl Context<'_> {
     }
 
     fn expr(&mut self, expression: &Expr, expected: Option<TypeId>) {
+        psrs_span::with_sufficient_stack(|| self.expr_inner(expression, expected))
+    }
+
+    fn expr_inner(&mut self, expression: &Expr, expected: Option<TypeId>) {
         if let Some(expected) = expected {
             self.compatible(expression.ty, expected, expression.span);
         }

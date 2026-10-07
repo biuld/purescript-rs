@@ -82,6 +82,10 @@ impl Checker {
     }
 
     pub(super) fn infer_expr(&mut self, expression: &hir::Expr) -> Option<InferredExpr> {
+        psrs_span::with_sufficient_stack(|| self.infer_expr_inner(expression))
+    }
+
+    fn infer_expr_inner(&mut self, expression: &hir::Expr) -> Option<InferredExpr> {
         let span = expression.span;
         let (kind, ty) = match &expression.kind {
             hir::ExprKind::Local(id) => match self.scope.locals.get(id).cloned() {

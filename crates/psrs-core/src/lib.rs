@@ -118,7 +118,7 @@ pub struct Binding {
     pub span: TextRange,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Eq)]
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: TypeId,
@@ -202,6 +202,32 @@ pub enum ExprKind {
         scrutinee: Box<Expr>,
         branches: Vec<CaseBranch>,
     },
+}
+
+impl Clone for Expr {
+    fn clone(&self) -> Self {
+        psrs_span::with_sufficient_stack(|| clone_expr(self))
+    }
+}
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        psrs_span::with_sufficient_stack(|| expr_eq(self, other))
+    }
+}
+
+#[inline(never)]
+fn clone_expr(expression: &Expr) -> Expr {
+    Expr {
+        kind: expression.kind.clone(),
+        ty: expression.ty,
+        span: expression.span,
+    }
+}
+
+#[inline(never)]
+fn expr_eq(left: &Expr, right: &Expr) -> bool {
+    left.ty == right.ty && left.span == right.span && left.kind == right.kind
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -49,6 +49,10 @@ pub(super) fn declaration_order(module: &hir::Module) -> Vec<BindingGroup> {
 }
 
 fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
+    psrs_span::with_sufficient_stack(|| collect_globals_inner(expression, out))
+}
+
+fn collect_globals_inner(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
         hir::ExprKind::Local(_)
         | hir::ExprKind::Integer(_)

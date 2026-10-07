@@ -236,6 +236,14 @@ impl FunctionLowerer<'_> {
         expression: &Expr,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
+        psrs_span::with_sufficient_stack(|| self.lower_value_inner_entry(expression, assignments))
+    }
+
+    fn lower_value_inner_entry(
+        &mut self,
+        expression: &Expr,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
         let ty = scalar_type(
             self.module,
             expression.ty,

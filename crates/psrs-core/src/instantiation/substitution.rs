@@ -198,6 +198,10 @@ impl TypeSubstitution<'_> {
     }
 
     fn expression(&mut self, expression: &Expr) -> Option<Expr> {
+        psrs_span::with_sufficient_stack(|| self.expression_inner(expression))
+    }
+
+    fn expression_inner(&mut self, expression: &Expr) -> Option<Expr> {
         let kind = match &expression.kind {
             ExprKind::Local(id) => ExprKind::Local(*id),
             ExprKind::Global(symbol) => ExprKind::Global(*symbol),

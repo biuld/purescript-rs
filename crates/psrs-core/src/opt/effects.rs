@@ -22,6 +22,10 @@ impl Effects {
 }
 
 pub(super) fn summarize(expression: &Expr) -> Effects {
+    psrs_span::with_sufficient_stack(|| summarize_inner(expression))
+}
+
+fn summarize_inner(expression: &Expr) -> Effects {
     match &expression.kind {
         ExprKind::Local(_)
         | ExprKind::Integer(_)

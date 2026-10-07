@@ -7,6 +7,17 @@ impl Checker {
         interner: &mut TypeInterner,
         generics: &HashSet<u32>,
     ) -> Option<thir::Expr> {
+        psrs_span::with_sufficient_stack(|| {
+            self.finalize_expr_inner(expression, interner, generics)
+        })
+    }
+
+    fn finalize_expr_inner(
+        &mut self,
+        expression: InferredExpr,
+        interner: &mut TypeInterner,
+        generics: &HashSet<u32>,
+    ) -> Option<thir::Expr> {
         let mut active_generics = generics.clone();
         let mut scope = self.resolve_type(expression.ty.clone());
         while let InferType::ForAll { variables, body } = scope {

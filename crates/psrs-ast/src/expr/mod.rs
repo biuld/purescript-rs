@@ -3,8 +3,10 @@ use psrs_cst as cst;
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
+mod chain;
 mod guards;
 mod records;
+pub(super) use chain::lower_operator_chain;
 pub use guards::{Guard, GuardedExpr};
 pub(super) use guards::{
     lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs, lower_if,

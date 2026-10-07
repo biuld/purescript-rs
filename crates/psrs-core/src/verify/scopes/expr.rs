@@ -9,6 +9,15 @@ pub(super) fn scoped_expr(
     scope: &mut HashSet<TypeVariableId>,
     errors: &mut Vec<VerifyError>,
 ) {
+    psrs_span::with_sufficient_stack(|| scoped_expr_inner(expression, module, scope, errors))
+}
+
+fn scoped_expr_inner(
+    expression: &Expr,
+    module: &Module,
+    scope: &mut HashSet<TypeVariableId>,
+    errors: &mut Vec<VerifyError>,
+) {
     scoped_type(
         expression.ty,
         module,

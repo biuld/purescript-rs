@@ -1,5 +1,31 @@
 use super::*;
 
+/// Clone and equality follow a deep application spine on a heap stack.
+/// Ordinary recursive destruction also fits the worker stack at this depth.
+#[test]
+fn deep_application_clone_equality_and_drop_stay_within_a_worker_stack() {
+    let mut expression = Expr {
+        kind: ExprKind::Char('t'),
+        span: TextRange::default(),
+    };
+    for _ in 0..800 {
+        expression = Expr {
+            kind: ExprKind::Application(
+                Box::new(Expr {
+                    kind: ExprKind::Char('f'),
+                    span: TextRange::default(),
+                }),
+                Box::new(expression),
+            ),
+            span: TextRange::default(),
+        };
+    }
+    let cloned = expression.clone();
+    assert_eq!(expression, cloned);
+    drop(cloned);
+    drop(expression);
+}
+
 fn class_type(module: ModuleId, index: u32) -> TypeDeclaration {
     TypeDeclaration {
         id: TypeId::new(module, index),
