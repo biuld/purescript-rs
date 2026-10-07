@@ -197,3 +197,21 @@ against their actual pinned official JS functions, and records 857 parse/format
 round trips and 5 named-base checks separately. All 2..36 bases and signed-i32
 boundaries execute. The shared Data.Int source verifier now permits exactly
 three typed foreign-slot adaptations; all official pure declarations remain.
+
+For checked public Number-to-Int conversion:
+
+```sh
+node ../psrs-stdlib/conformance/int-number.mjs \
+  /private/tmp/ps-pkgs/purescript-integers /tmp/psrs-int-number-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-int-number-oracle/Main.purs \
+  --expected-exit 42 --out /tmp/psrs-int-number-runtime
+```
+
+The engine records 94 pinned official FFI observations, 11 toNumber/fromNumber
+round trips and 6 target rank-N builder checks separately. It covers adjacent
+IEEE-754 values at i32 boundaries, fractions, subnormals, signed zeros, overflow,
+NaN and infinities. Target Int canonicalizes both Number zero signs to integer
+zero; official negative-zero metadata is retained. The shared source verifier
+now permits exactly four typed foreign-slot adaptations.
