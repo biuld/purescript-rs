@@ -110,6 +110,13 @@ polymorphic expression before solving the unknown, following the official
 checker's rule. Explicit polymorphic fields and annotations supply the
 boundaries at which a polymorphic value may be retained.
 
+Core replays those checked explicit instantiations, including universal types
+used as nominal constructor arguments. Its shared type matcher binds only the
+declaration's flexible parameters and retains a replacement's complete `ForAll`
+structure. Repeated occurrences must agree, constructor fields use the same
+bindings, and nominal slots remain invariant. This replay does not change P5's
+rule for solving unconstrained inference unknowns.
+
 Rejected alternatives: pure HM cannot check higher-rank signatures; unifying a `forall` as though it were a monotype is unsound; generalizing recursive uses before group checking admits unsound polymorphic recursion; and carrying solver cells into THIR breaks the P5 boundary. Demanding that a signatureless declaration's constraints already be solved is rejected because it makes a hand-written signature a precondition for inferring a qualified type. Letting each feature module check kinds for itself is rejected because whether an operation is kind-corrected would then depend on the caller's path.
 
 ## Algorithms

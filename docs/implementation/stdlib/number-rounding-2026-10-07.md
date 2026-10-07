@@ -97,9 +97,10 @@ public API programs. Raw environment-failed logs remain local for diagnosis.
 
 This is rounding acceptance, not whole-standard-library acceptance. A fresh
 public Number.fromString "42.5" reproducer currently stops at P7 Core
-verification: Core expression type is inconsistent with its context. The
-library-origin span covers runFn4 fromStringImpl in the unchanged official
-wrapper. Root cause has not yet been established; do not replace that wrapper
-or classify this as a missing parsing FFI implementation until Core checking
-is resolved. Other Number FFI remains unsupported. No scoreboard or gate
-measurement is changed by this focused behavior evidence.
+verification at the rounding checkpoint. The subsequent
+[explicit-polymorphic-argument repair](explicit-polymorphic-arguments-2026-10-07.md)
+resolves that mismatch with the official wrapper unchanged. The same locked
+reproducer now stops at P8 library linking because `Data.Number.fromStringImpl`
+has no target implementation. Parsing behavior and other Number FFI remain
+unverified. No scoreboard or gate measurement is changed by this focused
+behavior evidence.

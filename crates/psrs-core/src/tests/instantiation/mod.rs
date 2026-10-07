@@ -2,6 +2,8 @@
 //! before representation lowering rewrites a constructor application.
 
 use super::*;
+
+mod polymorphic;
 use psrs_hir::{ModuleId, TypeId as HirTypeId, TypeVariableId};
 use std::collections::HashMap;
 

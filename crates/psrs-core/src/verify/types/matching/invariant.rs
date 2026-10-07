@@ -52,11 +52,10 @@ impl TypeMatcher<'_> {
             {
                 matches!(target_type, Type::Variable(other) if self.alpha_variables_match(*variable, *other))
             } else if self.flexible.contains(variable) {
-                if matches!(target_type, Type::ForAll { .. }) {
-                    false
-                } else {
-                    self.bind_flexible(*variable, target)
-                }
+                // Replay an explicit checked type argument as a whole, including
+                // its quantifiers. Nominal invariance still checks every later
+                // occurrence against this same binding.
+                self.bind_flexible(*variable, target)
             } else {
                 match target_type {
                     Type::Variable(actual) if self.flexible.contains(actual) => {
@@ -72,7 +71,6 @@ impl TypeMatcher<'_> {
         if let Type::Variable(variable) = target_type {
             let result = !self.alpha.values().any(|bound| bound == variable)
                 && self.flexible.contains(variable)
-                && !matches!(source_type, Type::ForAll { .. })
                 && self.bind_flexible(*variable, source);
             self.active.remove(&(Variance::Invariant, source, target));
             return result;
