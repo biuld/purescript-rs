@@ -24,7 +24,9 @@ impl CoverageReport {
 }
 
 mod engine;
-use engine::{render, useful};
+mod render;
+use engine::useful;
+use render::render;
 
 pub(super) fn analyze(
     module: &Module,

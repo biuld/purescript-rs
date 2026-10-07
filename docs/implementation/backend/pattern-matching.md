@@ -149,8 +149,9 @@ PM-03:
   Gaps: none.
 
 PM-04:
-  Implementation: cc/case/coverage/mod.rs `analyze`, `useful`, `useful_with_active`
-    (cycle-safe), `signature`, `specialize`, `default_matrix`, `render`;
+  Implementation: cc/case/coverage/mod.rs `analyze`; coverage/engine.rs `useful`,
+    `useful_with_active` (cycle-safe), `signature`, `specialize`, `default_matrix`,
+    and finite witness construction; coverage/render.rs `render`;
     cc/case/mod.rs `require_exhaustive`/`report_redundant_branches`.
   Tests: coverage::tests::reports_the_missing_nullary_constructor,
     ::recognizes_exhaustive_nested_constructor_patterns,
@@ -160,6 +161,10 @@ PM-04:
     ::recursive_adt_analysis_finds_a_finite_uncovered_witness,
     ::recursive_coverage_agrees_with_a_bounded_first_match_oracle (all small
     recursive matrices against a bounded oracle);
+    ::recursive_products::recursive_products_terminate_in_either_constructor_order
+    checks missing `Leaf` witnesses and redundant binary-tree rows;
+    ::recursive_products::an_uninhabited_recursive_product_does_not_invent_a_witness
+    rejects infinite recursive products as witness candidates;
     decision::compile::oracle_tests::coverage_agrees_with_the_first_match_oracle;
     adts::reports_a_missing_nested_constructor_as_a_coverage_witness checks the
     nested witness and exact case-expression span;
@@ -269,7 +274,9 @@ PM-09:
   Gaps: none.
 
 PM-10:
-  Implementation: coverage/mod.rs cycle-safe `useful_with_active`;
+  Implementation: coverage/engine.rs default-matrix recursion for incomplete
+    signatures, cycle-safe `useful_with_active`, and type-path-scoped finite
+    witness construction;
     compile/mod.rs memoization and the all-irrefutable-column base case.
   Tests: coverage::tests::recursive_adt_wildcard_coverage_terminates,
     ::recursive_adt_analysis_finds_a_finite_uncovered_witness,
@@ -277,6 +284,8 @@ PM-10:
     oracle_tests and oracle_record_tests (whole small matrices);
     pattern_matching_audit::recursive_pattern_compilation_terminates_and_stays_first_match
     executes a depth-four recursive ADT; adts::runs_nested_non_parameterized_gc_aggregates.
+    pattern_matching_audit::recursive_binary_products_execute_in_either_constructor_order
+    executes nested binary-tree patterns with either constructor ordering.
   Input boundary: verified Core and source.
   Commands: common commands.
   Result: pass; the recursive execution case ran under Wasmtime.

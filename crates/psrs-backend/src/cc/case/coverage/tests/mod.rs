@@ -4,6 +4,7 @@ use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::rc::Rc;
 
+mod recursive_products;
 mod scalar_array;
 
 fn symbol(index: u32) -> SymbolId {
@@ -295,7 +296,7 @@ fn recursive_adt_analysis_finds_a_finite_uncovered_witness() {
         },
     ));
     let report = analyze(&module, TypeId(0), &[cons_nil]);
-    assert_eq!(report.witness.as_deref(), Some("Cons (Cons Nil)"));
+    assert_eq!(report.witness.as_deref(), Some("Nil"));
 }
 
 #[derive(Clone, Debug)]
