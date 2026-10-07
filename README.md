@@ -50,7 +50,7 @@ what remains in each layer.
 | Gate | Measured | Scope |
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
-| L2 resolution | 72/72 failing, 402/413 passing | official `errorCode`s; 6 passing files stop at P3, 4 at P0, and 1 in the harness |
+| L2 resolution | 72/72 failing, 403/413 passing | official `errorCode`s; 6 passing files stop at P3 and 4 at P0; no harness blockers |
 | L3 kinds | 39/48 failing | official kind `errorCode`s |
 | L4 types | 39/50 failing | official `errorCode`s |
 | L5 classes | 58/81 failing | official `errorCode`s |

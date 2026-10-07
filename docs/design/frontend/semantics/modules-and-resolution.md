@@ -57,8 +57,15 @@ The driver loads the transitive source graph, checks duplicate module names and
 cycles according to the source language's module rules, then resolves modules
 in dependency order. P3 first registers declarations and their namespaces,
 then resolves bodies so same-module references and recursive groups can name
-their final IDs. Qualified lookup uses only the named imported module;
-unqualified lookup combines local declarations and permitted imports and
+their final IDs. Qualified lookup combines the selected names from all imports
+under that qualifier. Several imports may share an explicit alias. A member is
+ambiguous only when its namespace contains distinct declaration identities;
+multiple paths to the same declaration remain one member. Merely declaring a
+shared qualifier is not an error. A `module X` re-export checks each member of
+the combined scope by the same qualified lookup relation and reports
+`ScopeConflict` for an ambiguous member, while disjoint members form a union.
+
+Unqualified lookup combines local declarations and permitted imports and
 rejects ambiguity.
 
 Instance dictionary names follow the module's declared-identifier conflict

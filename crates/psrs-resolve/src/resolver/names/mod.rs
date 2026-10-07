@@ -2,7 +2,7 @@ use super::{ResolveError, ResolveErrorKind};
 use psrs_ast::{self as ast, ExprKind as AstExprKind};
 use psrs_hir::{
     self as hir, CaseBranchCoverage, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding,
-    LocalId, ModuleId, SymbolId, TypeId, TypeReference,
+    LocalId, SymbolId, TypeId, TypeReference,
 };
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -10,12 +10,10 @@ use std::collections::{HashMap, HashSet};
 mod patterns;
 
 struct QualifiedImport {
-    module: ModuleId,
     values: HashMap<String, SymbolId>,
 }
 
 pub(super) struct QualifiedTypeImport {
-    pub(super) module: ModuleId,
     pub(super) types: HashMap<String, TypeReference>,
 }
 
@@ -51,25 +49,13 @@ impl Resolver {
         imports: Vec<hir::Import>,
         export_items: Option<ast::ExportList>,
         fixities: Vec<hir::Fixity>,
-        mut errors: Vec<ResolveError>,
+        errors: Vec<ResolveError>,
     ) -> Self {
         let mut unqualified: HashMap<String, Vec<SymbolId>> = HashMap::new();
         let mut qualified: HashMap<String, Vec<QualifiedImport>> = HashMap::new();
         let mut imported_types: HashMap<String, Vec<TypeReference>> = HashMap::new();
         let mut qualified_types: HashMap<String, Vec<QualifiedTypeImport>> = HashMap::new();
-        let mut aliases: HashMap<String, ()> = HashMap::new();
         for import in &imports {
-            // Two imports cannot share one explicit qualifier; `purs` reports
-            // this as a scope conflict before any qualified lookup or re-export.
-            if let Some(alias) = &import.alias
-                && aliases.insert(alias.clone(), ()).is_some()
-            {
-                errors.push(ResolveError::named(
-                    ResolveErrorKind::ScopeConflict,
-                    alias.clone(),
-                    import.span,
-                ));
-            }
             // An import with an `as` alias is qualified-only; without one it
             // also brings the names into unqualified scope.
             if import.alias.is_none() {
@@ -98,10 +84,7 @@ impl Resolver {
             qualified
                 .entry(qualifier.clone())
                 .or_default()
-                .push(QualifiedImport {
-                    module: import.module,
-                    values,
-                });
+                .push(QualifiedImport { values });
             let types = import
                 .types
                 .iter()
@@ -110,10 +93,7 @@ impl Resolver {
             qualified_types
                 .entry(qualifier)
                 .or_default()
-                .push(QualifiedTypeImport {
-                    module: import.module,
-                    types,
-                });
+                .push(QualifiedTypeImport { types });
         }
         if !imports.iter().any(|import| import.module_name == "Prim") {
             for &(name, builtin) in &util::PRIM_TYPES {
@@ -424,15 +404,15 @@ impl Resolver {
             self.report(ResolveErrorKind::UnknownName, text.to_string(), span);
             return None;
         };
-        let mut found: Option<(ModuleId, SymbolId)> = None;
+        let mut found: Option<SymbolId> = None;
         let mut conflict = false;
         for candidate in candidates {
             let Some(symbol) = candidate.values.get(member) else {
                 continue;
             };
             match found {
-                None => found = Some((candidate.module, *symbol)),
-                Some((module, existing)) if module != candidate.module || existing != *symbol => {
+                None => found = Some(*symbol),
+                Some(existing) if existing != *symbol => {
                     conflict = true;
                 }
                 _ => {}
@@ -442,7 +422,7 @@ impl Resolver {
             self.report_conflict(text.to_string(), span);
             return None;
         }
-        if let Some((_, symbol)) = found {
+        if let Some(symbol) = found {
             return Some(symbol);
         }
         self.report(ResolveErrorKind::UnknownName, text.to_string(), span);

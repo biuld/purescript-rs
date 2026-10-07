@@ -1,5 +1,7 @@
 use super::*;
 
+mod import_aliases;
+
 #[test]
 fn resolves_data_constructors_and_user_types() {
     let source = "module Main where\ndata Maybe a = Nothing | Just a\nmain = Just 1\n";

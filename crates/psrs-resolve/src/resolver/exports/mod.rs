@@ -9,6 +9,7 @@ use psrs_hir::{
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod import_scope;
 mod instance_visibility;
 mod transitive;
 use instance_visibility::instance_is_public;
@@ -295,6 +296,9 @@ impl Resolver {
         }
         // A shared import alias (for example the standard library's
         // `as Exports`) denotes the union of those modules' exports.
+        if matches.len() > 1 && !self.check_reexport_scope(name, &matches) {
+            return;
+        }
         for import in &matches {
             let pseudo = import.alias.is_some();
             for symbol in &import.symbols {
