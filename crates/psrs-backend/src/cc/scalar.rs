@@ -6,6 +6,8 @@ pub enum UnaryOp {
     IntComplement,
     NumberNeg,
     NumberTrunc,
+    NumberFloor,
+    NumberCeil,
     BooleanNot,
     IntToNumber,
     NumberToInt,

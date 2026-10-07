@@ -412,3 +412,17 @@ Both focused commands pass (2 source tests and 1 optimization test; execution
 is mandatory). Integrated validation and the unchanged standard-library wrapper
 checks are recorded in the [checkpoint](../stdlib/number-trunc-2026-10-07.md).
 This extension does not claim support for other Number rounding operations.
+
+### Number floor and ceiling extension
+
+NumberFloor/NumberCeil extend SP-03 and SP-07 through the authoritative HIR
+registry and Core/CC/MIR operand/result checks, lowering to f64.floor/f64.ceil.
+Existing CC and MIR malformed-unary tests cover both operations. Driver
+`tests::number_rounding` executes fractions, Number range beyond i32, nonfinite
+values and reciprocal observations of signed zero, and rejects invalid foreign
+schemes. Backend `optimized_and_unoptimized_number_floor_and_ceil_preserve_sign_and_range`
+executes both optimization paths. These primitives discharge rounding only;
+library Int clamping and the ECMAScript round tie policy remain library-owned.
+
+This extension does not establish completion of the scalar topic or add MIR
+constant folding for these operations.

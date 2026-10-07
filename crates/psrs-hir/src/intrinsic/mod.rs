@@ -104,6 +104,10 @@ pub enum Intrinsic {
     NumberToString,
     /// Truncate an IEEE-754 Number toward zero, retaining its Number representation.
     NumberTrunc,
+    /// Round a Number toward negative infinity.
+    NumberFloor,
+    /// Round a Number toward positive infinity.
+    NumberCeil,
 }
 
 impl Intrinsic {
@@ -126,7 +130,7 @@ impl Intrinsic {
 
     /// Every variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 65] = [
+    pub const ALL: [Intrinsic; 67] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::I32Add,
@@ -192,6 +196,8 @@ impl Intrinsic {
         Intrinsic::ArrayWrite,
         Intrinsic::NumberToString,
         Intrinsic::NumberTrunc,
+        Intrinsic::NumberFloor,
+        Intrinsic::NumberCeil,
     ];
 }
 
@@ -200,7 +206,7 @@ impl Intrinsic {
 // cannot be added and silently left out of the bootstrap name table.
 const _: () = {
     assert!(
-        Intrinsic::ALL.len() == Intrinsic::NumberTrunc as u32 as usize + 1,
+        Intrinsic::ALL.len() == Intrinsic::NumberCeil as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 = 0;

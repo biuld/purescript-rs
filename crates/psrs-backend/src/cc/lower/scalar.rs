@@ -56,6 +56,8 @@ pub(super) fn lower_unary_op(value: Intrinsic) -> UnaryOp {
         Intrinsic::IntComplement => UnaryOp::IntComplement,
         Intrinsic::NumberNeg => UnaryOp::NumberNeg,
         Intrinsic::NumberTrunc => UnaryOp::NumberTrunc,
+        Intrinsic::NumberFloor => UnaryOp::NumberFloor,
+        Intrinsic::NumberCeil => UnaryOp::NumberCeil,
         Intrinsic::BooleanNot => UnaryOp::BooleanNot,
         Intrinsic::IntToNumber => UnaryOp::IntToNumber,
         Intrinsic::NumberToInt => UnaryOp::NumberToInt,

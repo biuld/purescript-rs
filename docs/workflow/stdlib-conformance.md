@@ -234,3 +234,23 @@ unchanged official source rules, producing 147 public API checks. Reciprocal
 observations distinguish Number zero signs; Int uses its single integer zero.
 Raw snapshots and runtime reports remain local and regenerable; commit only
 source, case engines and concise acceptance reports.
+
+For Number rounding and unchanged public Int clamping wrappers:
+
+```sh
+node ../psrs-stdlib/conformance/number-rounding.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers \
+  /private/tmp/ps-pkgs/purescript-integers /tmp/psrs-rounding-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-rounding-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-rounding-runtime
+```
+
+The generator invokes the pinned official floor/ceil/round FFI, preserving
+negative zero through reciprocal observations and testing adjacent values at
+half-integer ties and Int bounds. Wasm floor/ceil are small checked primitives;
+ECMAScript round tie behavior belongs to ordinary PureScript in PSRS.Number.
+Official Data.Int pure wrappers remain unchanged. Raw generated reports are
+local and ignored; summarized acceptance lives in the library's
+`docs/number-rounding.md` and the compiler's topic report.

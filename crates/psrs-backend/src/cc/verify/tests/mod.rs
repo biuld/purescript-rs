@@ -247,6 +247,8 @@ fn rejects_a_unary_operation_with_the_wrong_operand_shape() {
     for op in [
         super::super::UnaryOp::NumberNeg,
         super::super::UnaryOp::NumberTrunc,
+        super::super::UnaryOp::NumberFloor,
+        super::super::UnaryOp::NumberCeil,
     ] {
         let mut function = function.clone();
         function.assignments[0].kind = AssignmentKind::Unary { op, value: input };

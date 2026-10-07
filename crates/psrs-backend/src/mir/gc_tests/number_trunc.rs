@@ -2,6 +2,16 @@ use super::*;
 
 #[test]
 fn optimized_and_unoptimized_number_trunc_preserve_zero_sign_and_range() {
+    check_number_rounding(crate::cc::UnaryOp::NumberTrunc, -0.9, 4294967296.0);
+}
+
+#[test]
+fn optimized_and_unoptimized_number_floor_and_ceil_preserve_sign_and_range() {
+    check_number_rounding(crate::cc::UnaryOp::NumberFloor, -0.0, 4294967296.0);
+    check_number_rounding(crate::cc::UnaryOp::NumberCeil, -0.9, 4294967297.0);
+}
+
+fn check_number_rounding(operation: crate::cc::UnaryOp, input: f64, expected: f64) {
     use crate::cc::{BinaryOp, UnaryOp, ValueDecl};
     use ValueShape::{Boolean as B, Integer as I, Number as N};
     let symbol = SymbolId::new(ModuleId(0), 0);
@@ -44,15 +54,15 @@ fn optimized_and_unoptimized_number_trunc_preserve_zero_sign_and_range() {
                 })
                 .collect(),
             assignments: vec![
-                number(0, -0.9),
-                unary(1, UnaryOp::NumberTrunc, 0),
+                number(0, input),
+                unary(1, operation, 0),
                 number(2, 1.0),
                 binary(3, BinaryOp::NumberDiv, 2, 1),
                 number(4, 0.0),
                 binary(5, BinaryOp::NumberLt, 3, 4),
                 number(6, 4294967296.5),
-                unary(7, UnaryOp::NumberTrunc, 6),
-                number(8, 4294967296.0),
+                unary(7, operation, 6),
+                number(8, expected),
                 binary(9, BinaryOp::NumberEq, 7, 8),
                 binary(10, BinaryOp::BooleanAnd, 5, 9),
                 unary(11, UnaryOp::BooleanToInt, 10),

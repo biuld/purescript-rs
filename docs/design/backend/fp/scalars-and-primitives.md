@@ -158,6 +158,7 @@ chosen mapping is:
 | `IntComplement` | `I32Complement` | `x ^ -1` |
 | `NumberNeg` | `F64Neg` | `f64.neg` |
 | `NumberTrunc` | `F64Trunc` | `f64.trunc` |
+| `NumberFloor` / `NumberCeil` | `F64Floor` / `F64Ceil` | `f64.floor` / `f64.ceil` |
 | `BooleanNot` | `BoolNot` | `i32.eqz` |
 | `IntToNumber` | `I32ToF64` | `f64.convert_i32_s` |
 | `NumberToInt` | `F64ToI32Sat` | saturating sequence (below) |
@@ -206,7 +207,7 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   are representation identities, and the source layer is responsible for the
   validity of the scalar value.
 
-### Number truncation
+### Number integral rounding
 
 `NumberTrunc` (`numberTrunc :: Number -> Number`) lowers to `f64.trunc`:
 finite values round toward zero without converting to i32. It preserves zero
@@ -215,6 +216,14 @@ CC and MIR verify Number/F64 operand and result types. The primitive remains
 available for constant operands even when the MIR optimizer does not fold it.
 The library uses it for the official Data.Number.trunc foreign slot; public
 Int.trunc retains its official finite check and range clamping wrapper.
+
+`NumberFloor` and `NumberCeil` have the same Number/F64 type contract and
+nonfinite/zero-sign guarantees, with rounding toward negative and positive
+infinity, respectively. They lower directly to `f64.floor` and `f64.ceil`,
+without an integer representation boundary. The library owns ECMAScript
+round-to-nearest with ties toward positive infinity: this differs from Wasm
+`f64.nearest` and cannot be replaced by adding 0.5 before flooring. Public
+Int.floor/ceil/round retain their unchanged finite checks and clamping wrappers.
 
 ### Conversions
 
@@ -465,7 +474,7 @@ combinations through Wasm GC and check the combined boolean result.
 The CC and MIR vocabularies, lowerings, and verifiers implement the full unary
 and binary set above. The source bootstrap exposes the operations that do not
 already have symbolic integer syntax as specialized functions: `intNeg`,
-`intComplement`, `numberNeg`, `numberTrunc`, `booleanNot`, the six conversion names from the
+`intComplement`, `numberNeg`, `numberTrunc`, `numberFloor`, `numberCeil`, `booleanNot`, the six conversion names from the
 table (`intToNumber`, `numberToInt`, `booleanToInt`, `intToBoolean`,
 `charToInt`, and `intToChar`), `intDiv`, `intMod`, the six integer bitwise
 and shift names, all `number*`, `boolean*`, and `char*` binary names in the
