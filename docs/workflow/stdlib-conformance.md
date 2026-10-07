@@ -153,3 +153,29 @@ The character engine records 269 pinned-FFI projection observations separately
 from 6 target-helper rank-N builder checks. Supplementary scalars intentionally
 differ from raw JS code units under DEC-16; raw official results remain in the
 observations. Public charAt and toChar wrappers execute unchanged.
+
+For strict public integer parsing and Euclidean arithmetic:
+
+```sh
+node ../psrs-stdlib/conformance/int-parsing.mjs \
+  /private/tmp/ps-pkgs/purescript-integers /tmp/psrs-int-parsing-oracle
+node ../psrs-stdlib/conformance/int-arithmetic.mjs \
+  /private/tmp/purescript-prelude /tmp/psrs-int-arithmetic-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-int-parsing-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-int-parsing-runtime
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-int-arithmetic-oracle/Main.purs \
+  --expected-exit 42 --out /tmp/psrs-int-arithmetic-runtime
+```
+
+The parsing engine verifies the entire pinned Data.Int source, permitting only
+its two typed foreign-slot adaptations. It records 836 actual official FFI
+observations separately from 6 public Radix rejections and 4 target rank-N builder
+checks. The arithmetic engine records 209 representable public degree/div/mod
+observations. MIN / -1 produces an unrepresentable JS quotient and remains a
+Wasm division trap; that observation is recorded separately from value agreement.
+Both algorithms use raw truncating intQuot; the target library owns grammar,
+overflow rejection and Euclidean sign correction.
