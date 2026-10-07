@@ -54,6 +54,13 @@ pub(crate) const NUMBER_ATAN: ArtifactImplementation = ArtifactImplementation {
     artifact: &psrs_runtime::NUMBER_RUNTIME,
 };
 
+pub(crate) const NUMBER_ATAN2: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberAtan2,
+    symbol: crate::abi::NUMBER_ATAN2_SYMBOL,
+    abi: &psrs_runtime::NUMBER_ATAN2,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
 /// The registered implementation for a MIR import symbol, if any.
 pub(crate) fn for_symbol(symbol: SymbolId) -> Option<&'static ArtifactImplementation> {
     crate::target_intrinsics::artifacts().find(|implementation| symbol == implementation.symbol)

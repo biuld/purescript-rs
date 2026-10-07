@@ -335,3 +335,20 @@ The generator invokes the pinned official atan FFI. Every finite input and
 both infinities match that FFI, and negative zero stays negative zero. NaN
 produces NaN. The compiler's checked numberAtan primitive calls the scalar
 numeric-runtime export. Wasm has no inverse-tangent instruction.
+
+For Number four-quadrant inverse tangent through the same public-call shape:
+
+```sh
+node ../psrs-stdlib/conformance/number-atan2.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers /tmp/psrs-number-atan2-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-number-atan2-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-number-atan2-runtime
+```
+
+The generator invokes the pinned official atan2 FFI. The arguments are `y`
+then `x`. Quadrant boundaries, both zero signs, both infinities, and large
+ratios match that FFI. Either NaN produces NaN. The compiler's checked
+numberAtan2 primitive calls one scalar numeric-runtime export with two
+Number arguments. Wasm has no two-argument inverse-tangent instruction.

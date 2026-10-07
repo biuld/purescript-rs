@@ -12,7 +12,7 @@ fn number_format_contract() -> ArtifactContract {
         elements: vec![crate::DeclaredElement {
             table: 0,
             offset: 1,
-            functions: vec![25],
+            functions: vec![27],
         }],
         id: "psrs:runtime-number".into(),
         kind: ArtifactKind::CoreModule,
@@ -76,6 +76,14 @@ fn number_format_contract() -> ArtifactContract {
                 kind: ExportKind::Func,
                 signature: Some(CoreSignature {
                     parameters: vec![CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::ATAN2_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64, CoreType::F64],
                     result: Some(CoreType::F64),
                 }),
             },

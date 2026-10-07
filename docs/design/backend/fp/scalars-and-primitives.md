@@ -229,6 +229,18 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   operation does not trap. NaN payloads are not a public guarantee. It
   implements the official Data.Number.atan foreign slot and is not folded
   when its operand is constant.
+- `NumberAtan2` (`numberAtan2 :: Number -> Number -> Number`) uses the same
+  checked scalar-runtime boundary with two Number arguments. The argument
+  order is `y` then `x`, matching official `Math.atan2`. The runtime follows
+  the fdlibm exponent-gap cutoff of 60 and calls the checked inverse-tangent
+  export for moderate ratios. An exponent gap above 60 returns a signed
+  half-pi, and a negative `x` whose gap is below -60 contributes zero before
+  the pi adjustment. libm 0.2.15's own two-argument routine uses a wider gap
+  and is not the oracle. Returned bits match official `Math.atan2`, including
+  the sign of zero. Either NaN produces NaN, and the operation does not trap.
+  NaN payloads are not a public guarantee. It implements the official
+  Data.Number.atan2 foreign slot and is not folded when its operands are
+  constant. Wasm has no two-argument inverse-tangent instruction.
 - Comparisons use the ordered `f64` operations; `NumberEq`/`NumberNe` are
   `f64.eq`/`f64.ne`, so `NaN` is unequal to itself and `+0 = -0`.
 - The current vocabulary has no `Number` remainder. If the standard library

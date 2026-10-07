@@ -16,7 +16,7 @@
 /// The decimal coefficients are copied from libm 0.2.15. Their extra digits
 /// and the split pi/2 terms belong to that polynomial.
 #[allow(clippy::excessive_precision, clippy::approx_constant)]
-fn atan(value: f64) -> f64 {
+pub(crate) fn atan(value: f64) -> f64 {
     const ATANHI: [f64; 4] = [
         4.63647609000806093515e-01,
         7.85398163397448278999e-01,

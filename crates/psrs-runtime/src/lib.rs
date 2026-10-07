@@ -29,6 +29,8 @@ mod asin;
 #[cfg(feature = "formatter")]
 mod atan;
 #[cfg(feature = "formatter")]
+mod atan2;
+#[cfg(feature = "formatter")]
 mod decimal;
 #[cfg(feature = "formatter")]
 mod formatter;
@@ -38,6 +40,8 @@ pub use acos::number_acos;
 pub use asin::number_asin;
 #[cfg(feature = "formatter")]
 pub use atan::number_atan;
+#[cfg(feature = "formatter")]
+pub use atan2::number_atan2;
 #[cfg(feature = "formatter")]
 pub use decimal::number_from_decimal;
 #[cfg(feature = "formatter")]
@@ -57,6 +61,8 @@ pub const ACOS_EXPORT: &str = "number_acos";
 pub const ASIN_EXPORT: &str = "number_asin";
 /// Exported raw inverse-tangent function.
 pub const ATAN_EXPORT: &str = "number_atan";
+/// Exported raw four-quadrant inverse-tangent function.
+pub const ATAN2_EXPORT: &str = "number_atan2";
 /// Lower addresses remain owned by the application's canonical ABI.
 pub const RESERVED_START: u32 = 65536;
 /// Static data must end before the separately reserved 64 KiB stack.
@@ -131,6 +137,13 @@ pub const NUMBER_ASIN: RawFunctionAbi = RawFunctionAbi {
 pub const NUMBER_ATAN: RawFunctionAbi = RawFunctionAbi {
     export: ATAN_EXPORT,
     parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_ATAN2: RawFunctionAbi = RawFunctionAbi {
+    export: ATAN2_EXPORT,
+    parameters: &[RawType::F64, RawType::F64],
     result: Some(RawType::F64),
     protocol: RawCallProtocol::Scalars,
 };

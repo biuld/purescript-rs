@@ -165,7 +165,7 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
         profile: "target-runtime",
         recipe: "tools/build.sh: --import-memory --global-base=65536 \
                  -zstack-size=65536 --export=__heap_base, then package",
-        sha256: "41064c763782dc2a184cfc1a47e0816e8dc0b9f8ea465320cc7c294b60807afe",
+        sha256: "e295fd40bcb247ee77b8890107b2dea74838ded7b383895ce8db7c428d0e7ac2",
     },
     required_features: &[
         "mutable-globals",
@@ -205,6 +205,11 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
             parameters: &[RawType::F64],
             result: Some(RawType::F64),
         },
+        RawExport {
+            name: crate::ATAN2_EXPORT,
+            parameters: &[RawType::F64, RawType::F64],
+            result: Some(RawType::F64),
+        },
     ],
     global_exports: &[crate::HEAP_BASE_EXPORT],
     tables: &[RawTable {
@@ -215,7 +220,7 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
     elements: &[RawElement {
         table: 0,
         offset: 1,
-        functions: &[25],
+        functions: &[27],
     }],
     globals: &[(true, crate::HEAP_START), (false, crate::HEAP_START)],
     storage: RawStorage {

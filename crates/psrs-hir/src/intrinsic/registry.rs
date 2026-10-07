@@ -113,6 +113,7 @@ descriptors! {
     NumberAcos => "numberAcos", 1, Unary, scheme::number_number;
     NumberAsin => "numberAsin", 1, Unary, scheme::number_number;
     NumberAtan => "numberAtan", 1, Unary, scheme::number_number;
+    NumberAtan2 => "numberAtan2", 2, BinaryScalar, scheme::number_number_number;
     NumberCeil => "numberCeil", 1, Unary, scheme::number_number;
     BooleanNot => "booleanNot", 1, Unary, scheme::boolean_boolean;
     IntToNumber => "intToNumber", 1, Unary, scheme::int_number;

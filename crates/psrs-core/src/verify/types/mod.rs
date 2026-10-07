@@ -49,7 +49,8 @@ pub(super) fn primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId,
         Intrinsic::NumberAdd
         | Intrinsic::NumberSub
         | Intrinsic::NumberMul
-        | Intrinsic::NumberDiv => (Number, Number),
+        | Intrinsic::NumberDiv
+        | Intrinsic::NumberAtan2 => (Number, Number),
         Intrinsic::NumberEq
         | Intrinsic::NumberNe
         | Intrinsic::NumberLt

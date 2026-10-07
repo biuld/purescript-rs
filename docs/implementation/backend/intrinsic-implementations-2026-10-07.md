@@ -97,6 +97,7 @@ Library evidence, with the package fingerprint unchanged during each run:
 
 This refactor does not establish whole-stdlib runtime completion. Number
 square root has a separate checked `f64.sqrt` acceptance. Number inverse
-cosine, inverse sine, and inverse tangent each have a separate checked
-scalar-runtime acceptance. Other Number foreign slots remain without target
-support until a fresh diagnosis names the next blocker.
+cosine, inverse sine, inverse tangent, and four-quadrant inverse tangent
+each have a separate checked scalar-runtime acceptance. Other Number foreign
+slots remain without target support until a fresh diagnosis names the next
+blocker.

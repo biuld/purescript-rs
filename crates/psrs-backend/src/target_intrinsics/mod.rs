@@ -100,6 +100,7 @@ pub(crate) fn implementation(intrinsic: Intrinsic) -> Implementation {
         Intrinsic::NumberAcos => Artifact(&target_runtime::NUMBER_ACOS),
         Intrinsic::NumberAsin => Artifact(&target_runtime::NUMBER_ASIN),
         Intrinsic::NumberAtan => Artifact(&target_runtime::NUMBER_ATAN),
+        Intrinsic::NumberAtan2 => Artifact(&target_runtime::NUMBER_ATAN2),
         Intrinsic::BoolTrue | Intrinsic::BoolFalse | Intrinsic::Unit | Intrinsic::Coerce => {
             Elaborated
         }

@@ -126,6 +126,10 @@ pub enum Intrinsic {
     /// positive and negative pi/2. Negative zero remains negative zero. NaN
     /// produces NaN. The operation does not trap.
     NumberAtan = 72,
+    /// Four-quadrant inverse tangent of `y` then `x`, in radians. The signs
+    /// of both arguments select the quadrant. Negative zero is preserved when
+    /// the result is zero. Either NaN produces NaN. The operation does not trap.
+    NumberAtan2 = 73,
 }
 
 impl Intrinsic {
@@ -151,7 +155,7 @@ impl Intrinsic {
 
     /// Every active variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 71] = [
+    pub const ALL: [Intrinsic; 72] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::IntAdd,
@@ -223,6 +227,7 @@ impl Intrinsic {
         Intrinsic::NumberAcos,
         Intrinsic::NumberAsin,
         Intrinsic::NumberAtan,
+        Intrinsic::NumberAtan2,
     ];
 }
 
@@ -232,7 +237,7 @@ impl Intrinsic {
 const _: () = {
     assert!(
         Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len()
-            == Intrinsic::NumberAtan as u32 as usize + 1,
+            == Intrinsic::NumberAtan2 as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 =
