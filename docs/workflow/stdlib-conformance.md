@@ -179,3 +179,21 @@ observations. MIN / -1 produces an unrepresentable JS quotient and remains a
 Wasm division trap; that observation is recorded separately from value agreement.
 Both algorithms use raw truncating intQuot; the target library owns grammar,
 overflow rejection and Euclidean sign correction.
+
+For public radix integer formatting and its shared decimal Show implementation:
+
+```sh
+node ../psrs-stdlib/conformance/int-formatting.mjs \
+  /private/tmp/ps-pkgs/purescript-integers /private/tmp/purescript-prelude \
+  /tmp/psrs-int-formatting-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-int-formatting-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-int-formatting-runtime
+```
+
+The generator compares 857 public formatting results and 15 showInt results
+against their actual pinned official JS functions, and records 857 parse/format
+round trips and 5 named-base checks separately. All 2..36 bases and signed-i32
+boundaries execute. The shared Data.Int source verifier now permits exactly
+three typed foreign-slot adaptations; all official pure declarations remain.
