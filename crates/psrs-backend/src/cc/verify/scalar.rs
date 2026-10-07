@@ -14,8 +14,8 @@ pub(super) fn verify_binary_operation(
     use BinaryOp::*;
 
     let (operand, result) = match op {
-        IntAdd | IntSub | IntMul | IntQuot | IntRem | IntDiv | IntMod | IntAnd | IntOr | IntXor
-        | IntShl | IntShr | IntZshr => (ValueShape::Integer, ValueShape::Integer),
+        IntAdd | IntSub | IntMul | IntQuot | IntRem | IntAnd | IntOr | IntXor | IntShl | IntShr
+        | IntZshr => (ValueShape::Integer, ValueShape::Integer),
         IntEq | IntNe | IntLt | IntLe | IntGt | IntGe | CharEq | CharNe | CharLt | CharLe
         | CharGt | CharGe => (ValueShape::Integer, ValueShape::Boolean),
         NumberAdd | NumberSub | NumberMul | NumberDiv => (ValueShape::Number, ValueShape::Number),

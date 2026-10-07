@@ -70,7 +70,7 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
         };
         if !matches!(
             intrinsic.descriptor().category,
-            IntrinsicCategory::UnaryScalar
+            IntrinsicCategory::Unary
                 | IntrinsicCategory::BinaryScalar
                 | IntrinsicCategory::ArrayLength
                 | IntrinsicCategory::ArrayIndex

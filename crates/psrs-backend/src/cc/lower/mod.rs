@@ -23,7 +23,6 @@ mod lambda;
 mod letrec;
 mod literals;
 mod record;
-mod scalar;
 mod string_bytes;
 mod symbols;
 use call::ApplicationLowering;

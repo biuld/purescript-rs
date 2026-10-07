@@ -7,7 +7,7 @@ use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{DataId, HeapType, MemoryId, ValueId, ValueType};
+use crate::types::{DataId, DefinedTypeId, MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
@@ -205,7 +205,7 @@ pub(crate) fn lower_module_with_plan(
     // The GC string type index is carried by the reserved helper imports' value
     // types, so the synthesized codec names the same concrete type MIR does.
     let string_type = if needs_helpers {
-        let string_type = codec::string_type_from_imports(module)
+        let string_type = crate::target_intrinsics::generated::string_type_from_imports(module)
             .ok_or_else(|| wasm_error(module.span, "the string codec has no GC string type"))?;
         function_indices.insert(
             abi::STRING_TO_BYTES_SYMBOL,
@@ -266,10 +266,7 @@ pub(crate) fn lower_module_with_plan(
     let mut realloc = None;
     if needs_realloc {
         let realloc_type = TypeIndex(defined + types.len() as u32);
-        types.push(FuncType {
-            parameters: vec![ValType::I32; 4],
-            results: vec![ValType::I32],
-        });
+        types.push(generated_signature(abi::REALLOC_SYMBOL, None));
         let index = indices.realloc.expect("a needed realloc has an index");
         exports.push(Export {
             name: "cabi_realloc".into(),
@@ -294,11 +291,7 @@ pub(crate) fn lower_module_with_plan(
     }
     let helpers = if needs_helpers {
         let string_type = string_type.expect("a needed codec has a GC string type");
-        let string_ref = val_type(ValueType::Ref(crate::types::RefType {
-            nullable: false,
-            heap: HeapType::Index(string_type),
-        }));
-        let (stb, bts, step) = codec::signatures(string_ref);
+        let (stb, bts, step) = codec::signatures(string_type);
         let stb_type = TypeIndex(defined + types.len() as u32);
         types.push(stb);
         let bts_type = TypeIndex(defined + types.len() as u32);
@@ -449,4 +442,13 @@ pub(super) fn wasm_error(span: TextRange, message: &'static str) -> Vec<BackendE
         span,
         message,
     )]
+}
+
+fn generated_signature(symbol: psrs_hir::SymbolId, string: Option<DefinedTypeId>) -> FuncType {
+    let signature = crate::target_intrinsics::generated::signature(symbol, string)
+        .expect("the selected generated helper has a concrete signature");
+    FuncType {
+        parameters: signature.parameters.into_iter().map(val_type).collect(),
+        results: signature.result.into_iter().map(val_type).collect(),
+    }
 }

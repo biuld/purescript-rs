@@ -15,14 +15,12 @@ mod numeric;
 pub mod opt;
 mod planner;
 mod reachable;
-mod scalar_helpers;
 mod verify;
 mod wit;
 
 use literals::StringLiterals;
 use lower::lower_function;
 use planner::{GcPlanner, RepresentationPlanner};
-use scalar_helpers::lower_scalar_helpers;
 
 pub use instruction::{Instruction, ListDirection};
 pub use numeric::{NumericOp, UnaryOp};
@@ -284,9 +282,7 @@ fn lower_module_after_binding_validation(
             module.entry.map(|entry| entry.module),
         )
     })?;
-    let (scalar_helpers, generated_helpers) =
-        lower_scalar_helpers(&module, module.functions.len() as u32);
-    let mut conversion_helpers = lower::ConversionHelpers::new(&module, &generated_helpers);
+    let mut conversion_helpers = lower::ConversionHelpers::new(&module);
     let mut literals = StringLiterals::default();
     let mut functions = Vec::with_capacity(module.functions.len());
     for (id, function) in module.functions.iter().enumerate() {
@@ -294,7 +290,6 @@ fn lower_module_after_binding_validation(
             function,
             FunctionId(id as u32),
             &wit_imports,
-            &scalar_helpers,
             &layout,
             Some(&mut conversion_helpers),
             Some(&mut literals),
@@ -308,14 +303,12 @@ fn lower_module_after_binding_validation(
         })?;
         functions.push(lowered);
     }
-    functions.extend(generated_helpers);
     let first_helper_id = functions.len() as u32;
     for (offset, helper) in conversion_helpers.into_functions().iter().enumerate() {
         let lowered = lower_function(
             helper,
             FunctionId(first_helper_id + offset as u32),
             &wit_imports,
-            &scalar_helpers,
             &layout,
             None,
             Some(&mut literals),
@@ -342,19 +335,18 @@ fn lower_module_after_binding_validation(
             .iter()
             .any(|import| used.contains(&import.symbol) && import.has_indirect_parameters())
     {
-        imports.push(Import {
-            symbol: crate::abi::REALLOC_SYMBOL,
-            parameters: vec![ValueType::I32; 4],
-            result: Some(ValueType::I32),
-        });
+        imports.push(
+            crate::target_intrinsics::generated::signature(crate::abi::REALLOC_SYMBOL, None)
+                .expect("allocator signature has no layout dependency"),
+        );
     }
-    for implementation in crate::target_runtime::IMPLEMENTATIONS {
+    for implementation in crate::target_intrinsics::artifacts() {
         if used.contains(&implementation.symbol) {
             imports.push(implementation.import());
         }
     }
-    // The canonical ABI boundary transcodes between the GC string's UTF-16 and
-    // the component's UTF-8. The adapter calls these reserved helpers, which P10
+    // The canonical ABI boundary copies canonical UTF-8 between GC strings and
+    // component linear buffers. The adapter calls these reserved helpers, which P10
     // synthesizes as ordinary Wasm functions; they are never core imports.
     if used.contains(&crate::abi::STRING_TO_BYTES_SYMBOL)
         || used.contains(&crate::abi::BYTES_TO_STRING_SYMBOL)
@@ -371,19 +363,27 @@ fn lower_module_after_binding_validation(
                     module.entry.map(|entry| entry.module),
                 )
             })?;
-        if used.contains(&crate::abi::STRING_TO_BYTES_SYMBOL) {
-            imports.push(Import {
-                symbol: crate::abi::STRING_TO_BYTES_SYMBOL,
-                parameters: vec![string_type],
-                result: Some(ValueType::I32),
-            });
-        }
-        if used.contains(&crate::abi::BYTES_TO_STRING_SYMBOL) {
-            imports.push(Import {
-                symbol: crate::abi::BYTES_TO_STRING_SYMBOL,
-                parameters: vec![ValueType::I32, ValueType::I32],
-                result: Some(string_type),
-            });
+        let ValueType::Ref(crate::types::RefType {
+            nullable: false,
+            heap: crate::types::HeapType::Index(string_id),
+        }) = string_type
+        else {
+            return Err(vec![BackendError::invalid_ir(
+                "P9 MIR lowering",
+                module.span,
+                "string layout must be a nonnullable concrete GC reference",
+            )]);
+        };
+        for symbol in [
+            crate::abi::STRING_TO_BYTES_SYMBOL,
+            crate::abi::BYTES_TO_STRING_SYMBOL,
+        ] {
+            if used.contains(&symbol) {
+                imports.push(
+                    crate::target_intrinsics::generated::signature(symbol, Some(string_id))
+                        .expect("codec has its checked string layout"),
+                );
+            }
         }
     }
     let strings = literals.into_strings();

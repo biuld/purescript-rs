@@ -75,7 +75,7 @@ fn integer(value: &str, start: u32) -> HirExpr {
 
 #[test]
 fn infers_functions_arithmetic_conditionals_and_intrinsic_booleans() {
-    let add = Intrinsic::I32Add.symbol();
+    let add = Intrinsic::IntAdd.symbol();
     let true_symbol = Intrinsic::BoolTrue.symbol();
     let increment = expr(
         HirExprKind::Lambda {

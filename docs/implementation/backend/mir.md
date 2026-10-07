@@ -173,7 +173,7 @@ MIR-04:
 ```text
 MIR-05:
   Implementation: mir/instruction.rs (destination/operands/span),
-    mir/numeric.rs, mir/scalar_helpers.rs, mir/verify/instruction/*.
+    mir/numeric.rs, mir/verify/instruction/*.
   Tests: mir::gc_tests::binary_matrix::
            verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets;
          mir::gc_tests::unary::

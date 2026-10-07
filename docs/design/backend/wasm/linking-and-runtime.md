@@ -375,7 +375,8 @@ psrs-hir/intrinsic/             semantic identities and source schemes
 psrs-core/verify/               checked uses and external schemes
 psrs-backend/bindings/          source contract + implementation requirements
 psrs-backend/abi/               source/WIT validation, canonical conversion, ownership
-psrs-backend/target_runtime/    intrinsic-to-provider selection using runtime catalog
+psrs-backend/target_intrinsics/ exhaustive implementation selection
+psrs-backend/target_runtime/    artifact language/transport contracts using runtime metadata
 psrs-backend/linking/           checked IR-to-linker requests and diagnostic mapping
 psrs-backend/mir/               raw calls, value recovery, explicit lifetimes
 psrs-backend/wasm/              planned memory/import emission and encoding
@@ -563,3 +564,17 @@ Guest execution evidence is recorded separately from the numeric runtime slice.
   and [WIT specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md)
   for interface definitions, canonical boundaries, and typed composition.
 - [ryu-js](https://github.com/boa-dev/ryu-js) for the selected formatter implementation.
+
+### Consumer signatures and implementation selection
+
+The exhaustive [intrinsic implementation catalog](../fp/intrinsic-implementations.md)
+owns direct/generated/artifact selection. HIR owns language schemes and semantic
+effects; the runtime owns raw export contracts and transport protocols. CC keeps
+the intrinsic identity on artifact calls until MIR discharges value transport.
+
+An artifact requirement's expected signature MUST come from the actual MIR
+consumer import, independently of the runtime provider descriptor. The planner
+checks it against both the provider contract and the actual artifact export.
+Generated allocator/codec imports MUST likewise match the shared generated-body
+signature and concrete GC byte-array representation. Internally consistent MIR
+call typing alone does not establish either provider boundary.

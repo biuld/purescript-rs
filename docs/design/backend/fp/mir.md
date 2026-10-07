@@ -298,8 +298,8 @@ lower_if(cond, then_assignments, then_value, else_assignments, else_value):
 ```
 
 A direct call becomes `Call`/`CallVoid`; a closure call becomes `ClosureCall`.
-The scalar helpers of `scalar_helpers` are appended as extra functions when the
-module uses floor division or modulo.
+Artifact calls use the shared raw-scalar or UTF-8 transport protocol in
+`lower/runtime_call.rs`. Public division/modulo remain ordinary library code.
 
 ### Dominance
 
@@ -339,7 +339,7 @@ mir/
   verify/          MIR verifier
   wit/             canonical ABI adaptation for WIT calls
   reachable.rs     reachability of representation requirements
-  scalar_helpers.rs, numeric.rs   scalar operations and helpers
+  numeric.rs                    concrete scalar operations
 ```
 
 **Required types.** `mir/mod.rs` MUST define `Module`, `Function`,
@@ -357,7 +357,7 @@ pub enum Terminator { Return, Jump, Branch, Switch, ReturnCall, ReturnCallRef }
 
 `mir/instruction.rs` MUST define `Instruction` so every variant carries a
 destination `ValueId`, its operand `ValueId`s, and a source span. The scalar
-vocabularies live in `mir/numeric.rs` and `mir/scalar_helpers.rs`
+vocabularies live in `mir/numeric.rs`
 ([scalars and primitives](scalars-and-primitives.md)); `mir/layout/` owns
 `PlannedLayout` and every concrete GC layout
 ([data representation](data-representation.md)); `mir/wit/` owns canonical ABI

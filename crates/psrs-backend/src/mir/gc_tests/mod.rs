@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 mod array;
 mod binary_matrix;
-mod div_mod;
 mod erased;
 mod number_trunc;
 mod rank_n;

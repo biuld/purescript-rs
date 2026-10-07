@@ -86,7 +86,6 @@ impl TryFrom<BinaryOp> for NumericOp {
             BinaryOp::IntMul => Self::I32Mul,
             BinaryOp::IntQuot => Self::I32DivS,
             BinaryOp::IntRem => Self::I32RemS,
-            BinaryOp::IntDiv | BinaryOp::IntMod => return Err(value),
             BinaryOp::IntAnd => Self::I32And,
             BinaryOp::IntOr => Self::I32Or,
             BinaryOp::IntXor => Self::I32Xor,

@@ -91,20 +91,6 @@ fn verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets() {
             Expected::Integer(1),
         ),
         (
-            BinaryOp::IntDiv,
-            0,
-            1,
-            ValueShape::Integer,
-            Expected::Integer(3),
-        ),
-        (
-            BinaryOp::IntMod,
-            0,
-            1,
-            ValueShape::Integer,
-            Expected::Integer(1),
-        ),
-        (
             BinaryOp::IntAnd,
             0,
             1,
@@ -482,6 +468,6 @@ fn verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets() {
         crate::TargetCapabilities::default(),
     )
     .expect("the complete binary scalar module should lower for GC");
-    assert_eq!(gc_mir.functions.len(), 3);
+    assert_eq!(gc_mir.functions.len(), 1);
     run_gc(&gc_mir, 0);
 }

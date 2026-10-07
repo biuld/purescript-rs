@@ -8,7 +8,7 @@
 //! through the exhaustive `descriptor` match, so a variant cannot be registered
 //! silently.
 
-use super::Intrinsic;
+use super::{Intrinsic, IntrinsicEffects};
 use crate::{BuiltinType, Type, TypeId, TypeKind, TypeParameter};
 use psrs_span::TextRange;
 
@@ -18,8 +18,8 @@ use psrs_span::TextRange;
 pub enum IntrinsicCategory {
     /// A nullary value: `true`, `false`, `unit`.
     Nullary,
-    /// One scalar argument and a scalar result.
-    UnaryScalar,
+    /// One language argument and a language result.
+    Unary,
     /// Two scalar arguments and a scalar result.
     BinaryScalar,
     /// `Array.length`: `forall a. Array a -> Int`.
@@ -58,6 +58,7 @@ pub struct IntrinsicDescriptor {
     /// count of `scheme`.
     pub arity: u8,
     pub category: IntrinsicCategory,
+    pub effects: IntrinsicEffects,
     /// A non-capturing constructor, so the descriptor table can be `const`.
     pub scheme: fn() -> Type,
 }
@@ -76,6 +77,7 @@ macro_rules! descriptors {
                         name: $name,
                         arity: $arity,
                         category: IntrinsicCategory::$category,
+                        effects: IntrinsicEffects::for_intrinsic(intrinsic),
                         scheme: $scheme,
                     },
                 )*
@@ -87,36 +89,34 @@ macro_rules! descriptors {
 descriptors! {
     BoolTrue => "true", 0, Nullary, scheme::boolean;
     BoolFalse => "false", 0, Nullary, scheme::boolean;
-    I32Add => "intAdd", 2, BinaryScalar, scheme::int_int_int;
-    I32Sub => "intSub", 2, BinaryScalar, scheme::int_int_int;
-    I32Mul => "intMul", 2, BinaryScalar, scheme::int_int_int;
-    I32DivS => "intQuot", 2, BinaryScalar, scheme::int_int_int;
-    I32RemS => "%", 2, BinaryScalar, scheme::int_int_int;
-    I32Eq => "intEq", 2, BinaryScalar, scheme::int_int_bool;
-    I32Ne => "intNe", 2, BinaryScalar, scheme::int_int_bool;
-    I32LtS => "intLt", 2, BinaryScalar, scheme::int_int_bool;
-    I32LeS => "intLe", 2, BinaryScalar, scheme::int_int_bool;
-    I32GtS => "intGt", 2, BinaryScalar, scheme::int_int_bool;
-    I32GeS => "intGe", 2, BinaryScalar, scheme::int_int_bool;
+    IntAdd => "intAdd", 2, BinaryScalar, scheme::int_int_int;
+    IntSub => "intSub", 2, BinaryScalar, scheme::int_int_int;
+    IntMul => "intMul", 2, BinaryScalar, scheme::int_int_int;
+    IntQuot => "intQuot", 2, BinaryScalar, scheme::int_int_int;
+    IntRem => "%", 2, BinaryScalar, scheme::int_int_int;
+    IntEq => "intEq", 2, BinaryScalar, scheme::int_int_bool;
+    IntNe => "intNe", 2, BinaryScalar, scheme::int_int_bool;
+    IntLt => "intLt", 2, BinaryScalar, scheme::int_int_bool;
+    IntLe => "intLe", 2, BinaryScalar, scheme::int_int_bool;
+    IntGt => "intGt", 2, BinaryScalar, scheme::int_int_bool;
+    IntGe => "intGe", 2, BinaryScalar, scheme::int_int_bool;
     ArrayLength => "arrayLength", 1, ArrayLength, scheme::array_length;
     ArrayIndex => "arrayIndex", 2, ArrayIndex, scheme::array_index;
     ArrayUpdate => "arrayUpdate", 3, ArrayUpdate, scheme::array_update;
-    IntNeg => "intNeg", 1, UnaryScalar, scheme::int_int;
-    IntComplement => "intComplement", 1, UnaryScalar, scheme::int_int;
-    NumberNeg => "numberNeg", 1, UnaryScalar, scheme::number_number;
-    NumberTrunc => "numberTrunc", 1, UnaryScalar, scheme::number_number;
-    NumberFloor => "numberFloor", 1, UnaryScalar, scheme::number_number;
-    NumberAbs => "numberAbs", 1, UnaryScalar, scheme::number_number;
-    NumberCeil => "numberCeil", 1, UnaryScalar, scheme::number_number;
-    BooleanNot => "booleanNot", 1, UnaryScalar, scheme::boolean_boolean;
-    IntToNumber => "intToNumber", 1, UnaryScalar, scheme::int_number;
-    NumberToInt => "numberToInt", 1, UnaryScalar, scheme::number_int;
-    BooleanToInt => "booleanToInt", 1, UnaryScalar, scheme::boolean_int;
-    IntToBoolean => "intToBoolean", 1, UnaryScalar, scheme::int_boolean;
-    CharToInt => "charToInt", 1, UnaryScalar, scheme::char_int;
-    IntToChar => "intToChar", 1, UnaryScalar, scheme::int_char;
-    IntDiv => "intDiv", 2, BinaryScalar, scheme::int_int_int;
-    IntMod => "intMod", 2, BinaryScalar, scheme::int_int_int;
+    IntNeg => "intNeg", 1, Unary, scheme::int_int;
+    IntComplement => "intComplement", 1, Unary, scheme::int_int;
+    NumberNeg => "numberNeg", 1, Unary, scheme::number_number;
+    NumberTrunc => "numberTrunc", 1, Unary, scheme::number_number;
+    NumberFloor => "numberFloor", 1, Unary, scheme::number_number;
+    NumberAbs => "numberAbs", 1, Unary, scheme::number_number;
+    NumberCeil => "numberCeil", 1, Unary, scheme::number_number;
+    BooleanNot => "booleanNot", 1, Unary, scheme::boolean_boolean;
+    IntToNumber => "intToNumber", 1, Unary, scheme::int_number;
+    NumberToInt => "numberToInt", 1, Unary, scheme::number_int;
+    BooleanToInt => "booleanToInt", 1, Unary, scheme::boolean_int;
+    IntToBoolean => "intToBoolean", 1, Unary, scheme::int_boolean;
+    CharToInt => "charToInt", 1, Unary, scheme::char_int;
+    IntToChar => "intToChar", 1, Unary, scheme::int_char;
     IntAnd => "intAnd", 2, BinaryScalar, scheme::int_int_int;
     IntOr => "intOr", 2, BinaryScalar, scheme::int_int_int;
     IntXor => "intXor", 2, BinaryScalar, scheme::int_int_int;
@@ -152,8 +152,8 @@ descriptors! {
     UnsafeCoerce => "__psrs_unsafe_coerce", 1, Coercion, scheme::unsafe_coerce;
     ArrayFill => "arrayFill", 2, ArrayFill, scheme::array_fill;
     ArrayWrite => "arrayWrite", 3, ArrayWrite, scheme::array_update;
-    NumberToString => "numberToString", 1, UnaryScalar, scheme::number_string;
-    NumberFromDecimal => "numberFromDecimal", 1, UnaryScalar, scheme::string_number;
+    NumberToString => "numberToString", 1, Unary, scheme::number_string;
+    NumberFromDecimal => "numberFromDecimal", 1, Unary, scheme::string_number;
 }
 
 /// The HIR type schemes. Each returns a fresh [`Type`], so a caller that

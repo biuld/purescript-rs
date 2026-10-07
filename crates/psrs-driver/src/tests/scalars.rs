@@ -9,10 +9,10 @@ subtractInt left right = left - right
 
 checkIntArithmetic = booleanAnd (equalInt (40 + 2) 42) (booleanAnd (equalInt (7 - 2) 5) (booleanAnd (equalInt (6 * 7) 42) (booleanAnd (equalInt (10 / 3) 3) (equalInt (10 % 3) 1))))
 checkIntWrapping = equalInt (2147483647 + 1) (subtractInt (intNeg 2147483647) 1)
-checkIntFloor = booleanAnd (equalInt (intDiv (intNeg 5) 3) (intNeg 2)) (equalInt (intMod (intNeg 5) 3) 1)
+checkIntEuclidean = booleanAnd (equalInt (div (intNeg 5) 3) (intNeg 2)) (equalInt (mod (intNeg 5) 3) 1)
 checkIntBits = booleanAnd (equalInt (intAnd 6 3) 2) (booleanAnd (equalInt (intOr 4 1) 5) (booleanAnd (equalInt (intXor 6 3) 5) (booleanAnd (equalInt (intShl 3 2) 12) (booleanAnd (equalInt (intShr (intNeg 8) 1) (intNeg 4)) (equalInt (intZshr (intNeg 1) 1) 2147483647)))))
 checkIntComparisons = booleanAnd (5 == 5) (booleanAnd (5 /= 6) (booleanAnd (4 < 5) (booleanAnd (5 <= 5) (booleanAnd (6 > 5) (5 >= 5)))))
-checkInt = booleanAnd checkIntArithmetic (booleanAnd checkIntWrapping (booleanAnd checkIntFloor (booleanAnd checkIntBits checkIntComparisons)))
+checkInt = booleanAnd checkIntArithmetic (booleanAnd checkIntWrapping (booleanAnd checkIntEuclidean (booleanAnd checkIntBits checkIntComparisons)))
 
 checkIntUnary = booleanAnd (equalInt (intNeg 5) (subtractInt 0 5)) (equalInt (intComplement 0) (intNeg 1))
 checkNumberUnary = booleanAnd (numberEq (numberNeg 1.5) (numberSub 0.0 1.5)) (numberEq (intToNumber 5) 5.0)
@@ -70,25 +70,23 @@ fn scalar_intrinsics_are_reachable_from_source_and_execute_with_documented_seman
         "IntToBoolean",
         "CharToInt",
         "IntToChar",
-        "IntDiv",
-        "IntMod",
-        "I32Add",
-        "I32Sub",
-        "I32Mul",
-        "I32DivS",
-        "I32RemS",
+        "IntAdd",
+        "IntSub",
+        "IntMul",
+        "IntQuot",
+        "IntRem",
         "IntAnd",
         "IntOr",
         "IntXor",
         "IntShl",
         "IntShr",
         "IntZshr",
-        "I32Eq",
-        "I32Ne",
-        "I32LtS",
-        "I32LeS",
-        "I32GtS",
-        "I32GeS",
+        "IntEq",
+        "IntNe",
+        "IntLt",
+        "IntLe",
+        "IntGt",
+        "IntGe",
         "NumberAdd",
         "NumberSub",
         "NumberMul",
@@ -145,20 +143,21 @@ main = if intEq (6 .&. 3) 2 then 0 else 1
 
 const CASE_HELPER_SOURCE: &str = "\
 module Main where
+import Prelude
 
 data Choice = First | Second
 
 pick choice = case choice of
-  First -> intDiv 7 2
-  Second -> intMod 7 2
+  First -> div 7 2
+  Second -> mod 7 2
 
 main = pick First
 ";
 
 #[test]
-fn generates_floor_helpers_for_division_nested_in_case_branches() {
+fn executes_library_euclidean_division_nested_in_case_branches() {
     let stages = crate::compile_main_stages(CASE_HELPER_SOURCE)
-        .expect("case-nested division must generate its helper before MIR lowering");
+        .expect("case-nested library division must lower through MIR");
     assert!(
         stages.cc.functions.iter().any(|function| {
             function.assignments.iter().any(|assignment| {
@@ -170,18 +169,6 @@ fn generates_floor_helpers_for_division_nested_in_case_branches() {
         }),
         "the case must lower to a tag switch"
     );
-    for helper in ["__psrs_euclidean_int_div", "__psrs_euclidean_int_mod"] {
-        assert_eq!(
-            stages
-                .mir
-                .functions
-                .iter()
-                .filter(|function| function.name == helper)
-                .count(),
-            1,
-            "expected exactly one {helper}"
-        );
-    }
     let Some(output) = super::run_with_wasmtime(CASE_HELPER_SOURCE) else {
         eprintln!("skipping execution: wasmtime is not installed");
         return;
@@ -189,7 +176,7 @@ fn generates_floor_helpers_for_division_nested_in_case_branches() {
     assert_eq!(
         output.status.code(),
         Some(3),
-        "floor div 7 2 through a case branch must be 3: {output:?}"
+        "library div 7 2 through a case branch must be 3: {output:?}"
     );
 }
 
@@ -323,11 +310,9 @@ fn assert_runtime_trap(source: &str, needle: &str) {
 }
 
 #[test]
-fn truncated_and_floor_division_zero_and_signed_overflow() {
-    // `Data.EuclideanRing`'s Euclidean `div` (`/`) returns 0 for a zero divisor,
-    // matching the official purescript-prelude implementation, so it does not
-    // trap. The truncating `%` operator and the explicit `intDiv`/`intMod`
-    // intrinsics reach the trapping Wasm instructions.
+fn truncating_and_library_euclidean_division_zero_and_signed_overflow() {
+    // Library division/modulo handle zero before evaluating raw quotient/remainder.
+    // Truncating primitives preserve the Wasm divide-by-zero and overflow traps.
     let Some(output) =
         super::run_with_wasmtime("module Main where\nimport Prelude\nmain = 1 / 0\n")
     else {
@@ -341,11 +326,7 @@ fn truncated_and_floor_division_zero_and_signed_overflow() {
         "integer divide by zero",
     );
     assert_runtime_trap(
-        "module Main where\nmain = intDiv 1 0\n",
-        "integer divide by zero",
-    );
-    assert_runtime_trap(
-        "module Main where\nmain = intMod 1 0\n",
+        "module Main where\nmain = intQuot 1 0\n",
         "integer divide by zero",
     );
     assert_runtime_trap(
@@ -353,28 +334,25 @@ fn truncated_and_floor_division_zero_and_signed_overflow() {
         "integer overflow",
     );
     assert_runtime_trap(
-        "module Main where\nimport Prelude\nmain = intDiv ((intNeg 2147483647) - 1) (intNeg 1)\n",
+        "module Main where\nimport Prelude\nmain = intQuot ((intNeg 2147483647) - 1) (intNeg 1)\n",
         "integer overflow",
     );
 }
 
 #[test]
 fn runs_division_and_modulo_inside_a_case_arm() {
-    // Floor division and modulo are lowered through generated helpers. The
-    // primitive operations only appear inside the match arms, so helper
-    // detection must walk the tag switch.
+    // Public arithmetic composes library branches with truncating primitives.
+    // Both case arms must retain the library policy through normal lowering.
     let source = r#"module Main where
 import Prelude
 data Tag = A | B
 compute t = case t of
-  A -> intDiv 7 3
-  B -> intMod 7 3
+  A -> div 7 3
+  B -> mod 7 3
 main = compute A + compute B + 39
 "#;
-    let compilation = compile_source_with_dumps("Main.purs", source)
-        .expect("lowering division and modulo inside a case arm");
-    assert!(compilation.dumps.mir.contains("__psrs_euclidean_int_div"));
-    assert!(compilation.dumps.mir.contains("__psrs_euclidean_int_mod"));
+    compile_source("Main.purs", source)
+        .expect("lowering library division and modulo inside a case arm");
     let Some(output) = super::run_with_wasmtime(source) else {
         eprintln!("skipping execution: wasmtime is not installed");
         return;

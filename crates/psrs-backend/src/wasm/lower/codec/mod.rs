@@ -24,46 +24,18 @@ mod encode;
 #[cfg(test)]
 mod tests;
 
-use crate::types::{DefinedTypeId, HeapType, ValueType};
+use crate::types::DefinedTypeId;
 use crate::wasm::{FuncType, Function, FunctionIndex, TypeIndex};
 use psrs_span::TextRange;
-use wasm_encoder::ValType;
 
 /// The three function types used by the boundary helpers.
-pub(super) fn signatures(string_ref: ValType) -> (FuncType, FuncType, FuncType) {
+pub(super) fn signatures(string: DefinedTypeId) -> (FuncType, FuncType, FuncType) {
+    use crate::abi;
     (
-        FuncType {
-            parameters: vec![string_ref],
-            results: vec![ValType::I32],
-        },
-        FuncType {
-            parameters: vec![ValType::I32, ValType::I32],
-            results: vec![string_ref],
-        },
-        FuncType {
-            parameters: vec![ValType::I32, ValType::I32],
-            results: vec![ValType::I32],
-        },
+        super::generated_signature(abi::STRING_TO_BYTES_SYMBOL, Some(string)),
+        super::generated_signature(abi::BYTES_TO_STRING_SYMBOL, Some(string)),
+        super::generated_signature(abi::VALIDATE_STEP_SYMBOL, Some(string)),
     )
-}
-
-/// The GC string defined-type index, read from a reserved helper import.
-pub(super) fn string_type_from_imports(module: &crate::mir::Module) -> Option<DefinedTypeId> {
-    for import in &module.imports {
-        if import.symbol != crate::abi::STRING_TO_BYTES_SYMBOL
-            && import.symbol != crate::abi::BYTES_TO_STRING_SYMBOL
-        {
-            continue;
-        }
-        for ty in import.parameters.iter().chain(import.result.iter()) {
-            if let ValueType::Ref(reference) = ty
-                && let HeapType::Index(index) = reference.heap
-            {
-                return Some(index);
-            }
-        }
-    }
-    None
 }
 
 /// Builds `string_to_bytes`, `bytes_to_string`, and `validate_step` in that order.

@@ -130,7 +130,7 @@ fn trace_call(function_type: u32, int_type: u32, argument: i32, start: u32) -> E
 fn folds_wrapping_integer_arithmetic_and_keeps_the_operation_span() {
     let value = expression(
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::I32Add,
+            intrinsic: Intrinsic::IntAdd,
             arguments: vec![
                 expression(ExprKind::Integer(i32::MAX), 0, 5, 6),
                 expression(ExprKind::Integer(1), 0, 9, 10),
@@ -160,7 +160,7 @@ fn folds_wrapping_integer_arithmetic_and_keeps_the_operation_span() {
 fn leaves_constant_division_that_would_trap() {
     let value = expression(
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::I32DivS,
+            intrinsic: Intrinsic::IntQuot,
             arguments: vec![
                 expression(ExprKind::Integer(1), 0, 5, 6),
                 expression(ExprKind::Integer(0), 0, 9, 10),
@@ -182,7 +182,7 @@ fn leaves_constant_division_that_would_trap() {
     assert!(matches!(
         result.declarations[0].value.kind,
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::I32DivS,
+            intrinsic: Intrinsic::IntQuot,
             ..
         }
     ));
@@ -201,7 +201,7 @@ fn retains_an_unused_euclidean_division_that_may_trap() {
         quantified: Vec::new(),
         value: expression(
             ExprKind::IntrinsicCall {
-                intrinsic: Intrinsic::IntDiv,
+                intrinsic: Intrinsic::IntQuot,
                 arguments: vec![
                     expression(ExprKind::Integer(1), 0, 13, 14),
                     expression(ExprKind::Integer(0), 0, 17, 18),
@@ -237,7 +237,7 @@ fn retains_an_unused_euclidean_division_that_may_trap() {
     assert!(matches!(
         bindings[0].value.kind,
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::IntDiv,
+            intrinsic: Intrinsic::IntQuot,
             ..
         }
     ));
@@ -250,7 +250,7 @@ fn algebraic_zero_does_not_remove_an_effectful_operand() {
     let function_type = arrow_type(&mut types, int_type, int_type);
     let value = expression(
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::I32Mul,
+            intrinsic: Intrinsic::IntMul,
             arguments: vec![
                 trace_call(function_type.0, int_type.0, 4, 5),
                 expression(ExprKind::Integer(0), int_type.0, 14, 15),
@@ -268,7 +268,7 @@ fn algebraic_zero_does_not_remove_an_effectful_operand() {
     assert!(matches!(
         result.declarations[0].value.kind,
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::I32Mul,
+            intrinsic: Intrinsic::IntMul,
             ..
         }
     ));

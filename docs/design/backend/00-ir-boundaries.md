@@ -346,7 +346,7 @@ mir/              MIR
   verify/          MIR verifier
   wit/             canonical ABI adaptation for WIT calls
   reachable.rs     reachability of representation requirements
-  scalar_helpers.rs, numeric.rs   scalar operations and helpers
+  numeric.rs                    concrete scalar operations
 wasm/             thin structured Wasm target
   mod.rs           Wasm IR: `Module`, `Op`, `Function`, `Export`, `DataSegment`
   encode.rs        binary encoding

@@ -17,6 +17,7 @@ mod effects;
 mod foldable;
 mod functor;
 mod guard_coverage;
+mod intrinsic_contracts;
 mod let_constraints;
 mod library_foreign;
 mod number_abs;

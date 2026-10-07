@@ -72,27 +72,18 @@ knows":
 
 ### Intrinsics on the Wasm target
 
-For the Wasm target the intrinsics are the compiler's curated vocabulary of
-primitive operations at the machine layer — the operations the standard library
-is allowed to rely on directly. Each is realized by the backend from one or more
-Wasm instructions (scalar, GC `array`/`struct`/`ref`, or bulk memory), from a
-short helper sequence, or from no instruction at all. The correspondence is
-many-to-many, so the set is not literally a subset of the instruction list:
+The registry describes checked language operations, not Wasm opcode names.
+`IntAdd`, `IntQuot`, and `NumberAbs` have language schemes; MIR selects
+`I32Add`, `I32DivS`, and `F64Abs`. A primitive may require one instruction,
+a sequence, a generated representation operation, or a pinned artifact export.
+Constants and checked coercions can have no runtime instruction.
 
-- One instruction, one intrinsic: `i32.add` for `i32Add`.
-- One instruction, several intrinsics: `i32.lt_s` serves `i32LtS` and `charLt`.
-- One intrinsic, several instructions: `arrayAppend` is `array.new_default` plus
-  two element-copy loops; `intDiv` is `i32.div_s` with a sign-correction helper.
-- No instruction: `charToInt` and `intToChar` are the identity; `true`, `false`,
-  and `unit` are constants; `Coerce` has no runtime form.
-
-The set is a project decision, not a projection of the instruction list. It holds
-exactly the operations the standard library needs that the source language cannot
-express and no host capability provides. That places it at the machine layer and
-below the Canonical ABI, which is why it cannot be a WIT call; the encoding of
-each operation belongs to the backend
-([Wasm encoding and structuring](backend/wasm/encoding-and-structuring.md)), not
-to this registry.
+The backend's exhaustive implementation catalog owns that selection; runtime
+metadata owns raw export signatures and value protocols. See
+[intrinsic implementations](backend/fp/intrinsic-implementations.md). Library
+algorithms remain ordinary target library functions. In particular, public
+Euclidean division/modulo are library policy over truncating primitives;
+retired floor intrinsic IDs 26 and 27 are never reused.
 
 ### Why intrinsics are compiler-owned here
 
@@ -159,13 +150,14 @@ pub struct IntrinsicDescriptor {
     pub name: &'static str,
     pub arity: u8,
     pub category: IntrinsicCategory,
+    pub effects: IntrinsicEffects, // conservative traps and mutation
     /// A non-capturing constructor, so the table can be `const`.
     pub scheme: fn() -> Type, // an HIR Type
 }
 
 pub enum IntrinsicCategory {
     Nullary,          // true, false, unit
-    UnaryScalar,
+    Unary,           // one language argument; not necessarily a scalar
     BinaryScalar,
     ArrayLength,
     ArrayIndex,
@@ -207,12 +199,12 @@ registry and the registry on `core`.
 | P3 Resolve | `name`, `scheme` | `ExternalSymbol { signature: Some(scheme) }` |
 | P5 Type check | `scheme`, instantiated | the intrinsic's `InferType`; `Coercion` takes a special path |
 | P6 Core lowering | `intrinsic`, `arity`, `category` | one `ExprKind::IntrinsicCall` |
-| P8/P9 Backend | its own tables only | CC `AssignmentKind` and MIR instructions |
+| P8/P9 Backend | checked identity and scheme; target implementation catalog | CC `AssignmentKind` and MIR instructions |
 
-The backend does not consult the registry: by the time it runs, Core has already
-expressed the operation in its own terms, and the backend lowers those with its
-own representation tables. The registry tells the front-end stages *what* the
-operation is.
+The registry defines the language contract. The backend reads that contract to
+verify artifact-call values before ABI erasure, and its implementation catalog
+selects how to realize it. HIR contains no target lowering or raw ABI dependency.
+Core optimizations consume the registry's conservative trap and mutation effects.
 
 ### Why lowering is not in the registry
 
@@ -392,20 +384,20 @@ The surface operators `+`, `*`, `==`, `/=`, `<`, `<=`, `>`, and `>=` are now
 library classes — `Data.Semiring`, `Data.Eq`, `Data.Ord` — over internal
 primitives, and `Prelude` re-exports them, matching official PureScript. A source
 that uses them imports `Prelude`. Each instance eta-expands its intrinsic
-(`eq x y = intEq x y`) because a first-class intrinsic reference is not lowerable.
+(`eq x y = intEq x y`); unsaturated intrinsic uses also elaborate through
+checked eta expansion before backend lowering.
 
-`-` is the `Data.Ring` operator and `/` is the `Data.EuclideanRing` operator,
-both re-exported from `Prelude`. The primitives under them are `intSub`
-(wrapping subtraction) and `intQuot` (truncating division). `intDiv` and
-`intMod` stay the Euclidean pair the `Int` instance calls. `%` is still the
-truncating remainder primitive; the library spells that operation `mod`.
+`-` and `/` are the library `Data.Ring` and `Data.EuclideanRing` operators.
+The target library implements the official Int Euclidean policy using `intSub`,
+`intQuot`, and truncating `%`. Compiler `intDiv/intMod` are retired because their
+floor policy differed for negative divisors and zero. `mod` remains the public
+nonnegative Euclidean remainder, rather than an alias for `%`.
 
-`Show` is a library class in `Data.Show`, re-exported from `Prelude`, over the
-same primitives. It does not add an intrinsic: integer, character, and string
-rendering are written in the source language, and `Number` rendering is too.
-That `Number` spelling is not a correctly rounded ECMAScript conversion. A pure
-numeric formatter with canonical inputs and outputs is the open capability
-question above, not a new `Intrinsic`.
+`Show` remains a library class. Integer, character, and string wrappers stay
+library-owned; Number conversion uses the checked `NumberToString` primitive
+whose target implementation is the pinned correctly rounded formatter artifact.
+The parser likewise exposes a small conversion leaf while public validation and
+`Maybe` construction remain in the unchanged official wrapper.
 
 ## References
 

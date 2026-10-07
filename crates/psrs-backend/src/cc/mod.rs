@@ -186,13 +186,10 @@ pub enum AssignmentKind {
         representation: ReprId,
         value: ValueId,
     },
-    /// ECMAScript binary64 formatting; ordinary library wrappers own Show.
-    NumberToString {
-        value: ValueId,
-    },
-    /// Checked complete-decimal conversion through the numeric runtime.
-    NumberFromDecimal {
-        value: ValueId,
+    /// Artifact-backed operation with checked language arguments before ABI erasure.
+    RuntimeCall {
+        intrinsic: psrs_hir::Intrinsic,
+        arguments: Vec<ValueId>,
     },
     /// An `Array Int` read as a source `String`. Every element must be a
     /// canonical byte and the bytes must be well-formed UTF-8.

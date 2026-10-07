@@ -66,7 +66,14 @@ pub(crate) fn plan_for_module(
         next += 1;
         // Generated helpers are roots even though no source foreign declaration
         // names them; they are lowered locally and need no external provider.
-        if let Some(name) = local_symbol_name(import.symbol) {
+        if let Some(name) = crate::target_intrinsics::generated::name(import.symbol) {
+            crate::target_intrinsics::generated::verify(module, import).map_err(|message| {
+                vec![BackendError::invalid_ir(
+                    "P9 target linking",
+                    module.span,
+                    message,
+                )]
+            })?;
             let requirement = BindingRequirement {
                 id,
                 origin: format!("generated.{name}"),
@@ -82,7 +89,14 @@ pub(crate) fn plan_for_module(
             continue;
         }
         if let Some(implementation) = target_runtime::for_symbol(import.symbol) {
-            let requirement = implementation.requirement(id);
+            implementation.validate_protocol().map_err(|message| {
+                vec![BackendError::invalid_ir(
+                    "P9 target linking",
+                    module.span,
+                    message,
+                )]
+            })?;
+            let requirement = implementation.requirement(id, core_signature(import, module.span)?);
             artifacts
                 .entry(implementation.artifact.id.to_string())
                 .or_insert_with(|| implementation.artifact_reference());
@@ -198,16 +212,6 @@ pub(crate) fn compose(
         })
 }
 
-fn local_symbol_name(symbol: SymbolId) -> Option<&'static str> {
-    match symbol {
-        abi::REALLOC_SYMBOL => Some("realloc"),
-        abi::STRING_TO_BYTES_SYMBOL => Some("string_to_bytes"),
-        abi::BYTES_TO_STRING_SYMBOL => Some("bytes_to_string"),
-        abi::VALIDATE_STEP_SYMBOL => Some("validate_step"),
-        _ => None,
-    }
-}
-
 fn core_signature(
     import: &mir::Import,
     span: TextRange,
@@ -218,7 +222,7 @@ fn core_signature(
             return Err(vec![BackendError::invalid_ir(
                 "P9 target linking",
                 span,
-                "a host import has a non-scalar canonical parameter",
+                "a raw import has a non-scalar canonical parameter",
             )]);
         };
         parameters.push(ty);
@@ -228,7 +232,7 @@ fn core_signature(
             vec![BackendError::invalid_ir(
                 "P9 target linking",
                 span,
-                "a host import has a non-scalar canonical result",
+                "a raw import has a non-scalar canonical result",
             )]
         })?),
         None => None,
@@ -303,3 +307,6 @@ fn attach(error: BackendError, owner: Option<ModuleId>) -> BackendError {
         None => error,
     }
 }
+
+#[cfg(test)]
+mod tests;

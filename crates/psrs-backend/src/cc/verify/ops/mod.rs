@@ -85,25 +85,40 @@ pub(super) fn verify_assignments(
                 verify_binary_operation(*op, *left, *right, assignment, declared)?;
                 uses.extend([*left, *right]);
             }
-            AssignmentKind::NumberToString { value } => {
-                require_value_shape(declared, *value, ValueShape::Number, assignment)?;
+            AssignmentKind::RuntimeCall {
+                intrinsic,
+                arguments,
+            } => {
+                let crate::target_intrinsics::Implementation::Artifact(provider) =
+                    crate::target_intrinsics::implementation(*intrinsic)
+                else {
+                    return Err(assignment_error(
+                        assignment,
+                        "runtime call has no artifact implementation",
+                    ));
+                };
+                provider
+                    .validate_protocol()
+                    .map_err(|error| assignment_error(assignment, error))?;
+                let (parameters, result) = provider
+                    .language_signature()
+                    .map_err(|error| assignment_error(assignment, error))?;
+                if arguments.len() != parameters.len() {
+                    return Err(assignment_error(
+                        assignment,
+                        "runtime call has an incompatible argument count",
+                    ));
+                }
+                for (value, expected) in arguments.iter().zip(parameters) {
+                    require_value_shape(declared, *value, expected, assignment)?;
+                }
                 require_destination(
                     declared,
                     assignment,
-                    ValueShape::String,
-                    "numberToString produces String",
+                    result,
+                    "runtime call has an incompatible result shape",
                 )?;
-                uses.push(*value);
-            }
-            AssignmentKind::NumberFromDecimal { value } => {
-                require_value_shape(declared, *value, ValueShape::String, assignment)?;
-                require_destination(
-                    declared,
-                    assignment,
-                    ValueShape::Number,
-                    "numberFromDecimal produces Number",
-                )?;
-                uses.push(*value);
+                uses.extend(arguments.iter().copied());
             }
             AssignmentKind::Unary { op, value } => {
                 verify_unary_operation(*op, *value, assignment, declared)?;

@@ -60,21 +60,37 @@ pub enum RawType {
     F64,
 }
 
-/// A raw numeric runtime function's checked core-Wasm signature.
-pub struct NumericAbi {
-    pub export: &'static str,
-    pub parameters: &'static [RawType],
-    pub result: RawType,
+/// Language-value transport and normal-return ownership for a raw export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RawCallProtocol {
+    /// Scalar arguments/results only; Unit results use a void export.
+    Scalars,
+    /// Borrowed canonical UTF-8 bytes; caller copies, then releases on return.
+    Utf8Input,
+    /// Caller-owned bounded UTF-8 output; caller recovers and releases on return.
+    Utf8Output { capacity: usize },
 }
 
-pub const NUMBER_FORMAT: NumericAbi = NumericAbi {
+/// An artifact export's raw signature and language-value transport protocol.
+pub struct RawFunctionAbi {
+    pub export: &'static str,
+    pub parameters: &'static [RawType],
+    pub result: Option<RawType>,
+    pub protocol: RawCallProtocol,
+}
+
+pub const NUMBER_FORMAT: RawFunctionAbi = RawFunctionAbi {
     export: NUMBER_EXPORT,
     parameters: &[RawType::F64, RawType::I32, RawType::I32],
-    result: RawType::I32,
+    result: Some(RawType::I32),
+    protocol: RawCallProtocol::Utf8Output {
+        capacity: NUMBER_CAPACITY,
+    },
 };
 
-pub const NUMBER_PARSE: NumericAbi = NumericAbi {
+pub const NUMBER_PARSE: RawFunctionAbi = RawFunctionAbi {
     export: DECIMAL_EXPORT,
     parameters: &[RawType::I32, RawType::I32],
-    result: RawType::F64,
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Utf8Input,
 };

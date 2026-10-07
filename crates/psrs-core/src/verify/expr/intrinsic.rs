@@ -47,7 +47,7 @@ impl Context<'_> {
                         self.errors,
                     );
                 }
-                IntrinsicCategory::UnaryScalar => {
+                IntrinsicCategory::Unary => {
                     let (operand, result) = unary_primitive_types(intrinsic, self.module);
                     self.expr(&arguments[0], Some(operand));
                     compatible(

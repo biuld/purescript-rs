@@ -75,7 +75,7 @@ fn lowers_unary_and_conversion_operations_on_both_targets() {
         span: span(),
     };
     let module = CcModule {
-        name: "UnaryScalars".into(),
+        name: "Unarys".into(),
         externals: Vec::new(),
         representations: RepresentationTable::default(),
         functions: vec![CcFunction {

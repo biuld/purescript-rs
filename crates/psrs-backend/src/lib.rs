@@ -7,6 +7,7 @@ mod effects;
 mod linking;
 pub mod mir;
 mod pipeline;
+mod target_intrinsics;
 mod target_runtime;
 pub mod trace;
 pub mod types;

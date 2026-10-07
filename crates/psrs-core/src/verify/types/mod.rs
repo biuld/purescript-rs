@@ -23,25 +23,23 @@ pub(super) fn verify_type(
 pub(super) fn primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId, TypeId) {
     use TypeConstructor::{Boolean, Char, Int, Number};
     let (operand_type, result_type) = match intrinsic {
-        Intrinsic::I32Add
-        | Intrinsic::I32Sub
-        | Intrinsic::I32Mul
-        | Intrinsic::I32DivS
-        | Intrinsic::I32RemS
-        | Intrinsic::IntDiv
-        | Intrinsic::IntMod
+        Intrinsic::IntAdd
+        | Intrinsic::IntSub
+        | Intrinsic::IntMul
+        | Intrinsic::IntQuot
+        | Intrinsic::IntRem
         | Intrinsic::IntAnd
         | Intrinsic::IntOr
         | Intrinsic::IntXor
         | Intrinsic::IntShl
         | Intrinsic::IntShr
         | Intrinsic::IntZshr => (Int, Int),
-        Intrinsic::I32Eq
-        | Intrinsic::I32Ne
-        | Intrinsic::I32LtS
-        | Intrinsic::I32LeS
-        | Intrinsic::I32GtS
-        | Intrinsic::I32GeS => (Int, Boolean),
+        Intrinsic::IntEq
+        | Intrinsic::IntNe
+        | Intrinsic::IntLt
+        | Intrinsic::IntLe
+        | Intrinsic::IntGt
+        | Intrinsic::IntGe => (Int, Boolean),
         Intrinsic::CharEq
         | Intrinsic::CharNe
         | Intrinsic::CharLt

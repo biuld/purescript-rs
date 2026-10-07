@@ -25,8 +25,6 @@ pub enum BinaryOp {
     IntMul,
     IntQuot,
     IntRem,
-    IntDiv,
-    IntMod,
     IntAnd,
     IntOr,
     IntXor,

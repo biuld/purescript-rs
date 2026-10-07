@@ -6,10 +6,12 @@
 
 use super::super::{Assignment, AssignmentKind, ValueId, ValueShape};
 use super::FunctionLowerer;
-use super::scalar::{lower_binary_op, lower_unary_op};
 use crate::BackendError;
+use crate::target_intrinsics::{
+    GeneratedOperation as G, Implementation, ScalarOperation, implementation,
+};
 use psrs_core::Expr;
-use psrs_hir::{Intrinsic, IntrinsicCategory};
+use psrs_hir::Intrinsic;
 
 impl FunctionLowerer<'_> {
     pub(super) fn lower_intrinsic(
@@ -20,28 +22,24 @@ impl FunctionLowerer<'_> {
         ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        match intrinsic {
-            Intrinsic::NumberToString => {
-                let value = self.lower_value(&arguments[0], assignments)?;
+        match implementation(intrinsic) {
+            Implementation::Artifact(_) => {
+                let values = arguments
+                    .iter()
+                    .map(|argument| self.lower_value(argument, assignments))
+                    .collect::<Result<Vec<_>, _>>()?;
                 let destination = self.fresh(ty);
                 assignments.push(Assignment {
                     destination,
-                    kind: AssignmentKind::NumberToString { value },
+                    kind: AssignmentKind::RuntimeCall {
+                        intrinsic,
+                        arguments: values,
+                    },
                     span: expression.span,
                 });
                 Ok(destination)
             }
-            Intrinsic::NumberFromDecimal => {
-                let value = self.lower_value(&arguments[0], assignments)?;
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::NumberFromDecimal { value },
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
-            Intrinsic::ArrayIndex => {
+            Implementation::Generated(G::ArrayIndex) => {
                 let array = &arguments[0];
                 let Some(representation) = self.array_types.get(&array.ty).copied() else {
                     return Err(vec![BackendError::new(
@@ -65,14 +63,14 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
-            Intrinsic::ArrayUpdate => self.lower_array_update(
+            Implementation::Generated(G::ArrayUpdate) => self.lower_array_update(
                 expression,
                 &arguments[0],
                 &arguments[1],
                 &arguments[2],
                 assignments,
             ),
-            Intrinsic::ArrayLength => {
+            Implementation::Generated(G::ArrayLength) => {
                 let value = self.lower_value(&arguments[0], assignments)?;
                 let destination = self.fresh(ty);
                 assignments.push(Assignment {
@@ -82,26 +80,26 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
-            Intrinsic::ArrayFill => {
+            Implementation::Generated(G::ArrayFill) => {
                 self.lower_array_fill(expression, &arguments[0], &arguments[1], ty, assignments)
             }
-            Intrinsic::ArrayWrite => self.lower_array_write(
+            Implementation::Generated(G::ArrayWrite) => self.lower_array_write(
                 expression,
                 &arguments[0],
                 &arguments[1],
                 &arguments[2],
                 assignments,
             ),
-            Intrinsic::ArrayAppend => {
+            Implementation::Generated(G::ArrayAppend) => {
                 self.lower_array_append(expression, &arguments[0], &arguments[1], ty, assignments)
             }
-            Intrinsic::StringToBytes => {
+            Implementation::Generated(G::StringToBytes) => {
                 self.lower_string_to_bytes(expression, &arguments[0], ty, assignments)
             }
-            Intrinsic::BytesToString => {
+            Implementation::Generated(G::BytesToString) => {
                 self.lower_bytes_to_string(expression, &arguments[0], ty, assignments)
             }
-            Intrinsic::UnsafeCoerce => {
+            Implementation::Generated(G::UnsafeCoerce) => {
                 let argument = &arguments[0];
                 let source_type = argument.ty;
                 let source_shape = self.value_shape(source_type, expression.span)?;
@@ -122,41 +120,33 @@ impl FunctionLowerer<'_> {
                     assignments,
                 ))
             }
-            _ => match intrinsic.descriptor().category {
-                IntrinsicCategory::BinaryScalar => {
-                    let left = self.lower_value(&arguments[0], assignments)?;
-                    let right = self.lower_value(&arguments[1], assignments)?;
-                    let destination = self.fresh(ty);
-                    assignments.push(Assignment {
-                        destination,
-                        kind: AssignmentKind::Primitive {
-                            op: lower_binary_op(intrinsic),
-                            left,
-                            right,
-                        },
-                        span: expression.span,
-                    });
-                    Ok(destination)
-                }
-                IntrinsicCategory::UnaryScalar => {
-                    let value = self.lower_value(&arguments[0], assignments)?;
-                    let destination = self.fresh(ty);
-                    assignments.push(Assignment {
-                        destination,
-                        kind: AssignmentKind::Unary {
-                            op: lower_unary_op(intrinsic),
-                            value,
-                        },
-                        span: expression.span,
-                    });
-                    Ok(destination)
-                }
-                _ => Err(vec![BackendError::new(
+            Implementation::Direct(operation) => {
+                let destination = self.fresh(ty);
+                let kind = match operation {
+                    ScalarOperation::Unary(op) => AssignmentKind::Unary {
+                        op,
+                        value: self.lower_value(&arguments[0], assignments)?,
+                    },
+                    ScalarOperation::Binary(op) => AssignmentKind::Primitive {
+                        op,
+                        left: self.lower_value(&arguments[0], assignments)?,
+                        right: self.lower_value(&arguments[1], assignments)?,
+                    },
+                };
+                assignments.push(Assignment {
+                    destination,
+                    kind,
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
+            Implementation::Elaborated | Implementation::Unsupported => {
+                Err(vec![BackendError::invalid_ir(
                     "P8 closure conversion",
                     expression.span,
-                    "intrinsic has no closure-conversion lowering",
-                )]),
-            },
+                    "intrinsic requires elaboration or has no runtime implementation",
+                )])
+            }
         }
     }
 }

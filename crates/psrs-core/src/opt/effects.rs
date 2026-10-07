@@ -1,11 +1,11 @@
 use crate::{Expr, ExprKind};
-use psrs_hir::Intrinsic;
 
 /// Conservative evaluation effects relevant to call-by-value rewrites.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Effects {
     pub may_call: bool,
     pub may_trap: bool,
+    pub may_write: bool,
 }
 
 impl Effects {
@@ -13,11 +13,12 @@ impl Effects {
         Self {
             may_call: self.may_call || other.may_call,
             may_trap: self.may_trap || other.may_trap,
+            may_write: self.may_write || other.may_write,
         }
     }
 
     pub fn inert(self) -> bool {
-        !self.may_call && !self.may_trap
+        !self.may_call && !self.may_trap && !self.may_write
     }
 }
 
@@ -49,6 +50,7 @@ fn summarize_inner(expression: &Expr) -> Effects {
         ExprKind::Global(_) => Effects {
             may_call: true,
             may_trap: true,
+            may_write: true,
         },
         // Creating a closure does not run its body. Function identity is not
         // observable in Core, and capture reads are inert local lookups.
@@ -64,8 +66,10 @@ fn summarize_inner(expression: &Expr) -> Effects {
             arguments,
         } => {
             let arguments = combine_all(arguments.iter().map(summarize));
+            let effects = intrinsic.descriptor().effects;
             Effects {
-                may_trap: intrinsic_may_trap(*intrinsic) || arguments.may_trap,
+                may_trap: effects.may_trap || arguments.may_trap,
+                may_write: effects.may_write || arguments.may_write,
                 ..arguments
             }
         }
@@ -80,6 +84,7 @@ fn summarize_inner(expression: &Expr) -> Effects {
         ExprKind::Application(_, _) => Effects {
             may_call: true,
             may_trap: true,
+            may_write: true,
         },
         ExprKind::Let { bindings, body } => combine_all(
             bindings
@@ -115,32 +120,11 @@ fn combine_all(effects: impl IntoIterator<Item = Effects>) -> Effects {
         .fold(Effects::default(), Effects::combine)
 }
 
-/// Whether an intrinsic can trap. The byte conversions validate their input,
-/// the array operations can trap on a missing or out-of-range index, and the
-/// truncating and Euclidean division operations trap on a zero divisor.
-/// Numeric string conversions can trap while allocating transient buffers.
-fn intrinsic_may_trap(intrinsic: Intrinsic) -> bool {
-    matches!(
-        intrinsic,
-        Intrinsic::ArrayIndex
-            | Intrinsic::ArrayUpdate
-            | Intrinsic::ArrayFill
-            | Intrinsic::ArrayWrite
-            | Intrinsic::StringToBytes
-            | Intrinsic::BytesToString
-            | Intrinsic::NumberFromDecimal
-            | Intrinsic::NumberToString
-            | Intrinsic::I32DivS
-            | Intrinsic::I32RemS
-            | Intrinsic::IntDiv
-            | Intrinsic::IntMod
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::TypeId;
+    use psrs_hir::Intrinsic;
 
     fn intrinsic(intrinsic: Intrinsic, arguments: Vec<Expr>) -> Expr {
         Expr {

@@ -6,7 +6,6 @@ use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
 use crate::cc::{self, AssignmentKind};
 use crate::mir::instruction::Instruction;
-use crate::mir::scalar_helpers::ScalarHelpers;
 use crate::types::{FunctionId, HeapType, ValueDecl, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -18,7 +17,7 @@ mod assignment_array;
 mod assignment_string;
 mod assignments;
 mod conversion_helpers;
-mod number_string;
+mod runtime_call;
 mod tail;
 mod variant;
 pub(super) use conversion_helpers::ConversionHelpers;
@@ -46,7 +45,6 @@ pub(super) fn lower_function(
     source: &cc::Function,
     id: FunctionId,
     wit_imports: &HashMap<SymbolId, BoundWasiImport>,
-    scalar_helpers: &ScalarHelpers,
     layout: &PlannedLayout,
     conversion_helpers: Option<&mut ConversionHelpers>,
     literals: Option<&mut StringLiterals>,
@@ -80,7 +78,6 @@ pub(super) fn lower_function(
             .max()
             .map_or(0, |max| max + 1),
         wit_imports,
-        scalar_helpers,
         layout,
         conversion_helpers,
         literals,
@@ -118,7 +115,6 @@ pub(super) struct FunctionLowerer<'a> {
     values: Vec<ValueDecl>,
     next_value: u32,
     wit_imports: &'a HashMap<SymbolId, BoundWasiImport>,
-    scalar_helpers: &'a ScalarHelpers,
     pub(in crate::mir) layout: &'a PlannedLayout,
     conversion_helpers: Option<&'a mut ConversionHelpers>,
     literals: Option<&'a mut StringLiterals>,

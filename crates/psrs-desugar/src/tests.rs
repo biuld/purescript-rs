@@ -5,14 +5,14 @@ use psrs_span::TextRange;
 #[test]
 fn lowers_operator_to_applications_and_preserves_source_ranges() {
     let module_id = ModuleId(0);
-    let operator_id = Intrinsic::I32Add.symbol();
+    let operator_id = Intrinsic::IntAdd.symbol();
     let module = hir::Module {
         id: module_id,
         name: "Main".into(),
         externals: vec![hir::ExternalSymbol {
             symbol: operator_id,
             name: "+".into(),
-            kind: ExternalKind::Intrinsic(Intrinsic::I32Add),
+            kind: ExternalKind::Intrinsic(Intrinsic::IntAdd),
             signature: None,
         }],
         imports: Vec::new(),

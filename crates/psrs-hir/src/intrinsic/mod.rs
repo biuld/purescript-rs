@@ -6,8 +6,10 @@
 //! category, and type scheme — lives in [`registry`], and each pass interprets
 //! it in its own representation.
 
+mod effects;
 mod registry;
 
+pub use effects::IntrinsicEffects;
 pub use registry::{IntrinsicCategory, IntrinsicDescriptor};
 
 use crate::{ModuleId, SymbolId};
@@ -15,103 +17,101 @@ use crate::{ModuleId, SymbolId};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u32)]
 pub enum Intrinsic {
-    BoolTrue,
-    BoolFalse,
-    I32Add,
-    I32Sub,
-    I32Mul,
-    I32DivS,
-    I32RemS,
-    I32Eq,
-    I32Ne,
-    I32LtS,
-    I32LeS,
-    I32GtS,
-    I32GeS,
-    ArrayLength,
-    ArrayIndex,
-    ArrayUpdate,
-    IntNeg,
-    IntComplement,
-    NumberNeg,
-    BooleanNot,
-    IntToNumber,
-    NumberToInt,
-    BooleanToInt,
-    IntToBoolean,
-    CharToInt,
-    IntToChar,
-    IntDiv,
-    IntMod,
-    IntAnd,
-    IntOr,
-    IntXor,
-    IntShl,
-    IntShr,
-    IntZshr,
-    NumberAdd,
-    NumberSub,
-    NumberMul,
-    NumberDiv,
-    NumberEq,
-    NumberNe,
-    NumberLt,
-    NumberLe,
-    NumberGt,
-    NumberGe,
-    BooleanAnd,
-    BooleanOr,
-    BooleanEq,
-    BooleanNe,
-    CharEq,
-    CharNe,
-    CharLt,
-    CharLe,
-    CharGt,
-    CharGe,
+    BoolTrue = 0,
+    BoolFalse = 1,
+    IntAdd = 2,
+    IntSub = 3,
+    IntMul = 4,
+    IntQuot = 5,
+    IntRem = 6,
+    IntEq = 7,
+    IntNe = 8,
+    IntLt = 9,
+    IntLe = 10,
+    IntGt = 11,
+    IntGe = 12,
+    ArrayLength = 13,
+    ArrayIndex = 14,
+    ArrayUpdate = 15,
+    IntNeg = 16,
+    IntComplement = 17,
+    NumberNeg = 18,
+    BooleanNot = 19,
+    IntToNumber = 20,
+    NumberToInt = 21,
+    BooleanToInt = 22,
+    IntToBoolean = 23,
+    CharToInt = 24,
+    IntToChar = 25,
+    IntAnd = 28,
+    IntOr = 29,
+    IntXor = 30,
+    IntShl = 31,
+    IntShr = 32,
+    IntZshr = 33,
+    NumberAdd = 34,
+    NumberSub = 35,
+    NumberMul = 36,
+    NumberDiv = 37,
+    NumberEq = 38,
+    NumberNe = 39,
+    NumberLt = 40,
+    NumberLe = 41,
+    NumberGt = 42,
+    NumberGe = 43,
+    BooleanAnd = 44,
+    BooleanOr = 45,
+    BooleanEq = 46,
+    BooleanNe = 47,
+    CharEq = 48,
+    CharNe = 49,
+    CharLt = 50,
+    CharLe = 51,
+    CharGt = 52,
+    CharGe = 53,
     /// A source `String`'s canonical UTF-8 bytes as an `Array Int`. A source
     /// string is a sequence of Unicode scalar values, so this is lossless and
     /// never fails
     /// ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
-    StringToBytes,
+    StringToBytes = 54,
     /// An `Array Int` as a source `String`. Each element must be a canonical
     /// byte and the bytes must be well-formed UTF-8; either violation traps
     /// rather than producing replacement text.
-    BytesToString,
+    BytesToString = 55,
     /// Source-level `Safe.Coerce.coerce`, elaborated to a checked coercion.
-    Coerce,
+    Coerce = 56,
     /// The compiler-provided partial value `Prim.undefined`, whose type is
     /// `forall a. a`. It has no runtime representation yet, so the stages that
     /// would have to choose one report it instead of inventing it.
-    Undefined,
+    Undefined = 57,
     /// The one `Unit` value, written `unit` or `()`. A compiler primitive rather
     /// than a nullary constructor, because `Unit` is a builtin type here.
-    Unit,
+    Unit = 58,
     /// Source-level `Array.append`: concatenates two arrays of the same element
     /// type into a fresh array. A compiler primitive because building an array
     /// of a computed length has no source spelling; the library's
     /// `Semigroup (Array a)` instance and `Semigroup String` are its users.
-    ArrayAppend,
+    ArrayAppend = 59,
     /// Source-level `Unsafe.Coerce.unsafeCoerce`, the unchecked representation
     /// coercion (`unsafeCoerce#`). Unlike `Coerce` it carries no `Coercible`
     /// proof; it is a representation-preserving cast at the value's erased
     /// boundary.
-    UnsafeCoerce,
+    UnsafeCoerce = 60,
     /// Allocate a fresh array fully initialized with one checked element.
-    ArrayFill,
+    ArrayFill = 61,
     /// Unsafe in-place write; returns the same array. Library internals only.
-    ArrayWrite,
-    NumberToString,
+    ArrayWrite = 62,
+    NumberToString = 63,
     /// Truncate an IEEE-754 Number toward zero, retaining its Number representation.
-    NumberTrunc,
+    NumberTrunc = 64,
     /// Round a Number toward negative infinity.
-    NumberFloor,
+    NumberFloor = 65,
     /// Round a Number toward positive infinity.
-    NumberCeil,
+    NumberCeil = 66,
     /// Convert a complete ASCII decimal token to binary64; invalid tokens return NaN.
-    NumberFromDecimal,
+    NumberFromDecimal = 67,
     /// Clear the binary64 sign bit, including negative zero and NaN.
-    NumberAbs,
+    NumberAbs = 68,
 }
 
 impl Intrinsic {
@@ -132,22 +132,25 @@ impl Intrinsic {
             .find(|value| value.descriptor().name == name)
     }
 
-    /// Every variant, in discriminant order. `bootstrap_externals` builds the
+    /// Retired floor-division identities; these slots must never be reused.
+    pub const RESERVED_IDS: [u32; 2] = [26, 27];
+
+    /// Every active variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 69] = [
+    pub const ALL: [Intrinsic; 67] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
-        Intrinsic::I32Add,
-        Intrinsic::I32Sub,
-        Intrinsic::I32Mul,
-        Intrinsic::I32DivS,
-        Intrinsic::I32RemS,
-        Intrinsic::I32Eq,
-        Intrinsic::I32Ne,
-        Intrinsic::I32LtS,
-        Intrinsic::I32LeS,
-        Intrinsic::I32GtS,
-        Intrinsic::I32GeS,
+        Intrinsic::IntAdd,
+        Intrinsic::IntSub,
+        Intrinsic::IntMul,
+        Intrinsic::IntQuot,
+        Intrinsic::IntRem,
+        Intrinsic::IntEq,
+        Intrinsic::IntNe,
+        Intrinsic::IntLt,
+        Intrinsic::IntLe,
+        Intrinsic::IntGt,
+        Intrinsic::IntGe,
         Intrinsic::ArrayLength,
         Intrinsic::ArrayIndex,
         Intrinsic::ArrayUpdate,
@@ -161,8 +164,6 @@ impl Intrinsic {
         Intrinsic::IntToBoolean,
         Intrinsic::CharToInt,
         Intrinsic::IntToChar,
-        Intrinsic::IntDiv,
-        Intrinsic::IntMod,
         Intrinsic::IntAnd,
         Intrinsic::IntOr,
         Intrinsic::IntXor,
@@ -207,15 +208,17 @@ impl Intrinsic {
     ];
 }
 
-// `ALL` lists every discriminant exactly once: its length is the highest
-// discriminant plus one, and the values are unique. A new variant therefore
+// Active and reserved identities cover every stable discriminant exactly once.
+// Retired identities cannot be reused by a later operation. A new variant therefore
 // cannot be added and silently left out of the bootstrap name table.
 const _: () = {
     assert!(
-        Intrinsic::ALL.len() == Intrinsic::NumberAbs as u32 as usize + 1,
+        Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len()
+            == Intrinsic::NumberAbs as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
-    let mut seen: u128 = 0;
+    let mut seen: u128 =
+        (1u128 << Intrinsic::RESERVED_IDS[0]) | (1u128 << Intrinsic::RESERVED_IDS[1]);
     let mut index = 0;
     while index < Intrinsic::ALL.len() {
         let bit = 1u128 << (Intrinsic::ALL[index] as u32);

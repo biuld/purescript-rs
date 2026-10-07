@@ -209,3 +209,17 @@ compiler and Wasm digests, and execution observations. Source/API evidence and
 the library-owned oracle are committed with the pinned library revision. The
 full workspace suite and new corpus scoreboards were not run under the explicit
 validation scope; no source syntax or diagnostic behavior changed.
+
+## Intrinsic selection and consumer ABI correction (2026-10-07)
+
+The backend now owns an exhaustive intrinsic implementation catalog, including
+direct operations and generated representation operations as well as artifacts.
+Artifact enumeration derives from that selection. The runtime supplies raw
+signatures and value protocols, while CC/MIR own checked language adaptation.
+
+Artifact requirements use actual MIR consumer signatures, independently of the
+provider descriptor. The earlier formatter path supplied both signatures from
+the provider catalog and therefore did not verify the consumer. New rejection
+fixtures cover parameter width/count, missing/wrong results and GC references;
+reserved generated helpers also reject wrong signatures and string layouts.
+See [the measured acceptance record](intrinsic-implementations-2026-10-07.md).

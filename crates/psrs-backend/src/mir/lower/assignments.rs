@@ -91,28 +91,31 @@ impl FunctionLowerer<'_> {
                         )?;
                         continue;
                     }
-                    let instruction = self.scalar_helpers.binary_instruction(
-                        *op,
-                        assignment.destination,
-                        *left,
-                        *right,
-                        assignment.span,
-                    )?;
+                    let operation = super::super::NumericOp::try_from(*op).map_err(|op| {
+                        vec![BackendError::invalid_ir(
+                            "P9 MIR lowering",
+                            assignment.span,
+                            format!("unsupported scalar operation {op:?}"),
+                        )]
+                    })?;
+                    let instruction = Instruction::Primitive {
+                        destination: assignment.destination,
+                        op: operation,
+                        left: *left,
+                        right: *right,
+                        span: assignment.span,
+                    };
                     self.append_instruction(current, instruction, assignment.span)?;
                 }
-                AssignmentKind::NumberToString { value } => {
-                    self.lower_number_to_string(
+                AssignmentKind::RuntimeCall {
+                    intrinsic,
+                    arguments,
+                } => {
+                    self.lower_runtime_call(
                         current,
                         assignment.destination,
-                        *value,
-                        assignment.span,
-                    )?;
-                }
-                AssignmentKind::NumberFromDecimal { value } => {
-                    self.lower_number_from_decimal(
-                        current,
-                        assignment.destination,
-                        *value,
+                        *intrinsic,
+                        arguments,
                         assignment.span,
                     )?;
                 }
