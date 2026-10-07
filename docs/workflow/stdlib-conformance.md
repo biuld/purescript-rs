@@ -136,3 +136,20 @@ back to original text; raw UTF-16 observations are recorded separately.
 Negative-relative/clamping policies remain official, while DEC-16 intentionally
 changes index units. This is a projected oracle, not raw-JS equality on
 supplementary characters. Case engines and evidence live in the library package.
+
+For scalar character indexing and single-character conversion:
+
+```sh
+node ../psrs-stdlib/conformance/string-characters.mjs \
+  /private/tmp/ps-pkgs/purescript-strings /tmp/psrs-character-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-character-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-character-runtime
+```
+
+The shared String source verifier checks all seven typed foreign-slot delegates.
+The character engine records 269 pinned-FFI projection observations separately
+from 6 target-helper rank-N builder checks. Supplementary scalars intentionally
+differ from raw JS code units under DEC-16; raw official results remain in the
+observations. Public charAt and toChar wrappers execute unchanged.

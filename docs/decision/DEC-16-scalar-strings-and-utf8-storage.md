@@ -146,8 +146,14 @@ library. The library scans validated canonical UTF-8 and maps scalar indices
 to byte boundaries before copying a range through PSRS.Array.sliceImpl. The
 448-case pinned-FFI projection oracle makes the intentional scalar/UTF-16
 difference explicit; see the [acceptance checkpoint](../implementation/stdlib/string-slicing-2026-10-07/report.md).
-Other foreign slots, including character indexing and predicate traversal,
-remain unsupported. This does not establish the full String API.
+Scalar charAt and toChar now also execute through typed foreign-slot delegates.
+The private library decoder reconstructs one scalar from validated canonical
+UTF-8 before using the existing Int-to-Char identity primitive. The original
+rank-N constructors and public pure wrappers are preserved. Their 269 projected
+FFI observations and 6 builder checks are recorded in the
+[character checkpoint](../implementation/stdlib/string-characters-2026-10-07/report.md).
+Other foreign slots, including unsafe character indexing and predicate
+traversal, remain unsupported. This does not establish the full String API.
 
 This record is the semantic authority. The design documents state the contract,
 including
