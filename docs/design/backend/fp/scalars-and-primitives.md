@@ -156,6 +156,7 @@ chosen mapping is:
 | `IntComplement` | `I32Complement` | `x ^ -1` |
 | `NumberNeg` | `F64Neg` | `f64.neg` |
 | `NumberAbs` | `F64Abs` | `f64.abs` |
+| `NumberSqrt` | `F64Sqrt` | `f64.sqrt` |
 | `NumberTrunc` | `F64Trunc` | `f64.trunc` |
 | `NumberFloor` / `NumberCeil` | `F64Floor` / `F64Ceil` | `f64.floor` / `f64.ceil` |
 | `BooleanNot` | `BoolNot` | `i32.eqz` |
@@ -197,6 +198,13 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   or library-name recognition is involved. The primitive remains explicit for
   constant operands; no new constant folding is claimed. See the
   [WebAssembly absolute-value semantics](https://webassembly.github.io/spec/core/exec/numerics.html#op-fabs).
+- `NumberSqrt` (`numberSqrt :: Number -> Number`) lowers to `f64.sqrt`. It
+  follows IEEE-754 square root: exact squares stay exact, positive infinity
+  stays positive infinity, a negative finite value or negative infinity becomes
+  NaN, NaN stays NaN, and negative zero stays negative zero. The operation does
+  not trap. It implements the official Data.Number.sqrt foreign slot and is not
+  folded when its operand is constant. See the
+  [WebAssembly square-root semantics](https://webassembly.github.io/spec/core/exec/numerics.html#op-fsqrt).
 - Comparisons use the ordered `f64` operations; `NumberEq`/`NumberNe` are
   `f64.eq`/`f64.ne`, so `NaN` is unequal to itself and `+0 = -0`.
 - The current vocabulary has no `Number` remainder. If the standard library

@@ -112,6 +112,9 @@ pub enum Intrinsic {
     NumberFromDecimal = 67,
     /// Clear the binary64 sign bit, including negative zero and NaN.
     NumberAbs = 68,
+    /// IEEE-754 square root. Negative finite inputs and NaN produce NaN.
+    /// Negative zero remains negative zero. The operation does not trap.
+    NumberSqrt = 69,
 }
 
 impl Intrinsic {
@@ -137,7 +140,7 @@ impl Intrinsic {
 
     /// Every active variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 67] = [
+    pub const ALL: [Intrinsic; 68] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::IntAdd,
@@ -205,6 +208,7 @@ impl Intrinsic {
         Intrinsic::NumberCeil,
         Intrinsic::NumberFromDecimal,
         Intrinsic::NumberAbs,
+        Intrinsic::NumberSqrt,
     ];
 }
 
@@ -214,7 +218,7 @@ impl Intrinsic {
 const _: () = {
     assert!(
         Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len()
-            == Intrinsic::NumberAbs as u32 as usize + 1,
+            == Intrinsic::NumberSqrt as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 =

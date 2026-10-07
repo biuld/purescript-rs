@@ -95,5 +95,6 @@ Library evidence, with the package fingerprint unchanged during each run:
   `020e5fbf004c167f74f3a149a8f40d84bb0f9a68424187db5f9f42d960194674`. Wasmtime
   executed that artifact with exit 42 and empty stdout and stderr.
 
-This refactor does not establish whole-stdlib runtime completion. `Data.Number.sqrt`
-remains blocked by unsupported target FFI.
+This refactor does not establish whole-stdlib runtime completion. Number
+square root has a separate checked `f64.sqrt` acceptance. Other Number foreign
+slots, including `Data.Number.acos`, remain without target support.

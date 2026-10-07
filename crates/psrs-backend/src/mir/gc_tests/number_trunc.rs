@@ -30,6 +30,17 @@ fn optimized_and_unoptimized_number_floor_and_ceil_preserve_sign_and_range() {
 }
 
 #[test]
+fn optimized_and_unoptimized_number_sqrt_preserves_negative_zero_and_exact_squares() {
+    check_number_unary(
+        crate::cc::UnaryOp::NumberSqrt,
+        -0.0,
+        4294967296.0,
+        65536.0,
+        true,
+    );
+}
+
+#[test]
 fn optimized_and_unoptimized_number_abs_clear_zero_sign_and_preserve_magnitude() {
     check_number_unary(
         crate::cc::UnaryOp::NumberAbs,

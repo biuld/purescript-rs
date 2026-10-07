@@ -27,6 +27,10 @@ impl Structurer<'_> {
                 body.push(Op::Leaf(Instruction::LocalGet(value_local)));
                 body.push(Op::Leaf(Instruction::F64Abs));
             }
+            UnaryOp::F64Sqrt => {
+                body.push(Op::Leaf(Instruction::LocalGet(value_local)));
+                body.push(Op::Leaf(Instruction::F64Sqrt));
+            }
             UnaryOp::F64Neg => {
                 body.push(Op::Leaf(Instruction::LocalGet(value_local)));
                 body.push(Op::Leaf(Instruction::F64Neg));

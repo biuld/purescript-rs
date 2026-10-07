@@ -75,6 +75,7 @@ pub(crate) fn implementation(intrinsic: Intrinsic) -> Implementation {
         Intrinsic::IntComplement => Direct(ScalarOperation::Unary(UnaryOp::IntComplement)),
         Intrinsic::NumberNeg => Direct(ScalarOperation::Unary(UnaryOp::NumberNeg)),
         Intrinsic::NumberAbs => Direct(ScalarOperation::Unary(UnaryOp::NumberAbs)),
+        Intrinsic::NumberSqrt => Direct(ScalarOperation::Unary(UnaryOp::NumberSqrt)),
         Intrinsic::NumberTrunc => Direct(ScalarOperation::Unary(UnaryOp::NumberTrunc)),
         Intrinsic::NumberFloor => Direct(ScalarOperation::Unary(UnaryOp::NumberFloor)),
         Intrinsic::NumberCeil => Direct(ScalarOperation::Unary(UnaryOp::NumberCeil)),

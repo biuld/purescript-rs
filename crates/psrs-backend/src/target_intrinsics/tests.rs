@@ -35,6 +35,7 @@ fn language_renaming_preserves_stable_symbols_and_retired_slots() {
         (Intrinsic::IntToChar, 25),
         (Intrinsic::IntAnd, 28),
         (Intrinsic::NumberAbs, 68),
+        (Intrinsic::NumberSqrt, 69),
     ] {
         assert_eq!(intrinsic.symbol().index, id);
     }

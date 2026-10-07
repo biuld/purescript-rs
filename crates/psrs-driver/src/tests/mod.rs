@@ -23,6 +23,7 @@ mod library_foreign;
 mod number_abs;
 mod number_decimal;
 mod number_rounding;
+mod number_sqrt;
 mod number_trunc;
 mod operators;
 mod partial_application;

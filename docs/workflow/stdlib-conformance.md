@@ -272,3 +272,18 @@ signs. Cases include binary64 subnormals, nonfinite values, magnitudes beyond
 i32, and deterministic generated bit patterns. The compiler's checked
 numberAbs primitive selects f64.abs; the library retains its original public
 Number signature and pure declarations.
+
+For Number square root through the same public-call shape:
+
+```sh
+node ../psrs-stdlib/conformance/number-sqrt.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers /tmp/psrs-number-sqrt-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-number-sqrt-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-number-sqrt-runtime
+```
+
+The generator invokes the pinned official sqrt FFI. Negative zero stays
+negative zero, and negative inputs produce NaN. The compiler's checked
+numberSqrt primitive selects f64.sqrt.

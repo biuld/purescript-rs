@@ -25,6 +25,7 @@ pub(super) fn verify_unary(
             (ValueType::I32, ValueType::I32)
         }
         UnaryOp::F64Abs
+        | UnaryOp::F64Sqrt
         | UnaryOp::F64Neg
         | UnaryOp::F64Trunc
         | UnaryOp::F64Floor
