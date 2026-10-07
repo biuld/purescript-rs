@@ -38,6 +38,7 @@ fn language_renaming_preserves_stable_symbols_and_retired_slots() {
         (Intrinsic::NumberSqrt, 69),
         (Intrinsic::NumberAcos, 70),
         (Intrinsic::NumberAsin, 71),
+        (Intrinsic::NumberAtan, 72),
     ] {
         assert_eq!(intrinsic.symbol().index, id);
     }

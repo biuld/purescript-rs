@@ -319,3 +319,19 @@ The generator invokes the pinned official asin FFI. Finite inputs in [-1, 1]
 match that FFI, and negative zero stays negative zero. Values outside the
 interval produce NaN. The compiler's checked numberAsin primitive calls the
 scalar numeric-runtime export. Wasm has no inverse-sine instruction.
+
+For Number inverse tangent through the same public-call shape:
+
+```sh
+node ../psrs-stdlib/conformance/number-atan.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers /tmp/psrs-number-atan-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-number-atan-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-number-atan-runtime
+```
+
+The generator invokes the pinned official atan FFI. Every finite input and
+both infinities match that FFI, and negative zero stays negative zero. NaN
+produces NaN. The compiler's checked numberAtan primitive calls the scalar
+numeric-runtime export. Wasm has no inverse-tangent instruction.

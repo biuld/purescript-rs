@@ -28,7 +28,9 @@ impl IntrinsicEffects {
             | NumberMul | NumberDiv | NumberEq | NumberNe | NumberLt | NumberLe | NumberGt
             | NumberGe | BooleanAnd | BooleanOr | BooleanEq | BooleanNe | CharEq | CharNe
             | CharLt | CharLe | CharGt | CharGe | Coerce | Unit | NumberTrunc | NumberFloor
-            | NumberCeil | NumberAbs | NumberSqrt | NumberAcos | NumberAsin => Self::default(),
+            | NumberCeil | NumberAbs | NumberSqrt | NumberAcos | NumberAsin | NumberAtan => {
+                Self::default()
+            }
         }
     }
 }

@@ -219,6 +219,16 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   infinities, and NaN produce NaN, and the operation does not trap. NaN
   payloads are not a public guarantee. It implements the official
   Data.Number.asin foreign slot and is not folded when its operand is constant.
+- `NumberAtan` (`numberAtan :: Number -> Number`) uses the same checked
+  scalar-runtime boundary. The runtime copies the pinned libm 0.2.15 fdlibm
+  polynomial and returns radians, preserving the sign of zero. Inputs whose
+  magnitude is below 2^-27, including subnormals, return unchanged. The copy
+  omits the host underflow flag because Wasm has no floating-point status
+  flags and must not write below the stack pointer. Positive and negative
+  infinity produce positive and negative pi/2. NaN produces NaN, and the
+  operation does not trap. NaN payloads are not a public guarantee. It
+  implements the official Data.Number.atan foreign slot and is not folded
+  when its operand is constant.
 - Comparisons use the ordered `f64` operations; `NumberEq`/`NumberNe` are
   `f64.eq`/`f64.ne`, so `NaN` is unequal to itself and `+0 = -0`.
 - The current vocabulary has no `Number` remainder. If the standard library

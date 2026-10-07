@@ -23,6 +23,7 @@ mod library_foreign;
 mod number_abs;
 mod number_acos;
 mod number_asin;
+mod number_atan;
 mod number_decimal;
 mod number_rounding;
 mod number_sqrt;
