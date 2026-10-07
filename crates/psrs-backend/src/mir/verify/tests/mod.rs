@@ -98,13 +98,22 @@ fn rejects_a_unary_primitive_with_mistyped_operands() {
         result_type: ValueType::I32,
         span: span(),
     };
-    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("unary operand or result type")),
-        "{errors:?}"
-    );
+    for op in [crate::mir::UnaryOp::F64Neg, crate::mir::UnaryOp::F64Trunc] {
+        let mut function = function.clone();
+        function.blocks[0].instructions[0] = Instruction::UnaryPrimitive {
+            destination: output,
+            op,
+            value: input,
+            span: span(),
+        };
+        let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("unary operand or result type")),
+            "{errors:?}"
+        );
+    }
 }
 
 #[test]

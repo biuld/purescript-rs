@@ -215,3 +215,22 @@ IEEE-754 values at i32 boundaries, fractions, subnormals, signed zeros, overflow
 NaN and infinities. Target Int canonicalizes both Number zero signs to integer
 zero; official negative-zero metadata is retained. The shared source verifier
 now permits exactly four typed foreign-slot adaptations.
+
+For finite Number classification and Number/Int truncation:
+
+```sh
+node ../psrs-stdlib/conformance/number-trunc.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers /private/tmp/ps-pkgs/purescript-integers \
+  /tmp/psrs-number-trunc-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-number-trunc-oracle/Main.purs \
+  --expected-exit 42 --out /tmp/psrs-number-trunc-runtime
+```
+
+The engine verifies both pinned full-module transformations. It executes actual
+Number isFinite/trunc FFI for 49 inputs and composes Int clamp expectations from
+unchanged official source rules, producing 147 public API checks. Reciprocal
+observations distinguish Number zero signs; Int uses its single integer zero.
+Raw snapshots and runtime reports remain local and regenerable; commit only
+source, case engines and concise acceptance reports.

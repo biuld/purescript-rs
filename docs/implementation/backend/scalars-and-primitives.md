@@ -377,3 +377,38 @@ Implementation deviation: the worked example names the helpers
 `__psrs_euclidean_int_div`/`__psrs_euclidean_int_mod`. The names are cosmetic
 and the tests assert the emitted names; the design's symbol-allocation and
 operand contract are satisfied.
+
+## Number truncation extension (2026-10-07)
+
+This extension adds NumberTrunc to SP-03 and SP-07; the existing NumberToInt
+saturation contract remains separate. The HIR registry owns numberTrunc's
+Number -> Number scheme. Core verification, CC lowering/verification and MIR
+numeric lowering/verification preserve that contract; Wasm emits f64.trunc.
+These mappings are in intrinsic/registry.rs, core/verify/types/mod.rs,
+cc/lower/scalar.rs, cc/verify/scalar.rs, mir/numeric.rs,
+mir/verify/instruction/unary.rs and wasm/lower/structure/unary.rs.
+
+SP-07 and SP-12 execution is supplied by driver tests/number_trunc.rs::
+number_trunc_preserves_number_range_nonfinite_values_and_signed_zero and
+backend mir/gc_tests/number_trunc.rs::
+optimized_and_unoptimized_number_trunc_preserve_zero_sign_and_range.
+The source test executes fractions, values beyond i32, both zero signs,
+NaN and infinities. The CC fixture executes both unoptimized and optimized
+MIR, observes negative zero by reciprocal sign, and retains a Number beyond
+i32 range. Both artifacts return 42 under Wasmtime 49.0.2.
+
+SP-11 rejection evidence extends the existing CC/MIR malformed unary operand
+tests to NumberTrunc/F64Trunc. The source test
+number_trunc_checks_foreign_operand_and_result_contracts additionally rejects
+unused wrong operand, result and polymorphic foreign schemes. The tested
+revision is c13a078 plus this extension; local raw reports remain regenerable.
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::number_trunc
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend optimized_and_unoptimized_number_trunc
+```
+
+Both focused commands pass (2 source tests and 1 optimization test; execution
+is mandatory). Integrated validation and the unchanged standard-library wrapper
+checks are recorded in the [checkpoint](../stdlib/number-trunc-2026-10-07.md).
+This extension does not claim support for other Number rounding operations.

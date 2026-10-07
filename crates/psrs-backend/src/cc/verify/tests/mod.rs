@@ -244,7 +244,14 @@ fn rejects_a_unary_operation_with_the_wrong_operand_shape() {
         span: TextRange::new(0, 1),
     };
 
-    assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+    for op in [
+        super::super::UnaryOp::NumberNeg,
+        super::super::UnaryOp::NumberTrunc,
+    ] {
+        let mut function = function.clone();
+        function.assignments[0].kind = AssignmentKind::Unary { op, value: input };
+        assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+    }
 }
 
 #[test]

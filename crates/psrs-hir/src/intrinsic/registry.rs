@@ -104,6 +104,7 @@ descriptors! {
     IntNeg => "intNeg", 1, UnaryScalar, scheme::int_int;
     IntComplement => "intComplement", 1, UnaryScalar, scheme::int_int;
     NumberNeg => "numberNeg", 1, UnaryScalar, scheme::number_number;
+    NumberTrunc => "numberTrunc", 1, UnaryScalar, scheme::number_number;
     BooleanNot => "booleanNot", 1, UnaryScalar, scheme::boolean_boolean;
     IntToNumber => "intToNumber", 1, UnaryScalar, scheme::int_number;
     NumberToInt => "numberToInt", 1, UnaryScalar, scheme::number_int;

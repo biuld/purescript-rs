@@ -49,7 +49,7 @@ pub(super) fn verify_unary_operation(
         IntNeg | IntComplement | CharToInt | IntToChar => {
             (ValueShape::Integer, ValueShape::Integer)
         }
-        NumberNeg => (ValueShape::Number, ValueShape::Number),
+        NumberNeg | NumberTrunc => (ValueShape::Number, ValueShape::Number),
         BooleanNot => (ValueShape::Boolean, ValueShape::Boolean),
         IntToNumber => (ValueShape::Integer, ValueShape::Number),
         NumberToInt => (ValueShape::Number, ValueShape::Integer),

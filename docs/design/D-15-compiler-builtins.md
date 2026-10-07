@@ -381,6 +381,11 @@ its schemes, and each representation's intrinsic module owns the per-operation
 verification, folding, and lowering. Core has no per-operation expression node and
 no scalar `Primitive`/`UnaryPrimitive` enum.
 
+`numberTrunc :: Number -> Number` is a unary scalar primitive. Core and each
+backend representation check its operand/result contract before lowering to
+Wasm `f64.trunc`. It retains Number range, signed zeros and nonfinite behavior;
+integer saturation and library clamping remain separate operations.
+
 The surface operators `+`, `*`, `==`, `/=`, `<`, `<=`, `>`, and `>=` are now
 library classes — `Data.Semiring`, `Data.Eq`, `Data.Ord` — over internal
 primitives, and `Prelude` re-exports them, matching official PureScript. A source

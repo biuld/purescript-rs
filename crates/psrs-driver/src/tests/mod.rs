@@ -19,6 +19,7 @@ mod functor;
 mod guard_coverage;
 mod let_constraints;
 mod library_foreign;
+mod number_trunc;
 mod operators;
 mod partial_application;
 mod primitive_foreign;

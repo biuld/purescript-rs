@@ -157,6 +157,7 @@ chosen mapping is:
 | `IntNeg` | `I32Neg` | `0 - x` |
 | `IntComplement` | `I32Complement` | `x ^ -1` |
 | `NumberNeg` | `F64Neg` | `f64.neg` |
+| `NumberTrunc` | `F64Trunc` | `f64.trunc` |
 | `BooleanNot` | `BoolNot` | `i32.eqz` |
 | `IntToNumber` | `I32ToF64` | `f64.convert_i32_s` |
 | `NumberToInt` | `F64ToI32Sat` | saturating sequence (below) |
@@ -204,6 +205,16 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
 - `Char` reuses the signed integer comparisons; `CharToInt` and `IntToChar`
   are representation identities, and the source layer is responsible for the
   validity of the scalar value.
+
+### Number truncation
+
+`NumberTrunc` (`numberTrunc :: Number -> Number`) lowers to `f64.trunc`:
+finite values round toward zero without converting to i32. It preserves zero
+signs and infinities; NaN produces NaN without a payload-bit guarantee. Core,
+CC and MIR verify Number/F64 operand and result types. The primitive remains
+available for constant operands even when the MIR optimizer does not fold it.
+The library uses it for the official Data.Number.trunc foreign slot; public
+Int.trunc retains its official finite check and range clamping wrapper.
 
 ### Conversions
 
@@ -454,7 +465,7 @@ combinations through Wasm GC and check the combined boolean result.
 The CC and MIR vocabularies, lowerings, and verifiers implement the full unary
 and binary set above. The source bootstrap exposes the operations that do not
 already have symbolic integer syntax as specialized functions: `intNeg`,
-`intComplement`, `numberNeg`, `booleanNot`, the six conversion names from the
+`intComplement`, `numberNeg`, `numberTrunc`, `booleanNot`, the six conversion names from the
 table (`intToNumber`, `numberToInt`, `booleanToInt`, `intToBoolean`,
 `charToInt`, and `intToChar`), `intDiv`, `intMod`, the six integer bitwise
 and shift names, all `number*`, `boolean*`, and `char*` binary names in the
