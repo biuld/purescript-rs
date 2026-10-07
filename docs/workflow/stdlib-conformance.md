@@ -303,3 +303,19 @@ The generator invokes the pinned official acos FFI. Finite inputs in [-1, 1]
 match that FFI. Values outside the interval produce NaN. The compiler's
 checked numberAcos primitive calls the scalar numeric-runtime export. Wasm
 has no inverse-cosine instruction.
+
+For Number inverse sine through the same public-call shape:
+
+```sh
+node ../psrs-stdlib/conformance/number-asin.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers /tmp/psrs-number-asin-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-number-asin-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-number-asin-runtime
+```
+
+The generator invokes the pinned official asin FFI. Finite inputs in [-1, 1]
+match that FFI, and negative zero stays negative zero. Values outside the
+interval produce NaN. The compiler's checked numberAsin primitive calls the
+scalar numeric-runtime export. Wasm has no inverse-sine instruction.

@@ -213,6 +213,12 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   public guarantee. It implements the official Data.Number.acos foreign slot.
   A whole inverse-cosine algorithm does not become a compiler intrinsic, and
   the result is not folded when its operand is constant.
+- `NumberAsin` (`numberAsin :: Number -> Number`) uses the same checked
+  scalar-runtime boundary. The pinned libm 0.2.15 fdlibm polynomial returns
+  radians and preserves the sign of zero. Finite inputs outside [-1, 1],
+  infinities, and NaN produce NaN, and the operation does not trap. NaN
+  payloads are not a public guarantee. It implements the official
+  Data.Number.asin foreign slot and is not folded when its operand is constant.
 - Comparisons use the ordered `f64` operations; `NumberEq`/`NumberNe` are
   `f64.eq`/`f64.ne`, so `NaN` is unequal to itself and `+0 = -0`.
 - The current vocabulary has no `Number` remainder. If the standard library

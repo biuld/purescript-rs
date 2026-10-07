@@ -118,6 +118,10 @@ pub enum Intrinsic {
     /// Inverse cosine in radians. Finite inputs outside [-1, 1], infinities,
     /// and NaN produce NaN. The operation does not trap.
     NumberAcos = 70,
+    /// Inverse sine in radians. Finite inputs outside [-1, 1], infinities,
+    /// and NaN produce NaN. Negative zero remains negative zero. The operation
+    /// does not trap.
+    NumberAsin = 71,
 }
 
 impl Intrinsic {
@@ -143,7 +147,7 @@ impl Intrinsic {
 
     /// Every active variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 69] = [
+    pub const ALL: [Intrinsic; 70] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::IntAdd,
@@ -213,6 +217,7 @@ impl Intrinsic {
         Intrinsic::NumberAbs,
         Intrinsic::NumberSqrt,
         Intrinsic::NumberAcos,
+        Intrinsic::NumberAsin,
     ];
 }
 
@@ -222,7 +227,7 @@ impl Intrinsic {
 const _: () = {
     assert!(
         Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len()
-            == Intrinsic::NumberAcos as u32 as usize + 1,
+            == Intrinsic::NumberAsin as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 =

@@ -111,6 +111,7 @@ descriptors! {
     NumberAbs => "numberAbs", 1, Unary, scheme::number_number;
     NumberSqrt => "numberSqrt", 1, Unary, scheme::number_number;
     NumberAcos => "numberAcos", 1, Unary, scheme::number_number;
+    NumberAsin => "numberAsin", 1, Unary, scheme::number_number;
     NumberCeil => "numberCeil", 1, Unary, scheme::number_number;
     BooleanNot => "booleanNot", 1, Unary, scheme::boolean_boolean;
     IntToNumber => "intToNumber", 1, Unary, scheme::int_number;

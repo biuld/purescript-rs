@@ -98,6 +98,7 @@ pub(crate) fn implementation(intrinsic: Intrinsic) -> Implementation {
         Intrinsic::NumberToString => Artifact(&target_runtime::NUMBER_FORMAT),
         Intrinsic::NumberFromDecimal => Artifact(&target_runtime::NUMBER_PARSE),
         Intrinsic::NumberAcos => Artifact(&target_runtime::NUMBER_ACOS),
+        Intrinsic::NumberAsin => Artifact(&target_runtime::NUMBER_ASIN),
         Intrinsic::BoolTrue | Intrinsic::BoolFalse | Intrinsic::Unit | Intrinsic::Coerce => {
             Elaborated
         }

@@ -40,6 +40,13 @@ pub(crate) const NUMBER_ACOS: ArtifactImplementation = ArtifactImplementation {
     artifact: &psrs_runtime::NUMBER_RUNTIME,
 };
 
+pub(crate) const NUMBER_ASIN: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberAsin,
+    symbol: crate::abi::NUMBER_ASIN_SYMBOL,
+    abi: &psrs_runtime::NUMBER_ASIN,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
 /// The registered implementation for a MIR import symbol, if any.
 pub(crate) fn for_symbol(symbol: SymbolId) -> Option<&'static ArtifactImplementation> {
     crate::target_intrinsics::artifacts().find(|implementation| symbol == implementation.symbol)

@@ -7,7 +7,7 @@
 //!   the compiler-owned formatter artifact with its provenance and storage
 //!   contract. It links no executable target code.
 //! - Feature `formatter` compiles the numeric formatting, complete-decimal
-//!   conversion, and inverse-cosine exports, built for `wasm32-unknown-unknown`
+//!   conversion, and inverse trigonometric exports, built for `wasm32-unknown-unknown`
 //!   and embedded as the pinned artifact. It embeds neither WIT text nor the
 //!   catalog.
 //!
@@ -25,11 +25,15 @@ pub use catalog::*;
 #[cfg(feature = "formatter")]
 mod acos;
 #[cfg(feature = "formatter")]
+mod asin;
+#[cfg(feature = "formatter")]
 mod decimal;
 #[cfg(feature = "formatter")]
 mod formatter;
 #[cfg(feature = "formatter")]
 pub use acos::number_acos;
+#[cfg(feature = "formatter")]
+pub use asin::number_asin;
 #[cfg(feature = "formatter")]
 pub use decimal::number_from_decimal;
 #[cfg(feature = "formatter")]
@@ -45,6 +49,8 @@ pub const NUMBER_EXPORT: &str = "number_to_string";
 pub const DECIMAL_EXPORT: &str = "number_from_decimal";
 /// Exported raw inverse-cosine function.
 pub const ACOS_EXPORT: &str = "number_acos";
+/// Exported raw inverse-sine function.
+pub const ASIN_EXPORT: &str = "number_asin";
 /// Lower addresses remain owned by the application's canonical ABI.
 pub const RESERVED_START: u32 = 65536;
 /// Static data must end before the separately reserved 64 KiB stack.
@@ -104,6 +110,13 @@ pub const NUMBER_PARSE: RawFunctionAbi = RawFunctionAbi {
 
 pub const NUMBER_ACOS: RawFunctionAbi = RawFunctionAbi {
     export: ACOS_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_ASIN: RawFunctionAbi = RawFunctionAbi {
+    export: ASIN_EXPORT,
     parameters: &[RawType::F64],
     result: Some(RawType::F64),
     protocol: RawCallProtocol::Scalars,
