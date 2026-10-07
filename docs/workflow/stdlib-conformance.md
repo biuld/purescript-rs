@@ -118,3 +118,21 @@ node ../psrs-stdlib/tools/conformance.mjs run \
 These observations execute target helpers. Public `Data.Array` wrapper execution
 remains blocked by unsupported `Data.Array.ST` bindings in its import closure;
 helper acceptance does not establish public API or whole-library acceptance.
+
+For scalar string length and slicing:
+
+```sh
+node ../psrs-stdlib/conformance/string-slicing.mjs \
+  /private/tmp/ps-pkgs/purescript-strings /tmp/psrs-string-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-string-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-string-runtime
+```
+
+The generator verifies the five typed foreign-slot delegates and evaluates the
+pinned official FFI on a one-BMP-unit-per-scalar projection. Scalar results map
+back to original text; raw UTF-16 observations are recorded separately.
+Negative-relative/clamping policies remain official, while DEC-16 intentionally
+changes index units. This is a projected oracle, not raw-JS equality on
+supplementary characters. Case engines and evidence live in the library package.
