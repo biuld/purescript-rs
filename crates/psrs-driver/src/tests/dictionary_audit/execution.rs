@@ -78,7 +78,7 @@ fn recursive_instance_context_executes() {
 /// are its dictionaries, in declared order, before the ordinary argument.
 #[test]
 fn constrained_dictionary_parameters_precede_ordinary_arguments() {
-    let (fixture, entry) = ordered_dictionaries_module();
+    let (fixture, entry) = ordered_dictionaries_module(false);
     let mut core = psrs_core::lower_module(fixture).expect("ordered dictionary fixture lowers");
     core.entry = Some(entry);
     let declaration = core
@@ -98,9 +98,10 @@ fn constrained_dictionary_parameters_precede_ordinary_arguments() {
         "dictionary parameters must lead the ordinary argument"
     );
 
-    let (fixture, entry) = ordered_dictionaries_module();
-    let stages = compile_fixture("ordered_dictionaries", fixture, entry);
-    let cc_function = stages
+    core.verify().expect("ordered dictionary Core verifies");
+    let backend_input =
+        psrs_backend::cc::lower_module(core).expect("ordered dictionary Core lowers to CC");
+    let cc_function = backend_input
         .cc
         .functions
         .iter()
@@ -130,16 +131,44 @@ fn constrained_dictionary_parameters_precede_ordinary_arguments() {
         psrs_backend::cc::ValueShape::Integer,
         "the ordinary argument must follow the dictionaries"
     );
-    let mir_function = stages
-        .mir
+    // Optimization may inline and remove this function. Inspect the calling
+    // convention at the lowering boundary where it is established.
+    let (mir, _) = psrs_backend::mir::lower_module_with_bindings(
+        backend_input.cc,
+        backend_input.externals,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .expect("ordered dictionary CC lowers to MIR");
+    let mir_function = mir
         .functions
         .iter()
         .find(|function| function.name == "constrained")
         .expect("MIR constrained function");
-    assert_eq!(mir_function.parameters.len(), 3);
+    let parameter_types = mir_function
+        .parameters
+        .iter()
+        .map(|parameter| {
+            &mir_function
+                .values
+                .iter()
+                .find(|value| value.id == *parameter)
+                .expect("declared MIR parameter value")
+                .ty
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(parameter_types.len(), 3);
+    assert!(
+        parameter_types[..2]
+            .iter()
+            .all(|ty| matches!(ty, psrs_backend::types::ValueType::Ref(_))),
+        "dictionary references must lead the MIR parameters: {parameter_types:?}"
+    );
+    assert_eq!(*parameter_types[2], psrs_backend::types::ValueType::I32);
 
-    let (fixture, entry) = ordered_dictionaries_module();
-    expect_fixture_exit("ordered_dictionaries", fixture, entry, 42);
+    for (second_accepts, expected) in [(false, 42), (true, 0)] {
+        let (fixture, entry) = ordered_dictionaries_module(second_accepts);
+        expect_fixture_exit("ordered_dictionaries", fixture, entry, expected);
+    }
 }
 
 /// DICT-06, DICT-10: a `let`-bound dictionary is constructed once in the

@@ -79,19 +79,37 @@ fn captures_number_values_in_closures() {
 
 #[test]
 fn compiles_if_expression_through_cfg_to_structured_wasm() {
-    let source =
-        "module Main where\nchoose condition = if condition then 9 else 2\nmain = choose true\n";
-    let artifact = compile_source("Main.purs", source).unwrap();
-    // The unified reducible structurer lowers a diamond to nested `block`
-    // regions with depth-relative branches, not a result-typed `if`.
-    assert!(artifact.wat.contains("block"));
-    assert!(artifact.wat.contains("br_if"));
-    assert!(artifact.wasm.len() > 8);
-    let Some(output) = run_with_wasmtime(source) else {
-        eprintln!("skipping: wasmtime is not installed");
-        return;
-    };
-    assert_eq!(output.status.code(), Some(9));
+    for (condition, expected) in [("true", 9), ("false", 2)] {
+        let source = format!(
+            "module Main where\n\
+             apply :: (Boolean -> Int) -> Boolean -> Int\n\
+             apply f condition = f condition\n\
+             choose condition = if condition then 9 else 2\n\
+             main = apply choose {condition}\n"
+        );
+        // Inspect the diamond at MIR lowering, and pass `choose` as a function
+        // value so the current optimizer retains its runtime branch body.
+        // The final encoding is free to choose any equivalent control flow.
+        let mir = lower_source_to_mir(&source);
+        let choose = mir
+            .functions
+            .iter()
+            .find(|function| function.name == "choose")
+            .expect("unoptimized choose function");
+        assert!(choose.blocks.iter().any(|block| matches!(
+            block.terminator,
+            Some(psrs_backend::mir::Terminator::Branch { then_block, else_block, .. })
+                if then_block != else_block
+        )));
+        let Some(output) = run_with_wasmtime(&source) else {
+            return;
+        };
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{condition}: {output:?}"
+        );
+    }
 }
 
 #[test]

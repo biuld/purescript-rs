@@ -7,8 +7,9 @@ use psrs_thir as thir;
 
 /// A constrained binding with two dictionary parameters ahead of its ordinary
 /// argument: `f :: A -> B -> Int -> Int`. The dictionary order is observable
-/// because each dictionary uses a distinct method label.
-pub(crate) fn ordered_dictionaries_module() -> (thir::Module, SymbolId) {
+/// because the first method returns true while the second returns the supplied
+/// Boolean. Both dictionary arguments contribute to the result.
+pub(crate) fn ordered_dictionaries_module(second_accepts: bool) -> (thir::Module, SymbolId) {
     let module_id = ModuleId(0);
     let main = SymbolId::new(module_id, 0);
     let a_dict = SymbolId::new(module_id, 1);
@@ -54,12 +55,53 @@ pub(crate) fn ordered_dictionaries_module() -> (thir::Module, SymbolId) {
     let b_dict_value = typed(
         thir::ExprKind::Record(vec![(
             "b".into(),
-            typed(thir::ExprKind::Global(is_positive), method, span),
+            typed(
+                thir::ExprKind::Lambda {
+                    binder: binder(0, "value", integer, span),
+                    body: Box::new(typed(
+                        thir::ExprKind::Boolean(second_accepts),
+                        boolean,
+                        span,
+                    )),
+                },
+                method,
+                span,
+            ),
         )]),
         dict_b,
         span,
     );
-    // `\da -> \db -> \x -> if da.a x then x else 0`
+    let method_call = |local, dictionary_type, field: &str| {
+        typed(
+            thir::ExprKind::Application(
+                Box::new(typed(
+                    thir::ExprKind::FieldAccess {
+                        expression: Box::new(typed(
+                            thir::ExprKind::Local(LocalId(local)),
+                            dictionary_type,
+                            span,
+                        )),
+                        field: field.into(),
+                    },
+                    method,
+                    span,
+                )),
+                Box::new(typed(thir::ExprKind::Local(LocalId(2)), integer, span)),
+            ),
+            boolean,
+            span,
+        )
+    };
+    let second_check = typed(
+        thir::ExprKind::If {
+            condition: Box::new(method_call(1, dict_b, "b")),
+            then_branch: Box::new(typed(thir::ExprKind::Integer(0), integer, span)),
+            else_branch: Box::new(typed(thir::ExprKind::Local(LocalId(2)), integer, span)),
+        },
+        integer,
+        span,
+    );
+    // `\da -> \db -> \x -> if da.a x then (if db.b x then 0 else x) else 0`
     let constrained_value = typed(
         thir::ExprKind::Lambda {
             binder: binder(0, "da", dict_a, span),
@@ -71,34 +113,8 @@ pub(crate) fn ordered_dictionaries_module() -> (thir::Module, SymbolId) {
                             binder: binder(2, "x", integer, span),
                             body: Box::new(typed(
                                 thir::ExprKind::If {
-                                    condition: Box::new(typed(
-                                        thir::ExprKind::Application(
-                                            Box::new(typed(
-                                                thir::ExprKind::FieldAccess {
-                                                    expression: Box::new(typed(
-                                                        thir::ExprKind::Local(LocalId(0)),
-                                                        dict_a,
-                                                        span,
-                                                    )),
-                                                    field: "a".into(),
-                                                },
-                                                method,
-                                                span,
-                                            )),
-                                            Box::new(typed(
-                                                thir::ExprKind::Local(LocalId(2)),
-                                                integer,
-                                                span,
-                                            )),
-                                        ),
-                                        boolean,
-                                        span,
-                                    )),
-                                    then_branch: Box::new(typed(
-                                        thir::ExprKind::Local(LocalId(2)),
-                                        integer,
-                                        span,
-                                    )),
+                                    condition: Box::new(method_call(0, dict_a, "a")),
+                                    then_branch: Box::new(second_check),
                                     else_branch: Box::new(typed(
                                         thir::ExprKind::Integer(0),
                                         integer,

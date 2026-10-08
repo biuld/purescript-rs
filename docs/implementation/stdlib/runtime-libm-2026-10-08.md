@@ -145,3 +145,9 @@ failures: the driver library had 713 passed and 3 failed; all other workspace
 targets passed. All 12 runtime tests passed, including the three relocated
 inverse-function tests. The complete rerun log is
 `/private/tmp/psrs-runtime-structure-tests.log`.
+
+The three historical test failures above were subsequently corrected by
+checking structure before optimization and strengthening runtime cases; see
+[driver assertions at optimization boundaries](../backend/optimization.md#driver-assertions-at-optimization-boundaries)
+for the subsequent passing workspace validation. That test-only follow-up
+does not change this runtime artifact.

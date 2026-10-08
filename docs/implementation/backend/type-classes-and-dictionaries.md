@@ -139,10 +139,14 @@ DICT-03:
     Core lambda parameters in source order; cc/lower/call/application.rs
     evaluates callee then arguments left to right.
   Tests: dictionary_audit::execution::constrained_dictionary_parameters_precede_ordinary_arguments
-    asserts the Core lambda binder order [da, db, x], compiles the program, and
-    executes it under Wasmtime to exit 42.
-  Input boundary: verified Typed Core.
-  Result: pass; executed.
+    asserts Core binder order [da, db, x] and checks the dictionary-reference,
+    dictionary-reference, integer signature in CC and MIR before optimization.
+    The first method returns true; varying the second method between false
+    and true makes optimized execution return 42 and 0 respectively, so both
+    dictionary positions affect the result. An optimized artifact is not
+    required to retain the constrained function after inlining.
+  Input boundary: verified Typed Core, pre-optimization CC and MIR.
+  Result: pass; both dictionary variants executed under mandatory Wasmtime.
   Gaps: none.
 DICT-04:
   Implementation: crates/psrs-core/src/lower/dictionary.rs (Instance applies the
