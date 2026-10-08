@@ -101,6 +101,19 @@ pub(crate) fn implementation(intrinsic: Intrinsic) -> Implementation {
         Intrinsic::NumberAsin => Artifact(&target_runtime::NUMBER_ASIN),
         Intrinsic::NumberAtan => Artifact(&target_runtime::NUMBER_ATAN),
         Intrinsic::NumberAtan2 => Artifact(&target_runtime::NUMBER_ATAN2),
+        Intrinsic::NumberSin => Artifact(&target_runtime::NUMBER_SIN),
+        Intrinsic::NumberCos => Artifact(&target_runtime::NUMBER_COS),
+        Intrinsic::NumberTan => Artifact(&target_runtime::NUMBER_TAN),
+        Intrinsic::NumberExp => Artifact(&target_runtime::NUMBER_EXP),
+        Intrinsic::NumberLog => Artifact(&target_runtime::NUMBER_LOG),
+        Intrinsic::NumberPow => Artifact(&target_runtime::NUMBER_POW),
+        Intrinsic::NumberMin => Artifact(&target_runtime::NUMBER_MIN),
+        Intrinsic::NumberMax => Artifact(&target_runtime::NUMBER_MAX),
+        Intrinsic::NumberSign => Artifact(&target_runtime::NUMBER_SIGN),
+        Intrinsic::NumberRemainder => Artifact(&target_runtime::NUMBER_REMAINDER),
+        Intrinsic::NumberIsNaN => Artifact(&target_runtime::NUMBER_IS_NAN),
+        Intrinsic::NumberNaN => Artifact(&target_runtime::NUMBER_NAN),
+        Intrinsic::NumberInfinity => Artifact(&target_runtime::NUMBER_INFINITY),
         Intrinsic::BoolTrue | Intrinsic::BoolFalse | Intrinsic::Unit | Intrinsic::Coerce => {
             Elaborated
         }

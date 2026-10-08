@@ -16,9 +16,12 @@ mod definitions;
 mod handles;
 pub(crate) mod layout;
 pub(crate) mod link;
+mod reserved;
 #[cfg(test)]
 mod tests;
 mod validation;
+
+pub(crate) use reserved::*;
 
 use canonical::{
     CanonicalType, FnAbi, Ownership, function_abi, function_abi_from_types,
@@ -81,54 +84,6 @@ pub const HEADER_SIZE: u32 = 8;
 /// The block granularity. It matches the maximum canonical ABI field alignment
 /// (`i64`/`f64`), so block headers and payloads stay aligned.
 pub const MIN_BLOCK: u32 = 8;
-
-/// Reserved MIR symbol for the allocator synthesized after ABI memory layout
-/// is known. Calls to this symbol become calls to the local `cabi_realloc`
-/// function during Wasm lowering; it is never emitted as a core import.
-pub(crate) const REALLOC_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1);
-
-/// Reserved symbols for the string boundary helpers at the canonical ABI.
-/// P10 synthesizes them as ordinary local Wasm functions; like
-/// `REALLOC_SYMBOL` they are never emitted as core imports.
-pub(crate) const STRING_TO_BYTES_SYMBOL: SymbolId =
-    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 2);
-pub(crate) const BYTES_TO_STRING_SYMBOL: SymbolId =
-    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 3);
-
-/// Reserved MIR symbol for the synthesized `validate_step` helper. Like the
-/// other boundary symbols it is never a core import.
-pub(crate) const VALIDATE_STEP_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 4);
-
-/// Intrinsic symbols the MIR lowering reserves for the canonical ABI and the
-/// string boundary. Any other intrinsic-symbol allocator (for example the
-/// aggregate conversion helpers, which allocate downward from `u32::MAX`) must
-/// skip these.
-pub(crate) const NUMBER_TO_STRING_SYMBOL: SymbolId =
-    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 5);
-
-pub(crate) const NUMBER_FROM_DECIMAL_SYMBOL: SymbolId =
-    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 6);
-
-pub(crate) const NUMBER_ACOS_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 7);
-
-pub(crate) const NUMBER_ASIN_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 8);
-
-pub(crate) const NUMBER_ATAN_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 9);
-
-pub(crate) const NUMBER_ATAN2_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 10);
-
-pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 10] = [
-    REALLOC_SYMBOL,
-    STRING_TO_BYTES_SYMBOL,
-    BYTES_TO_STRING_SYMBOL,
-    VALIDATE_STEP_SYMBOL,
-    NUMBER_TO_STRING_SYMBOL,
-    NUMBER_FROM_DECIMAL_SYMBOL,
-    NUMBER_ACOS_SYMBOL,
-    NUMBER_ASIN_SYMBOL,
-    NUMBER_ATAN_SYMBOL,
-    NUMBER_ATAN2_SYMBOL,
-];
 
 /// WASI interfaces and functions the backend itself references. The standard
 /// library names its own imports in source.

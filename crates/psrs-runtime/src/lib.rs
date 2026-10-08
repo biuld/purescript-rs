@@ -7,9 +7,12 @@
 //!   the compiler-owned formatter artifact with its provenance and storage
 //!   contract. It links no executable target code.
 //! - Feature `formatter` compiles the numeric formatting, complete-decimal
-//!   conversion, and inverse trigonometric exports, built for `wasm32-unknown-unknown`
+//!   conversion, and numeric exports, built for `wasm32-unknown-unknown`
 //!   and embedded as the pinned artifact. It embeds neither WIT text nor the
 //!   catalog.
+//!   Scalar math exports and numeric semantic wrappers live in `number`;
+//!   `atan2` retains its separate compatibility algorithm. Decimal parsing
+//!   and number formatting each have their own implementation module.
 //!
 //! The compiler depends on this crate with `default-features = false,
 //! features = ["catalog"]`; the Wasm artifact build uses
@@ -23,29 +26,25 @@ pub mod catalog;
 pub use catalog::*;
 
 #[cfg(feature = "formatter")]
-mod acos;
-#[cfg(feature = "formatter")]
-mod asin;
-#[cfg(feature = "formatter")]
-mod atan;
-#[cfg(feature = "formatter")]
 mod atan2;
 #[cfg(feature = "formatter")]
 mod decimal;
 #[cfg(feature = "formatter")]
 mod formatter;
 #[cfg(feature = "formatter")]
-pub use acos::number_acos;
-#[cfg(feature = "formatter")]
-pub use asin::number_asin;
-#[cfg(feature = "formatter")]
-pub use atan::number_atan;
+mod number;
 #[cfg(feature = "formatter")]
 pub use atan2::number_atan2;
 #[cfg(feature = "formatter")]
 pub use decimal::number_from_decimal;
 #[cfg(feature = "formatter")]
 pub use formatter::number_to_string;
+#[cfg(feature = "formatter")]
+pub use number::{
+    number_acos, number_asin, number_atan, number_cos, number_exp, number_infinity, number_is_nan,
+    number_log, number_max, number_min, number_nan, number_pow, number_remainder, number_sign,
+    number_sin, number_tan,
+};
 
 /// Maximum capacity required by an ECMAScript binary64 token.
 pub const NUMBER_CAPACITY: usize = 32;
@@ -63,6 +62,32 @@ pub const ASIN_EXPORT: &str = "number_asin";
 pub const ATAN_EXPORT: &str = "number_atan";
 /// Exported raw four-quadrant inverse-tangent function.
 pub const ATAN2_EXPORT: &str = "number_atan2";
+/// Exported raw sine function.
+pub const SIN_EXPORT: &str = "number_sin";
+/// Exported raw cosine function.
+pub const COS_EXPORT: &str = "number_cos";
+/// Exported raw tangent function.
+pub const TAN_EXPORT: &str = "number_tan";
+/// Exported raw base-e exponential function.
+pub const EXP_EXPORT: &str = "number_exp";
+/// Exported raw natural-logarithm function.
+pub const LOG_EXPORT: &str = "number_log";
+/// Exported raw exponentiation function.
+pub const POW_EXPORT: &str = "number_pow";
+/// Exported raw minimum function.
+pub const MIN_EXPORT: &str = "number_min";
+/// Exported raw maximum function.
+pub const MAX_EXPORT: &str = "number_max";
+/// Exported raw sign function.
+pub const SIGN_EXPORT: &str = "number_sign";
+/// Exported raw JavaScript remainder function.
+pub const REMAINDER_EXPORT: &str = "number_remainder";
+/// Exported raw NaN predicate. The result is an `i32` 0 or 1.
+pub const IS_NAN_EXPORT: &str = "number_is_nan";
+/// Exported raw canonical NaN.
+pub const NAN_EXPORT: &str = "number_nan";
+/// Exported raw positive infinity.
+pub const INFINITY_EXPORT: &str = "number_infinity";
 /// Lower addresses remain owned by the application's canonical ABI.
 pub const RESERVED_START: u32 = 65536;
 /// Static data must end before the separately reserved 64 KiB stack.
@@ -144,6 +169,97 @@ pub const NUMBER_ATAN: RawFunctionAbi = RawFunctionAbi {
 pub const NUMBER_ATAN2: RawFunctionAbi = RawFunctionAbi {
     export: ATAN2_EXPORT,
     parameters: &[RawType::F64, RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_SIN: RawFunctionAbi = RawFunctionAbi {
+    export: SIN_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_COS: RawFunctionAbi = RawFunctionAbi {
+    export: COS_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_TAN: RawFunctionAbi = RawFunctionAbi {
+    export: TAN_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_EXP: RawFunctionAbi = RawFunctionAbi {
+    export: EXP_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_LOG: RawFunctionAbi = RawFunctionAbi {
+    export: LOG_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_POW: RawFunctionAbi = RawFunctionAbi {
+    export: POW_EXPORT,
+    parameters: &[RawType::F64, RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_MIN: RawFunctionAbi = RawFunctionAbi {
+    export: MIN_EXPORT,
+    parameters: &[RawType::F64, RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_MAX: RawFunctionAbi = RawFunctionAbi {
+    export: MAX_EXPORT,
+    parameters: &[RawType::F64, RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_SIGN: RawFunctionAbi = RawFunctionAbi {
+    export: SIGN_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_REMAINDER: RawFunctionAbi = RawFunctionAbi {
+    export: REMAINDER_EXPORT,
+    parameters: &[RawType::F64, RawType::F64],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_IS_NAN: RawFunctionAbi = RawFunctionAbi {
+    export: IS_NAN_EXPORT,
+    parameters: &[RawType::F64],
+    result: Some(RawType::I32),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_NAN: RawFunctionAbi = RawFunctionAbi {
+    export: NAN_EXPORT,
+    parameters: &[],
+    result: Some(RawType::F64),
+    protocol: RawCallProtocol::Scalars,
+};
+
+pub const NUMBER_INFINITY: RawFunctionAbi = RawFunctionAbi {
+    export: INFINITY_EXPORT,
+    parameters: &[],
     result: Some(RawType::F64),
     protocol: RawCallProtocol::Scalars,
 };

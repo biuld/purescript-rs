@@ -11,7 +11,11 @@ apply f value = f value
 positiveInfinity = 1.0 / 0.0
 negativeInfinity = negative positiveInfinity
 nan = 0.0 / 0.0
-checks = Number.atan 0.0 == 0.0
+tiny = 5.0e-324
+checks = tiny > 0.0
+  && Number.atan tiny == tiny
+  && Number.atan (negative tiny) == negative tiny
+  && Number.atan 0.0 == 0.0
   && 1.0 / Number.atan 0.0 == positiveInfinity
   && 1.0 / Number.atan (negative 0.0) == negativeInfinity
   && Number.atan 1.0 == 0.7853981633974483

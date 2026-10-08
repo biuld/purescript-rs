@@ -61,6 +61,97 @@ pub(crate) const NUMBER_ATAN2: ArtifactImplementation = ArtifactImplementation {
     artifact: &psrs_runtime::NUMBER_RUNTIME,
 };
 
+pub(crate) const NUMBER_SIN: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberSin,
+    symbol: crate::abi::NUMBER_SIN_SYMBOL,
+    abi: &psrs_runtime::NUMBER_SIN,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_COS: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberCos,
+    symbol: crate::abi::NUMBER_COS_SYMBOL,
+    abi: &psrs_runtime::NUMBER_COS,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_TAN: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberTan,
+    symbol: crate::abi::NUMBER_TAN_SYMBOL,
+    abi: &psrs_runtime::NUMBER_TAN,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_EXP: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberExp,
+    symbol: crate::abi::NUMBER_EXP_SYMBOL,
+    abi: &psrs_runtime::NUMBER_EXP,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_LOG: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberLog,
+    symbol: crate::abi::NUMBER_LOG_SYMBOL,
+    abi: &psrs_runtime::NUMBER_LOG,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_POW: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberPow,
+    symbol: crate::abi::NUMBER_POW_SYMBOL,
+    abi: &psrs_runtime::NUMBER_POW,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_MIN: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberMin,
+    symbol: crate::abi::NUMBER_MIN_SYMBOL,
+    abi: &psrs_runtime::NUMBER_MIN,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_MAX: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberMax,
+    symbol: crate::abi::NUMBER_MAX_SYMBOL,
+    abi: &psrs_runtime::NUMBER_MAX,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_SIGN: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberSign,
+    symbol: crate::abi::NUMBER_SIGN_SYMBOL,
+    abi: &psrs_runtime::NUMBER_SIGN,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_REMAINDER: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberRemainder,
+    symbol: crate::abi::NUMBER_REMAINDER_SYMBOL,
+    abi: &psrs_runtime::NUMBER_REMAINDER,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_IS_NAN: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberIsNaN,
+    symbol: crate::abi::NUMBER_IS_NAN_SYMBOL,
+    abi: &psrs_runtime::NUMBER_IS_NAN,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_NAN: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberNaN,
+    symbol: crate::abi::NUMBER_NAN_SYMBOL,
+    abi: &psrs_runtime::NUMBER_NAN,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
+pub(crate) const NUMBER_INFINITY: ArtifactImplementation = ArtifactImplementation {
+    intrinsic: Intrinsic::NumberInfinity,
+    symbol: crate::abi::NUMBER_INFINITY_SYMBOL,
+    abi: &psrs_runtime::NUMBER_INFINITY,
+    artifact: &psrs_runtime::NUMBER_RUNTIME,
+};
+
 /// The registered implementation for a MIR import symbol, if any.
 pub(crate) fn for_symbol(symbol: SymbolId) -> Option<&'static ArtifactImplementation> {
     crate::target_intrinsics::artifacts().find(|implementation| symbol == implementation.symbol)

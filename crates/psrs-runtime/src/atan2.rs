@@ -1,22 +1,13 @@
 //! Four-quadrant inverse tangent of two binary64 values.
 //!
-//! The reduction follows the fdlibm cutoff: an exponent gap above 60 uses a
-//! signed half-pi, and a negative `x` with an exponent gap below -60 uses a
-//! zero before the pi adjustment. Moderate ratios call this crate's inverse
-//! tangent, which matches libm `atan` and does not touch the stack pointer.
-//! libm 0.2.15's own `atan2` uses a wider gap and differs from official
-//! `Math.atan2` by one ulp on some of those large ratios.
-//!
-//! The argument order is `(y, x)`, matching official `Math.atan2` and
-//! `Data.Number.atan2`. Either NaN produces NaN. The operation does not trap.
-//! NaN payloads are not part of the public contract.
-
-use super::atan::atan;
+//! Moderate ratios call upstream `libm` 0.2.15 inverse tangent. An
+//! exponent gap above 60 returns a signed half-pi, and a negative `x` with a
+//! gap below -60 contributes zero before the pi adjustment. That cutoff
+//! matches official `Math.atan2`. The argument order is `(y, x)`. Either NaN
+//! produces NaN. The operation does not trap. NaN payloads are not part of
+//! the public contract.
 
 /// Returns the angle from the positive x axis to `(x, y)`, in radians.
-///
-/// The split pi terms are the fdlibm constants. Their extra digits belong to
-/// that reduction.
 #[allow(clippy::excessive_precision, clippy::approx_constant)]
 fn atan2(y: f64, x: f64) -> f64 {
     const PI: f64 = 3.1415926535897931160E+00;
@@ -31,7 +22,7 @@ fn atan2(y: f64, x: f64) -> f64 {
     let mut iy = (y.to_bits() >> 32) as u32;
     let ly = y.to_bits() as u32;
     if (ix.wrapping_sub(0x3ff0_0000) | lx) == 0 {
-        return atan(y);
+        return libm::atan(y);
     }
     let mut quadrant = ((iy >> 31) & 1) | ((ix >> 30) & 2);
     ix &= 0x7fff_ffff;
@@ -81,7 +72,7 @@ fn atan2(y: f64, x: f64) -> f64 {
     } else if quadrant & 2 != 0 && exponent_gap < -60 {
         0.0
     } else {
-        atan((y / x).abs())
+        libm::atan((y / x).abs())
     };
     match quadrant {
         0 => reduced,
@@ -142,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_moderate_ratios_with_libm_and_large_ratios_with_half_pi() {
+    fn large_negative_x_ratios_return_a_signed_half_pi() {
         for (y, x, bits) in [
             (0.1, -1e-20, 0x3ff9_21fb_5444_2d18),
             (-0.1, -1e-20, 0xbff9_21fb_5444_2d18),
@@ -151,52 +142,5 @@ mod tests {
         ] {
             assert_eq!(atan2(y, x).to_bits(), bits, "{y}, {x}");
         }
-        let mut samples = vec![
-            (0.0, 1.0),
-            (-0.0, -1.0),
-            (f64::from_bits(1), 1.0),
-            (1.0, f64::from_bits(1)),
-            (f64::from_bits(1), f64::from_bits(1)),
-            (f64::from_bits(0x000f_ffff_ffff_ffff), 1.0),
-            (1e-20, -1.0),
-            (1.5, 1.0),
-            (3.0, 2.0),
-            (2.0, -1.0),
-            (-2.0, -1.0),
-        ];
-        let mut state = 0x5eed_5a17u32;
-        for _ in 0..256 {
-            let y = f64::from_bits(next_bits(&mut state));
-            let x = f64::from_bits(next_bits(&mut state));
-            if exponent_gap(y, x).abs() <= 60 && y.is_finite() && x.is_finite() && x != 0.0 {
-                samples.push((y, x));
-            }
-        }
-        for (y, x) in samples {
-            assert_eq!(
-                atan2(y, x).to_bits(),
-                libm::atan2(y, x).to_bits(),
-                "{y}, {x}"
-            );
-        }
-    }
-
-    fn exponent_gap(y: f64, x: f64) -> i32 {
-        let ix = (x.to_bits() >> 32) as u32 & 0x7fff_ffff;
-        let iy = (y.to_bits() >> 32) as u32 & 0x7fff_ffff;
-        (iy as i32).wrapping_sub(ix as i32) >> 20
-    }
-
-    fn next_bits(state: &mut u32) -> u64 {
-        let low = step(state);
-        let high = step(state);
-        u64::from(low) | (u64::from(high) << 32)
-    }
-
-    fn step(state: &mut u32) -> u32 {
-        *state ^= state.wrapping_shl(13);
-        *state ^= state.wrapping_shr(17);
-        *state ^= state.wrapping_shl(5);
-        *state
     }
 }

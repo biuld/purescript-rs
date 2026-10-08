@@ -163,9 +163,9 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
         rust_toolchain: "1.99.0 (b940084d7 2026-09-28)",
         target: "wasm32-unknown-unknown",
         profile: "target-runtime",
-        recipe: "tools/build.sh: --import-memory --global-base=65536 \
+        recipe: "tools/build.sh: RUSTFLAGS=-C no-redzone=yes; --import-memory --global-base=65536 \
                  -zstack-size=65536 --export=__heap_base, then package",
-        sha256: "e295fd40bcb247ee77b8890107b2dea74838ded7b383895ce8db7c428d0e7ac2",
+        sha256: "75cdd69833e058d014942eafdcd668eb9150e8d098a791871c327daf7bb20c73",
     },
     required_features: &[
         "mutable-globals",
@@ -210,6 +210,71 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
             parameters: &[RawType::F64, RawType::F64],
             result: Some(RawType::F64),
         },
+        RawExport {
+            name: crate::SIN_EXPORT,
+            parameters: &[RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::COS_EXPORT,
+            parameters: &[RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::TAN_EXPORT,
+            parameters: &[RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::EXP_EXPORT,
+            parameters: &[RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::LOG_EXPORT,
+            parameters: &[RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::POW_EXPORT,
+            parameters: &[RawType::F64, RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::MIN_EXPORT,
+            parameters: &[RawType::F64, RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::MAX_EXPORT,
+            parameters: &[RawType::F64, RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::SIGN_EXPORT,
+            parameters: &[RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::REMAINDER_EXPORT,
+            parameters: &[RawType::F64, RawType::F64],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::IS_NAN_EXPORT,
+            parameters: &[RawType::F64],
+            result: Some(RawType::I32),
+        },
+        RawExport {
+            name: crate::NAN_EXPORT,
+            parameters: &[],
+            result: Some(RawType::F64),
+        },
+        RawExport {
+            name: crate::INFINITY_EXPORT,
+            parameters: &[],
+            result: Some(RawType::F64),
+        },
     ],
     global_exports: &[crate::HEAP_BASE_EXPORT],
     tables: &[RawTable {
@@ -220,7 +285,7 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
     elements: &[RawElement {
         table: 0,
         offset: 1,
-        functions: &[27],
+        functions: &[54],
     }],
     globals: &[(true, crate::HEAP_START), (false, crate::HEAP_START)],
     storage: RawStorage {

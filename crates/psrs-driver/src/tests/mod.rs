@@ -26,6 +26,7 @@ mod number_asin;
 mod number_atan;
 mod number_atan2;
 mod number_decimal;
+mod number_elementary;
 mod number_rounding;
 mod number_sqrt;
 mod number_trunc;

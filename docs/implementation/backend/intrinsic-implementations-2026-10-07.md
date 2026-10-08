@@ -98,6 +98,8 @@ Library evidence, with the package fingerprint unchanged during each run:
 This refactor does not establish whole-stdlib runtime completion. Number
 square root has a separate checked `f64.sqrt` acceptance. Number inverse
 cosine, inverse sine, inverse tangent, and four-quadrant inverse tangent
-each have a separate checked scalar-runtime acceptance. Other Number foreign
-slots remain without target support until a fresh diagnosis names the next
-blocker.
+each have a separate checked scalar-runtime acceptance. The remaining
+Data.Number foreigns — sine, cosine, tangent, exponential, logarithm,
+power, minimum, maximum, remainder, sign, `isNaN`, NaN, and infinity — have
+one shared scalar-runtime acceptance. This does not establish whole-stdlib
+runtime completion. A fresh diagnosis still has to name the next module.

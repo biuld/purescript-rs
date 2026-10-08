@@ -40,6 +40,8 @@ fn language_renaming_preserves_stable_symbols_and_retired_slots() {
         (Intrinsic::NumberAsin, 71),
         (Intrinsic::NumberAtan, 72),
         (Intrinsic::NumberAtan2, 73),
+        (Intrinsic::NumberSin, 74),
+        (Intrinsic::NumberInfinity, 86),
     ] {
         assert_eq!(intrinsic.symbol().index, id);
     }

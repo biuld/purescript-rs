@@ -1,5 +1,9 @@
 # Number inverse-tangent acceptance
 
+The implementation and artifact measurements below describe the earlier local
+copy. The current runtime calls unmodified libm 0.2.15 with red-zone use
+disabled; see [the runtime migration](runtime-libm-2026-10-08.md).
+
 ## Contract and implementation
 
 Starting compiler revision: 957b133 on stdlib/vendor-core-libraries, with a

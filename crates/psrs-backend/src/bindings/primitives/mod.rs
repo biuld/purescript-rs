@@ -81,6 +81,7 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
                 | IntrinsicCategory::StringToBytes
                 | IntrinsicCategory::BytesToString
         ) && intrinsic != Intrinsic::UnsafeCoerce
+            && !matches!(intrinsic, Intrinsic::NumberNaN | Intrinsic::NumberInfinity)
         {
             return Err(error(format!(
                 "primitive binding `{}` has no foreign-function implementation yet",

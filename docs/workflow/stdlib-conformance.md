@@ -352,3 +352,23 @@ then `x`. Quadrant boundaries, both zero signs, both infinities, and large
 ratios match that FFI. Either NaN produces NaN. The compiler's checked
 numberAtan2 primitive calls one scalar numeric-runtime export with two
 Number arguments. Wasm has no two-argument inverse-tangent instruction.
+
+For the remaining Number foreigns through the same public-call shape:
+
+```sh
+node ../psrs-stdlib/conformance/number-rest.mjs \
+  /private/tmp/ps-pkgs/purescript-numbers /tmp/psrs-number-rest-oracle
+node ../psrs-stdlib/tools/conformance.mjs run \
+  --compiler ./target/debug/psrs --stdlib-root ../psrs-stdlib \
+  --input /tmp/psrs-number-rest-oracle/Main.purs \
+  --expected-exit 42 --timeout 240 --out /tmp/psrs-number-rest-runtime
+```
+
+The generator invokes the pinned official FFI for `nan`, `isNaN`, `infinity`,
+`cos`, `exp`, `log`, `max`, `min`, `pow`, `remainder`, `sign`, `sin`, and
+`tan`. Each asserted check uses a direct public call and a higher-order call.
+NaN results use inequality. Zero results use a reciprocal so the sign is
+visible. Eight measured inputs where fdlibm 0.2.15 differs from that Node by
+one ulp are recorded in `observations.json` and are not asserted. A separate
+2000-draw sample still finds further one-ulp trigonometric gaps, so this
+oracle does not establish bit identity for every input.

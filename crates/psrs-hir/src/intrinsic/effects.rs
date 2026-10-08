@@ -29,7 +29,9 @@ impl IntrinsicEffects {
             | NumberGe | BooleanAnd | BooleanOr | BooleanEq | BooleanNe | CharEq | CharNe
             | CharLt | CharLe | CharGt | CharGe | Coerce | Unit | NumberTrunc | NumberFloor
             | NumberCeil | NumberAbs | NumberSqrt | NumberAcos | NumberAsin | NumberAtan
-            | NumberAtan2 => Self::default(),
+            | NumberAtan2 | NumberSin | NumberCos | NumberTan | NumberExp | NumberLog
+            | NumberPow | NumberMin | NumberMax | NumberSign | NumberRemainder | NumberIsNaN
+            | NumberNaN | NumberInfinity => Self::default(),
         }
     }
 }

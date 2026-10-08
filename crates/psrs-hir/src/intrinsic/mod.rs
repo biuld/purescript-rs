@@ -130,6 +130,40 @@ pub enum Intrinsic {
     /// of both arguments select the quadrant. Negative zero is preserved when
     /// the result is zero. Either NaN produces NaN. The operation does not trap.
     NumberAtan2 = 73,
+    /// Sine in radians. Infinities produce NaN. The operation does not trap.
+    NumberSin = 74,
+    /// Cosine in radians. Infinities produce NaN. The operation does not trap.
+    NumberCos = 75,
+    /// Tangent in radians. Infinities produce NaN. The operation does not trap.
+    NumberTan = 76,
+    /// Base-e exponential. Overflow produces infinity and underflow produces
+    /// zero. NaN produces NaN. The operation does not trap.
+    NumberExp = 77,
+    /// Natural logarithm. A negative finite input produces NaN, and
+    /// either signed zero produces negative infinity. The operation does not trap.
+    NumberLog = 78,
+    /// Exponentiation. A NaN exponent, or ±1 raised to an infinity, produces
+    /// NaN. An exponent of zero produces 1, including a NaN base. The
+    /// operation does not trap.
+    NumberPow = 79,
+    /// The smaller number. Either NaN produces NaN. A zero result is negative
+    /// when either zero is negative. The operation does not trap.
+    NumberMin = 80,
+    /// The larger number. Either NaN produces NaN. A zero result is negative
+    /// only when both zeros are negative. The operation does not trap.
+    NumberMax = 81,
+    /// Sign: NaN and both zeros are unchanged, and every other value becomes
+    /// ±1. The operation does not trap.
+    NumberSign = 82,
+    /// JavaScript remainder. The sign follows the dividend. Division by zero
+    /// or an infinite dividend produces NaN. The operation does not trap.
+    NumberRemainder = 83,
+    /// NaN predicate. The Boolean result is true for every NaN payload.
+    NumberIsNaN = 84,
+    /// Canonical NaN value.
+    NumberNaN = 85,
+    /// Positive infinity.
+    NumberInfinity = 86,
 }
 
 impl Intrinsic {
@@ -155,7 +189,7 @@ impl Intrinsic {
 
     /// Every active variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 72] = [
+    pub const ALL: [Intrinsic; 85] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::IntAdd,
@@ -228,6 +262,19 @@ impl Intrinsic {
         Intrinsic::NumberAsin,
         Intrinsic::NumberAtan,
         Intrinsic::NumberAtan2,
+        Intrinsic::NumberSin,
+        Intrinsic::NumberCos,
+        Intrinsic::NumberTan,
+        Intrinsic::NumberExp,
+        Intrinsic::NumberLog,
+        Intrinsic::NumberPow,
+        Intrinsic::NumberMin,
+        Intrinsic::NumberMax,
+        Intrinsic::NumberSign,
+        Intrinsic::NumberRemainder,
+        Intrinsic::NumberIsNaN,
+        Intrinsic::NumberNaN,
+        Intrinsic::NumberInfinity,
     ];
 }
 
@@ -237,7 +284,7 @@ impl Intrinsic {
 const _: () = {
     assert!(
         Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len()
-            == Intrinsic::NumberAtan2 as u32 as usize + 1,
+            == Intrinsic::NumberInfinity as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 =

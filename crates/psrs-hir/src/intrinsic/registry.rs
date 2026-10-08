@@ -16,7 +16,7 @@ use psrs_span::TextRange;
 /// term it is, not how any one stage emits it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IntrinsicCategory {
-    /// A nullary value: `true`, `false`, `unit`.
+    /// A nullary value: `true`, `false`, `unit`, or a numeric constant.
     Nullary,
     /// One language argument and a language result.
     Unary,
@@ -114,6 +114,19 @@ descriptors! {
     NumberAsin => "numberAsin", 1, Unary, scheme::number_number;
     NumberAtan => "numberAtan", 1, Unary, scheme::number_number;
     NumberAtan2 => "numberAtan2", 2, BinaryScalar, scheme::number_number_number;
+    NumberSin => "numberSin", 1, Unary, scheme::number_number;
+    NumberCos => "numberCos", 1, Unary, scheme::number_number;
+    NumberTan => "numberTan", 1, Unary, scheme::number_number;
+    NumberExp => "numberExp", 1, Unary, scheme::number_number;
+    NumberLog => "numberLog", 1, Unary, scheme::number_number;
+    NumberPow => "numberPow", 2, BinaryScalar, scheme::number_number_number;
+    NumberMin => "numberMin", 2, BinaryScalar, scheme::number_number_number;
+    NumberMax => "numberMax", 2, BinaryScalar, scheme::number_number_number;
+    NumberSign => "numberSign", 1, Unary, scheme::number_number;
+    NumberRemainder => "numberRemainder", 2, BinaryScalar, scheme::number_number_number;
+    NumberIsNaN => "numberIsNaN", 1, Unary, scheme::number_bool;
+    NumberNaN => "numberNan", 0, Nullary, scheme::number;
+    NumberInfinity => "numberInfinity", 0, Nullary, scheme::number;
     NumberCeil => "numberCeil", 1, Unary, scheme::number_number;
     BooleanNot => "booleanNot", 1, Unary, scheme::boolean_boolean;
     IntToNumber => "intToNumber", 1, Unary, scheme::int_number;
@@ -280,6 +293,14 @@ mod scheme {
 
     pub(super) fn number_number() -> Type {
         unary(BuiltinType::Number, BuiltinType::Number)
+    }
+
+    pub(super) fn number_bool() -> Type {
+        unary(BuiltinType::Number, BuiltinType::Boolean)
+    }
+
+    pub(super) fn number() -> Type {
+        builtin(BuiltinType::Number)
     }
 
     pub(super) fn boolean_boolean() -> Type {

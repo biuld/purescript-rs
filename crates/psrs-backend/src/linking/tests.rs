@@ -33,27 +33,35 @@ fn actual_artifact_consumer_signatures_are_checked_before_emission() {
         assert!(plans(&module(provider.import())));
         let good = provider.import();
         let mut invalid = Vec::new();
-        let mut wrong = good.clone();
-        wrong.parameters[0] = if wrong.parameters[0] == ValueType::I32 {
-            ValueType::F64
+        if good.parameters.is_empty() {
+            // A numeric constant has no parameter to retarget. An added argument is
+            // the arity mismatch that a unary export expresses by dropping one.
+            let mut wrong = good.clone();
+            wrong.parameters.push(ValueType::F64);
+            invalid.push(wrong);
         } else {
-            ValueType::I32
-        };
-        invalid.push(wrong);
-        let mut wrong = good.clone();
-        wrong.parameters.pop();
-        invalid.push(wrong);
+            let mut wrong = good.clone();
+            wrong.parameters[0] = if wrong.parameters[0] == ValueType::I32 {
+                ValueType::F64
+            } else {
+                ValueType::I32
+            };
+            invalid.push(wrong);
+            let mut wrong = good.clone();
+            wrong.parameters.pop();
+            invalid.push(wrong);
+            let mut wrong = good.clone();
+            wrong.parameters[0] = ValueType::Ref(RefType {
+                nullable: true,
+                heap: HeapType::Any,
+            });
+            invalid.push(wrong);
+        }
         let mut wrong = good.clone();
         wrong.result = None;
         invalid.push(wrong);
-        let mut wrong = good.clone();
-        wrong.result = Some(ValueType::I64);
-        invalid.push(wrong);
         let mut wrong = good;
-        wrong.parameters[0] = ValueType::Ref(RefType {
-            nullable: true,
-            heap: HeapType::Any,
-        });
+        wrong.result = Some(ValueType::I64);
         invalid.push(wrong);
         for import in invalid {
             let module = module(import);

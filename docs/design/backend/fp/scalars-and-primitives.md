@@ -207,8 +207,8 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   [WebAssembly square-root semantics](https://webassembly.github.io/spec/core/exec/numerics.html#op-fsqrt).
 - `NumberAcos` (`numberAcos :: Number -> Number`) has no Wasm opcode. Core and
   CC require Number operands and results, then MIR calls the checked scalar
-  export `number_acos` in the numeric runtime. The pinned libm 0.2.15 fdlibm
-  polynomial returns radians. Finite inputs outside [-1, 1], infinities, and
+  export `number_acos` in the numeric runtime. The pinned upstream libm 0.2.15
+  routine returns radians. Finite inputs outside [-1, 1], infinities, and
   NaN produce NaN, and the operation does not trap. NaN payloads are not a
   public guarantee. It implements the official Data.Number.acos foreign slot.
   A whole inverse-cosine algorithm does not become a compiler intrinsic, and
@@ -220,13 +220,13 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   payloads are not a public guarantee. It implements the official
   Data.Number.asin foreign slot and is not folded when its operand is constant.
 - `NumberAtan` (`numberAtan :: Number -> Number`) uses the same checked
-  scalar-runtime boundary. The runtime copies the pinned libm 0.2.15 fdlibm
-  polynomial and returns radians, preserving the sign of zero. Inputs whose
-  magnitude is below 2^-27, including subnormals, return unchanged. The copy
-  omits the host underflow flag because Wasm has no floating-point status
-  flags and must not write below the stack pointer. Positive and negative
-  infinity produce positive and negative pi/2. NaN produces NaN, and the
-  operation does not trap. NaN payloads are not a public guarantee. It
+  scalar-runtime boundary. The runtime calls pinned upstream libm 0.2.15
+  and returns radians, preserving the sign of zero. Inputs whose magnitude
+  is below 2^-27, including subnormals, return unchanged. The artifact build
+  applies `-C no-redzone=yes` to the runtime and its dependencies, so `force_eval` temporaries reserve explicit stack frames
+  that the linker can measure. This routine is neither copied nor patched.
+  Positive and negative infinity produce positive and negative pi/2. NaN
+  produces NaN, and the operation does not trap. NaN payloads are not a public guarantee. It
   implements the official Data.Number.atan foreign slot and is not folded
   when its operand is constant.
 - `NumberAtan2` (`numberAtan2 :: Number -> Number -> Number`) uses the same
@@ -241,12 +241,35 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   NaN payloads are not a public guarantee. It implements the official
   Data.Number.atan2 foreign slot and is not folded when its operands are
   constant. Wasm has no two-argument inverse-tangent instruction.
+- `NumberSin`, `NumberCos`, `NumberTan`, and `NumberExp` use the same checked
+  scalar-runtime boundary. The runtime calls pinned upstream libm 0.2.15
+  with red-zone use disabled for the artifact and its dependencies.
+  Returned bits follow those routines. On a measured sample they usually
+  match official `Math`, and some inputs still differ by one ulp. Infinities
+  produce NaN for the three trigonometric operations. Exponential overflow produces infinity and
+  underflow produces zero. NaN produces NaN. None of these operations trap,
+  and none are folded when an operand is constant. Wasm has no sine, cosine,
+  tangent, or exponential instruction.
+- `NumberLog` and `NumberPow` call pinned libm 0.2.15. `NumberPow` then
+  applies the JavaScript exceptions libm does not: a NaN exponent produces
+  NaN, and ±1 raised to an infinity produces NaN. An exponent of zero still
+  produces 1, including a NaN base. A negative logarithm argument produces
+  NaN, and either signed zero produces negative infinity. Neither operation
+  traps.
+- `NumberMin` and `NumberMax` return NaN when either argument is NaN. A zero
+  minimum is negative when either zero is negative. A zero maximum is negative
+  only when both zeros are negative. They are not IEEE `minNum`.
+- `NumberSign` returns NaN and both zeros unchanged, and every other finite or
+  infinite value becomes ±1.
+- `NumberRemainder` is JavaScript `%`: the exact remainder, with a zero result
+  taking the dividend's sign. An infinite dividend or a zero divisor produces
+  NaN. It does not trap.
+- `NumberIsNaN` is `Number -> Boolean` and is true for every NaN payload.
+  `NumberNaN` and `NumberInfinity` are nullary Number constants. Only these two
+  nullary primitives are accepted as foreign bindings. Negative infinity is
+  negation of `NumberInfinity`.
 - Comparisons use the ordered `f64` operations; `NumberEq`/`NumberNe` are
   `f64.eq`/`f64.ne`, so `NaN` is unequal to itself and `+0 = -0`.
-- The current vocabulary has no `Number` remainder. If the standard library
-  exposes one, it needs a helper that realizes the required semantics (for
-  example the JavaScript `%` semantics `x - trunc(x / y) * y`), decided when
-  that operation is added.
 
 ### Boolean and character operations
 

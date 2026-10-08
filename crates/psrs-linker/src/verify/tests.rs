@@ -12,22 +12,18 @@ fn number_format_contract() -> ArtifactContract {
         elements: vec![crate::DeclaredElement {
             table: 0,
             offset: 1,
-            functions: vec![27],
+            functions: vec![54],
         }],
         id: "psrs:runtime-number".into(),
         kind: ArtifactKind::CoreModule,
         module_name: psrs_runtime::MODULE_NAME.into(),
         sha256: psrs_runtime::NUMBER_RUNTIME.provenance.sha256.into(),
         provenance: "test".into(),
-        required_features: [
-            "mutable-globals",
-            "sign-extension",
-            "bulk-memory",
-            "reference-types",
-        ]
-        .into_iter()
-        .map(str::to_string)
-        .collect(),
+        required_features: psrs_runtime::NUMBER_RUNTIME
+            .required_features
+            .iter()
+            .map(|feature| (*feature).to_string())
+            .collect(),
         imports: vec![DeclaredImport {
             module: psrs_runtime::MEMORY_MODULE.into(),
             field: psrs_runtime::MEMORY_FIELD.into(),
@@ -84,6 +80,110 @@ fn number_format_contract() -> ArtifactContract {
                 kind: ExportKind::Func,
                 signature: Some(CoreSignature {
                     parameters: vec![CoreType::F64, CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::SIN_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::COS_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::TAN_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::EXP_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::LOG_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::POW_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64, CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::MIN_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64, CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::MAX_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64, CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::SIGN_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::REMAINDER_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64, CoreType::F64],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::IS_NAN_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![CoreType::F64],
+                    result: Some(CoreType::I32),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::NAN_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![],
+                    result: Some(CoreType::F64),
+                }),
+            },
+            DeclaredExport {
+                name: psrs_runtime::INFINITY_EXPORT.into(),
+                kind: ExportKind::Func,
+                signature: Some(CoreSignature {
+                    parameters: vec![],
                     result: Some(CoreType::F64),
                 }),
             },
@@ -252,7 +352,18 @@ fn a_valid_but_undeclared_eager_initializer_is_rejected() {
     let text = wasmprinter::print_bytes(psrs_runtime::NUMBER_RUNTIME.bytes).unwrap();
     let prefix = text.trim_end().strip_suffix(')').unwrap();
     let bytes = wat::parse_str(format!("{prefix}(func $eager) (start $eager))")).unwrap();
-    wasmparser::Validator::new()
+    // The pinned numeric artifact uses saturating truncation. The default
+    // validator leaves that proposal off, so this check uses the same feature
+    // set as static stack analysis.
+    use wasmparser::WasmFeatures as F;
+    let features = F::MVP
+        | F::MUTABLE_GLOBAL
+        | F::SIGN_EXTENSION
+        | F::SATURATING_FLOAT_TO_INT
+        | F::MULTI_VALUE
+        | F::BULK_MEMORY
+        | F::REFERENCE_TYPES;
+    wasmparser::Validator::new_with_features(features)
         .validate_all(&bytes)
         .expect("valid initializer module");
     let mut contract = number_format_contract();

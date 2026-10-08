@@ -5,9 +5,10 @@
 //! rules as the expressions they replaced. A mismatch is a lowering bug rather
 //! than a source error, so every check is an internal verification error.
 
-use super::super::types::{primitive_types, unary_primitive_types};
-use super::{Context, compatible};
-use crate::Expr;
+use super::super::types::{primitive_type_id, primitive_types, unary_primitive_types};
+use super::super::{compatible, error};
+use super::Context;
+use crate::{Expr, TypeConstructor};
 use psrs_hir::{Intrinsic, IntrinsicCategory};
 
 impl Context<'_> {
@@ -33,6 +34,24 @@ impl Context<'_> {
             }
             Intrinsic::StringToBytes => self.verify_string_to_bytes(expression, &arguments[0]),
             Intrinsic::BytesToString => self.verify_bytes_to_string(expression, &arguments[0]),
+            Intrinsic::NumberNaN | Intrinsic::NumberInfinity => {
+                if !arguments.is_empty() {
+                    self.errors.push(error(
+                        self.owner,
+                        expression.span,
+                        "a numeric constant has no arguments",
+                    ));
+                }
+                let result = primitive_type_id(self.module, TypeConstructor::Number);
+                compatible(
+                    result,
+                    expression.ty,
+                    self.module,
+                    self.owner,
+                    expression.span,
+                    self.errors,
+                );
+            }
             _ => match intrinsic.descriptor().category {
                 IntrinsicCategory::BinaryScalar => {
                     let (operand, result) = primitive_types(intrinsic, self.module);

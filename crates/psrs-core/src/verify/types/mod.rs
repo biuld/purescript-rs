@@ -50,7 +50,11 @@ pub(super) fn primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId,
         | Intrinsic::NumberSub
         | Intrinsic::NumberMul
         | Intrinsic::NumberDiv
-        | Intrinsic::NumberAtan2 => (Number, Number),
+        | Intrinsic::NumberAtan2
+        | Intrinsic::NumberPow
+        | Intrinsic::NumberMin
+        | Intrinsic::NumberMax
+        | Intrinsic::NumberRemainder => (Number, Number),
         Intrinsic::NumberEq
         | Intrinsic::NumberNe
         | Intrinsic::NumberLt
@@ -83,7 +87,14 @@ pub(super) fn unary_primitive_types(intrinsic: Intrinsic, module: &Module) -> (T
         | Intrinsic::NumberSqrt
         | Intrinsic::NumberAcos
         | Intrinsic::NumberAsin
-        | Intrinsic::NumberAtan => (Number, Number),
+        | Intrinsic::NumberAtan
+        | Intrinsic::NumberSin
+        | Intrinsic::NumberCos
+        | Intrinsic::NumberTan
+        | Intrinsic::NumberExp
+        | Intrinsic::NumberLog
+        | Intrinsic::NumberSign => (Number, Number),
+        Intrinsic::NumberIsNaN => (Number, Boolean),
         Intrinsic::BooleanNot => (Boolean, Boolean),
         Intrinsic::IntToNumber => (Int, Number),
         Intrinsic::NumberToInt => (Number, Int),
