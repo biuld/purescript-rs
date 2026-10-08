@@ -32,9 +32,9 @@ use psrs_span::TextRange;
 pub(super) fn signatures(string: DefinedTypeId) -> (FuncType, FuncType, FuncType) {
     use crate::abi;
     (
-        super::generated_signature(abi::STRING_TO_BYTES_SYMBOL, Some(string)),
-        super::generated_signature(abi::BYTES_TO_STRING_SYMBOL, Some(string)),
-        super::generated_signature(abi::VALIDATE_STEP_SYMBOL, Some(string)),
+        generated_signature(abi::STRING_TO_BYTES_SYMBOL, Some(string)),
+        generated_signature(abi::BYTES_TO_STRING_SYMBOL, Some(string)),
+        generated_signature(abi::VALIDATE_STEP_SYMBOL, Some(string)),
     )
 }
 
@@ -53,4 +53,20 @@ pub(super) fn synthesize(
         decode::bytes_to_string(string_type, validate_step_index, bytes_to_string_type, span),
         decode::validate_step(validate_step_type, span),
     ]
+}
+
+fn generated_signature(
+    symbol: psrs_hir::SymbolId,
+    string: Option<crate::types::DefinedTypeId>,
+) -> FuncType {
+    let signature = crate::target_intrinsics::generated::signature(symbol, string)
+        .expect("the selected generated helper has a concrete signature");
+    FuncType {
+        parameters: signature
+            .parameters
+            .into_iter()
+            .map(super::val_type)
+            .collect(),
+        results: signature.result.into_iter().map(super::val_type).collect(),
+    }
 }

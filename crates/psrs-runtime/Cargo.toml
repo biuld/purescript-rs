@@ -12,13 +12,17 @@ default = ["catalog", "formatter"]
 # Immutable host-consumed catalog data: WIT sources, world identity, artifact
 # bytes and provenance. Compiles no executable target code.
 catalog = []
-# The executable numeric exports. The Wasm artifact build enables only this
-# feature; the default native build enables both.
+# The executable number module: formatting, parsing, and scalar math.
+# The feature name is retained for existing artifact build commands.
 formatter = ["dep:ryu-js", "dep:libm"]
+# The executable canonical realloc provider. The Wasm artifact build enables
+# only this feature, separate from the numeric runtime.
+allocator = ["dep:dlmalloc"]
 
 [dependencies]
 ryu-js = { version = "=1.0.2", default-features = false, optional = true }
 libm = { version = "=0.2.15", default-features = false, optional = true }
+dlmalloc = { version = "=0.2.14", default-features = false, optional = true }
 
 [dev-dependencies]
 wasm-encoder = { workspace = true, features = ["wasmparser"] }

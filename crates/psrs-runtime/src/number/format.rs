@@ -8,7 +8,7 @@
 /// identifies initialized ASCII bytes; no allocation or retained pointer occurs.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn number_to_string(value: f64, output: *mut u8, capacity: usize) -> usize {
-    assert!(capacity >= crate::NUMBER_CAPACITY);
+    assert!(capacity >= crate::abi::NUMBER_CAPACITY);
     if value.is_finite() {
         // SAFETY: format64 requires 25 writable bytes and a finite input.
         return unsafe { ryu_js::raw::format64(value, output) };
@@ -23,12 +23,6 @@ pub unsafe extern "C" fn number_to_string(value: f64, output: *mut u8, capacity:
     // SAFETY: the caller owns the destination and the checked capacity fits it.
     unsafe { core::ptr::copy_nonoverlapping(text.as_ptr(), output, text.len()) };
     text.len()
-}
-
-#[cfg(target_arch = "wasm32")]
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo<'_>) -> ! {
-    core::arch::wasm32::unreachable()
 }
 
 #[cfg(test)]
@@ -49,7 +43,7 @@ mod tests {
             (f64::from_bits(1), "5e-324"),
             (f64::MAX, "1.7976931348623157e+308"),
         ] {
-            let mut output = [0xff; crate::NUMBER_CAPACITY];
+            let mut output = [0xff; crate::abi::NUMBER_CAPACITY];
             // SAFETY: the buffer owns all 32 bytes for the duration of the call.
             let length = unsafe { number_to_string(value, output.as_mut_ptr(), output.len()) };
             assert_eq!(&output[..length], expected.as_bytes());

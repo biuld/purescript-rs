@@ -49,6 +49,8 @@ pub struct Global {
 pub enum GlobalInit {
     /// `ref.null` of the given heap type.
     RefNull(HeapType),
+    /// `i32.const`.
+    I32(u32),
 }
 
 /// A WebAssembly function signature in the thin Wasm IR.
@@ -80,6 +82,7 @@ pub struct Memory {
 pub enum ExportKind {
     Function,
     Memory,
+    Global,
 }
 
 /// An exported item.
@@ -96,6 +99,7 @@ pub struct Export {
 pub enum ExportIndex {
     Function(FunctionIndex),
     Memory(MemoryIndex),
+    Global(GlobalIndex),
 }
 
 /// A structured function body.

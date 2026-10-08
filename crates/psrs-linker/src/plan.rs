@@ -2,12 +2,8 @@
 
 use crate::definitions::ResolvedWorldContext;
 use crate::error::{LinkErrors, LinkStage};
-use crate::target::{
-    ArtifactContract, ArtifactKind, Boundary, CoreSignature, Provider, RequirementId,
-    StorageRegion, TargetLinkInput,
-};
-use crate::verify::{VerifiedArtifact, verify_artifact};
-use std::collections::{BTreeMap, BTreeSet};
+use crate::target::{ArtifactKind, CoreSignature, RequirementId, StorageRegion, TargetLinkInput};
+use crate::verify::VerifiedArtifact;
 
 /// A requirement bound to its verified provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,16 +15,96 @@ pub struct ResolvedBinding {
     pub signature: CoreSignature,
 }
 
+/// The application's exported heap boundary and the provider import it satisfies.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeapBoundary {
+    /// Core-module name of the runtime unit that imports the boundary.
+    pub provider_module: String,
+    /// Import module, for example `__main_module__`.
+    pub import_module: String,
+    /// Import field and application export name.
+    pub field: String,
+}
+
 /// The checked memory ownership and allocator boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryPlan {
+    /// Identity of this shared memory. One plan owns one memory.
+    pub memory_id: String,
     pub heap_start: u32,
     pub heap_alignment: u32,
     pub minimum_pages: u64,
+    pub maximum_pages: u64,
+    /// The only owner allowed to grow this memory.
+    pub growth_owner: String,
+    /// The core import every selected memory-using unit shares, when any does.
+    pub shared_import: Option<(String, String)>,
+    /// The constant heap-boundary getter the selected growth owner imports.
+    ///
+    /// `provider_module` is the owner's core-module name. The application
+    /// exports `field`; composition aliases that export into `import_module`.
+    pub heap_getter: Option<HeapBoundary>,
     /// Every owned region, sorted by start address.
     pub reservations: Vec<StorageRegion>,
     pub(crate) canonical_scratch: (u32, u32),
     pub(crate) allocator_state: (u32, u32),
+}
+
+/// A runtime unit selected by provider closure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectedUnit {
+    pub id: String,
+    pub artifact: String,
+    pub kind: crate::ArtifactKind,
+    pub state_owner: Option<String>,
+    pub grows_memory: bool,
+    pub instantiate_after_shims: bool,
+}
+
+/// One edge in the checked provider graph.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProviderEdge {
+    Generated {
+        requirement: RequirementId,
+        origin: String,
+    },
+    Runtime {
+        requirement: RequirementId,
+        origin: String,
+        operation: String,
+        version: String,
+        unit: String,
+    },
+    /// A selected unit's required operation, closed to another unit.
+    Dependency {
+        from_unit: String,
+        operation: String,
+        version: String,
+        unit: String,
+    },
+    Host {
+        requirement: RequirementId,
+        origin: String,
+        interface: String,
+    },
+}
+
+/// Checked instantiation order. Calls happen only after shim resolution.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InitializationStep {
+    Instantiate { unit: String },
+    ResolveShims,
+}
+
+/// The published identities and digests of one successful plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkReport {
+    pub memory_id: String,
+    pub growth_owner: String,
+    pub units: Vec<String>,
+    pub initialization: Vec<InitializationStep>,
+    pub digests: Vec<String>,
+    pub external_world: Vec<String>,
 }
 
 /// One immutable checked target link plan.
@@ -40,6 +116,9 @@ pub struct MemoryPlan {
 pub struct CheckedLinkPlan {
     bindings: Vec<ResolvedBinding>,
     artifacts: Vec<VerifiedArtifact>,
+    units: Vec<SelectedUnit>,
+    edges: Vec<ProviderEdge>,
+    initialization: Vec<InitializationStep>,
     memory: MemoryPlan,
     external_world: Vec<String>,
     digests: Vec<String>,
@@ -81,6 +160,34 @@ impl CheckedLinkPlan {
     pub fn digests(&self) -> &[String] {
         &self.digests
     }
+
+    pub fn units(&self) -> &[SelectedUnit] {
+        &self.units
+    }
+
+    pub fn edges(&self) -> &[ProviderEdge] {
+        &self.edges
+    }
+
+    pub fn initialization(&self) -> &[InitializationStep] {
+        &self.initialization
+    }
+
+    pub fn growth_owner(&self) -> &str {
+        &self.memory.growth_owner
+    }
+
+    /// Identities, initialization order, and digests for this plan.
+    pub fn report(&self) -> LinkReport {
+        LinkReport {
+            memory_id: self.memory.memory_id.clone(),
+            growth_owner: self.memory.growth_owner.clone(),
+            units: self.units.iter().map(|unit| unit.id.clone()).collect(),
+            initialization: self.initialization.clone(),
+            digests: self.digests.clone(),
+            external_world: self.external_world.clone(),
+        }
+    }
 }
 
 /// Plans a checked link from a resolved world and target input.
@@ -90,180 +197,29 @@ pub fn plan(
 ) -> Result<CheckedLinkPlan, LinkErrors> {
     let TargetLinkInput {
         requirements,
-        artifacts: artifact_refs,
+        units,
         memory: memory_demand,
         policy,
     } = input;
     let stage = LinkStage::Requirements;
-    let mut errors = Vec::new();
+    let closed = crate::graph::close(
+        context,
+        &requirements,
+        &units,
+        &policy,
+        &memory_demand.growth_owner,
+    )?;
+    let memory = plan_memory(&closed, &memory_demand)?;
 
-    let mut requirement_ids = BTreeSet::new();
-    for requirement in &requirements {
-        if !requirement_ids.insert(requirement.id) {
-            errors.push(crate::error::LinkError {
-                stage,
-                subject: Some(requirement.origin.clone()),
-                message: "duplicate requirement identity".into(),
-            });
-        }
-    }
-
-    let mut artifacts: BTreeMap<String, crate::target::ArtifactReference> = BTreeMap::new();
-    for artifact in &artifact_refs {
-        let id = artifact.contract.id.clone();
-        if artifacts.insert(id.clone(), artifact.clone()).is_some() {
-            errors.push(crate::error::LinkError {
-                stage,
-                subject: Some(id),
-                message: "duplicate artifact identity".into(),
-            });
-        }
-    }
-    if !errors.is_empty() {
-        return Err(LinkErrors::new(errors));
-    }
-
-    let mut verified: BTreeMap<String, VerifiedArtifact> = BTreeMap::new();
-    let mut used_artifacts = BTreeSet::new();
-    // A core import identity resolves to exactly one provider and signature.
-    let mut claims = BTreeMap::<(String, String), (CoreSignature, String)>::new();
-    let mut bindings = Vec::new();
-
-    for requirement in &requirements {
-        match &requirement.provider {
-            Provider::Generated => {}
-            Provider::ArtifactExport {
-                artifact,
-                export,
-                signature,
-            } => {
-                let reference = artifacts.get(artifact).ok_or_else(|| {
-                    LinkErrors::one(
-                        stage,
-                        &requirement.origin,
-                        format!("absent artifact `{artifact}`"),
-                    )
-                })?;
-                let Boundary::RawCore { module, field } = &requirement.boundary else {
-                    return Err(LinkErrors::one(
-                        stage,
-                        &requirement.origin,
-                        "an artifact export requires a raw-core boundary",
-                    ));
-                };
-                if module != &reference.contract.module_name || field != export {
-                    return Err(LinkErrors::one(
-                        stage,
-                        &requirement.origin,
-                        "artifact boundary does not name the selected export",
-                    ));
-                }
-                let declared = artifact_export(&reference.contract, export).ok_or_else(|| {
-                    LinkErrors::one(
-                        stage,
-                        &requirement.origin,
-                        format!("artifact `{artifact}` does not declare export `{export}`"),
-                    )
-                })?;
-                if declared != *signature || requirement.expected.as_ref() != Some(signature) {
-                    return Err(LinkErrors::one(
-                        stage,
-                        &requirement.origin,
-                        "artifact export signature disagrees with the checked requirement",
-                    ));
-                }
-                if !verified.contains_key(artifact) {
-                    let value = verify_artifact(&reference.contract, &reference.bytes)?;
-                    verified.insert(artifact.clone(), value);
-                }
-                used_artifacts.insert(artifact.clone());
-                claim(
-                    &mut claims,
-                    (module.clone(), field.clone()),
-                    signature.clone(),
-                    artifact,
-                    &mut errors,
-                )?;
-                bindings.push(ResolvedBinding {
-                    requirement: requirement.id,
-                    origin: requirement.origin.clone(),
-                    module: module.clone(),
-                    field: field.clone(),
-                    signature: signature.clone(),
-                });
-            }
-            Provider::HostInterface { interface } => {
-                if !context.imports_interface(interface) {
-                    return Err(LinkErrors::one(
-                        stage,
-                        &requirement.origin,
-                        format!("host interface `{interface}` is outside the resolved world"),
-                    ));
-                }
-                if !policy
-                    .permitted_host_interfaces
-                    .iter()
-                    .any(|permitted| permitted == interface)
-                {
-                    return Err(LinkErrors::one(
-                        stage,
-                        &requirement.origin,
-                        format!(
-                            "host interface `{interface}` is not permitted by the selected target profile"
-                        ),
-                    ));
-                }
-                let Some(expected) = requirement.expected.clone() else {
-                    return Err(LinkErrors::one(
-                        stage,
-                        &requirement.origin,
-                        "a host binding requires a checked raw signature",
-                    ));
-                };
-                let (module, field) = match &requirement.boundary {
-                    Boundary::ResolvedWit {
-                        interface: name,
-                        function,
-                    } if name == interface => (name.clone(), function.clone()),
-                    _ => {
-                        return Err(LinkErrors::one(
-                            stage,
-                            &requirement.origin,
-                            "host binding must cross the selected WIT interface",
-                        ));
-                    }
-                };
-                claim(
-                    &mut claims,
-                    (module.clone(), field.clone()),
-                    expected.clone(),
-                    interface,
-                    &mut errors,
-                )?;
-                bindings.push(ResolvedBinding {
-                    requirement: requirement.id,
-                    origin: requirement.origin.clone(),
-                    module,
-                    field,
-                    signature: expected,
-                });
-            }
-        }
-    }
-    if !errors.is_empty() {
-        return Err(LinkErrors::new(errors));
-    }
-
-    let memory = plan_memory(&artifact_refs, &memory_demand, &used_artifacts, &verified)?;
-
-    let mut digests = verified
+    let mut digests = closed
+        .verified
         .values()
         .map(|value| value.sha256.clone())
         .collect::<Vec<_>>();
     digests.sort();
     digests.dedup();
 
-    let external = crate::closure::host_imports(context, &bindings)?;
+    let external = crate::closure::host_imports(context, &closed.bindings)?;
     for interface in &external {
         if !context.imports_interface(interface)
             || !policy.permitted_host_interfaces.contains(interface)
@@ -276,8 +232,11 @@ pub fn plan(
         }
     }
     Ok(CheckedLinkPlan {
-        bindings,
-        artifacts: verified.into_values().collect(),
+        bindings: closed.bindings,
+        artifacts: closed.verified.into_values().collect(),
+        units: closed.units,
+        edges: closed.edges,
+        initialization: closed.initialization,
         memory,
         external_world: external,
         digests,
@@ -285,57 +244,36 @@ pub fn plan(
     })
 }
 
-fn artifact_export(contract: &ArtifactContract, export: &str) -> Option<CoreSignature> {
-    contract.exports.iter().find_map(|declared| {
-        (declared.name == export && declared.kind == crate::target::ExportKind::Func)
-            .then(|| declared.signature.clone())
-            .flatten()
-    })
-}
-
-fn claim(
-    claims: &mut BTreeMap<(String, String), (CoreSignature, String)>,
-    key: (String, String),
-    signature: CoreSignature,
-    provider: &str,
-    errors: &mut Vec<crate::error::LinkError>,
-) -> Result<(), LinkErrors> {
-    if let Some((existing, existing_provider)) = claims.get(&key) {
-        if existing != &signature || existing_provider != provider {
-            return Err(LinkErrors::one(
-                LinkStage::Requirements,
-                format!("{}.{}", key.0, key.1),
-                "ambiguous or conflicting providers for one import identity",
-            ));
-        }
-        return Ok(());
-    }
-    claims.insert(key, (signature, provider.to_string()));
-    let _ = errors;
-    Ok(())
-}
-
 fn plan_memory(
-    artifacts: &[crate::target::ArtifactReference],
+    closed: &crate::graph::ClosedProviders,
     demand: &crate::target::MemoryDemand,
-    used_artifacts: &BTreeSet<String>,
-    verified: &BTreeMap<String, VerifiedArtifact>,
 ) -> Result<MemoryPlan, LinkErrors> {
     let stage = LinkStage::Memory;
-    let mut reservations = vec![
-        region("canonical-scratch", demand.canonical_scratch),
-        region("allocator-state", demand.allocator_state),
-    ];
+    let maximum = demand.maximum_pages.unwrap_or(65536);
+    if maximum == 0 || maximum > 65536 {
+        return Err(LinkErrors::plain(stage, "unsupported memory maximum"));
+    }
+    if demand.canonical_scratch.0 > demand.canonical_scratch.1
+        || demand.allocator_state.0 > demand.allocator_state.1
+    {
+        return Err(LinkErrors::plain(
+            stage,
+            "storage reservation has reversed bounds",
+        ));
+    }
+    let mut reservations = Vec::new();
+    if demand.canonical_scratch.0 < demand.canonical_scratch.1 {
+        reservations.push(region("canonical-scratch", demand.canonical_scratch));
+    }
+    if demand.allocator_state.0 < demand.allocator_state.1 {
+        reservations.push(region("allocator-state", demand.allocator_state));
+    }
     let mut heap_start = demand.base_heap_start;
     let mut minimum_pages = u64::from(heap_start).div_ceil(0x1_0000) + 1;
 
-    for id in used_artifacts {
-        let artifact = verified.get(id).expect("a used artifact is verified");
-        let contract = artifacts
-            .iter()
-            .find(|reference| &reference.contract.id == id)
-            .map(|reference| &reference.contract)
-            .ok_or_else(|| LinkErrors::one(stage, id, "verified artifact has no contract"))?;
+    for reference in &closed.artifacts {
+        let id = &reference.contract.id;
+        let contract = &reference.contract;
         let Some(storage) = &contract.storage else {
             continue;
         };
@@ -365,7 +303,6 @@ fn plan_memory(
         });
         heap_start = heap_start.max(storage.heap_start);
         minimum_pages = minimum_pages.max(storage.minimum_pages);
-        let _ = artifact;
     }
 
     reservations.sort_by_key(|region| (region.start, region.end));
@@ -403,10 +340,10 @@ fn plan_memory(
             "a reservation extends past the allocator boundary",
         ));
     }
-    if minimum_pages > 65536 {
+    if minimum_pages > maximum {
         return Err(LinkErrors::plain(
             stage,
-            "memory plan exceeds wasm32 limits",
+            "memory plan exceeds its declared maximum",
         ));
     }
     if u64::from(heap_start) > minimum_pages * 0x1_0000 {
@@ -418,21 +355,83 @@ fn plan_memory(
     // The allocator grows memory on demand; reserve one initial page of heap
     // beyond the boundary where every reserved region ends.
     minimum_pages = minimum_pages.max(u64::from(heap_start).div_ceil(0x1_0000) + 1);
-    if minimum_pages > 65536 {
+    if minimum_pages > maximum {
         return Err(LinkErrors::plain(
             stage,
-            "memory plan exceeds wasm32 limits",
+            "memory plan exceeds its declared maximum",
         ));
     }
 
     Ok(MemoryPlan {
+        memory_id: crate::APPLICATION_MEMORY.to_string(),
         heap_start,
         heap_alignment: alignment,
         minimum_pages,
+        maximum_pages: maximum,
+        growth_owner: closed.growth_owner.clone(),
+        shared_import: closed.shared_import.clone(),
+        heap_getter: heap_boundary(closed, demand)?,
         reservations,
         canonical_scratch: demand.canonical_scratch,
         allocator_state: demand.allocator_state,
     })
+}
+
+fn heap_boundary(
+    closed: &crate::graph::ClosedProviders,
+    demand: &crate::target::MemoryDemand,
+) -> Result<Option<HeapBoundary>, LinkErrors> {
+    let Some(position) = closed
+        .units
+        .iter()
+        .position(|unit| unit.id == demand.growth_owner)
+    else {
+        if closed
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.contract.imports.iter().any(is_heap_getter))
+        {
+            return Err(LinkErrors::plain(
+                LinkStage::Memory,
+                "heap getter imports require a planned runtime growth owner",
+            ));
+        }
+        return Ok(None);
+    };
+    let stage = LinkStage::Memory;
+    let unit = &closed.units[position];
+    if !unit.grows_memory {
+        return Err(LinkErrors::one(
+            stage,
+            &unit.id,
+            "the named growth owner does not grow memory",
+        ));
+    }
+    let contract = &closed.artifacts[position].contract;
+    let functions: Vec<_> = contract
+        .imports
+        .iter()
+        .filter(|import| matches!(import.kind, crate::ImportKind::Function(_)))
+        .collect();
+    let [import] = functions.as_slice() else {
+        return Err(LinkErrors::one(
+            stage,
+            &unit.id,
+            "the growth owner must import exactly one constant heap-boundary getter",
+        ));
+    };
+    if !is_heap_getter(import) {
+        return Err(LinkErrors::one(
+            stage,
+            &unit.id,
+            "invalid application heap getter contract",
+        ));
+    }
+    Ok(Some(HeapBoundary {
+        provider_module: contract.module_name.clone(),
+        import_module: import.module.clone(),
+        field: import.field.clone(),
+    }))
 }
 
 fn region(owner: &str, range: (u32, u32)) -> StorageRegion {
@@ -441,4 +440,15 @@ fn region(owner: &str, range: (u32, u32)) -> StorageRegion {
         start: range.0,
         end: range.1,
     }
+}
+
+/// The application-bound getter protocol; composition verifies its constant body.
+pub(crate) fn is_heap_getter(import: &crate::DeclaredImport) -> bool {
+    import.module == psrs_runtime::APPLICATION_MODULE
+        && import.field == psrs_runtime::HEAP_BOUNDARY_IMPORT
+        && import.kind
+            == crate::ImportKind::Function(CoreSignature {
+                parameters: Vec::new(),
+                result: Some(crate::CoreType::I32),
+            })
 }

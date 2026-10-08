@@ -6,10 +6,7 @@
 
 use psrs_hir::{Intrinsic, SymbolId};
 mod language;
-use psrs_linker::{
-    ArtifactReference, BindingRequirement, Boundary, CoreSignature, CoreType, Provider,
-    RequirementId,
-};
+use psrs_linker::{BindingRequirement, Boundary, CoreSignature, CoreType, Provider, RequirementId};
 
 /// Connects a checked language intrinsic to its embedded implementation.
 pub(crate) struct ArtifactImplementation {
@@ -179,9 +176,11 @@ impl ArtifactImplementation {
         }
     }
 
-    /// The linker requirement for this artifact export.
+    /// The linker requirement for this runtime operation.
+    ///
+    /// `consumer` is the MIR call signature. Planning rejects it unless it
+    /// matches the catalog operation independently.
     pub fn requirement(&self, id: RequirementId, consumer: CoreSignature) -> BindingRequirement {
-        let signature = self.signature();
         BindingRequirement {
             id,
             origin: format!("{:?}", self.intrinsic),
@@ -190,20 +189,24 @@ impl ArtifactImplementation {
                 field: self.abi.export.to_string(),
             },
             expected: Some(consumer),
-            provider: Provider::ArtifactExport {
-                artifact: self.artifact.id.to_string(),
-                export: self.abi.export.to_string(),
-                signature,
+            provider: Provider::RuntimeOperation {
+                name: self.operation().name.to_string(),
+                version: self.operation().version.to_string(),
             },
         }
     }
 
-    /// The pinned artifact and typed contract for this implementation.
-    pub fn artifact_reference(&self) -> ArtifactReference {
-        ArtifactReference {
-            contract: psrs_linker::runtime::contract(self.artifact),
-            bytes: self.artifact.bytes.to_vec(),
-        }
+    fn operation(&self) -> &'static psrs_runtime::ProvidedOperation {
+        psrs_runtime::PSRS_RUNTIME
+            .units
+            .iter()
+            .filter(|unit| unit.variant.id == self.artifact.id)
+            .find_map(|unit| {
+                unit.provided
+                    .iter()
+                    .find(|operation| operation.abi.export == self.abi.export)
+            })
+            .expect("the runtime catalog publishes this intrinsic operation")
     }
 }
 
@@ -242,7 +245,7 @@ mod tests {
         );
         assert!(matches!(
             requirement.provider,
-            Provider::ArtifactExport { .. }
+            Provider::RuntimeOperation { .. }
         ));
         assert!(matches!(
             crate::target_intrinsics::implementation(Intrinsic::IntAdd),

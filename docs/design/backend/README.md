@@ -64,6 +64,8 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [capability-profile.md](wasm/capability-profile.md) | Target capability profile and gating | encoding-and-structuring |
 | [canonical-abi-and-wit.md](wasm/canonical-abi-and-wit.md) | WIT bindings and canonical ABI adaptation | encoding-and-structuring |
 | [linking-and-runtime.md](wasm/linking-and-runtime.md) | Intrinsic implementations, WIT providers, checked target link plans, and artifact composition (Draft) | primitive FFI, canonical-abi-and-wit |
+| [core-object-linking-and-compilation-units.md](wasm/core-object-linking-and-compilation-units.md) | Source/Core/Wasm/component units, compiler-owned emission, structured runtime closure and bindings (Draft) | linking-and-runtime, encoding-and-structuring |
+| [canonical-realloc-runtime-adapter.md](wasm/canonical-realloc-runtime-adapter.md) | Rust allocator selection, canonical adapter, and runtime-provider replacement (Draft) | canonical-buffer-allocation-and-lifetime, linking-and-runtime |
 | [linear-memory-and-canonical-abi-boundary.md](wasm/linear-memory-and-canonical-abi-boundary.md) | Linear memory as the ABI boundary | canonical-abi-and-wit |
 | [wasi-platform-library.md](wasm/wasi-platform-library.md) | Component packaging and WASI services | canonical-abi-and-wit |
 

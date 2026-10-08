@@ -1,12 +1,8 @@
 use super::super::super::{
-    DataIndex, DataMode, DataSegment, Export, ExportIndex, ExportKind, FuncType, Function,
-    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
+    Export, ExportIndex, ExportKind, FuncType, Function, FunctionIndex, Import, Memory,
+    MemoryIndex, Module, Op, TypeIndex,
 };
-use super::super::asm::{Asm, constant, get, memarg, set};
-use super::{
-    BufferExport, post_return_name, synthesize_buffer_post_return,
-    synthesize_owned_handle_post_return,
-};
+use super::{post_return_name, synthesize_owned_handle_post_return};
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use wasm_encoder::{Instruction, ValType};
@@ -16,7 +12,9 @@ fn span() -> TextRange {
     TextRange::new(0, 1)
 }
 
+mod buffer;
 mod composition;
+use buffer::{allocator_requirement, buffer_post_return_module, string_world};
 use composition::componentize;
 
 #[test]
@@ -160,228 +158,6 @@ fn post_return_drops_an_owned_export_handle() {
     );
 }
 
-const GET_STRING_INDEX: u32 = 0;
-const POST_RETURN_INDEX: u32 = 1;
-const REALLOC_INDEX: u32 = 2;
-const DRIVER_INDEX: u32 = 3;
-
-const GET_STRING_TYPE: TypeIndex = TypeIndex(0);
-const POST_RETURN_TYPE: TypeIndex = TypeIndex(1);
-const REALLOC_TYPE: TypeIndex = TypeIndex(2);
-
-const STRING_LEN: i32 = 5;
-const RETURN_AREA_SIZE: u32 = 8;
-const RETURN_AREA_ALIGN: u32 = 4;
-const CYCLES: i32 = 1_000;
-
-fn call_realloc(asm: &mut Asm, old: i32, old_len: i32, align: i32, new_len: i32) {
-    constant(asm, old);
-    constant(asm, old_len);
-    constant(asm, align);
-    constant(asm, new_len);
-    asm.leaf(Instruction::Call(REALLOC_INDEX));
-}
-
-/// Allocates the string buffer and the return area, writes `hello` and the
-/// `(pointer, length)` pair, and returns the return-area pointer. This is
-/// the shape of an export lifted through a canonical return area.
-fn get_string_body() -> super::super::super::Body {
-    let mut asm = Asm::new();
-    call_realloc(&mut asm, 0, 0, 1, STRING_LEN);
-    set(&mut asm, 0);
-    for (offset, byte) in b"hello".iter().enumerate() {
-        get(&mut asm, 0);
-        if offset != 0 {
-            constant(&mut asm, offset as i32);
-            asm.leaf(Instruction::I32Add);
-        }
-        constant(&mut asm, i32::from(*byte));
-        asm.leaf(Instruction::I32Store8(memarg(0)));
-    }
-    call_realloc(
-        &mut asm,
-        0,
-        0,
-        RETURN_AREA_ALIGN as i32,
-        RETURN_AREA_SIZE as i32,
-    );
-    set(&mut asm, 1);
-    get(&mut asm, 1);
-    get(&mut asm, 0);
-    asm.leaf(Instruction::I32Store(memarg(0)));
-    get(&mut asm, 1);
-    constant(&mut asm, STRING_LEN);
-    asm.leaf(Instruction::I32Store(memarg(4)));
-    get(&mut asm, 1);
-    asm.into_body()
-}
-
-/// Calls the export and then its post-return `CYCLES` times, and reports
-/// whether linear memory stayed at one page. Reclaimed buffers are reused.
-fn driver_body() -> super::super::super::Body {
-    let mut asm = Asm::new();
-    constant(&mut asm, CYCLES);
-    set(&mut asm, 0);
-    let done = asm.label();
-    let again = asm.label();
-    asm.block(done);
-    asm.loop_(again);
-    get(&mut asm, 0);
-    asm.leaf(Instruction::I32Eqz);
-    asm.br_if(done);
-    asm.leaf(Instruction::Call(GET_STRING_INDEX));
-    set(&mut asm, 1);
-    get(&mut asm, 1);
-    asm.leaf(Instruction::Call(POST_RETURN_INDEX));
-    get(&mut asm, 0);
-    constant(&mut asm, 1);
-    asm.leaf(Instruction::I32Sub);
-    set(&mut asm, 0);
-    asm.br(again);
-    asm.end();
-    asm.end();
-    asm.leaf(Instruction::MemorySize(0));
-    constant(&mut asm, 1);
-    asm.leaf(Instruction::I32Eq);
-    asm.into_body()
-}
-
-fn function(
-    name: &str,
-    symbol: u32,
-    type_index: TypeIndex,
-    locals: usize,
-    body: Vec<Op>,
-) -> Function {
-    Function {
-        symbol: SymbolId::new(ModuleId(0), symbol),
-        name: name.into(),
-        type_index,
-        parameters: Vec::new(),
-        locals: vec![ValType::I32; locals],
-        body,
-        span: span(),
-    }
-}
-
-/// A core module exporting `get-string` (string result), its synthesized
-/// `cabi_post_get-string`, and a driver that runs the pair in a loop.
-fn buffer_post_return_module() -> Module {
-    let (_, post_function, post_export) = synthesize_buffer_post_return(
-        &BufferExport {
-            core_name: "get-string".into(),
-            symbol: SymbolId::new(ModuleId(0), 1),
-            buffer_align: 1,
-            return_area_size: RETURN_AREA_SIZE,
-            return_area_align: RETURN_AREA_ALIGN,
-        },
-        POST_RETURN_TYPE,
-        FunctionIndex(POST_RETURN_INDEX),
-        FunctionIndex(REALLOC_INDEX),
-        span(),
-    );
-    let mut state = 0_u32.to_le_bytes().to_vec();
-    state.extend_from_slice(&crate::abi::HEAP_START.to_le_bytes());
-    Module {
-        name: "StringExport".into(),
-        imports: Vec::new(),
-        types: vec![
-            FuncType {
-                parameters: Vec::new(),
-                results: vec![ValType::I32],
-            },
-            FuncType {
-                parameters: vec![ValType::I32],
-                results: Vec::new(),
-            },
-            FuncType {
-                parameters: vec![ValType::I32; 4],
-                results: vec![ValType::I32],
-            },
-        ],
-        type_defs: Vec::new(),
-        functions: vec![
-            function(
-                "get-string",
-                GET_STRING_INDEX,
-                GET_STRING_TYPE,
-                2,
-                get_string_body(),
-            ),
-            post_function,
-            super::super::realloc::build_realloc(REALLOC_TYPE, span()),
-            function(
-                "check_post_return_reclaims",
-                DRIVER_INDEX,
-                GET_STRING_TYPE,
-                2,
-                driver_body(),
-            ),
-        ],
-        memories: vec![Memory {
-            id: crate::types::MemoryId(0),
-            index: MemoryIndex(0),
-            minimum: 1,
-            maximum: Some(2),
-        }],
-        data: vec![DataSegment {
-            id: crate::types::DataId(0),
-            index: DataIndex(0),
-            mode: DataMode::Active {
-                offset: crate::abi::HEAP_STATE,
-            },
-            bytes: state,
-        }],
-        exports: vec![
-            Export {
-                name: "get-string".into(),
-                kind: ExportKind::Function,
-                index: ExportIndex::Function(FunctionIndex(GET_STRING_INDEX)),
-            },
-            post_export,
-            Export {
-                name: "cabi_realloc".into(),
-                kind: ExportKind::Function,
-                index: ExportIndex::Function(FunctionIndex(REALLOC_INDEX)),
-            },
-            Export {
-                name: "check_post_return_reclaims".into(),
-                kind: ExportKind::Function,
-                index: ExportIndex::Function(FunctionIndex(DRIVER_INDEX)),
-            },
-            Export {
-                name: "memory".into(),
-                kind: ExportKind::Memory,
-                index: ExportIndex::Memory(MemoryIndex(0)),
-            },
-        ],
-        entry: None,
-        realloc: None,
-        globals: Vec::new(),
-        helpers: Vec::new(),
-        span: span(),
-    }
-}
-
-fn string_world() -> (Resolve, WorldId) {
-    let wit = r#"
-            package fixture:strings@0.1.0;
-            world guest {
-                export get-string: func() -> string;
-            }
-        "#;
-    let mut resolve = Resolve::default();
-    let package = resolve
-        .push_str("strings.wit", wit)
-        .expect("the string fixture should resolve");
-    let world = resolve.packages[package]
-        .worlds
-        .get("guest")
-        .copied()
-        .expect("guest world");
-    (resolve, world)
-}
-
 fn require_wasmtime() -> bool {
     match std::process::Command::new("wasmtime")
         .arg("--version")
@@ -411,16 +187,18 @@ fn buffer_post_return_frees_the_returned_string() {
     if !require_wasmtime() {
         return;
     }
-
+    let (resolve, world) = string_world();
+    let component = componentize(module, resolve, world, vec![allocator_requirement()])
+        .expect("componentizing the reclaim driver");
     let path = std::env::temp_dir().join(format!(
         "psrs-buffer-post-return-{}.wasm",
         std::process::id()
     ));
-    std::fs::write(&path, binary).expect("write post-return test module");
+    std::fs::write(&path, component).expect("write post-return test module");
     let output = std::process::Command::new("wasmtime")
         .arg("run")
         .arg("--invoke")
-        .arg("check_post_return_reclaims")
+        .arg("check-reclaim()")
         .arg(&path)
         .output()
         .expect("run post-return test module");
@@ -437,8 +215,8 @@ fn buffer_post_return_frees_the_returned_string() {
 fn component_attaches_the_buffer_post_return() {
     let module = buffer_post_return_module();
     let (resolve, world) = string_world();
-    let component =
-        componentize(module, resolve, world, Vec::new()).expect("componentizing the string export");
+    let component = componentize(module, resolve, world, vec![allocator_requirement()])
+        .expect("componentizing the string export");
     crate::validator()
         .validate_all(&component)
         .expect("the component should validate");

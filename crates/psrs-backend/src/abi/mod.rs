@@ -63,17 +63,16 @@ pub const SCRATCH_SIZE: u32 = 16;
 /// The first linear-memory offset after the scratch region.
 pub const SCRATCH_END: u32 = PRINT_SCRATCH as u32 + SCRATCH_SIZE;
 
-/// The start of the allocator's heap-state segment: two pointer-width words
-/// holding the free-list head and the bump break. It follows the scratch region.
+/// Former generated-allocator state address. The runtime provider keeps no
+/// state here, so the range is empty and the planner skips it.
 pub const HEAP_STATE: u32 = SCRATCH_END;
 
-/// The byte size of the heap-state segment: a free-list head word and a bump
-/// break word, each one wasm32 pointer word.
-pub const HEAP_STATE_SIZE: u32 = 2 * WORD_SIZE;
+/// The generated heap-state segment is not reserved.
+pub const HEAP_STATE_SIZE: u32 = 0;
 
 /// The first address the canonical allocator may hand out. It is aligned to the
-/// block granularity so every block header stays aligned.
-pub const HEAP_START: u32 = (HEAP_STATE + HEAP_STATE_SIZE).next_multiple_of(MIN_BLOCK);
+/// block granularity and begins immediately after the scratch region.
+pub const HEAP_START: u32 = SCRATCH_END.next_multiple_of(MIN_BLOCK);
 
 /// A wasm32 address word.
 pub const WORD_SIZE: u32 = 4;

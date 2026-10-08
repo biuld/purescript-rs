@@ -24,20 +24,37 @@ pub(super) fn componentize(
                     .collect(),
             },
             requirements,
-            artifacts: Vec::new(),
+            units: psrs_linker::runtime::package_offers(&psrs_runtime::PSRS_RUNTIME),
             memory: MemoryDemand {
                 canonical_scratch: (0, crate::abi::SCRATCH_SIZE),
-                allocator_state: (
-                    crate::abi::HEAP_STATE,
-                    crate::abi::HEAP_STATE + crate::abi::HEAP_STATE_SIZE,
-                ),
+                allocator_state: (crate::abi::HEAP_START, crate::abi::HEAP_START),
                 base_heap_start: crate::abi::HEAP_START,
                 heap_alignment: crate::abi::MIN_BLOCK,
+                growth_owner: psrs_runtime::ALLOCATOR_UNIT.id.into(),
+                maximum_pages: None,
             },
         },
     )
     .map_err(|error| error.to_string())?;
     module.memories[0].minimum = plan.memory().minimum_pages;
+    if let Some(boundary) = plan.memory().heap_getter.as_ref() {
+        let export = module
+            .exports
+            .iter()
+            .find(|export| export.name == boundary.field)
+            .ok_or_else(|| format!("missing heap export `{}`", boundary.field))?;
+        let crate::wasm::ExportIndex::Function(_) = export.index else {
+            return Err("the heap boundary export is not a function".into());
+        };
+        let getter = module
+            .helpers
+            .iter_mut()
+            .find(|function| function.name == boundary.field)
+            .ok_or("the heap boundary getter is missing")?;
+        getter.body = vec![crate::wasm::Op::Leaf(wasm_encoder::Instruction::I32Const(
+            plan.memory().heap_start as i32,
+        ))];
+    }
     let core = crate::wasm::encode_module(&module).map_err(|error| format!("{error:?}"))?;
     psrs_linker::compose(&context, &plan, &core)
         .map(|artifact| artifact.bytes)

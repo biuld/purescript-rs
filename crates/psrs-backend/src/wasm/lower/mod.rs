@@ -1,13 +1,13 @@
 use super::convert::val_type;
 use super::{
-    DataIndex, DataMode, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType,
-    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
+    Entry, Export, ExportIndex, ExportKind, FuncType, FunctionIndex, Import, Memory, MemoryIndex,
+    Module, Op, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{DataId, DefinedTypeId, MemoryId, ValueId, ValueType};
+use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ mod structure;
 
 use function::types::collect_function_types;
 use function::{ListLocals, lower_function};
-use realloc::build_realloc;
+use realloc::forward_realloc;
 use runtime::{collect_literal_globals, collect_strings};
 
 /// Structures MIR control flow and builds the thin Wasm IR. The ABI registry
@@ -85,7 +85,7 @@ pub(crate) fn lower_module_with_plan(
         ));
     }
 
-    let (mut data, string_lengths) = collect_strings(module);
+    let (data, string_lengths) = collect_strings(module);
     let literal_globals = collect_literal_globals(module);
     if !literal_globals.globals.is_empty() && !target.mutable_globals {
         return Err(wasm_error(
@@ -119,7 +119,7 @@ pub(crate) fn lower_module_with_plan(
     for import in &module.imports {
         if matches!(
             import.symbol,
-            abi::REALLOC_SYMBOL | abi::STRING_TO_BYTES_SYMBOL | abi::BYTES_TO_STRING_SYMBOL
+            abi::STRING_TO_BYTES_SYMBOL | abi::BYTES_TO_STRING_SYMBOL
         ) {
             continue;
         }
@@ -245,11 +245,9 @@ pub(crate) fn lower_module_with_plan(
 
     let main_index = FunctionIndex(import_count + entry_function.id.0);
 
-    // `cabi_realloc` backs guest allocations for indirect parameter records and
-    // host allocations for returned lists/strings. Export it so the component
-    // host can allocate returned buffers. The bump allocator's free pointer
-    // lives after string data, and each allocation has a four-byte length
-    // prefix before its returned payload pointer.
+    // `cabi_realloc` backs guest allocations and host allocations for returned
+    // lists and strings. The export is a forwarder to the allocator runtime
+    // unit. The constant getter publishes the checked heap boundary.
     let mut exports = vec![
         Export {
             name: abi::RUN_CORE_EXPORT.into(),
@@ -263,33 +261,28 @@ pub(crate) fn lower_module_with_plan(
         },
     ];
     let minimum = link.plan.memory().minimum_pages;
+    let globals = literal_globals.globals;
     let mut realloc = None;
     if needs_realloc {
-        let realloc_type = TypeIndex(defined + types.len() as u32);
-        types.push(generated_signature(abi::REALLOC_SYMBOL, None));
+        let import_index = *import_indices.get(&abi::REALLOC_SYMBOL).ok_or_else(|| {
+            wasm_error(
+                module.span,
+                "cabi_realloc has no checked allocator provider",
+            )
+        })?;
+        let realloc_type = imports
+            .get(import_index.0 as usize)
+            .ok_or_else(|| wasm_error(module.span, "cabi_realloc import is missing"))?
+            .type_index;
         let index = indices.realloc.expect("a needed realloc has an index");
         exports.push(Export {
-            name: "cabi_realloc".into(),
+            name: psrs_runtime::REALLOC_EXPORT.into(),
             kind: ExportKind::Function,
             index: ExportIndex::Function(index),
         });
-        // The heap-state segment holds the free-list head (null) and the bump
-        // break (the first allocatable address). The allocator boundary is the
-        // one the checked plan reserved, after every artifact region.
-        let heap_start = link.plan.memory().heap_start;
-        let mut state = 0_u32.to_le_bytes().to_vec();
-        state.extend_from_slice(&heap_start.to_le_bytes());
-        data.push(DataSegment {
-            id: DataId(data.len() as u32),
-            index: DataIndex(data.len() as u32),
-            mode: DataMode::Active {
-                offset: abi::HEAP_STATE,
-            },
-            bytes: state,
-        });
-        realloc = Some(build_realloc(realloc_type, module.span));
+        realloc = Some(forward_realloc(realloc_type, import_index.0, module.span));
     }
-    let helpers = if needs_helpers {
+    let mut helpers = if needs_helpers {
         let string_type = string_type.expect("a needed codec has a GC string type");
         let (stb, bts, step) = codec::signatures(string_type);
         let stb_type = TypeIndex(defined + types.len() as u32);
@@ -311,6 +304,24 @@ pub(crate) fn lower_module_with_plan(
         Vec::new()
     };
 
+    if needs_realloc {
+        let boundary =
+            link.plan.memory().heap_getter.as_ref().ok_or_else(|| {
+                wasm_error(module.span, "the allocator provider has no heap getter")
+            })?;
+        let index = FunctionIndex(entry_index.0 + 2 + helpers.len() as u32);
+        exports.push(Export {
+            name: boundary.field.clone(),
+            kind: ExportKind::Function,
+            index: ExportIndex::Function(index),
+        });
+        helpers.push(realloc::heap_getter(
+            entry_type,
+            link.plan.memory().heap_start,
+            module.span,
+        ));
+    }
+
     // `wasi:cli/run` returns a scalar, so the command export contributes no
     // post-return. The synthesis entry points stay reachable so an export
     // mechanism can populate the descriptor lists without dead code.
@@ -328,7 +339,7 @@ pub(crate) fn lower_module_with_plan(
             minimum,
             maximum: None,
         }],
-        globals: literal_globals.globals,
+        globals,
         data,
         exports,
         entry: Some(Entry {
@@ -442,13 +453,4 @@ pub(super) fn wasm_error(span: TextRange, message: &'static str) -> Vec<BackendE
         span,
         message,
     )]
-}
-
-fn generated_signature(symbol: psrs_hir::SymbolId, string: Option<DefinedTypeId>) -> FuncType {
-    let signature = crate::target_intrinsics::generated::signature(symbol, string)
-        .expect("the selected generated helper has a concrete signature");
-    FuncType {
-        parameters: signature.parameters.into_iter().map(val_type).collect(),
-        results: signature.result.into_iter().map(val_type).collect(),
-    }
 }

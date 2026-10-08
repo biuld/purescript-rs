@@ -7,6 +7,11 @@
 
 ## Scope
 
+The proposed replacement of the handwritten allocator strategy with a mature
+Rust allocator is specified in [Canonical realloc runtime adapter](canonical-realloc-runtime-adapter.md).
+That draft preserves this topic's buffer-lifetime and behavioral obligations;
+the existing generated implementation remains in use until replacement acceptance.
+
 This document owns the lifetime and storage of every canonical ABI buffer: the
 `cabi_realloc` allocator contract and its implementation strategy, block headers
 and alignment, free lists, coalescing and reuse, the heap-state region, memory

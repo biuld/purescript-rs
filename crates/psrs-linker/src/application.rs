@@ -14,6 +14,10 @@ fn check(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), String> {
     let mut seen = std::collections::BTreeSet::new();
     let mut memory = None;
     let mut data = Vec::new();
+    let mut function_types = Vec::new();
+    let mut function_bodies = Vec::new();
+    let mut function_exports = Vec::new();
+    let mut imported_functions = 0_u32;
     for payload in Parser::new(0).parse_all(bytes) {
         match payload.map_err(|error| error.to_string())? {
             Payload::TypeSection(reader) => {
@@ -32,6 +36,7 @@ fn check(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), String> {
                     let TypeRef::Func(index) = import.ty else {
                         return Err("application imports an unplanned non-function item".into());
                     };
+                    imported_functions += 1;
                     let binding = plan
                         .bindings()
                         .iter()
@@ -109,12 +114,69 @@ fn check(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), String> {
                     }
                 }
             }
+            Payload::FunctionSection(reader) => {
+                for ty in reader {
+                    function_types.push(ty.map_err(|error| error.to_string())?);
+                }
+            }
+            Payload::CodeSectionEntry(body) => function_bodies.push(body),
+            Payload::ExportSection(reader) => {
+                for export in reader {
+                    let export = export.map_err(|error| error.to_string())?;
+                    if export.kind == wasmparser::ExternalKind::Func {
+                        function_exports.push((export.name.to_string(), export.index));
+                    }
+                }
+            }
             Payload::StartSection { .. } => {
                 return Err("application start precedes planned shim resolution".into());
             }
             _ => {}
         }
     }
+    if let Some(boundary) = plan.memory().heap_getter.as_ref() {
+        let (_, index) = function_exports
+            .iter()
+            .find(|(name, _)| name == &boundary.field)
+            .ok_or("application does not export the heap getter")?;
+        let defined = index
+            .checked_sub(imported_functions)
+            .ok_or("application heap getter must be defined locally")?
+            as usize;
+        let ty = function_types
+            .get(defined)
+            .and_then(|index| types.get(*index as usize))
+            .and_then(Option::as_ref)
+            .ok_or("application heap getter has no signature")?;
+        if !ty.params().is_empty() || ty.results() != [ValType::I32] {
+            return Err("application heap getter must have signature () -> i32".into());
+        }
+        let body = function_bodies
+            .get(defined)
+            .ok_or("application heap getter has no body")?;
+        if body
+            .get_locals_reader()
+            .map_err(|error| error.to_string())?
+            .get_count()
+            != 0
+        {
+            return Err("application heap getter must have no locals".into());
+        }
+        let mut ops = body
+            .get_operators_reader()
+            .map_err(|error| error.to_string())?;
+        if !matches!(ops.read().map_err(|error| error.to_string())?, Operator::I32Const { value }
+            if value as u32 == plan.memory().heap_start)
+            || !matches!(
+                ops.read().map_err(|error| error.to_string())?,
+                Operator::End
+            )
+            || !ops.eof()
+        {
+            return Err("application heap getter must return only the checked constant".into());
+        }
+    }
+
     for binding in plan.bindings() {
         if !seen.contains(&(binding.module.clone(), binding.field.clone())) {
             return Err(format!(

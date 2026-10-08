@@ -71,9 +71,13 @@ pub(super) fn check_contract(
         ));
     }
     if let Some(storage) = &contract.storage {
+        let absolute = storage.stack_pointer_global as usize;
+        let defined = absolute
+            .checked_sub(parsed.imported_globals)
+            .ok_or_else(|| LinkErrors::one(stage, id, "stack pointer global is an import"))?;
         let pointer = parsed
             .globals
-            .get(storage.stack_pointer_global as usize)
+            .get(defined)
             .ok_or_else(|| LinkErrors::one(stage, id, "stack pointer global is absent"))?;
         if !pointer.mutable
             || pointer.initial != storage.stack.end
@@ -152,6 +156,7 @@ pub(super) struct ParsedCore {
     data_ranges: Vec<(u32, u32)>,
     has_start: bool,
     elements: Vec<crate::DeclaredElement>,
+    imported_globals: usize,
 }
 
 impl ParsedTable {
@@ -192,6 +197,7 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
     let mut memories = 0_u32;
     let mut has_start = false;
     let mut elements = Vec::new();
+    let mut imported_globals = 0_usize;
 
     for payload in Parser::new(0).parse_all(bytes) {
         match payload.map_err(|error| error.to_string())? {
@@ -217,7 +223,23 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
                             imports.push(ParsedImport {
                                 module: import.module.to_string(),
                                 field: import.name.to_string(),
-                                kind: ImportKind::Memory,
+                                kind: ImportKind::Memory {
+                                    minimum: memory.initial,
+                                    maximum: memory.maximum,
+                                },
+                            });
+                        }
+                        TypeRef::Global(global) => {
+                            if global.content_type != ValType::I32 || global.shared {
+                                return Err("artifact imports an unsupported global".into());
+                            }
+                            imported_globals += 1;
+                            imports.push(ParsedImport {
+                                module: import.module.to_string(),
+                                field: import.name.to_string(),
+                                kind: ImportKind::Global {
+                                    mutable: global.mutable,
+                                },
                             });
                         }
                         TypeRef::Func(index) => {
@@ -225,7 +247,12 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
                             imports.push(ParsedImport {
                                 module: import.module.to_string(),
                                 field: import.name.to_string(),
-                                kind: ImportKind::Function,
+                                kind: ImportKind::Function(function_signature(
+                                    imported_functions.len() as u32 - 1,
+                                    &imported_functions,
+                                    &[],
+                                    &types,
+                                )?),
                             });
                         }
                         _ => return Err("artifact imports an unsupported item".into()),
@@ -345,9 +372,6 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
     if memories > 0 {
         return Err("artifact defines its own memory instead of importing one".into());
     }
-    if !imported_functions.is_empty() {
-        return Err("artifact function imports are not supported".into());
-    }
     Ok(ParsedCore {
         imports,
         exports,
@@ -356,6 +380,7 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
         data_ranges,
         has_start,
         elements,
+        imported_globals,
     })
 }
 

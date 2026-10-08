@@ -46,13 +46,17 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 "Wasm global indices are duplicated or not deterministic",
             ));
         }
-        if let GlobalInit::RefNull(heap) = global.init
-            && global.ty
-                != ValType::Ref(RefType {
-                    nullable: true,
-                    heap_type: heap,
-                })
-        {
+        let init_matches = match global.init {
+            GlobalInit::RefNull(heap) => {
+                global.ty
+                    == ValType::Ref(RefType {
+                        nullable: true,
+                        heap_type: heap,
+                    })
+            }
+            GlobalInit::I32(_) => global.ty == ValType::I32,
+        };
+        if !init_matches {
             errors.push(wasm_error(
                 module.span,
                 "Wasm global initializer type does not match its value type",
@@ -77,6 +81,9 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             (ExportKind::Function, ExportIndex::Function(index)) => index.0 < function_count,
             (ExportKind::Memory, ExportIndex::Memory(index)) => {
                 (index.0 as usize) < module.memories.len()
+            }
+            (ExportKind::Global, ExportIndex::Global(index)) => {
+                (index.0 as usize) < module.globals.len()
             }
             _ => false,
         };

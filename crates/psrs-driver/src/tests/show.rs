@@ -90,7 +90,7 @@ main = let ignored = runEffect checks in 0
 }
 
 #[test]
-fn formatter_plan_records_the_pinned_artifact_digest() {
+fn formatter_plan_records_the_pinned_runtime_artifact_digests() {
     let source = r#"
 module Main where
 
@@ -117,11 +117,16 @@ main = let ignored = log (show 1.0e21) in 0
             .find(|parameter| parameter.key == key)
             .map(|parameter| parameter.value.as_str())
     };
-    assert_eq!(parameter("artifacts"), Some("1"));
+    assert_eq!(parameter("artifacts"), Some("2"));
     let digests = parameter("artifact_digests").expect("artifact digests are recorded");
     assert!(digests.contains("psrs:runtime-number"), "{digests}");
+    assert!(digests.contains("psrs:runtime-allocator"), "{digests}");
     assert!(
-        digests.contains("75cdd69833e058d014942eafdcd668eb9150e8d098a791871c327daf7bb20c73"),
+        digests.contains("a6f556d0151e8c474c495ad4488b9a23d67bb105dda2dc84eff17eaba70bbf19"),
+        "{digests}"
+    );
+    assert!(
+        digests.contains("458a7df7eb27038c4d6b22aa52fc8ea283c6dca41120b0c0bf31f6a851aa0260"),
         "{digests}"
     );
     assert!(

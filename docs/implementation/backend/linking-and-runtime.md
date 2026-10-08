@@ -223,3 +223,70 @@ the provider catalog and therefore did not verify the consumer. New rejection
 fixtures cover parameter width/count, missing/wrong results and GC references;
 reserved generated helpers also reject wrong signatures and string layouts.
 See [the measured acceptance record](intrinsic-implementations-2026-10-07.md).
+
+## Runtime unit graph checkpoint (2026-10-09)
+
+`psrs-runtime` publishes one package, `psrs:runtime`, whose number unit
+advertises each pinned numeric export as an operation. `psrs-linker::plan`
+selects a unit from that operation's identity and version, closes required
+operations, and records the selected units, edges, shared-memory import, growth
+owner, and instantiation order on the checked plan. A caller-supplied artifact
+id is not a provider.
+
+At this graph-only checkpoint, backend demands named the generated allocator, `psrs:allocator/generated`,
+as the only growth owner. The [canonical realloc adapter](../../design/backend/wasm/canonical-realloc-runtime-adapter.md)
+replaces that owner with one allocator runtime unit; planning accepts the
+replacement when the demand names the selected unit. The `dlmalloc` provider and its heap-boundary binding were not yet implemented
+at this checkpoint. Persistent checked-Core caching remains unimplemented.
+
+This checkpoint was measured with its locked catalog bytes. Full workspace tests
+and corpus scoreboards were not run for that checkpoint.
+
+| Command | Result |
+| --- | --- |
+| `cargo test -p psrs-linker` | 56 passed: 17 unit, 6 compose, 11 graph, 10 guest, 12 plan |
+| `cargo test -p psrs-runtime --lib units::` | 1 passed; the other 12 runtime tests were not re-run |
+| `cargo test -p psrs-backend --lib linking::` | 2 passed |
+| `cargo test -p psrs-backend --lib target_runtime::` | 3 passed |
+| `cargo test -p psrs-backend --lib post_return::` | 3 passed |
+| `cargo test -p psrs-backend --lib number_format_tests` | 1 passed |
+| `cargo test -p psrs-driver --lib tests::diagnosis_trace::target_plan_records_provider_and_memory_lineage` | 1 passed |
+| `cargo fmt --all --check` | Passed |
+| `cargo clippy -p psrs-linker -p psrs-runtime -p psrs-backend --all-targets -- -D warnings` | Passed |
+
+## Allocator provider and runtime module integration (2026-10-09)
+
+Backend demands now select `psrs:runtime/allocator` as the sole memory growth
+owner. The application exports a checked constant `get_heap_base: () -> i32`,
+and the pinned `dlmalloc` artifact imports it through the application-export
+namespace. Application verification checks the getter signature and constant-only
+body against the memory plan before composition. The provider initializes lazily
+on the first canonical call; all allocation, resizing, freeing and post-return
+cleanup use the same instance. The synthesized free-list allocator is removed.
+
+The package remains one crate, with `abi`, `catalog`, `number` and `allocator`
+module owners. Numeric and allocator builds share trap-based panic handling;
+the catalog embeds their separately produced artifacts. The numeric artifact
+was repinned after moving implementation modules changed diagnostic text and
+static data offsets. The allocator artifact remained byte-for-byte identical.
+
+Validation of this integrated state:
+
+| Command | Result |
+| --- | --- |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace` | Passed, including 408 backend and 716 driver library tests; runtime-gated execution was mandatory |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-linker --tests` | 61 passed: 18 unit, 6 compose, 11 graph, 10 guest, 4 heap-getter, 12 plan |
+| `cargo test -p psrs-runtime --all-features --lib` | 17 passed, including portable allocator algorithms |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Passed |
+| `cargo clippy -p psrs-runtime --all-targets --all-features -- -D warnings` | Passed |
+| `cargo fmt --all --check` | Passed |
+| `sh crates/psrs-runtime/tools/check-reproducible.sh` | Both pinned artifacts reproduced byte-for-byte |
+
+The heap-getter execution cases cover distinct application heap boundaries,
+allocation beyond initial memory, resizing with content preservation, freeing,
+and canonical-scratch preservation. Rejection cases cover getter signature,
+constant, locals, memory access and call effects. Existing backend post-return
+tests execute string-buffer reclamation through the composed provider.
+
+Corpus scoreboards were not remeasured. This evidence does not close all
+allocator and buffer-lifetime acceptance obligations or persistent Core caching.

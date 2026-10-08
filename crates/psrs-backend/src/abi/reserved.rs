@@ -2,14 +2,15 @@
 //!
 //! Allocators that count downward from `u32::MAX` must skip this set. The
 //! numeric-runtime symbols are ordinary MIR imports of artifact exports. The
-//! allocator and string-boundary symbols are synthesized locally and are never
-//! core imports.
+//! allocator symbol is a runtime operation lowered through a local forwarder.
+//! String-boundary symbols are synthesized locally and are never core imports.
 
 use psrs_hir::{ModuleId, SymbolId};
 
-/// Reserved MIR symbol for the allocator synthesized after ABI memory layout
-/// is known. Calls to this symbol become calls to the local `cabi_realloc`
-/// function during Wasm lowering; it is never emitted as a core import.
+/// Reserved MIR symbol for canonical `cabi_realloc`.
+///
+/// Linking selects the allocator runtime unit. Wasm lowering imports that
+/// export and emits a local forwarder; codecs and cleanup call the forwarder.
 pub(crate) const REALLOC_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1);
 
 /// Reserved symbols for the string boundary helpers at the canonical ABI.
@@ -49,9 +50,13 @@ pub(crate) const NUMBER_NAN_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSIC
 pub(crate) const NUMBER_INFINITY_SYMBOL: SymbolId =
     SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 23);
 
+/// Reserved symbol for the application-owned constant heap getter.
+pub(crate) const HEAP_BASE_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 24);
+
 /// Every symbol this allocator must not reuse.
-pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 23] = [
+pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 24] = [
     REALLOC_SYMBOL,
+    HEAP_BASE_SYMBOL,
     STRING_TO_BYTES_SYMBOL,
     BYTES_TO_STRING_SYMBOL,
     VALIDATE_STEP_SYMBOL,

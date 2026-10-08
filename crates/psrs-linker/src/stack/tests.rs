@@ -213,3 +213,21 @@ fn recursive_module() -> Vec<u8> {
     module.section(&code);
     module.finish()
 }
+
+#[test]
+fn imported_calls_require_an_explicit_cross_module_stack_proof() {
+    let bytes = wat::parse_str(
+        r#"(module
+        (import "application" "constant" (func $get (result i32)))
+        (func (export "entry") call $get drop))"#,
+    )
+    .unwrap();
+    assert!(measure_stack_bound(&bytes, 0).is_err());
+    assert_eq!(
+        measure_stack_bound_with_imports(&bytes, 0, &[0])
+            .unwrap()
+            .bytes,
+        0
+    );
+    assert!(measure_stack_bound_with_imports(&bytes, 0, &[1]).is_err());
+}

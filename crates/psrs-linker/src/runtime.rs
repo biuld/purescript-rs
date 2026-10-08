@@ -4,11 +4,12 @@
 //! contract it verifies and plans against.
 
 use crate::target::{
-    ArtifactContract, ArtifactKind, CoreSignature, CoreType, DeclaredElement, DeclaredExport,
-    DeclaredGlobal, DeclaredImport, DeclaredTable, ExportKind, ImportKind, InitializationContract,
-    StorageContract, StorageRegion,
+    ArtifactContract, ArtifactKind, ArtifactReference, CoreSignature, CoreType, DeclaredElement,
+    DeclaredExport, DeclaredGlobal, DeclaredImport, DeclaredTable, ExportKind, ImportKind,
+    InitializationContract, OfferedOperation, RequiredOperation, RuntimeUnitOffer, StorageContract,
+    StorageRegion,
 };
-use psrs_runtime::{RawType, RuntimeArtifact};
+use psrs_runtime::{RawType, RuntimeArtifact, RuntimePackage, RuntimeUnit};
 
 /// Maps a catalog artifact into the contract its bytes must satisfy.
 pub fn contract(artifact: &RuntimeArtifact) -> ArtifactContract {
@@ -46,7 +47,17 @@ pub fn contract(artifact: &RuntimeArtifact) -> ArtifactContract {
             .map(|import| DeclaredImport {
                 module: import.module.to_string(),
                 field: import.field.to_string(),
-                kind: ImportKind::Memory,
+                kind: match import.kind {
+                    psrs_runtime::RawImportKind::Memory { minimum, maximum } => {
+                        ImportKind::Memory { minimum, maximum }
+                    }
+                    psrs_runtime::RawImportKind::Function { parameters, result } => {
+                        ImportKind::Function(CoreSignature {
+                            parameters: parameters.iter().copied().map(core_type).collect(),
+                            result: result.map(core_type),
+                        })
+                    }
+                },
             })
             .collect(),
         exports: artifact
@@ -105,6 +116,51 @@ pub fn contract(artifact: &RuntimeArtifact) -> ArtifactContract {
             data_range: artifact.data_range,
         },
         instantiate_after_shims: artifact.instantiate_after_shims,
+    }
+}
+
+/// Maps one catalog unit onto the offer planning resolves.
+pub fn offer(unit: &RuntimeUnit) -> RuntimeUnitOffer {
+    RuntimeUnitOffer {
+        id: unit.id.to_string(),
+        semantic_contract_version: unit.semantic_contract_version.to_string(),
+        provided: unit
+            .provided
+            .iter()
+            .map(|operation| OfferedOperation {
+                name: operation.name.to_string(),
+                version: operation.version.to_string(),
+                export: operation.abi.export.to_string(),
+                signature: signature(operation.abi.parameters, operation.abi.result),
+            })
+            .collect(),
+        required: unit
+            .required
+            .iter()
+            .map(|operation| RequiredOperation {
+                name: operation.name.to_string(),
+                version: operation.version.to_string(),
+                signature: signature(operation.parameters, operation.result),
+            })
+            .collect(),
+        artifact: ArtifactReference {
+            contract: contract(unit.variant),
+            bytes: unit.variant.bytes.to_vec(),
+        },
+        state_owner: unit.state.owner.map(str::to_string),
+        grows_memory: unit.state.grows_memory,
+    }
+}
+
+/// Maps every unit of a catalog package. Unused units stay unselected.
+pub fn package_offers(package: &RuntimePackage) -> Vec<RuntimeUnitOffer> {
+    package.units.iter().copied().map(offer).collect()
+}
+
+fn signature(parameters: &[RawType], result: Option<RawType>) -> CoreSignature {
+    CoreSignature {
+        parameters: parameters.iter().copied().map(core_type).collect(),
+        result: result.map(core_type),
     }
 }
 

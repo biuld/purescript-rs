@@ -19,6 +19,7 @@ mod compose;
 mod definitions;
 mod digest;
 mod error;
+mod graph;
 pub mod guest;
 pub mod plan;
 pub mod runtime;
@@ -30,12 +31,16 @@ pub use compose::{LinkedArtifact, compose};
 pub use definitions::{ResolvedWorldContext, resolve_default_definitions, resolve_definitions};
 pub use digest::sha256_hex;
 pub use error::{LinkError, LinkErrors, LinkStage};
-pub use plan::{CheckedLinkPlan, MemoryPlan, ResolvedBinding, plan};
+pub use plan::{
+    CheckedLinkPlan, HeapBoundary, InitializationStep, LinkReport, MemoryPlan, ProviderEdge,
+    ResolvedBinding, SelectedUnit, plan,
+};
 pub use stack::{StackBound, measure_stack_bound};
 pub use target::{
-    ArtifactContract, ArtifactKind, ArtifactReference, BindingRequirement, Boundary, CoreSignature,
-    CoreType, DeclaredElement, DeclaredExport, DeclaredGlobal, DeclaredImport, DeclaredTable,
-    ExportKind, ImportKind, InitializationContract, MemoryDemand, Provider, RequirementId,
-    StorageContract, StorageRegion, TargetLinkInput, TargetPolicy,
+    APPLICATION_MEMORY, ArtifactContract, ArtifactKind, ArtifactReference, BindingRequirement,
+    Boundary, CoreSignature, CoreType, DeclaredElement, DeclaredExport, DeclaredGlobal,
+    DeclaredImport, DeclaredTable, ExportKind, GENERATED_GROWTH_OWNER, ImportKind,
+    InitializationContract, MemoryDemand, OfferedOperation, Provider, RequiredOperation,
+    RequirementId, RuntimeUnitOffer, StorageContract, StorageRegion, TargetLinkInput, TargetPolicy,
 };
 pub use verify::{VerifiedArtifact, verify_artifact};

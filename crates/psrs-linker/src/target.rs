@@ -35,16 +35,15 @@ pub enum Boundary {
 }
 
 /// The selected implementation for a requirement.
+///
+/// A runtime operation names an identity and version. Planning selects the
+/// unique compatible unit; a caller-chosen artifact is not a provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Provider {
     /// A compiler-generated local operation or helper; no import results.
     Generated,
-    /// An export of a pinned core-Wasm artifact.
-    ArtifactExport {
-        artifact: String,
-        export: String,
-        signature: CoreSignature,
-    },
+    /// Resolve the unique offered unit that provides this operation.
+    RuntimeOperation { name: String, version: String },
     /// A host interface retained in the component's external world.
     HostInterface { interface: String },
 }
@@ -73,10 +72,18 @@ pub enum ArtifactKind {
 }
 
 /// The kind of a declared artifact import.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportKind {
-    Memory,
-    Function,
+    /// A shared memory import. Limits are part of the pinned contract.
+    Memory {
+        minimum: u64,
+        maximum: Option<u64>,
+    },
+    /// An `i32` global import.
+    Global {
+        mutable: bool,
+    },
+    Function(CoreSignature),
 }
 
 /// An import the artifact's contract declares.
@@ -198,6 +205,46 @@ pub struct TargetPolicy {
     pub permitted_host_interfaces: Vec<String>,
 }
 
+/// Growth owner while the backend still synthesizes `cabi_realloc`.
+///
+/// The canonical realloc adapter replaces this name with one allocator runtime
+/// unit. Planning accepts that unit when the demand names its identity.
+pub const GENERATED_GROWTH_OWNER: &str = "psrs:allocator/generated";
+
+/// Identity of the one shared application memory.
+pub const APPLICATION_MEMORY: &str = "application";
+
+/// One operation an offered runtime unit provides.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfferedOperation {
+    pub name: String,
+    pub version: String,
+    pub export: String,
+    pub signature: CoreSignature,
+}
+
+/// An operation an offered unit requires from another provider.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RequiredOperation {
+    pub name: String,
+    pub version: String,
+    pub signature: CoreSignature,
+}
+
+/// A candidate runtime unit and the one variant it advertises.
+#[derive(Clone, Debug)]
+pub struct RuntimeUnitOffer {
+    pub id: String,
+    pub semantic_contract_version: String,
+    pub provided: Vec<OfferedOperation>,
+    pub required: Vec<RequiredOperation>,
+    pub artifact: ArtifactReference,
+    /// Private state owner. `None` means the unit owns no private state.
+    pub state_owner: Option<String>,
+    /// The unit grows the shared memory. This conflicts with any other owner.
+    pub grows_memory: bool,
+}
+
 /// The canonical ABI memory layout demanded by the application.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryDemand {
@@ -209,13 +256,22 @@ pub struct MemoryDemand {
     pub base_heap_start: u32,
     /// The allocator block granularity the heap start must satisfy.
     pub heap_alignment: u32,
+    /// The one owner allowed to grow the shared memory.
+    ///
+    /// The backend currently supplies [`GENERATED_GROWTH_OWNER`]. A selected
+    /// runtime unit may take this role when the demand names that unit.
+    pub growth_owner: String,
+    /// Declared maximum page count. `None` means the wasm32 limit of 65536.
+    pub maximum_pages: Option<u64>,
 }
 
 /// The complete checked input to [`crate::plan::plan`].
 #[derive(Clone, Debug)]
 pub struct TargetLinkInput {
     pub requirements: Vec<BindingRequirement>,
-    pub artifacts: Vec<ArtifactReference>,
+    /// Candidate runtime units. Planning selects only the units a live
+    /// requirement or a selected unit's dependency reaches.
+    pub units: Vec<RuntimeUnitOffer>,
     pub policy: TargetPolicy,
     pub memory: MemoryDemand,
 }

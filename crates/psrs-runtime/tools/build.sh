@@ -10,4 +10,4 @@ cargo rustc --locked -p psrs-runtime --lib --no-default-features --features form
   -C link-arg=-zstack-size=65536 -C link-arg=--export=__heap_base
 cargo run --locked -p psrs-runtime --example package -- \
   target/wasm32-unknown-unknown/target-runtime/psrs_runtime.wasm \
-  crates/psrs-runtime/artifact/psrs_runtime.wasm
+  "${1:-crates/psrs-runtime/artifact/psrs_runtime.wasm}"

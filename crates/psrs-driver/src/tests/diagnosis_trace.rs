@@ -144,7 +144,7 @@ fn target_plan_records_provider_and_memory_lineage() {
             .map(|parameter| parameter.value.as_str())
     };
     assert_eq!(parameter("artifacts"), Some("0"));
-    assert_eq!(parameter("heap_start"), Some("24"));
+    assert_eq!(parameter("heap_start"), Some("16"));
     assert!(
         parameter("selected_providers")
             .expect("selected providers are recorded")

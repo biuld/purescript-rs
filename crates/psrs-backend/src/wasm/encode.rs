@@ -73,6 +73,7 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
         for global in &module.globals {
             let init = match global.init {
                 GlobalInit::RefNull(heap) => ConstExpr::ref_null(heap),
+                GlobalInit::I32(value) => ConstExpr::i32_const(value as i32),
             };
             globals.global(
                 GlobalType {
@@ -92,10 +93,12 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             let kind = match export.kind {
                 ExportKind::Function => WasmExportKind::Func,
                 ExportKind::Memory => WasmExportKind::Memory,
+                ExportKind::Global => WasmExportKind::Global,
             };
             let index = match export.index {
                 ExportIndex::Function(index) => index.0,
                 ExportIndex::Memory(index) => index.0,
+                ExportIndex::Global(index) => index.0,
             };
             exports.export(&export.name, kind, index);
         }

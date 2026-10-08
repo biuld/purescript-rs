@@ -11,11 +11,11 @@ use crate::target_runtime;
 use crate::{BackendError, TargetCapabilities};
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_linker::{
-    ArtifactReference, BindingRequirement, Boundary, CheckedLinkPlan, CoreSignature, CoreType,
-    MemoryDemand, Provider, RequirementId, ResolvedWorldContext, TargetLinkInput, TargetPolicy,
+    BindingRequirement, Boundary, CheckedLinkPlan, CoreSignature, CoreType, MemoryDemand, Provider,
+    RequirementId, ResolvedWorldContext, TargetLinkInput, TargetPolicy,
 };
 use psrs_span::TextRange;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 /// A checked plan together with the backend's requirement identity mappings.
@@ -57,13 +57,38 @@ pub(crate) fn plan_for_module(
     let mut requirements = Vec::new();
     let mut symbols: Vec<(SymbolId, RequirementId)> = Vec::new();
     let mut spans: HashMap<String, (TextRange, Option<ModuleId>)> = HashMap::new();
-    let mut artifacts: BTreeMap<String, ArtifactReference> = BTreeMap::new();
     let mut next = 0_u32;
     let owner = module.entry.map(|entry| entry.module);
 
     for import in &module.imports {
         let id = RequirementId(next);
         next += 1;
+        if import.symbol == abi::REALLOC_SYMBOL {
+            crate::target_intrinsics::generated::verify(module, import).map_err(|message| {
+                vec![BackendError::invalid_ir(
+                    "P9 target linking",
+                    module.span,
+                    message,
+                )]
+            })?;
+            let requirement = BindingRequirement {
+                id,
+                origin: psrs_runtime::ALLOCATOR_REALLOC_OP.name.into(),
+                boundary: Boundary::RawCore {
+                    module: psrs_runtime::ALLOCATOR_MODULE.into(),
+                    field: psrs_runtime::REALLOC_EXPORT.into(),
+                },
+                expected: Some(core_signature(import, module.span)?),
+                provider: Provider::RuntimeOperation {
+                    name: psrs_runtime::ALLOCATOR_REALLOC_OP.name.into(),
+                    version: psrs_runtime::ALLOCATOR_REALLOC_OP.version.into(),
+                },
+            };
+            spans.insert(requirement.origin.clone(), (module.span, owner));
+            requirements.push(requirement);
+            symbols.push((import.symbol, id));
+            continue;
+        }
         // Generated helpers are roots even though no source foreign declaration
         // names them; they are lowered locally and need no external provider.
         if let Some(name) = crate::target_intrinsics::generated::name(import.symbol) {
@@ -97,9 +122,6 @@ pub(crate) fn plan_for_module(
                 )]
             })?;
             let requirement = implementation.requirement(id, core_signature(import, module.span)?);
-            artifacts
-                .entry(implementation.artifact.id.to_string())
-                .or_insert_with(|| implementation.artifact_reference());
             spans.insert(requirement.origin.clone(), (module.span, owner));
             requirements.push(requirement);
             symbols.push((import.symbol, id));
@@ -165,7 +187,7 @@ pub(crate) fn plan_for_module(
 
     let input = TargetLinkInput {
         requirements,
-        artifacts: artifacts.into_values().collect(),
+        units: psrs_linker::runtime::package_offers(&psrs_runtime::PSRS_RUNTIME),
         policy: TargetPolicy {
             permitted_host_interfaces: permitted_host_interfaces(context, target),
         },
@@ -260,6 +282,8 @@ fn memory_demand() -> MemoryDemand {
         allocator_state: (abi::HEAP_STATE, abi::HEAP_STATE + abi::HEAP_STATE_SIZE),
         base_heap_start: abi::HEAP_START,
         heap_alignment: abi::MIN_BLOCK,
+        growth_owner: psrs_runtime::ALLOCATOR_UNIT.id.into(),
+        maximum_pages: None,
     }
 }
 

@@ -27,7 +27,10 @@ fn number_format_contract() -> ArtifactContract {
         imports: vec![DeclaredImport {
             module: psrs_runtime::MEMORY_MODULE.into(),
             field: psrs_runtime::MEMORY_FIELD.into(),
-            kind: ImportKind::Memory,
+            kind: ImportKind::Memory {
+                minimum: 3,
+                maximum: None,
+            },
         }],
         exports: vec![
             DeclaredExport {

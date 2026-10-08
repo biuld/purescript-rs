@@ -50,6 +50,16 @@ relocations. WIT component composition uses canonical lift/lower boundaries.
 These differ from source-module linking, which unifies checked language
 declarations before backend lowering.
 
+[Compilation units and runtime linking](core-object-linking-and-compilation-units.md)
+specifies source/Core/Wasm/component units, compiler-owned application emission,
+and the structured runtime dependency graph. Application code is assembled in
+Core and encoded by our backend; runtime Core Modules are connected through
+checked instance bindings, without an external application object linker. The
+runtime unit graph is implemented. Persistent module caching remains a draft.
+[Canonical realloc runtime adapter](canonical-realloc-runtime-adapter.md)
+specifies the allocator provider, memory provisioning and lazy initialization.
+That adapter is a draft and is not a claim of completed implementation.
+
 ### Intrinsic implementations
 
 The same checked intrinsic may be realized by a direct Wasm instruction, a
@@ -100,7 +110,7 @@ BindingRequirement = {
   origin: source_symbol/span | generated_operation/parent_origin,
   boundary: CheckedPrimitive | ResolvedWit | RawCore,
   expected_contract,
-  provider: Generated | ArtifactExport | HostInterface
+  provider: Generated | RuntimeOperation | HostInterface
 }
 
 LinkPlan = {
@@ -110,8 +120,11 @@ LinkPlan = {
 }
 ```
 
-Catalog metadata has one owner. Lowerers request an implementation by checked
-identity and consume its ABI/recovery descriptor. Artifact inspection verifies
+Catalog metadata has one owner. A runtime operation carries an identity and
+version. The planner selects one compatible catalog unit and closes that unit's
+required operations; a caller-supplied artifact id is not the provider. Lowerers
+request an implementation by checked identity and consume its ABI/recovery
+descriptor. Artifact inspection verifies
 that descriptor against real exports; it does not independently define it.
 The public library API and source scheme remain with the library and HIR.
 
@@ -201,6 +214,25 @@ or link-plan values. Target execution
 code and host-consumed catalog metadata have distinct build entry points so
 reading WIT assets does not require compiling the formatter into the native
 compiler or embedding WIT text in the executable target module.
+
+The package remains one crate, with four module owners:
+
+- `src/abi/` defines data-only raw signatures, transport protocols, binding names,
+  and numeric/allocator storage contracts. It embeds no artifact or WIT bytes.
+- `src/catalog/` contains plain metadata records, WIT assets, package membership,
+  and separate numeric/allocator declarations. Each unit's operation offers and
+  pinned artifact contract are declared together.
+- `src/number/` implements formatting, decimal parsing, and scalar math. The
+  existing `formatter` feature remains its build entry for compatibility.
+- `src/allocator/` separates portable allocation validation, phase handling and
+  segment planning from the Wasm adapter and its persistent state.
+
+`lib.rs` selects these modules and preserves the existing root-level exports.
+One Wasm-only panic handler supplies trap behavior for either executable build;
+the numeric and allocator features remain mutually exclusive on Wasm. Native
+compiler consumers enable only `catalog`, while each artifact build enables only
+its executable feature. `tools/check-reproducible.sh` rebuilds and compares both
+pinned artifacts through their respective build scripts without overwriting them.
 
 The resolved default world supplies interface membership. Capability policy is
 checked separately against the selected target profile. Do not retain a second
@@ -384,7 +416,10 @@ psrs-linker/definitions/        WIT loading and immutable resolved-world context
 psrs-linker/plan/               provider closure, memory and initialization planning
 psrs-linker/compose/            ComponentEncoder integration and final validation
 psrs-linker/verify/             artifact contracts and emitted-plan agreement
-psrs-runtime/                  immutable target catalog and target code
+psrs-runtime/src/abi/          shared raw ABI and storage contracts
+psrs-runtime/src/catalog/      immutable assets, unit declarations and package metadata
+psrs-runtime/src/number/       executable numeric runtime
+psrs-runtime/src/allocator/    portable allocator algorithms and Wasm adapter
 psrs-runtime/wit/              pinned definitions and default command world
 psrs-runtime/artifact/         core-Wasm bytes, contracts and build provenance
 psrs-stdlib/lib/                public APIs and ordinary PureScript wrappers

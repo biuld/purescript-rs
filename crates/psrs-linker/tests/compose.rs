@@ -2,8 +2,8 @@
 //! and no compiler IR participates.
 
 use psrs_linker::{
-    ArtifactReference, BindingRequirement, Boundary, CoreSignature, CoreType, MemoryDemand,
-    Provider, RequirementId, TargetLinkInput, TargetPolicy, plan, resolve_default_definitions,
+    BindingRequirement, Boundary, CoreSignature, CoreType, MemoryDemand, Provider, RequirementId,
+    TargetLinkInput, TargetPolicy, plan, resolve_default_definitions,
 };
 use wasm_encoder::{
     CodeSection, EntityType, ExportKind, ExportSection, Function, FunctionSection, ImportSection,
@@ -63,25 +63,20 @@ fn input() -> TargetLinkInput {
                 parameters: vec![CoreType::F64, CoreType::I32, CoreType::I32],
                 result: Some(CoreType::I32),
             }),
-            provider: Provider::ArtifactExport {
-                artifact: psrs_runtime::NUMBER_RUNTIME.id.into(),
-                export: psrs_runtime::NUMBER_EXPORT.into(),
-                signature: CoreSignature {
-                    parameters: vec![CoreType::F64, CoreType::I32, CoreType::I32],
-                    result: Some(CoreType::I32),
-                },
+            provider: Provider::RuntimeOperation {
+                name: psrs_runtime::NUMBER_TO_STRING_OP.name.into(),
+                version: psrs_runtime::NUMBER_TO_STRING_OP.version.into(),
             },
         }],
-        artifacts: vec![ArtifactReference {
-            contract: psrs_linker::runtime::contract(&psrs_runtime::NUMBER_RUNTIME),
-            bytes: psrs_runtime::NUMBER_RUNTIME.bytes.to_vec(),
-        }],
+        units: vec![psrs_linker::runtime::offer(&psrs_runtime::NUMBER_UNIT)],
         policy: TargetPolicy::default(),
         memory: MemoryDemand {
             canonical_scratch: (0, 16),
             allocator_state: (16, 24),
             base_heap_start: 24,
             heap_alignment: 8,
+            growth_owner: psrs_linker::GENERATED_GROWTH_OWNER.into(),
+            maximum_pages: None,
         },
     }
 }
@@ -114,13 +109,15 @@ fn composition_without_the_artifact_fails_closed() {
         &context,
         TargetLinkInput {
             requirements: Vec::new(),
-            artifacts: Vec::new(),
+            units: Vec::new(),
             policy: TargetPolicy::default(),
             memory: MemoryDemand {
                 canonical_scratch: (0, 16),
                 allocator_state: (16, 24),
                 base_heap_start: 24,
                 heap_alignment: 8,
+                growth_owner: psrs_linker::GENERATED_GROWTH_OWNER.into(),
+                maximum_pages: None,
             },
         },
     )
@@ -167,7 +164,7 @@ fn composition_rejects_memory_and_signature_drift_from_the_plan() {
 fn a_host_resource_return_uses_the_executable_interface_closure() {
     let context = resolve_default_definitions().unwrap();
     let mut input = input();
-    input.artifacts.clear();
+    input.units.clear();
     input.requirements = vec![BindingRequirement {
         id: RequirementId(0),
         origin: "get-stdout".into(),

@@ -267,4 +267,13 @@ fn annotate_plan(call: &mut crate::trace::TraceCall, link: &linking::LinkPlan) {
     );
     call.add_parameter("heap_start", plan.memory().heap_start.to_string());
     call.add_parameter("minimum_pages", plan.memory().minimum_pages.to_string());
+    call.add_parameter("growth_owner", plan.growth_owner().to_string());
+    call.add_parameter(
+        "runtime_units",
+        plan.units()
+            .iter()
+            .map(|unit| unit.id.clone())
+            .collect::<Vec<_>>()
+            .join(";"),
+    );
 }

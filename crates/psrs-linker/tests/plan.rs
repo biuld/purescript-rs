@@ -1,9 +1,8 @@
 //! Target-only linker tests: no compiler IR is constructed.
 
 use psrs_linker::{
-    ArtifactContract, ArtifactReference, BindingRequirement, Boundary, CoreSignature, CoreType,
-    MemoryDemand, Provider, RequirementId, TargetLinkInput, TargetPolicy, plan,
-    resolve_default_definitions,
+    BindingRequirement, Boundary, CoreSignature, CoreType, MemoryDemand, Provider, RequirementId,
+    RuntimeUnitOffer, TargetLinkInput, TargetPolicy, plan, resolve_default_definitions,
 };
 
 fn memory() -> MemoryDemand {
@@ -12,19 +11,18 @@ fn memory() -> MemoryDemand {
         allocator_state: (16, 24),
         base_heap_start: 24,
         heap_alignment: 8,
+        growth_owner: psrs_linker::GENERATED_GROWTH_OWNER.into(),
+        maximum_pages: None,
     }
 }
 
-fn input(
-    requirements: Vec<BindingRequirement>,
-    artifacts: Vec<ArtifactReference>,
-) -> TargetLinkInput {
+fn input(requirements: Vec<BindingRequirement>, units: Vec<RuntimeUnitOffer>) -> TargetLinkInput {
     let permitted = resolve_default_definitions()
         .map(|context| context.world_imports().to_vec())
         .unwrap_or_default();
     TargetLinkInput {
         requirements,
-        artifacts,
+        units,
         policy: TargetPolicy {
             permitted_host_interfaces: permitted,
         },
@@ -32,11 +30,8 @@ fn input(
     }
 }
 
-fn formatter_artifact() -> ArtifactReference {
-    ArtifactReference {
-        contract: psrs_linker::runtime::contract(&psrs_runtime::NUMBER_RUNTIME),
-        bytes: psrs_runtime::NUMBER_RUNTIME.bytes.to_vec(),
-    }
+fn number_unit() -> RuntimeUnitOffer {
+    psrs_linker::runtime::offer(&psrs_runtime::NUMBER_UNIT)
 }
 
 fn formatter_requirement() -> BindingRequirement {
@@ -51,13 +46,9 @@ fn formatter_requirement() -> BindingRequirement {
             parameters: vec![CoreType::F64, CoreType::I32, CoreType::I32],
             result: Some(CoreType::I32),
         }),
-        provider: Provider::ArtifactExport {
-            artifact: psrs_runtime::NUMBER_RUNTIME.id.into(),
-            export: psrs_runtime::NUMBER_EXPORT.into(),
-            signature: CoreSignature {
-                parameters: vec![CoreType::F64, CoreType::I32, CoreType::I32],
-                result: Some(CoreType::I32),
-            },
+        provider: Provider::RuntimeOperation {
+            name: psrs_runtime::NUMBER_TO_STRING_OP.name.into(),
+            version: psrs_runtime::NUMBER_TO_STRING_OP.version.into(),
         },
     }
 }
@@ -87,7 +78,7 @@ fn a_live_formatter_requirement_reserves_storage_and_closes_the_private_import()
         &context,
         input(
             vec![formatter_requirement(), stdout_requirement(1)],
-            vec![formatter_artifact()],
+            vec![number_unit()],
         ),
     )
     .expect("the formatter plan should be valid");
@@ -159,7 +150,7 @@ fn a_world_interface_disabled_by_the_target_profile_is_rejected() {
         &context,
         TargetLinkInput {
             requirements: vec![stdout_requirement(0)],
-            artifacts: Vec::new(),
+            units: Vec::new(),
             policy: TargetPolicy {
                 permitted_host_interfaces: vec!["wasi:io/streams@0.2.12".into()],
             },
@@ -199,13 +190,10 @@ fn a_different_world_version_does_not_satisfy_a_pinned_import() {
 #[test]
 fn a_reservation_overlapping_canonical_state_is_rejected() {
     let context = resolve_default_definitions().unwrap();
-    let mut artifact = formatter_artifact();
-    let storage = artifact.contract.storage.as_mut().unwrap();
+    let mut unit = number_unit();
+    let storage = unit.artifact.contract.storage.as_mut().unwrap();
     storage.static_data.start = 16;
-    let result = plan(
-        &context,
-        input(vec![formatter_requirement()], vec![artifact]),
-    );
+    let result = plan(&context, input(vec![formatter_requirement()], vec![unit]));
     assert!(result.is_err(), "overlapping reservations must be rejected");
 }
 
@@ -215,22 +203,15 @@ fn conflicting_providers_for_one_import_identity_are_rejected() {
     let mut other = formatter_requirement();
     other.id = RequirementId(1);
     other.origin = "NumberToStringAgain".into();
-    other.provider = Provider::ArtifactExport {
-        artifact: psrs_runtime::NUMBER_RUNTIME.id.into(),
-        export: psrs_runtime::NUMBER_EXPORT.into(),
-        signature: CoreSignature {
-            // A deliberately different signature for the same import identity.
-            parameters: vec![CoreType::F64, CoreType::I32],
-            result: Some(CoreType::I32),
-        },
-    };
+    other.expected = Some(CoreSignature {
+        // A deliberately different signature for the same import identity.
+        parameters: vec![CoreType::F64, CoreType::I32],
+        result: Some(CoreType::I32),
+    });
     assert!(
         plan(
             &context,
-            input(
-                vec![formatter_requirement(), other],
-                vec![formatter_artifact()]
-            )
+            input(vec![formatter_requirement(), other], vec![number_unit()])
         )
         .is_err(),
         "two signatures for one import identity must be rejected"
@@ -241,13 +222,9 @@ fn conflicting_providers_for_one_import_identity_are_rejected() {
 /// mismatched contract must fail before any plan is published.
 #[test]
 fn a_definition_contract_does_not_satisfy_execution() {
-    let mut contract: ArtifactContract =
-        psrs_linker::runtime::contract(&psrs_runtime::NUMBER_RUNTIME);
-    contract.exports.clear();
-    let artifact = ArtifactReference {
-        contract,
-        bytes: psrs_runtime::NUMBER_RUNTIME.bytes.to_vec(),
-    };
+    let mut unit = number_unit();
+    unit.artifact.contract.exports.clear();
+    let artifact = unit;
     let context = resolve_default_definitions().unwrap();
     assert!(
         plan(
@@ -292,15 +269,14 @@ fn impossible_memory_demands_are_rejected_before_arithmetic() {
         input.memory.heap_alignment = alignment;
         assert!(plan(&context, input).is_err());
     }
-    let mut artifact = formatter_artifact();
-    artifact.contract.storage.as_mut().unwrap().minimum_pages = u64::MAX;
-    assert!(
-        plan(
-            &context,
-            input(vec![formatter_requirement()], vec![artifact])
-        )
-        .is_err()
-    );
+    let mut unit = number_unit();
+    unit.artifact
+        .contract
+        .storage
+        .as_mut()
+        .unwrap()
+        .minimum_pages = u64::MAX;
+    assert!(plan(&context, input(vec![formatter_requirement()], vec![unit])).is_err());
 }
 
 #[test]

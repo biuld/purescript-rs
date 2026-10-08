@@ -21,6 +21,16 @@ pub struct StackBound {
 /// Exported tables are also rejected: callers could otherwise enter a private
 /// function through them. Modules with no entry points are analyzed in full.
 pub fn measure_stack_bound(bytes: &[u8], stack_pointer_global: u32) -> Result<StackBound, String> {
+    measure_stack_bound_with_imports(bytes, stack_pointer_global, &[])
+}
+
+/// Imported function indices proven by composition to use no linear stack.
+/// All other imported calls retain the conservative rejection behavior.
+pub(crate) fn measure_stack_bound_with_imports(
+    bytes: &[u8],
+    stack_pointer_global: u32,
+    stackless_imports: &[u32],
+) -> Result<StackBound, String> {
     // Exception and suspension proposals require a separate frame-unwind
     // proof. They cannot enter this normal-return-only analysis.
     use wasmparser::WasmFeatures as F;
@@ -96,6 +106,7 @@ pub fn measure_stack_bound(bytes: &[u8], stack_pointer_global: u32) -> Result<St
             &mut memo,
             &mut visiting,
             imported_functions,
+            stackless_imports,
         )?);
     }
     Ok(StackBound { bytes: bound })
@@ -166,14 +177,30 @@ fn analyze_body(
                 return Err("unrecognized stack-pointer access makes the bound unknown".into());
             }
             Operator::LocalGet { local_index } if Some(*local_index) == frame_local => {
-                if depth == 0
-                    && !restored
+                let restores = !restored
                     && matches!(operators.get(index + 1), Some(Operator::I32Const { value }) if *value as u32 == frame)
                     && matches!(operators.get(index + 2), Some(Operator::I32Add))
-                    && matches!(operators.get(index + 3), Some(Operator::GlobalSet { global_index }) if *global_index == stack_pointer_global)
-                {
-                    restored = true;
-                    index += 4;
+                    && matches!(operators.get(index + 3), Some(Operator::GlobalSet { global_index }) if *global_index == stack_pointer_global);
+                // LLVM leaves the epilogue inside the function's wrapper block,
+                // optionally reloads the return value, and returns immediately.
+                // That return leaves the function, so the restore covers it
+                // without blessing any later path.
+                let covers_return = match operators.get(index + 4) {
+                    Some(Operator::Return) => Some(5),
+                    Some(Operator::LocalGet { .. })
+                        if matches!(operators.get(index + 5), Some(Operator::Return)) =>
+                    {
+                        Some(6)
+                    }
+                    _ => None,
+                };
+                if restores && (depth == 0 || covers_return.is_some()) {
+                    if depth == 0 {
+                        restored = true;
+                        index += 4;
+                    } else {
+                        index += covers_return.expect("the return is covered");
+                    }
                     continue;
                 }
             }
@@ -252,6 +279,7 @@ fn visit(
     memo: &mut [Option<u32>],
     visiting: &mut [bool],
     imported_functions: usize,
+    stackless_imports: &[u32],
 ) -> Result<u32, String> {
     if let Some(value) = memo[index] {
         return Ok(value);
@@ -265,11 +293,21 @@ fn visit(
     for callee in callees {
         let callee = *callee as usize;
         if callee < imported_functions {
+            if stackless_imports.contains(&(callee as u32)) {
+                continue;
+            }
             return Err("a call into an imported function makes the stack bound unknown".into());
         }
         let defined = callee - imported_functions;
         if defined < bodies.len() {
-            deepest = deepest.max(visit(defined, bodies, memo, visiting, imported_functions)?);
+            deepest = deepest.max(visit(
+                defined,
+                bodies,
+                memo,
+                visiting,
+                imported_functions,
+                stackless_imports,
+            )?);
         } else {
             return Err("callee is outside the analyzed module".into());
         }

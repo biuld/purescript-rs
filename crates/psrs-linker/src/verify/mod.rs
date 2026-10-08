@@ -65,10 +65,28 @@ pub fn verify_artifact(
     check_contract(contract, &parsed)?;
     let stack_bound_bytes = match &contract.storage {
         Some(storage) => {
-            let measured = crate::measure_stack_bound(bytes, storage.stack_pointer_global)
-                .map_err(|message| {
-                    LinkErrors::one(stage, id, format!("stack analysis failed: {message}"))
-                })?;
+            let function_imports: Vec<_> = contract
+                .imports
+                .iter()
+                .filter(|import| matches!(import.kind, crate::ImportKind::Function(_)))
+                .collect();
+            let stackless_imports = if function_imports.len() == 1
+                && crate::plan::is_heap_getter(function_imports[0])
+            {
+                vec![0]
+            } else {
+                Vec::new()
+            };
+            // Application verification discharges this cross-module obligation by
+            // requiring the getter to contain only i32.const and end.
+            let measured = crate::stack::measure_stack_bound_with_imports(
+                bytes,
+                storage.stack_pointer_global,
+                &stackless_imports,
+            )
+            .map_err(|message| {
+                LinkErrors::one(stage, id, format!("stack analysis failed: {message}"))
+            })?;
             if measured.bytes > storage.stack_bound_bytes {
                 return Err(LinkErrors::one(
                     stage,
