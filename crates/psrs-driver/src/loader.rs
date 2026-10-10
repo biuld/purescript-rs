@@ -1,6 +1,6 @@
 //! Filesystem discovery for the transitive source graph.
 //!
-//! The standard library is read from `stdlib/lib`; user modules are discovered
+//! The standard library is read from the locked `psrs-stdlib` package; user modules are discovered
 //! from the filesystem. Given the entry files, this loader scans their
 //! directories for `.purs` files, indexes them by declared module name, and
 //! follows the `import` graph until it closes. Modules supplied by the
@@ -10,6 +10,81 @@
 use crate::lower_source_to_ast;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+
+/// Source files that make up a corpus case: the main file, its optional
+/// same-stem support directory, and the transitive imports the normal loader
+/// discovers for those entry files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramCaseSources {
+    pub own: Vec<(String, String)>,
+    pub loaded: Vec<(String, String)>,
+}
+
+impl ProgramCaseSources {
+    pub fn inputs(&self) -> Vec<(&str, &str)> {
+        self.own
+            .iter()
+            .chain(&self.loaded)
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect()
+    }
+}
+
+/// Assembles one suite case using the compiler's regular import loader.
+/// Files beside a category root are independent; a same-stem subdirectory is
+/// searched only when the case itself lives below that root.
+pub fn load_program_case_sources(
+    path: &Path,
+    category_dir: &Path,
+    main_text: &str,
+) -> Result<ProgramCaseSources, String> {
+    let mut own = vec![(path.to_string_lossy().into_owned(), main_text.to_owned())];
+    let support_dir = path.with_extension("");
+    if support_dir.is_dir() {
+        let mut support = Vec::new();
+        collect_purs_files(&support_dir, &mut support);
+        support.sort();
+        for support_path in support {
+            let text = std::fs::read_to_string(&support_path)
+                .map_err(|error| format!("{}: {error}", support_path.display()))?;
+            own.push((support_path.to_string_lossy().into_owned(), text));
+        }
+    }
+
+    let own_directory = path.parent() != Some(category_dir);
+    let loaded = if own_directory {
+        let entry_paths = own
+            .iter()
+            .skip(1)
+            .map(|(path, _)| path.clone())
+            .chain(std::iter::once(path.to_string_lossy().into_owned()))
+            .collect::<Vec<_>>();
+        load_program_files(&entry_paths)?
+            .into_iter()
+            .filter(|(loaded, _)| !own.iter().any(|(own, _)| own == loaded))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Ok(ProgramCaseSources { own, loaded })
+}
+
+pub fn collect_purs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_purs_files(&path, out);
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "purs")
+        {
+            out.push(path);
+        }
+    }
+}
 
 /// Loads the entry files plus every transitively imported user module found on
 /// disk. Returns `(path, text)` pairs; the order is discovery order, and P3

@@ -1,5 +1,3 @@
-mod substitution;
-
 use crate::{Declaration, Module, Type, TypeConstructor, TypeId};
 use psrs_hir::TypeVariableId;
 use std::collections::{HashMap, HashSet};
@@ -52,7 +50,7 @@ pub(super) fn match_instantiation(
     Some((replacements, key))
 }
 
-pub(super) use substitution::instantiate_declaration;
+pub(super) use crate::instantiation::substitution::instantiate_declaration;
 
 fn type_key(module: &Module, id: TypeId, active: &mut HashSet<TypeId>) -> Option<TypeKey> {
     if !active.insert(id) {

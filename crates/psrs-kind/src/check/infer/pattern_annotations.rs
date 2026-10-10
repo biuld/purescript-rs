@@ -19,6 +19,10 @@ impl Checker<'_> {
     }
 
     fn check_expression_annotations(&mut self, expression: &psrs_hir::Expr) {
+        psrs_span::with_sufficient_stack(|| self.check_expression_annotations_inner(expression))
+    }
+
+    fn check_expression_annotations_inner(&mut self, expression: &psrs_hir::Expr) {
         use psrs_hir::ExprKind;
         match &expression.kind {
             ExprKind::Typed { expression, ty } | ExprKind::TypeApplication { expression, ty } => {
@@ -30,7 +34,7 @@ impl Checker<'_> {
                     self.check_expression_annotations(element);
                 }
             }
-            ExprKind::Record(fields) => {
+            ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
                 for (_, value) in fields {
                     self.check_expression_annotations(value);
                 }

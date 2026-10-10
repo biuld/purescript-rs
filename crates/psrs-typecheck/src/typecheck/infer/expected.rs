@@ -9,6 +9,16 @@ impl Checker {
         expression: &hir::Expr,
         expected: Option<InferType>,
     ) -> Option<InferredExpr> {
+        psrs_span::with_sufficient_stack(|| {
+            self.infer_expr_with_expected_inner(expression, expected)
+        })
+    }
+
+    fn infer_expr_with_expected_inner(
+        &mut self,
+        expression: &hir::Expr,
+        expected: Option<InferType>,
+    ) -> Option<InferredExpr> {
         let Some(expected) = expected else {
             return self.infer_expr(expression);
         };
@@ -235,8 +245,26 @@ impl Checker {
             );
         }
 
-        let mut inferred = self.infer_expr(expression)?;
-        self.subsume(inferred.ty.clone(), expected.clone(), expression.span);
+        let inferred = self.infer_expr(expression)?;
+        // A bare class-method use keeps its method-local quantifiers and
+        // constraints on the inferred type. Instantiating them here matches the
+        // application path, so `eq = eq1` provides the `Eq a` dictionary the
+        // method signature requires instead of unifying the constraint with a
+        // plain function type.
+        let scheme = Scheme::monomorphic(inferred.ty.clone());
+        let mut inferred = self.instantiate_expression_use(inferred, &scheme, expression.span);
+        if matches!(
+            inferred.kind,
+            InferredExprKind::CoerceFunction { .. } | InferredExprKind::UnsafeCoerceFunction { .. }
+        ) {
+            // A cast's source and target are exact boundary types, rather than
+            // a function implementation adapted by contravariant subsumption.
+            // In particular, keep a contextual rank-N input quantified in the
+            // source metadata that finalization emits as the cast's binder.
+            self.unify(expected.clone(), inferred.ty.clone(), expression.span);
+        } else {
+            self.subsume(inferred.ty.clone(), expected.clone(), expression.span);
+        }
         inferred.ty = expected;
         Some(inferred)
     }

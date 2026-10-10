@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "bindings": [
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqBooleanImpl",
+      "operation": "booleanEq",
+      "signature": "Boolean -> Boolean -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L77"
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqIntImpl",
+      "operation": "intEq",
+      "signature": "Int -> Int -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L78"
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqNumberImpl",
+      "operation": "numberEq",
+      "signature": "Number -> Number -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L79"
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqCharImpl",
+      "operation": "charEq",
+      "signature": "Char -> Char -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L80"
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolConj",
+      "operation": "booleanAnd",
+      "signature": "Boolean -> Boolean -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/HeytingAlgebra.purs#L103"
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolDisj",
+      "operation": "booleanOr",
+      "signature": "Boolean -> Boolean -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/HeytingAlgebra.purs#L104"
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolNot",
+      "operation": "booleanNot",
+      "signature": "Boolean -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/HeytingAlgebra.purs#L105"
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "and",
+      "operation": "intAnd",
+      "signature": "Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L13"
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "or",
+      "operation": "intOr",
+      "signature": "Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L18"
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "xor",
+      "operation": "intXor",
+      "signature": "Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L23"
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "shl",
+      "operation": "intShl",
+      "signature": "Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L28"
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "shr",
+      "operation": "intShr",
+      "signature": "Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L31"
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "zshr",
+      "operation": "intZshr",
+      "signature": "Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L34"
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "complement",
+      "operation": "intComplement",
+      "signature": "Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L37"
+    },
+    {
+      "module": "Data/Int.purs",
+      "name": "toNumber",
+      "operation": "intToNumber",
+      "signature": "Int -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int.purs#L81"
+    },
+    {
+      "module": "Data/Ring.purs",
+      "name": "intSub",
+      "operation": "intSub",
+      "signature": "Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ring.purs#L54"
+    },
+    {
+      "module": "Data/Ring.purs",
+      "name": "numSub",
+      "operation": "numberSub",
+      "signature": "Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ring.purs#L55"
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "intAdd",
+      "operation": "intAdd",
+      "signature": "Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semiring.purs#L89"
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "numAdd",
+      "operation": "numberAdd",
+      "signature": "Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semiring.purs#L91"
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "numMul",
+      "operation": "numberMul",
+      "signature": "Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semiring.purs#L92"
+    }
+  ]
+}

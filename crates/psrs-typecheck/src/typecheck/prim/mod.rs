@@ -23,6 +23,7 @@ mod coercible;
 mod compare;
 mod dispatch;
 mod int;
+mod reflection;
 mod reports;
 pub(in crate::typecheck) mod requeue;
 mod row;
@@ -58,7 +59,7 @@ impl EvidenceClass {
     /// dictionary can mask them. A report runs after givens so `Warn`, `Fail`,
     /// and `Partial` can propagate through an enclosing constraint. A proof
     /// runs first because a dictionary is not the proof boundary Core expects.
-    fn precedes_givens(self) -> bool {
+    pub(in crate::typecheck) fn precedes_givens(self) -> bool {
         matches!(
             self,
             EvidenceClass::CompileTimeProof | EvidenceClass::RuntimeDictionary
@@ -69,7 +70,7 @@ impl EvidenceClass {
     ///
     /// `Coercible` is a checked proof boundary, so a given dictionary cannot
     /// discharge it. Its rule reads and composes proof givens itself.
-    fn accepts_a_given(self) -> bool {
+    pub(in crate::typecheck) fn accepts_a_given(self) -> bool {
         matches!(
             self,
             EvidenceClass::RuntimeDictionary
@@ -80,6 +81,7 @@ impl EvidenceClass {
 }
 
 /// One primitive rule, as the table records it.
+#[derive(Clone, Copy)]
 pub(in crate::typecheck) struct PrimitiveRule {
     /// The class identity the rule decides, and the key of its table entry. A
     /// qualification, an alias, or a re-export reaches the same identity, so
@@ -94,9 +96,11 @@ pub(in crate::typecheck) struct PrimitiveRule {
     solve: fn(&mut Checker, &PrimitiveArgs) -> PrimitiveOutcome,
 }
 
-/// The rules that exist. Every member with a rule appears here and nowhere
-/// else, so adding a relation is a table entry and a rule function rather than
-/// a branch at the dispatch site.
+/// Rules for the compiler-owned `Prim` declaration inventory. Source library
+/// interfaces enter the same dispatch through `registered_primitive_rule`,
+/// after their interface identity and dictionary contract have been checked.
+/// Adding a relation extends its owning registry and rule implementation, never
+/// a source-name branch at the solving site.
 ///
 /// A member with no entry reaches instance search, and a member whose rule
 /// declines continues into instance search: a relation never depends on an
@@ -148,6 +152,11 @@ pub(in crate::typecheck) fn is_report_only(class_id: hir::TypeId) -> bool {
 /// erases and records the arguments the rule decided, and a report has none.
 #[derive(Clone, Debug)]
 pub(in crate::typecheck) enum PrimitiveEvidence {
+    /// An ordinary checked dictionary whose methods have runtime values.
+    DictionaryValue {
+        arguments: Vec<InferType>,
+        value: Box<InferredExpr>,
+    },
     /// A checked boundary with no runtime value, recording the types it
     /// connects.
     Proof {
@@ -182,6 +191,9 @@ impl PrimitiveEvidence {
             }
             PrimitiveEvidence::Dictionary { arguments } => {
                 Some(WantedSolution::Primitive { arguments })
+            }
+            PrimitiveEvidence::DictionaryValue { value, .. } => {
+                Some(WantedSolution::DictionaryValue(value))
             }
             PrimitiveEvidence::Report => None,
         }
@@ -288,13 +300,19 @@ pub(in crate::typecheck) enum PrimitiveDispatch {
 /// The evidence classification owns this position: type-level relations and
 /// proof boundaries precede givens; reports run after givens so they can
 /// propagate or emit their diagnostic at the unresolved boundary.
+#[cfg(test)]
 pub(in crate::typecheck) fn primitive_rule_precedes_givens(class_id: hir::TypeId) -> bool {
     primitive_rule(class_id).is_some_and(|rule| rule.evidence.precedes_givens())
 }
 
-/// Whether a direct lexical given is forbidden from supplying this member's
-/// evidence. `Coercible` is the only such member: its proof rule can consume
-/// givens but must produce a verified proof boundary.
-pub(in crate::typecheck) fn primitive_rule_skips_given_lookup(class_id: hir::TypeId) -> bool {
-    primitive_rule(class_id).is_some_and(|rule| !rule.evidence.accepts_a_given())
+impl Checker {
+    pub(in crate::typecheck) fn registered_primitive_rule(
+        &self,
+        class_id: hir::TypeId,
+    ) -> Option<PrimitiveRule> {
+        primitive_rule(class_id).copied().or_else(|| {
+            let identity = self.env.classes.get(&class_id)?.compiler_class?;
+            Some(reflection::rule(class_id, identity))
+        })
+    }
 }

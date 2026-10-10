@@ -100,6 +100,7 @@ fn base(
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

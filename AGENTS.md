@@ -19,7 +19,44 @@ uncommitted work.
 - For a new user-facing feature, maintain the relevant feature and design
   documents under `docs/`. Add a decision record only for a major, durable
   decision. Keep documentation proportional to the change.
+- For compiler fixes, follow the [compiler iteration SOP](docs/workflow/compiler-iteration-sop.md)
+  to capture a comparable baseline, locate the owning stage contract, and verify
+  the change at the right layer.
 - Review the local diff and run the validation relevant to the files changed.
+
+### Standard-library package
+
+- Keep official library sources and case data in the independent `psrs-stdlib`
+  repository. The compiler consumes `stdlib.lock.json`; use `PSRS_STDLIB_ROOT`
+  only for an explicit development package.
+- Follow [the stdlib source-fidelity contract](docs/workflow/stdlib-vendoring.md)
+  when importing or changing official library sources.
+- Pin upstream package versions and commits. Preserve official pure functions,
+  signatures, exports, classes, instances, and modules. Repair compiler defects
+  in the compiler rather than editing valid official source to compile.
+- Official vendored `.purs` files retain their original length, including files
+  above 500 lines. The 500-line limit still applies to maintained compiler and
+  tooling source; do not split or rewrite official library modules to meet it.
+- Differences require a concrete Wasm/WASI or DEC-16 representation reason,
+  an explicit implementation boundary, and focused behavior evidence. A compiler
+  limitation, reduced API, or convenient rewrite is not a target justification.
+- Never replace an unimplemented foreign value with recursion, a fabricated
+  result, or another successful-looking placeholder. Keep its source contract
+  and report missing target support explicitly.
+- Compile acceptance, source fidelity, and runtime correctness are separate
+  claims. Importing every module with an unused `main` does not prove that the
+  APIs execute, that every declaration survives backend lowering, or that FFI
+  behavior agrees with its contract.
+
+- Prefer small checked runtime/storage primitives and ordinary target library
+  wrappers. Keep stdlib algorithms, traversal order, and callbacks in
+  `psrs-stdlib`; missing JS FFI alone does not justify a whole-function intrinsic.
+  Validate primitive values at their checked use types before ABI erasure;
+  copying a polymorphic array argument cannot preserve an in-place write.
+- Use the library-owned Node [conformance commands](docs/workflow/stdlib-conformance.md)
+  in `psrs-stdlib/tools/` for source and runtime comparisons. Maintain tool code
+  and case engines in that repository; keep compiler locks and Rust tests here.
+  The tool consumes executable and package paths; it must not depend on compiler-internal representations.
 
 ### Commit granularity
 
@@ -104,6 +141,10 @@ as project fields would create a second source of truth.
 - New syntax and new diagnostics land with official-suite evidence, not only a
   local test. The issue states whether that is a `purs` differential case or a
   scoreboard number.
+- Before a broad compiler fix, record a small or filtered compile-diagnosis
+  baseline and inspect the first blocker, diagnostic origin, and last completed
+  stage. Use the SOP's failure-group counts to guide investigation, while
+  choosing roadmap work and semantic ownership by the rules in this section.
 - Run the issue's `Validation` block. It is the issue-specific superset of the
   workspace validation below.
 
@@ -238,6 +279,11 @@ cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+An explicit user-defined validation scope takes precedence over these
+defaults. An issue's `Validation` block adds its required checks to the
+applicable defaults. Report omitted commands and their scope; do not present
+unrun checks as passing.
 
 The workspace default member is the CLI so `cargo run -- ...` works from the
 repository root. Always use `cargo test --workspace` to include library tests.

@@ -52,9 +52,21 @@ pub(crate) fn project_external(
     let Some(type_id) = type_id else {
         return Ok(None);
     };
-    let Some((parameters, result)) = crate::abi::link::function_parts(module, type_id) else {
+    let Some((mut parameters, mut result)) = crate::abi::link::function_parts(module, type_id)
+    else {
         return Ok(None);
     };
+    // Canonical guest layouts describe the host boundary, while CC signatures
+    // retain the complete logical dependency call. State and its successor
+    // never cross that ABI; only ordinary parameters and the payload do.
+    if parameters
+        .iter()
+        .any(|ty| psrs_core::state::region(module, *ty).is_some())
+    {
+        let step = psrs_core::state::signature(module, type_id).map_err(str::to_owned)?;
+        parameters = step.parameters;
+        result = step.payload;
+    }
     let projector = Projector {
         module,
         record_types,

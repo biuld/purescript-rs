@@ -1,8 +1,10 @@
-use super::names::{Resolver, builtin_type, is_uppercase, prim_type, split_qualified};
+use super::names::{
+    Resolver, builtin_type, implicit_prim_class, is_uppercase, prim_type, split_qualified,
+};
 use super::{PlannedType, ResolveErrorKind};
 use psrs_ast as ast;
 use psrs_hir::{
-    self as hir, ModuleId, Type as HirType, TypeDeclarationKind, TypeId, TypeKind as HirTypeKind,
+    self as hir, Type as HirType, TypeDeclarationKind, TypeId, TypeKind as HirTypeKind,
     TypeReference,
 };
 use psrs_span::TextRange;
@@ -168,8 +170,11 @@ impl Resolver {
                 self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
                 None
             }
-            (None, None) => match builtin_type(text) {
-                Some(builtin) => Some(TypeReference::Builtin(builtin)),
+            (None, None) => match builtin_type(text)
+                .map(TypeReference::Builtin)
+                .or_else(|| implicit_prim_class(text))
+            {
+                Some(reference) => Some(reference),
                 None => {
                     self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
                     None
@@ -190,8 +195,7 @@ impl Resolver {
             .iter()
             .any(|import| import.module_name == "Prim" && import.alias.as_deref() == Some("Prim"));
         let default_prim = if qualifier == "Prim" && !has_explicit_prim_qualifier {
-            prim_type(member)
-                .map(|builtin| (ModuleId::COMPILER_PRELUDE, TypeReference::Builtin(builtin)))
+            prim_type(member).map(TypeReference::Builtin)
         } else {
             None
         };
@@ -200,17 +204,15 @@ impl Resolver {
             self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
             return None;
         }
-        let mut found: Option<(ModuleId, TypeReference)> = default_prim;
+        let mut found: Option<TypeReference> = default_prim;
         let mut conflict = false;
         for candidate in candidates.into_iter().flatten() {
             let Some(reference) = candidate.types.get(member) else {
                 continue;
             };
             match found {
-                None => found = Some((candidate.module, *reference)),
-                Some((module, existing))
-                    if module != candidate.module || existing != *reference =>
-                {
+                None => found = Some(*reference),
+                Some(existing) if existing != *reference => {
                     conflict = true;
                 }
                 _ => {}
@@ -220,7 +222,7 @@ impl Resolver {
             self.report_conflict(text.to_owned(), span);
             return None;
         }
-        if let Some((_, reference)) = found {
+        if let Some(reference) = found {
             return Some(reference);
         }
         self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
@@ -448,6 +450,7 @@ impl Resolver {
             name: name.text,
             name_span: name.span,
             kind,
+            compiler_class: None,
             parameters,
             constructors,
             members,

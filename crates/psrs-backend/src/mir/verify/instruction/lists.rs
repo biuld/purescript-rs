@@ -3,7 +3,7 @@
 use super::super::util::{composite_at, is_array_reference, mir_error, require_value};
 use crate::BackendError;
 use crate::abi::canonical::CanonicalType;
-use crate::cc::{GuestLayout, ValueShape};
+use crate::cc::{GuestLayout, RefShape, ValueShape};
 use crate::mir::{Function, Instruction, ListDirection, ValueId, ValueType};
 use crate::types::{CompositeType, DefinedType, StorageType};
 use std::collections::HashMap;
@@ -42,7 +42,20 @@ pub(super) fn verify_list_copy(
     let Some(CompositeType::Array(field)) = composite_at(defined, *array_type) else {
         return Err(mir_error(*span, "MIR list copy type is not an array"));
     };
-    if !element_storage_matches(element, &field.storage) {
+    let erased_scalar = matches!(element_guest,
+        GuestLayout::Scalar { shape: ValueShape::Reference(reference) }
+        if reference.heap == RefShape::Erased)
+        && matches!(&field.storage, StorageType::Ref(reference) if reference.heap == crate::types::HeapType::Eq)
+        && matches!(
+            element,
+            CanonicalType::Bool
+                | CanonicalType::Int { .. }
+                | CanonicalType::Float { .. }
+                | CanonicalType::Char
+                | CanonicalType::Enum(_)
+                | CanonicalType::Handle { .. }
+        );
+    if !erased_scalar && !element_storage_matches(element, &field.storage) {
         return Err(mir_error(
             *span,
             "MIR list copy element does not match the GC array",
@@ -110,6 +123,7 @@ fn element_storage_matches(element: &CanonicalType, storage: &StorageType) -> bo
 /// Whether the struct field storage can hold a product field shape.
 fn field_storage_matches(shape: ValueShape, storage: &StorageType) -> bool {
     match shape {
+        ValueShape::State => false,
         ValueShape::Integer | ValueShape::Boolean => *storage == StorageType::I32,
         ValueShape::Number => *storage == StorageType::F64,
         ValueShape::String | ValueShape::Reference(_) => matches!(storage, StorageType::Ref(_)),

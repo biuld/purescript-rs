@@ -14,7 +14,7 @@ This document owns schemes, instantiation, generalization, bidirectional checkin
 
 ## Background
 
-HM inference explains unannotated let polymorphism, but PureScript additionally supports `forall` beneath arrows, constrained types, explicit type application, and row-polymorphic records. A use of a polymorphic value instantiates its `forall`; checking against an expected `forall` skolemizes it and rejects escaping skolems. Subsumption handles function variance and inserts dictionary evidence at permitted expression boundaries. Recursive declarations are checked as dependency groups; signatures supply polymorphic recursion where accepted by the source language.
+HM inference supplies declaration generalization; unannotated local bindings remain monomorphic. PureScript additionally supports `forall` beneath arrows, constrained types, explicit type application, and row-polymorphic records. A use of a polymorphic value instantiates its `forall`; checking against an expected `forall` skolemizes it and rejects escaping skolems. Subsumption handles function variance and inserts dictionary evidence at permitted expression boundaries. Recursive declarations are checked as dependency groups; signatures supply polymorphic recursion where accepted by the source language.
 
 ## Model
 
@@ -38,6 +38,32 @@ Inference state has three owners with distinct lifetimes. The `SemanticEnv` is i
 ## Design
 
 Infer synthesizable expressions and check expressions with expected types. Instantiate `forall` and solve constrained uses through class entailment. When checking a signature or higher-rank argument, skolemize expected quantifiers, perform structural subsumption, and check that skolems do not escape. Function parameter comparison is contravariant and result comparison covariant; record subsumption compares common labels and checks closed-row extras and omissions. Evidence can be inserted at elaboration sites, while comparison under a type constructor cannot invent term-level dictionaries.
+
+A multi-scrutinee case or multi-equation declaration retains a `MatchProduct`
+until checking. Its fields are independent pattern scrutinees: a local
+structural `forall` survives variable patterns, and each branch instantiates
+its own bound value at use. Patterns requiring a monotype instantiate only
+that field. The checked product becomes a closed record in THIR. Ordinary
+source record construction continues to instantiate field expressions once.
+Guard fallthrough captures the saved product to preserve the same rule.
+
+Coercion primitives checked against an expected arrow take its parameter and
+result as their exact source and target boundary types. Function variance must
+not instantiate a quantified input and leave the cast's stored source at an
+unresolved monotype. Checked casts retain a `Coercible` obligation over those
+same boundary types; unchecked casts retain their declared unchecked origin.
+This contextual boundary check does not change ordinary function subsumption.
+
+Lexical givens and their superclass projections discharge a wanted only when
+all resolved argument types already agree. Dictionary lookup does not unify an
+unconstrained wanted variable with a given's skolem: that would prematurely
+choose the type of an unannotated local binding before its uses constrain it. Functional
+dependency improvement remains the owner of permitted argument refinement,
+including dependencies exposed by the instantiated superclass closure of each
+lexical given.
+For example, under `BoundedEnum a` with an `Ord a` superclass, a local integer
+stepper's `Ord ?state` must stay residual until its enclosing declaration
+generalizes it or it is fixed by its integer seed; the superclass dictionary proves `Ord a`, not `Ord ?state`.
 
 Infer a recursive SCC with shared placeholders, respecting explicit signatures, then solve and generalize only variables permitted by the environment and remaining constraints. Use kind-correct constructor and pattern types; type-check case alternatives, literals, arrays, record operations, newtypes, and foreign imports. Visible type application `e @T` substitutes `T` for the operand's outermost quantifier after a kind check and is erased, and `e @_` consumes that quantifier without choosing a type. Typed holes follow the official source rules. A quantified kind argument is instantiated implicitly, because no source form applies one to a type constructor. Build THIR only after zonking, ambiguity checks, and evidence elaboration.
 
@@ -83,6 +109,13 @@ an expected type is an unconstrained unknown, instantiate an inferred
 polymorphic expression before solving the unknown, following the official
 checker's rule. Explicit polymorphic fields and annotations supply the
 boundaries at which a polymorphic value may be retained.
+
+Core replays those checked explicit instantiations, including universal types
+used as nominal constructor arguments. Its shared type matcher binds only the
+declaration's flexible parameters and retains a replacement's complete `ForAll`
+structure. Repeated occurrences must agree, constructor fields use the same
+bindings, and nominal slots remain invariant. This replay does not change P5's
+rule for solving unconstrained inference unknowns.
 
 Rejected alternatives: pure HM cannot check higher-rank signatures; unifying a `forall` as though it were a monotype is unsound; generalizing recursive uses before group checking admits unsound polymorphic recursion; and carrying solver cells into THIR breaks the P5 boundary. Demanding that a signatureless declaration's constraints already be solved is rejected because it makes a hand-written signature a precondition for inferring a qualified type. Letting each feature module check kinds for itself is rejected because whether an operation is kind-corrected would then depend on the caller's path.
 
@@ -187,7 +220,7 @@ Every THIR expression and binder has a kind-valid type; every reference is resol
 
 ## Worked example
 
-`apply :: (forall a. a -> a) -> Int` requires an argument polymorphic at the call site. `apply (\x -> x)` checks the lambda against a skolemized `forall a. a -> a`; a monomorphic `Int -> Int` argument fails. By contrast, `let id = \x -> x in id id` generalizes `id` and instantiates its two uses independently.
+`apply :: (forall a. a -> a) -> Int` requires an argument polymorphic at the call site. `apply (\x -> x)` checks the lambda against a skolemized `forall a. a -> a`; a monomorphic `Int -> Int` argument fails. A local binding needs an explicit polymorphic annotation for independent instantiation: `let id = (\x -> x) :: forall a. a -> a in id id`. An unannotated local identity is monomorphic, so self-application is an infinite type.
 
 For `class C a where method :: a -> a`, the declaration `f x = method x` has one wanted `C ?a` that no instance discharges. Generalization retains it, checks that `?a` occurs in `f`'s result type `?a -> ?a`, quantifies `?a` with kind `Type`, and gives `f` the scheme `forall a. C a => a -> a` with one dictionary parameter. `f 1` then instantiates that scheme and solves `C Int` at the use, while `f (\y -> y)` is rejected for lacking `C (Int -> Int)` if no such instance exists.
 
@@ -255,6 +288,39 @@ so the body's evidence and the parameter the scheme hands on are one dictionary.
 `group.rs` runs the sequence and `entry.rs` hands it the module. A wanted from an
 earlier declaration is not re-solved: that declaration has already generalized or
 reported it, so a second attempt could bind a variable it has since quantified.
+
+A finished binding also owns the flexible implementation variables that no
+public result type mentions, such as the phantom argument in `discard Proxy`.
+After solving and ambiguity checking, generalization traverses its checked
+expression, patterns, cast boundaries, and solved evidence. It records the
+remaining free variables as additional scheme binders with their checked
+kinds. Variables already bound by a nested scheme or rigid quantifier are not
+captured, and variables belonging to an outer level stay in that scope. This
+applies to declarations, local bindings, and instance dictionaries. It supplies
+explicit THIR scope for internal types without choosing a default type or
+adding evidence for an unsolved obligation; unused binders in the public type
+remain meaningful when the implementation mentions them.
+
+Unannotated local `let` and `where` bindings are monomorphic, as in official
+PureScript's `inferLetBinding`. They share the enclosing declaration's inference
+unknowns and wanted constraints. Local uses can solve those unknowns before the
+enclosing binding group solves, checks ambiguity, and generalizes. A local's
+unused class obligation is still an obligation of that declaration: `f y = let
+g x = method x in y` is ambiguous when `method :: C a => a -> a`, because the
+result of `f` does not determine `a`. Functional dependencies use the same
+closure over all retained constraints before deciding ambiguity.
+
+An explicit polymorphic local annotation owns its checked quantifiers and
+constraint dictionaries. Each use instantiates that declared type; it does not
+share the unannotated-binding unknowns. An enclosing body traversal preserves
+these structural binders and must not capture them again. When a checked `let`
+expression carries a leading `forall`, its binders scope both local definitions
+and the body in THIR and Core. Beta reduction retains the quantifier on the
+whole `let`; its argument binding remains monomorphic rather than rebinding
+the same type variable. Local bindings do not infer a qualified scheme or abstract unsolved dictionaries independently of
+the enclosing declaration. This also prevents implicit polymorphic recursion
+in a local recursive group.
+
 The scheme records the kind of each quantified variable, read through the kind
 owner, so an instantiation carries the declaration's own polymorphism rather than
 reading it back from the solver table.

@@ -49,7 +49,7 @@ impl Checker {
     }
 
     /// The dictionary record type for a class constraint: one field per
-    /// superclass (holding that superclass's dictionary) followed by one field
+    /// superclass (holding a Unit thunk for that superclass's dictionary) followed by one field
     /// per method, with the class parameters substituted.
     pub(in crate::typecheck) fn dictionary_type(
         &mut self,
@@ -71,7 +71,10 @@ impl Checker {
             self.superclass_constraints(constraint.class_id, &constraint.arguments)
         {
             let field_ty = self.dictionary_type(&super_constraint);
-            fields.push((field, field_ty));
+            fields.push((
+                field,
+                arrow(InferType::Constructor(TypeConstructor::Unit), field_ty),
+            ));
         }
         for method in &class.methods {
             let mut method_variables = variables.clone();

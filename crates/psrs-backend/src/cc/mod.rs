@@ -1,3 +1,4 @@
+use crate::boundary::{BoundaryEvidence, RepresentationRegistry};
 use crate::{BackendError, BackendInput, ExternalBindings, annotate_errors};
 use psrs_core::Module as CoreModule;
 use psrs_hir::{SymbolId, TypeId as HirTypeId};
@@ -10,15 +11,18 @@ mod case;
 mod convert;
 mod layout;
 mod lower;
+pub(crate) mod payload;
 mod projection;
 mod representation;
 mod scalar;
 mod source_abi;
+pub mod state;
 mod verify;
 
 pub(crate) use source_abi::abstract_signature;
 
 use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
+pub(crate) use layout::{checked_function_arrow_parameters, is_callable_type};
 use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
 
 pub use crate::types::ValueId;
@@ -105,6 +109,12 @@ pub enum AssignmentKind {
         signature: SignatureId,
         arguments: Vec<ValueId>,
     },
+    /// A checked source runner supplies and discharges one logical root.
+    StateExecution {
+        operation: psrs_hir::StateOperation,
+        function: ValueId,
+        signature: SignatureId,
+    },
     ClosureGetCapture {
         closure: ValueId,
         index: u32,
@@ -158,6 +168,12 @@ pub enum AssignmentKind {
         representation: ReprId,
         elements: Vec<ValueId>,
     },
+    ArrayFill {
+        destination: ValueId,
+        representation: ReprId,
+        length: ValueId,
+        value: ValueId,
+    },
     ArrayLen {
         destination: ValueId,
         value: ValueId,
@@ -177,6 +193,11 @@ pub enum AssignmentKind {
         destination: ValueId,
         representation: ReprId,
         value: ValueId,
+    },
+    /// Artifact-backed operation with checked language arguments before ABI erasure.
+    RuntimeCall {
+        intrinsic: psrs_hir::Intrinsic,
+        arguments: Vec<ValueId>,
     },
     /// An `Array Int` read as a source `String`. Every element must be a
     /// canonical byte and the bytes must be well-formed UTF-8.
@@ -248,8 +269,33 @@ pub fn lower_module_with_bindings(
     module: CoreModule,
     bindings: ExternalBindings,
 ) -> Result<BackendInput, Vec<BackendError>> {
+    lower_module_with_relations(module, bindings, None, RepresentationRegistry::new())
+}
+
+/// Lowers Core using the Core-to-CC boundary side table: an immutable source
+/// program for checked instantiation evidence and the registered representation
+/// policies. `source` is the pre-lowering module when effect applications have
+/// been rewritten; otherwise it is absent and relations are read from `module`.
+pub(crate) fn lower_module_with_relations(
+    mut module: CoreModule,
+    bindings: ExternalBindings,
+    source: Option<&CoreModule>,
+    mut registry: RepresentationRegistry,
+) -> Result<BackendInput, Vec<BackendError>> {
+    crate::bindings::lower_primitives(&mut module, source)?;
     bindings.validate_core(&module)?;
-    if let Err(errors) = module.verify() {
+    module = psrs_core::instantiate_local_rows(module, source).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|error| {
+                BackendError::new("P8 local row instantiation", error.span, error.message)
+                    .with_module(error.module)
+            })
+            .collect::<Vec<_>>()
+    })?;
+    let relations = source.unwrap_or(&module);
+    registry.register_newtypes(relations);
+    if let Err(errors) = module.verify_with_source(relations) {
         return Err(annotate_errors(
             errors
                 .into_iter()
@@ -323,6 +369,59 @@ pub fn lower_module_with_bindings(
             projection,
         });
     }
+    for binding in &bindings.runtime {
+        let type_id = binding.type_id.ok_or_else(|| {
+            vec![
+                BackendError::invalid_ir(
+                    "P8 closure conversion",
+                    binding.span,
+                    "runtime binding has no checked source scheme",
+                )
+                .with_module(binding.source_module),
+            ]
+        })?;
+        let signature = layout::function_signature(
+            &module,
+            type_id,
+            &enum_types,
+            &aggregate_types,
+            &newtype_ids,
+            &layout.array_types,
+            &layout.record_types,
+            &layout.function_types,
+        )
+        .map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(binding.source_module))
+                .collect::<Vec<_>>()
+        })?;
+        state::StateCallProjection::checked(&signature, &layout.representations)
+            .map_err(|message| {
+                vec![
+                    BackendError::invalid_ir("P8 closure conversion", binding.span, message)
+                        .with_module(binding.source_module),
+                ]
+            })?
+            .ok_or_else(|| {
+                vec![
+                    BackendError::invalid_ir(
+                        "P8 closure conversion",
+                        binding.span,
+                        "runtime binding lost its logical State contract",
+                    )
+                    .with_module(binding.source_module),
+                ]
+            })?;
+        let signature =
+            crate::bindings::runtime_cc_signature(binding, &signature, &layout.representations)?;
+        signatures.insert(binding.symbol, signature.clone());
+        externals.push(External {
+            symbol: binding.symbol,
+            signature: Some(signature),
+            projection: None,
+        });
+    }
     let mut functions = Vec::with_capacity(module.declarations.len());
     let generated_symbols = Rc::new(RefCell::new(GeneratedSymbolAllocator::new(&module)));
     let function_wrappers = module
@@ -335,8 +434,16 @@ pub fn lower_module_with_bindings(
             (declaration.symbol, wrapper)
         })
         .collect::<HashMap<_, _>>();
+    let boundary = BoundaryEvidence::new(
+        relations,
+        &module,
+        registry,
+        layout.protocols,
+        Some(layout.function_slot),
+    );
     let context = LoweringContext {
         module: &module,
+        boundary: &boundary,
         signatures: &signatures,
         representations: &layout.representations,
         enum_types: &enum_types,

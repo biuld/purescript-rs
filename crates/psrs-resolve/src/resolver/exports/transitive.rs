@@ -118,9 +118,16 @@ impl Resolver {
                 continue;
             };
             let mut referenced = Vec::new();
-            for constructor in &declaration.constructors {
-                for field in &constructor.fields {
-                    collect_named_types(field, &mut referenced);
+            // Field types matter only for constructors the export actually
+            // lists. `T` and `T()` keep those constructors hidden.
+            if let Some(exported_constructors) = &exported.constructors {
+                for constructor in &declaration.constructors {
+                    if !exported_constructors.contains(&constructor.symbol) {
+                        continue;
+                    }
+                    for field in &constructor.fields {
+                        collect_named_types(field, &mut referenced);
+                    }
                 }
             }
             if let Some(body) = &declaration.body {
@@ -192,7 +199,9 @@ impl Resolver {
             if let Some(declaration) = own_declarations.get(&value.symbol)
                 && let Some(signature) = &declaration.signature
             {
-                collect_named_types(signature, &mut required);
+                // A value type is stored after synonym expansion, so a local
+                // synonym in the explicit signature is not itself a dependency.
+                collect_named_types(&expand_value_synonyms(signature, &own), &mut required);
             }
             // Explicit signatures are checked at P3, where their named HIR
             // references are already resolved. Inferred public value types are
@@ -265,4 +274,167 @@ fn collect_named_types(ty: &hir::Type, out: &mut Vec<TypeId>) {
         | hir::TypeKind::Integer(_)
         | hir::TypeKind::String(_) => {}
     }
+}
+
+/// Expands fully applied local type synonyms in a value signature.
+///
+/// Exported declaration bodies keep the names written in source. Value types
+/// do not: a saturated local synonym is replaced by its body, with its
+/// parameters substituted, before the export dependency walk. An unsaturated
+/// or recursive synonym stays in place; kind checking owns that error.
+fn expand_value_synonyms(
+    ty: &hir::Type,
+    own: &HashMap<TypeId, &hir::TypeDeclaration>,
+) -> hir::Type {
+    expand_value_type(ty, own, &HashMap::new(), &[], &mut Vec::new())
+}
+
+fn expand_value_type(
+    ty: &hir::Type,
+    own: &HashMap<TypeId, &hir::TypeDeclaration>,
+    subst: &HashMap<String, hir::Type>,
+    bound: &[String],
+    stack: &mut Vec<TypeId>,
+) -> hir::Type {
+    if let Some(expanded) = expand_saturated_synonym(ty, own, subst, bound, stack) {
+        return expanded;
+    }
+    let kind = match &ty.kind {
+        hir::TypeKind::Wildcard => hir::TypeKind::Wildcard,
+        hir::TypeKind::Variable(name) => {
+            if bound.iter().any(|binder| binder == name) {
+                hir::TypeKind::Variable(name.clone())
+            } else if let Some(replacement) = subst.get(name) {
+                return replacement.clone();
+            } else {
+                hir::TypeKind::Variable(name.clone())
+            }
+        }
+        hir::TypeKind::Constructor(builtin) => hir::TypeKind::Constructor(*builtin),
+        hir::TypeKind::Named(id) => hir::TypeKind::Named(*id),
+        hir::TypeKind::Opaque(id) => hir::TypeKind::Opaque(*id),
+        hir::TypeKind::Application(function, argument) => hir::TypeKind::Application(
+            Box::new(expand_value_type(function, own, subst, bound, stack)),
+            Box::new(expand_value_type(argument, own, subst, bound, stack)),
+        ),
+        hir::TypeKind::OperatorChain {
+            operands,
+            operators,
+        } => hir::TypeKind::OperatorChain {
+            operands: operands
+                .iter()
+                .map(|operand| expand_value_type(operand, own, subst, bound, stack))
+                .collect(),
+            operators: operators.clone(),
+        },
+        hir::TypeKind::Function { parameter, result } => hir::TypeKind::Function {
+            parameter: Box::new(expand_value_type(parameter, own, subst, bound, stack)),
+            result: Box::new(expand_value_type(result, own, subst, bound, stack)),
+        },
+        hir::TypeKind::Forall { variables, body } => {
+            let mut inner = bound.to_vec();
+            let variables = variables
+                .iter()
+                .map(|variable| {
+                    let kind = variable
+                        .kind
+                        .as_ref()
+                        .map(|kind| expand_value_type(kind, own, subst, &inner, stack));
+                    inner.push(variable.name.clone());
+                    hir::TypeParameter {
+                        name: variable.name.clone(),
+                        name_span: variable.name_span,
+                        kind,
+                    }
+                })
+                .collect();
+            hir::TypeKind::Forall {
+                variables,
+                body: Box::new(expand_value_type(body, own, subst, &inner, stack)),
+            }
+        }
+        hir::TypeKind::Constrained { constraint, body } => hir::TypeKind::Constrained {
+            constraint: Box::new(expand_value_type(constraint, own, subst, bound, stack)),
+            body: Box::new(expand_value_type(body, own, subst, bound, stack)),
+        },
+        hir::TypeKind::Row { fields, tail } => hir::TypeKind::Row {
+            fields: expand_fields(fields, own, subst, bound, stack),
+            tail: tail
+                .as_ref()
+                .map(|tail| Box::new(expand_value_type(tail, own, subst, bound, stack))),
+        },
+        hir::TypeKind::Record { fields, tail } => hir::TypeKind::Record {
+            fields: expand_fields(fields, own, subst, bound, stack),
+            tail: tail
+                .as_ref()
+                .map(|tail| Box::new(expand_value_type(tail, own, subst, bound, stack))),
+        },
+        hir::TypeKind::Integer(value) => hir::TypeKind::Integer(value.clone()),
+        hir::TypeKind::String(value) => hir::TypeKind::String(value.clone()),
+    };
+    hir::Type {
+        kind,
+        span: ty.span,
+    }
+}
+
+fn expand_fields(
+    fields: &[hir::TypeField],
+    own: &HashMap<TypeId, &hir::TypeDeclaration>,
+    subst: &HashMap<String, hir::Type>,
+    bound: &[String],
+    stack: &mut Vec<TypeId>,
+) -> Vec<hir::TypeField> {
+    fields
+        .iter()
+        .map(|field| hir::TypeField {
+            label: field.label.clone(),
+            label_span: field.label_span,
+            ty: expand_value_type(&field.ty, own, subst, bound, stack),
+            span: field.span,
+        })
+        .collect()
+}
+
+fn expand_saturated_synonym(
+    ty: &hir::Type,
+    own: &HashMap<TypeId, &hir::TypeDeclaration>,
+    subst: &HashMap<String, hir::Type>,
+    bound: &[String],
+    stack: &mut Vec<TypeId>,
+) -> Option<hir::Type> {
+    let (head, arguments) = applied_spine(ty);
+    let hir::TypeKind::Named(id) = head.kind else {
+        return None;
+    };
+    let declaration = own.get(&id)?;
+    if declaration.kind != TypeDeclarationKind::TypeSynonym {
+        return None;
+    }
+    let body = declaration.body.as_ref()?;
+    if arguments.len() != declaration.parameters.len() || stack.contains(&id) {
+        return None;
+    }
+    stack.push(id);
+    let mut inner = HashMap::new();
+    for (parameter, argument) in declaration.parameters.iter().zip(arguments) {
+        inner.insert(
+            parameter.name.clone(),
+            expand_value_type(argument, own, subst, bound, stack),
+        );
+    }
+    let expanded = expand_value_type(body, own, &inner, &[], stack);
+    stack.pop();
+    Some(expanded)
+}
+
+fn applied_spine(ty: &hir::Type) -> (&hir::Type, Vec<&hir::Type>) {
+    let mut arguments = Vec::new();
+    let mut head = ty;
+    while let hir::TypeKind::Application(function, argument) = &head.kind {
+        arguments.push(argument.as_ref());
+        head = function.as_ref();
+    }
+    arguments.reverse();
+    (head, arguments)
 }

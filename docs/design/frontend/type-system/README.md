@@ -1,7 +1,7 @@
 # Frontend Type System
 
-P5 consumes normalized resolved HIR and produces verified THIR. It has four
-ordered concerns about the language's types, plus one about what the compiler
+P5 consumes normalized resolved HIR and produces verified THIR. It has five
+ordered concerns about the language's types and one about what the compiler
 itself provides:
 
 | Document | Owns | Dependency |
@@ -9,8 +9,13 @@ itself provides:
 | [Kinds](kinds.md) | Constructor kinds, synonym expansion, kind legality, the program-wide checked kind and role environment | resolved HIR |
 | [Type inference](type-inference.md) | The shared type spine, schemes, signatures, unification, generalization, THIR | kinds |
 | [Classes and evidence](classes-and-evidence.md) | Constraints, instances, dictionaries, evidence elaboration | type inference |
+| [Deriving](deriving.md) | The known deriving rules, their field-usage and variance checks, generated members, and newtype adaptation | classes, kinds |
 | [Rows and records](rows-and-records.md) | Row kinds, the row normalizer, row unification and equations | kinds and type inference |
 | [Primitives](prim.md) | The `Prim.*` member inventory, per-relation rules, report-only members, and the proof/dictionary split | kinds, type inference, classes, rows |
+
+Deriving consumes the compiler-owned `Coercible` proof that [Primitives](prim.md)
+defines, and it emits generated members that [Classes and evidence](classes-and-evidence.md)
+checks and elaborates like written ones.
 
 [Primitives](prim.md) answers what the compiler itself provides: it names every
 `Prim.*` member, says which layer owns each member's semantics, and specifies the

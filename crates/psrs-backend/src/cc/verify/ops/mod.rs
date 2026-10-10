@@ -15,12 +15,14 @@ use tag_switch::verify_tag_switch;
 
 mod aggregate;
 mod arrays;
+mod execution;
 mod string_bytes;
 mod table;
 mod tag_switch;
 
 pub(super) use table::verify_table;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn verify_assignments(
     assignments: &[Assignment],
     available: &mut HashSet<ValueId>,
@@ -29,6 +31,7 @@ pub(super) fn verify_assignments(
     table: &RepresentationTable,
     functions: Option<&HashMap<SymbolId, &Function>>,
     function_span: TextRange,
+    function_name: &str,
 ) -> Result<(), Vec<BackendError>> {
     for assignment in assignments {
         let mut uses = Vec::new();
@@ -83,6 +86,41 @@ pub(super) fn verify_assignments(
                 verify_binary_operation(*op, *left, *right, assignment, declared)?;
                 uses.extend([*left, *right]);
             }
+            AssignmentKind::RuntimeCall {
+                intrinsic,
+                arguments,
+            } => {
+                let crate::target_intrinsics::Implementation::Artifact(provider) =
+                    crate::target_intrinsics::implementation(*intrinsic)
+                else {
+                    return Err(assignment_error(
+                        assignment,
+                        "runtime call has no artifact implementation",
+                    ));
+                };
+                provider
+                    .validate_protocol()
+                    .map_err(|error| assignment_error(assignment, error))?;
+                let (parameters, result) = provider
+                    .language_signature()
+                    .map_err(|error| assignment_error(assignment, error))?;
+                if arguments.len() != parameters.len() {
+                    return Err(assignment_error(
+                        assignment,
+                        "runtime call has an incompatible argument count",
+                    ));
+                }
+                for (value, expected) in arguments.iter().zip(parameters) {
+                    require_value_shape(declared, *value, expected, assignment)?;
+                }
+                require_destination(
+                    declared,
+                    assignment,
+                    result,
+                    "runtime call has an incompatible result shape",
+                )?;
+                uses.extend(arguments.iter().copied());
+            }
             AssignmentKind::Unary { op, value } => {
                 verify_unary_operation(*op, *value, assignment, declared)?;
                 uses.push(*value);
@@ -97,7 +135,19 @@ pub(super) fn verify_assignments(
                         "direct call references an unknown function",
                     ));
                 };
-                verify_call_shape(assignment, declared, signature, arguments)?;
+                let callee = functions
+                    .and_then(|functions| functions.get(function))
+                    .map(|function| function.name.clone())
+                    .unwrap_or_else(|| format!("symbol {function:?}"));
+                verify_call_shape(
+                    assignment,
+                    declared,
+                    signature,
+                    arguments,
+                    &callee,
+                    function_name,
+                    function_span,
+                )?;
                 uses.extend(arguments.iter().copied());
             }
             AssignmentKind::FunctionRef {
@@ -137,9 +187,25 @@ pub(super) fn verify_assignments(
                 let signature_id = *signature;
                 let signature = table_signature(table, signature_id, assignment)?;
                 require_value_shape(declared, *function, closure_shape(signature_id), assignment)?;
-                verify_call_shape(assignment, declared, signature, arguments)?;
+                verify_call_shape(
+                    assignment,
+                    declared,
+                    signature,
+                    arguments,
+                    &format!("indirect call with signature {signature_id:?}"),
+                    function_name,
+                    function_span,
+                )?;
                 uses.push(*function);
                 uses.extend(arguments.iter().copied());
+            }
+            AssignmentKind::StateExecution {
+                function,
+                signature,
+                ..
+            } => {
+                execution::verify(assignment, *function, *signature, declared, table)?;
+                uses.push(*function);
             }
             AssignmentKind::ClosureGetCapture { closure, .. } => {
                 require_value_shape(declared, *closure, aggregate_shape(), assignment)?;
@@ -312,7 +378,8 @@ pub(super) fn verify_assignments(
             | AssignmentKind::ArrayGet { .. }
             | AssignmentKind::ArrayClone { .. }
             | AssignmentKind::ArraySet { .. }
-            | AssignmentKind::ArrayAppend { .. } => {
+            | AssignmentKind::ArrayAppend { .. }
+            | AssignmentKind::ArrayFill { .. } => {
                 arrays::verify_array_assignment(assignment, declared, table, &mut uses)?;
             }
             AssignmentKind::StringToBytes {
@@ -354,6 +421,7 @@ pub(super) fn verify_assignments(
                     table,
                     functions,
                     function_span,
+                    function_name,
                 )?;
                 let mut else_available = available.clone();
                 verify_assignments(
@@ -364,6 +432,7 @@ pub(super) fn verify_assignments(
                     table,
                     functions,
                     function_span,
+                    function_name,
                 )?;
                 if !then_available.contains(then_value) || !else_available.contains(else_value) {
                     return Err(undef_error(assignment.span, function_span));
@@ -397,6 +466,7 @@ pub(super) fn verify_assignments(
                     table,
                     functions,
                     function_span,
+                    function_name,
                 )?;
                 uses.push(*value);
             }

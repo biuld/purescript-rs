@@ -92,8 +92,29 @@ impl TargetCapabilities {
         }
     }
 
+    /// Whether the selected profile permits a WASI interface family.
+    pub fn wasi_interface_enabled(self, module: &str) -> bool {
+        let package_path = module
+            .split_once('/')
+            .map_or(module, |(package, _)| package);
+        let package = package_path
+            .split_once('@')
+            .map_or(package_path, |(package, _)| package);
+        match package {
+            "wasi:cli" => self.wasi_cli,
+            "wasi:io" => self.wasi_io,
+            "wasi:clocks" => self.wasi_clocks,
+            "wasi:random" => self.wasi_random,
+            "wasi:filesystem" => self.wasi_filesystem,
+            "wasi:sockets" => self.wasi_sockets,
+            "wasi:http" => self.wasi_http,
+            "wasi:tls" => self.wasi_tls,
+            _ => false,
+        }
+    }
+
     /// Converts the profile to the validator feature set.
-    pub(crate) fn wasm_features(self) -> wasmparser::WasmFeatures {
+    pub fn wasm_features(self) -> wasmparser::WasmFeatures {
         use wasmparser::WasmFeatures;
 
         let mut features = WasmFeatures::MVP;

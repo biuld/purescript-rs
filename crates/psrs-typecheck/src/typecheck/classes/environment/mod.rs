@@ -1,6 +1,8 @@
 use super::super::signature::flatten_spine;
 use super::super::*;
-use super::deriving::contains_wildcard;
+use super::deriving::{KnownClass, contains_wildcard};
+use super::fundeps::collect_infer_variables;
+mod compiler;
 mod method;
 
 use method::validate_method_signature;
@@ -28,6 +30,7 @@ impl Checker {
             self.env.classes.insert(
                 hir::TypeId::COERCIBLE,
                 ClassInfo {
+                    compiler_class: None,
                     parameters: vec!["source".to_owned(), "target".to_owned()],
                     superclasses: Vec::new(),
                     fundeps: Vec::new(),
@@ -82,9 +85,11 @@ impl Checker {
                     .insert(member.symbol, (declaration.id, method.clone()));
                 methods.push(method);
             }
+            let compiler_class = self.validate_compiler_class(declaration);
             self.env.classes.insert(
                 declaration.id,
                 ClassInfo {
+                    compiler_class,
                     parameters,
                     superclasses: Vec::new(),
                     fundeps,
@@ -242,7 +247,20 @@ impl Checker {
             return;
         }
         let (_, arguments) = flatten_spine(&instance.head);
-        if local && arguments.iter().any(|argument| contains_wildcard(argument)) {
+        let head_shape_wildcard = local
+            && instance.derivation == Some(hir::DerivationStrategy::KnownClass)
+            && self
+                .env
+                .deriving
+                .known_class(instance.class_id)
+                .is_some_and(|known| known.is_head_shape())
+            && arguments.len() == 2
+            && !contains_wildcard(arguments[0])
+            && matches!(arguments[1].kind, hir::TypeKind::Wildcard);
+        let has_unsupported_wildcard = arguments.iter().enumerate().any(|(index, argument)| {
+            contains_wildcard(argument) && !(head_shape_wildcard && index == 1)
+        });
+        if local && has_unsupported_wildcard {
             self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::InvalidInstanceHead,
                 instance.head.span,
@@ -253,7 +271,7 @@ impl Checker {
         if arguments.len() != class.parameters.len() {
             if local {
                 self.state.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
+                    TypeCheckErrorKind::ClassInstanceArityMismatch,
                     instance.span,
                     "an instance head must apply its class to one type argument per parameter",
                 ));
@@ -261,11 +279,29 @@ impl Checker {
             return;
         }
         let mut variables = HashMap::new();
-        let head_arguments = arguments
+        let mut head_arguments = arguments
             .iter()
             .map(|argument| self.elaborate_type(argument, &mut variables))
             .collect::<Vec<_>>();
-        let head_variable_types = variables.clone();
+        // A `Newtype`/`Generic` derivation's trailing wildcard is resolved to
+        // the wrapped type or representation before the instance is recorded,
+        // so the searchable head is concrete. The rule is chosen from the
+        // registry, not from a class name.
+        if head_shape_wildcard {
+            let resolved = match self.env.deriving.known_class(instance.class_id) {
+                Some(KnownClass::Newtype) => {
+                    self.newtype_underlying_type(&head_arguments[..1], instance.span, true)
+                }
+                Some(KnownClass::Generic) => {
+                    self.generic_representation(&head_arguments[0], instance.span)
+                }
+                _ => None,
+            };
+            let Some(resolved) = resolved else {
+                return;
+            };
+            head_arguments[1] = resolved;
+        }
         let mut context = Vec::with_capacity(instance.context.len());
         let mut context_parameters = Vec::with_capacity(instance.context.len());
         let mut valid = true;
@@ -286,13 +322,21 @@ impl Checker {
         if !valid {
             return;
         }
+        let instance_variables = variables.clone();
         if local {
             let head_names = head_variables(&arguments);
+            let determined =
+                instance_context_determined_variables(&self.env.classes, &context, &head_arguments);
             for constraint in &instance.context {
                 let mut used = Vec::new();
                 collect_variables(constraint, &mut used);
                 for name in used {
-                    if !head_names.contains(&name) {
+                    let determined_by_fundep = variables.get(&name).is_some_and(|ty| {
+                        let mut variables = HashSet::new();
+                        collect_infer_variables(ty, &mut variables);
+                        !variables.is_empty() && variables.is_subset(&determined)
+                    });
+                    if !head_names.contains(&name) && !determined_by_fundep {
                         self.state.errors.push(TypeCheckError::new(
                             TypeCheckErrorKind::UnsupportedClass,
                             constraint.span,
@@ -312,10 +356,59 @@ impl Checker {
             chain_id: instance.chain_id,
             chain_position: instance.chain_position,
             head_arguments,
-            head_variables: head_variable_types,
+            instance_variables,
             context,
             context_parameters,
         });
+    }
+}
+
+/// The head arguments determine their own variables, and class functional
+/// dependencies may determine additional variables in instance contexts. Take
+/// the closure across context constraints so chained dependencies work too.
+fn instance_context_determined_variables(
+    classes: &HashMap<hir::TypeId, ClassInfo>,
+    context: &[ClassConstraint],
+    head_arguments: &[InferType],
+) -> HashSet<u32> {
+    let mut determined = HashSet::new();
+    for argument in head_arguments {
+        collect_infer_variables(argument, &mut determined);
+    }
+    loop {
+        let mut changed = false;
+        for constraint in context {
+            let Some(class) = classes.get(&constraint.class_id) else {
+                continue;
+            };
+            for fundep in &class.fundeps {
+                let determining = fundep
+                    .determining
+                    .iter()
+                    .filter_map(|&index| constraint.arguments.get(index))
+                    .flat_map(|argument| {
+                        let mut variables = HashSet::new();
+                        collect_infer_variables(argument, &mut variables);
+                        variables
+                    })
+                    .collect::<HashSet<_>>();
+                if !determining.is_subset(&determined) {
+                    continue;
+                }
+                for &index in &fundep.determined {
+                    if let Some(argument) = constraint.arguments.get(index) {
+                        let mut variables = HashSet::new();
+                        collect_infer_variables(argument, &mut variables);
+                        for variable in variables {
+                            changed |= determined.insert(variable);
+                        }
+                    }
+                }
+            }
+        }
+        if !changed {
+            return determined;
+        }
     }
 }
 

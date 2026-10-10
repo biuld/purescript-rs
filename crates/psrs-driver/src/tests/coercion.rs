@@ -36,6 +36,27 @@ fn expands_type_synonyms_before_coercible_role_matching() {
 }
 
 #[test]
+fn ordinary_coercible_does_not_lift_through_an_unknown_type_constructor() {
+    // A newtype is coercible to its field, and that conversion lifts through a
+    // known representational constructor. It does not lift through a quantified
+    // `f`: the parameter's role is not known. Newtype deriving must not ask
+    // this rule to prove `Coercible (f (NonEmptyArray a)) (f (Array a))`.
+    let source = r#"module Main where
+
+import Safe.Coerce (coerce)
+
+newtype NonEmptyArray a = NonEmptyArray (Array a)
+
+bad :: forall f a. f (NonEmptyArray a) -> f (Array a)
+bad = coerce
+
+main :: Int
+main = 0
+"#;
+    rejects(&[("Main.purs", source)], "NoInstanceFound");
+}
+
+#[test]
 fn a_nominal_data_role_blocks_newtype_coercion_of_its_parameter() {
     let source = "module Main where\n\
         import Safe.Coerce (coerce)\n\
@@ -260,6 +281,36 @@ fn compiler_coercion_intrinsic_is_only_in_scope_through_safe_coerce() {
 }
 
 #[test]
+fn compiler_unsafe_coercion_intrinsic_is_only_in_scope_through_unsafe_coerce() {
+    let source = "module Main where\n\
+        main :: Int\n\
+        main = __psrs_unsafe_coerce 42\n";
+    rejects(&[("Main.purs", source)], "UnknownName");
+}
+
+#[test]
+fn unsafe_coerce_is_a_compiler_primitive_identity_cast() {
+    let source = r#"
+module Main where
+
+import Unsafe.Coerce (unsafeCoerce)
+
+newtype Age = Age Int
+
+asInt :: Age -> Int
+asInt = unsafeCoerce
+
+main :: Int
+main = asInt (Age 42)
+"#;
+    let Some(output) = super::run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
 fn an_imported_newtype_requires_its_constructor_for_unwrapping() {
     let library = "module Lib (Age, age) where\n\
         newtype Age = Age Int\n\
@@ -377,4 +428,22 @@ fn accepts_a_type_wildcard_in_an_instance_context() {
     crate::check_program(&[("Main.purs", source)]).unwrap_or_else(|errors| {
         panic!("a wildcard in a constraint should be accepted: {errors:?}")
     });
+}
+
+#[test]
+fn unsafe_coercion_keeps_a_polymorphic_input_boundary() {
+    let source = r#"
+module Main where
+import Unsafe.Coerce (unsafeCoerce)
+
+foreign import data Exists :: (Type -> Type) -> Type
+
+runExists :: forall f r. (forall a. f a -> r) -> Exists f -> r
+runExists = unsafeCoerce
+
+main :: Int
+main = 0
+"#;
+    crate::check_program(&[("Main.purs", source)])
+        .unwrap_or_else(|errors| panic!("rank-N cast boundary should check: {errors:?}"));
 }

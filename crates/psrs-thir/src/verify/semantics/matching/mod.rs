@@ -42,6 +42,10 @@ pub(super) fn application(
     matcher.subsumes(argument, parameter) && matcher.subsumes(function_result, result)
 }
 
+pub(super) fn equivalent(left: TypeId, right: TypeId, module: &Module) -> bool {
+    Matcher::new(module).equal(left, right, &mut HashSet::new())
+}
+
 struct Matcher<'a> {
     module: &'a Module,
     flexible: HashSet<TypeVariableId>,
@@ -116,35 +120,27 @@ impl<'a> Matcher<'a> {
             body: actual_body,
         } = actual_type
         {
-            if let Type::ForAll {
-                variables: expected_variables,
-                body: expected_body,
-            } = expected_type
-            {
-                if actual_variables.len() != expected_variables.len()
-                    || actual_variables
-                        .iter()
-                        .any(|variable| self.alpha.contains_key(variable))
-                {
-                    self.active.remove(&(actual, expected));
-                    return false;
-                }
-                for (actual, expected) in actual_variables.iter().zip(expected_variables) {
-                    self.alpha.insert(*actual, *expected);
-                }
-                let result = self.subsumes(*actual_body, *expected_body);
-                for variable in actual_variables {
-                    self.alpha.remove(variable);
-                }
-                self.active.remove(&(actual, expected));
-                return result;
-            }
             let added = actual_variables
                 .iter()
                 .copied()
                 .filter(|variable| self.flexible.insert(*variable))
                 .collect::<Vec<_>>();
-            let result = self.subsumes(*actual_body, expected);
+            let (expected_body, expected_flexible) = match expected_type {
+                Type::ForAll { variables, body } => {
+                    let previous = variables
+                        .iter()
+                        .map(|variable| (*variable, self.flexible.remove(variable)))
+                        .collect::<Vec<_>>();
+                    (*body, previous)
+                }
+                _ => (expected, Vec::new()),
+            };
+            let result = self.subsumes(*actual_body, expected_body);
+            for (variable, was_flexible) in expected_flexible {
+                if was_flexible {
+                    self.flexible.insert(variable);
+                }
+            }
             for variable in added {
                 self.flexible.remove(&variable);
                 self.replacements.remove(&variable);

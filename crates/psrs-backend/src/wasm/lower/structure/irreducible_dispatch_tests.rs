@@ -35,6 +35,7 @@ fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
         name: source.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),
+        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![source.clone()],
@@ -137,6 +138,7 @@ fn irreducible_function() -> Function {
     let first_branch_span = TextRange::new(10, 12);
     let second_branch_span = TextRange::new(20, 22);
     Function {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "irreducible_dispatch".into(),
@@ -337,6 +339,7 @@ fn structures_and_executes_irreducible_cfg_with_block_parameters_and_sparse_swit
         name: function.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),
+        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![function.clone()],
@@ -416,4 +419,18 @@ fn dispatcher_uses_a_br_table_and_explicit_trap_for_invalid_state() {
             Some(Op::Leaf(WasmInstruction::Unreachable))
         )
     ));
+}
+
+#[test]
+fn dispatcher_accepts_an_explicit_trap_exit_without_return_operands() {
+    let mut function = irreducible_function();
+    function
+        .blocks
+        .iter_mut()
+        .find(|block| block.id == BlockId(9))
+        .unwrap()
+        .terminator = Some(Terminator::Trap { span: span() });
+    // The cyclic multiple-entry region still requires a dispatcher. Its trap
+    // exit has no normal successor or result operand.
+    lower_and_validate(&function);
 }

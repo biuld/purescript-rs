@@ -170,7 +170,8 @@ fn canonical_record_keys_sort_labels_and_share_equal_keyed_records() {
     ];
     let first_record = push_record(&mut types, vec![("x", TypeId(0)), ("y", TypeId(1))]);
     let second_record = push_record(&mut types, vec![("y", TypeId(1)), ("x", TypeId(0))]);
-    let module = empty_module(types);
+    let mut module = empty_module(types);
+    root_types(&mut module, [first_record, second_record]);
     let layout = layout_for(&module);
     let first = layout.record_types[&first_record];
     let second = layout.record_types[&second_record];
@@ -193,5 +194,52 @@ fn canonical_record_keys_sort_labels_and_share_equal_keyed_records() {
                 ValueShape::Integer,
             ],
         })
+    );
+}
+
+#[test]
+fn record_and_callable_keys_converge_together_through_nested_layouts() {
+    let mut types = vec![
+        Type::Variable(TypeVariableId(0)),
+        Type::Variable(TypeVariableId(1)),
+        Type::Constructor(TypeConstructor::Int),
+    ];
+    let first_inner = push_record(&mut types, vec![("payload", TypeId(0))]);
+    let second_inner = push_record(&mut types, vec![("payload", TypeId(1))]);
+    let first_method = push_arrow(&mut types, first_inner, TypeId(0));
+    let second_method = push_arrow(&mut types, second_inner, TypeId(1));
+    let first_outer = push_record(&mut types, vec![("run", first_method)]);
+    let second_outer = push_record(&mut types, vec![("run", second_method)]);
+    let first_consumer = push_arrow(&mut types, first_outer, TypeId(2));
+    let second_consumer = push_arrow(&mut types, second_outer, TypeId(2));
+    let mut module = empty_module(types);
+    root_types(&mut module, [first_consumer, second_consumer]);
+    let layout = layout_for(&module);
+    assert_eq!(
+        layout.record_types[&first_inner],
+        layout.record_types[&second_inner]
+    );
+    assert_eq!(
+        layout.function_types[&first_method],
+        layout.function_types[&second_method]
+    );
+    assert_eq!(
+        layout.record_types[&first_outer],
+        layout.record_types[&second_outer]
+    );
+    assert_eq!(
+        layout.function_types[&first_consumer],
+        layout.function_types[&second_consumer]
+    );
+    let signature = layout
+        .representations
+        .signature(layout.function_types[&first_consumer])
+        .unwrap();
+    assert_eq!(
+        signature.parameters,
+        vec![ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Repr(layout.record_types[&first_outer]),
+        })]
     );
 }

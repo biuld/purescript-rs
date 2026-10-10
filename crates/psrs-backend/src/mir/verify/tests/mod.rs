@@ -14,6 +14,7 @@ fn module_with_function(function: Function, types: Vec<RecGroup>) -> Module {
         name: "VerifierTest".into(),
         types,
         strings: Vec::new(),
+        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         entry: Some(function.symbol),
@@ -25,6 +26,7 @@ fn module_with_function(function: Function, types: Vec<RecGroup>) -> Module {
 #[test]
 fn rejects_constants_with_incompatible_result_types() {
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "bad_constant".into(),
@@ -65,6 +67,7 @@ fn rejects_a_unary_primitive_with_mistyped_operands() {
     let input = ValueId(0);
     let output = ValueId(1);
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "bad_unary".into(),
@@ -98,19 +101,36 @@ fn rejects_a_unary_primitive_with_mistyped_operands() {
         result_type: ValueType::I32,
         span: span(),
     };
-    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("unary operand or result type")),
-        "{errors:?}"
-    );
+    for op in [
+        crate::mir::UnaryOp::F64Abs,
+        crate::mir::UnaryOp::F64Sqrt,
+        crate::mir::UnaryOp::F64Neg,
+        crate::mir::UnaryOp::F64Trunc,
+        crate::mir::UnaryOp::F64Floor,
+        crate::mir::UnaryOp::F64Ceil,
+    ] {
+        let mut function = function.clone();
+        function.blocks[0].instructions[0] = Instruction::UnaryPrimitive {
+            destination: output,
+            op,
+            value: input,
+            span: span(),
+        };
+        let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("unary operand or result type")),
+            "{errors:?}"
+        );
+    }
 }
 
 #[test]
 fn rejects_duplicate_switch_case_values() {
     let selector = ValueId(0);
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "duplicate_switch_cases".into(),
@@ -167,6 +187,7 @@ fn rejects_duplicate_switch_case_values() {
 #[test]
 fn rejects_values_used_before_definition() {
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "bad_order".into(),
@@ -229,6 +250,7 @@ fn rejects_ref_func_with_a_different_target_signature() {
     };
     let callee = SymbolId::new(ModuleId(0), 1);
     let callee_function = Function {
+        state: None,
         id: crate::types::FunctionId(1),
         symbol: callee,
         name: "callee".into(),
@@ -260,6 +282,7 @@ fn rejects_ref_func_with_a_different_target_signature() {
         heap: crate::types::HeapType::Index(crate::types::DefinedTypeId(0)),
     });
     let caller = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "caller".into(),
@@ -301,6 +324,7 @@ fn rejects_ref_func_with_a_different_target_signature() {
 #[test]
 fn rejects_a_load_from_an_unknown_memory_id() {
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "bad_memory".into(),
@@ -369,6 +393,7 @@ fn rejects_a_branch_target_with_block_parameters() {
     let then_parameter = ValueId(2);
     let merge_parameter = ValueId(3);
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "bad_branch_target".into(),

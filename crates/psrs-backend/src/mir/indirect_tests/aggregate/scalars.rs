@@ -107,6 +107,7 @@ pub(super) fn wide_scalar_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -245,6 +246,7 @@ pub(super) fn wide_scalar_parameter_fixture() -> (cc::Module, ExternalBindings, 
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

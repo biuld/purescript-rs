@@ -6,6 +6,7 @@ use psrs_span::TextRange;
 mod adaptation;
 mod dictionary;
 mod effects;
+mod number_decimal;
 mod string_eq;
 mod structure;
 mod variant;
@@ -244,7 +245,18 @@ fn rejects_a_unary_operation_with_the_wrong_operand_shape() {
         span: TextRange::new(0, 1),
     };
 
-    assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+    for op in [
+        super::super::UnaryOp::NumberAbs,
+        super::super::UnaryOp::NumberSqrt,
+        super::super::UnaryOp::NumberNeg,
+        super::super::UnaryOp::NumberTrunc,
+        super::super::UnaryOp::NumberFloor,
+        super::super::UnaryOp::NumberCeil,
+    ] {
+        let mut function = function.clone();
+        function.assignments[0].kind = AssignmentKind::Unary { op, value: input };
+        assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+    }
 }
 
 #[test]

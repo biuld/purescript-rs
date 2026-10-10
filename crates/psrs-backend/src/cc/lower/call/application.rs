@@ -2,10 +2,10 @@ use super::super::super::layout::{function_signature, function_type_signature};
 use super::super::super::{Assignment, AssignmentKind, ValueId};
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
-    callable_parameter_types, callable_result_type, collect_application,
+    callable_instantiation, callable_parameter_types, callable_result_type, collect_application,
     conversion_reconstructs_aggregate, function_value_types, persist_reference, restore_reference,
 };
-use super::partial::PartialApplication;
+use super::partial::{IndirectPartialApplication, PartialApplication};
 use super::{ApplicationLowering, CallShape};
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind};
@@ -54,6 +54,7 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                     assignments,
                 );
             }
+            let evidence = callable_instantiation(self.module, self.boundary, function, head.ty);
             self.check_call_shape(
                 &signature,
                 arguments.len(),
@@ -73,12 +74,13 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                     )]
                 })?;
                 let source_shape = self.value_shape(argument.ty, argument.span)?;
-                let conversion = self.typed_conversion(
+                let conversion = self.typed_conversion_with_instantiation(
                     argument.ty,
                     source_type,
                     source_shape,
                     *expected,
                     expression.span,
+                    evidence.as_ref(),
                 )?;
                 conversions.push((source_shape, conversion));
             }
@@ -132,12 +134,13 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                         "call target has no declaration result type",
                     )]
                 })?;
-            let conversion = self.typed_conversion(
+            let conversion = self.typed_conversion_with_instantiation(
                 source_type,
                 expression.ty,
                 signature.result,
                 result_type,
                 expression.span,
+                evidence.as_ref(),
             )?;
             Ok(self.emit_conversion(
                 call_result,
@@ -175,12 +178,6 @@ impl FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
-        self.check_call_shape(
-            &signature,
-            arguments.len(),
-            signature.result,
-            expression.span,
-        )?;
         let Some(signature_id) = function_type_signature(self.module, self.function_types, head.ty)
         else {
             return Err(vec![BackendError::new(
@@ -189,6 +186,28 @@ impl FunctionLowerer<'_> {
                 "higher-order call has no runtime function type",
             )]);
         };
+        // An under-applied callee that is not a top-level declaration (a local
+        // closure or a dictionary method) captures the supplied arguments and
+        // exposes the remaining parameters through a generated closure.
+        if arguments.len() < signature.parameters.len() {
+            return self.lower_indirect_partial_application(
+                IndirectPartialApplication {
+                    expression,
+                    head,
+                    arguments,
+                    signature: &signature,
+                    signature_id,
+                    result_type,
+                },
+                assignments,
+            );
+        }
+        self.check_call_shape(
+            &signature,
+            arguments.len(),
+            signature.result,
+            expression.span,
+        )?;
         let (source_parameters, source_result) = function_value_types(self.module, head.ty);
         // The callee expression is lowered at its own use type, so its runtime
         // value already matches `head.ty`; no side-table adaptation is needed.

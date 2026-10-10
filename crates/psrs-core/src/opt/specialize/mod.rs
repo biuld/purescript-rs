@@ -160,6 +160,10 @@ pub(super) fn retain_live(mut module: Module, generated: &HashSet<SymbolId>) -> 
 }
 
 fn collect_references(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
+    psrs_span::with_sufficient_stack(|| collect_references_inner(expression, out))
+}
+
+fn collect_references_inner(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
         crate::ExprKind::Global(symbol) => out.push(*symbol),
         crate::ExprKind::Constructor { arguments, .. }
@@ -221,6 +225,6 @@ fn collect_references(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
         | crate::ExprKind::Boolean(_)
         | crate::ExprKind::String(_)
         | crate::ExprKind::Char(_) => {}
-        crate::ExprKind::Unit | crate::ExprKind::Trap => {}
+        crate::ExprKind::Unit | crate::ExprKind::StateToken | crate::ExprKind::Trap => {}
     }
 }

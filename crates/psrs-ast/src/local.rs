@@ -19,7 +19,12 @@ pub(crate) fn lower_local_declarations(
             return Err(error);
         }
         let pattern_span = pattern.span;
-        let scrutinee = Box::new(crate::lower_expr(pattern.value.clone())?);
+        let mut scrutinee = crate::lower_expr(pattern.value.clone())?;
+        if let Some(block) = &pattern.where_block {
+            let span = TextRange::new(block.span.start, scrutinee.span.end);
+            scrutinee = lower_local_declarations(block.declarations.clone(), scrutinee, span)?;
+        }
+        let scrutinee = Box::new(scrutinee);
         let pattern = crate::expr::lower_pattern(pattern.pattern.clone())?;
         let remaining = lower_local_declarations(declarations[1..].to_vec(), body, span)?;
         let branch_span = TextRange::new(pattern_span.start, remaining.span.end);

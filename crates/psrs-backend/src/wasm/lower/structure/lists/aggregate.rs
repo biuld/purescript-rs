@@ -39,7 +39,7 @@ impl Structurer<'_> {
                 signed: false
             }
         ) {
-            return self.emit_byte_store(body, context, offset, path, span);
+            return self.emit_byte_store(body, context, offset, guest, path, span);
         }
         match (canonical, guest) {
             (

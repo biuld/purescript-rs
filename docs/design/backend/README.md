@@ -45,6 +45,7 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 
 | Document | Owns | Depends on |
 | --- | --- | --- |
+| [representation-and-evidence.md](fp/representation-and-evidence.md) | The shared RuntimeRep model, generic aggregate normalization, and the checked-boundary conversion contract every adaptation uses | frontend classes and evidence; functional core |
 | [cc-ir.md](fp/cc-ir.md) | ANF, closure conversion, CC operations and verifier | frontend Functional Core |
 | [mir.md](fp/mir.md) | SSA/CFG model, representation planning, MIR verifier | cc-ir |
 | [polymorphism-and-erasure.md](fp/polymorphism-and-erasure.md) | Rank-1 polymorphism, erased representation, adapters | mir |
@@ -62,6 +63,9 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [encoding-and-structuring.md](wasm/encoding-and-structuring.md) | Structured Wasm encoding and binary emission | 00-ir-boundaries |
 | [capability-profile.md](wasm/capability-profile.md) | Target capability profile and gating | encoding-and-structuring |
 | [canonical-abi-and-wit.md](wasm/canonical-abi-and-wit.md) | WIT bindings and canonical ABI adaptation | encoding-and-structuring |
+| [linking-and-runtime.md](wasm/linking-and-runtime.md) | Intrinsic implementations, WIT providers, checked target link plans, and artifact composition (Draft) | primitive FFI, canonical-abi-and-wit |
+| [core-object-linking-and-compilation-units.md](wasm/core-object-linking-and-compilation-units.md) | Source/Core/Wasm/component units, compiler-owned emission, structured runtime closure and bindings (Draft) | linking-and-runtime, encoding-and-structuring |
+| [canonical-realloc-runtime-adapter.md](wasm/canonical-realloc-runtime-adapter.md) | Rust allocator selection, canonical adapter, and runtime-provider replacement (Draft) | canonical-buffer-allocation-and-lifetime, linking-and-runtime |
 | [linear-memory-and-canonical-abi-boundary.md](wasm/linear-memory-and-canonical-abi-boundary.md) | Linear memory as the ABI boundary | canonical-abi-and-wit |
 | [wasi-platform-library.md](wasm/wasi-platform-library.md) | Component packaging and WASI services | canonical-abi-and-wit |
 
@@ -77,11 +81,12 @@ rules.
 
 ## Ordering
 
-Read the functional concern bottom-up: functional core, then CC and MIR, then
-representation topics (erasure, scalars, data, patterns, control flow), then
-dictionaries and effects. Read P7 optimization after Core and P10 optimization
-after MIR and the target capability profile. Wasm/WASI encoding consumes the
-optimized MIR.
+Read the functional concern bottom-up: functional core, then the shared
+[representation and evidence](fp/representation-and-evidence.md) model, then CC
+and MIR, then representation topics (erasure, scalars, data, patterns, control
+flow), then dictionaries and effects. Read P7 optimization after Core and P10
+optimization after MIR and the target capability profile. Wasm/WASI encoding
+consumes the optimized MIR.
 
 ## Writing
 

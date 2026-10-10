@@ -149,6 +149,7 @@ fn parameter_fixture(
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -319,6 +320,7 @@ pub(crate) fn option_string_list_result_fixture() -> (cc::Module, ExternalBindin
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -469,6 +471,7 @@ pub(crate) fn option_list_list_fixture() -> (cc::Module, ExternalBindings, Resol
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

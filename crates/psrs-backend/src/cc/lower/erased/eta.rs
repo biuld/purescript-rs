@@ -30,6 +30,7 @@ impl FunctionLowerer<'_> {
         target_shape: &Signature,
         span: psrs_span::TextRange,
         assignments: &mut Vec<Assignment>,
+        instantiation: Option<&psrs_core::Instantiation<'_>>,
     ) -> Result<ValueId, Vec<BackendError>> {
         let source_arity = source_shape.parameters.len();
         let source_parameters = function_arrow_parameters(self.module, source_type).0;
@@ -79,12 +80,13 @@ impl FunctionLowerer<'_> {
         // signature consumes, converting each from the target representation.
         let mut concrete_arguments = Vec::with_capacity(source_arity);
         for index in 0..source_arity {
-            let conversion = adapter.typed_conversion(
+            let conversion = adapter.typed_conversion_with_instantiation(
                 target_parameters[index],
                 source_parameters[index],
                 target_shape.parameters[index],
                 source_shape.parameters[index],
                 span,
+                instantiation,
             )?;
             let converted = adapter.emit_conversion(
                 target_arguments[index],
@@ -154,12 +156,13 @@ impl FunctionLowerer<'_> {
         };
         let source_result_type = function_arrow_parameters(self.module, source_type).1;
         let remaining_closure = closure_value_type_for(remaining_signature_id);
-        let recover = adapter.typed_conversion(
+        let recover = adapter.typed_conversion_with_instantiation(
             source_result_type,
             remaining_type,
             source_shape.result,
             remaining_closure,
             span,
+            instantiation,
         )?;
         let recovered = adapter.emit_conversion(
             concrete_result,

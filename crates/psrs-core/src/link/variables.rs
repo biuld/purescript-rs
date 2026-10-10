@@ -97,6 +97,6 @@ fn expression_span(expression: &Expr, maximum: &mut Option<TypeVariableId>) {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
-        ExprKind::Unit | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
     }
 }

@@ -34,7 +34,7 @@ fn binding(symbol: SymbolId) -> ExternalBinding {
     }
 }
 
-fn module(externals: Vec<ExternalSymbol>) -> CoreModule {
+pub(super) fn module(externals: Vec<ExternalSymbol>) -> CoreModule {
     CoreModule {
         type_names: Vec::new(),
         id: ModuleId(1),
@@ -60,6 +60,7 @@ fn errors_contain(errors: &[BackendError], fragment: &str) -> bool {
 fn accepts_a_complete_wit_projection() {
     let external = symbol(1);
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![binding(external)],
     };
     assert!(
@@ -83,6 +84,7 @@ fn rejects_a_missing_wit_binding() {
 fn rejects_a_duplicate_binding() {
     let external = symbol(1);
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![binding(external), binding(external)],
     };
     let errors = bindings
@@ -95,6 +97,7 @@ fn rejects_a_duplicate_binding() {
 fn rejects_a_binding_for_a_non_source_import() {
     let external = symbol(1);
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![binding(external)],
     };
     let errors = bindings

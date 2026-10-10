@@ -69,6 +69,29 @@ fn useful_inner(
             return useful_array_any(module, matrix, query, tail, *ty, element_type, active);
         }
         if let Some(shapes) = signature(module, *ty) {
+            // An incomplete signature uses the default matrix. Expanding every
+            // constructor here grows unconstrained recursive product columns
+            // forever, even when the matrix is empty. Only a complete set of
+            // observed heads needs field-by-field specialization.
+            let missing = shapes
+                .iter()
+                .filter(|shape| {
+                    !matrix
+                        .iter()
+                        .filter_map(|row| row.first())
+                        .any(|pattern| head_of(pattern).as_ref() == Some(&shape.head))
+                })
+                .collect::<Vec<_>>();
+            if !missing.is_empty() {
+                let witness = useful_with_active(module, &default_matrix(matrix), tail, active)?;
+                for shape in missing {
+                    if let Some(head) = inhabited_shape(module, shape, &mut Default::default()) {
+                        return Some(std::iter::once(head).chain(witness).collect());
+                    }
+                }
+                // Missing uninhabited constructors leave observed fields to
+                // check; their partial patterns can still expose a witness.
+            }
             for shape in shapes {
                 let specialized = specialize(matrix, &shape);
                 let mut specialized_query = expanded_any(&shape, matrix, query);
@@ -115,6 +138,48 @@ fn useful_inner(
             .chain(rest)
             .collect()
     })
+}
+
+/// Constructs a finite inhabitant independently of the pattern matrix. The
+/// active path is keyed by type, so recursive products cannot grow a sequence
+/// of distinct query states while looking for a base constructor.
+fn inhabited_type(
+    module: &Module,
+    ty: TypeId,
+    active: &mut std::collections::HashSet<TypeId>,
+) -> Option<SurfacePattern> {
+    let ty = crate::cc::layout::unquantified_type(module, ty);
+    if !active.insert(ty) {
+        return None;
+    }
+    let result = if array_element(module, ty).is_some() {
+        Some(SurfacePattern::Array {
+            elements: Vec::new(),
+            ty,
+            span: TextRange::default(),
+        })
+    } else if let Some(shapes) = signature(module, ty) {
+        shapes
+            .iter()
+            .find_map(|shape| inhabited_shape(module, shape, active))
+    } else {
+        Some(SurfacePattern::Any { ty })
+    };
+    active.remove(&ty);
+    result
+}
+
+fn inhabited_shape(
+    module: &Module,
+    shape: &Shape,
+    active: &mut std::collections::HashSet<TypeId>,
+) -> Option<SurfacePattern> {
+    let fields = shape
+        .fields
+        .iter()
+        .map(|(_, ty)| inhabited_type(module, *ty, active))
+        .collect::<Option<Vec<_>>>()?;
+    Some(reconstruct(shape, fields))
 }
 
 fn useful_array_any(
@@ -416,67 +481,5 @@ fn reconstruct(shape: &Shape, arguments: Vec<SurfacePattern>) -> SurfacePattern 
             ty: shape.ty,
             span,
         },
-    }
-}
-
-pub(super) fn render(module: &Module, pattern: &SurfacePattern) -> String {
-    match pattern {
-        SurfacePattern::Any { .. } | SurfacePattern::Var { .. } => "_".to_owned(),
-        SurfacePattern::Literal { value, .. } => render_literal(value),
-        SurfacePattern::Array { elements, .. } => format!(
-            "[{}]",
-            elements
-                .iter()
-                .map(|element| render(module, element))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        SurfacePattern::Constructor {
-            symbol, arguments, ..
-        } => {
-            let name = module
-                .constructors
-                .iter()
-                .find(|constructor| constructor.symbol == *symbol)
-                .map_or_else(
-                    || format!("Constructor{}", symbol.index),
-                    |constructor| constructor.name.clone(),
-                );
-            if arguments.is_empty() {
-                name
-            } else {
-                let arguments = arguments
-                    .iter()
-                    .map(|argument| match argument {
-                        SurfacePattern::Any { .. } => "_".to_owned(),
-                        SurfacePattern::Constructor { arguments, .. } if arguments.is_empty() => {
-                            render(module, argument)
-                        }
-                        nested => format!("({})", render(module, nested)),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                format!("{name} {arguments}")
-            }
-        }
-        SurfacePattern::Record { fields, .. } => format!(
-            "{{ {} }}",
-            fields
-                .iter()
-                .map(|(label, value)| format!("{label}: {}", render(module, value)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        SurfacePattern::Named { pattern, .. } => render(module, pattern),
-    }
-}
-
-fn render_literal(literal: &Literal) -> String {
-    match literal {
-        Literal::Integer(value) => value.to_string(),
-        Literal::Number(value) => value.clone(),
-        Literal::String(value) => format!("{value:?}"),
-        Literal::Char(value) => format!("{value:?}"),
-        Literal::Boolean(value) => value.to_string(),
     }
 }

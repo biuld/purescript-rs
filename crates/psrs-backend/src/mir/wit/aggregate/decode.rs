@@ -48,13 +48,16 @@ pub(super) fn build_payload<L: WitCallLowerer>(
         return Ok((Some(value), block));
     }
     let (value, block) = build_concrete(lowerer, kind, value_node, address, offset, block, span)?;
-    // The storage slot is either the concrete representation (`stored` names
-    // the same repr, so no cast) or an erased/aggregate supertype. Cast the
-    // built reference to the declared storage slot.
-    let value = if erased {
-        cast_reference(lowerer, value, &stored, block, span)?
+    // Bare polymorphic slots store the aggregate owner's canonical protocol,
+    // rather than a reference to the specialized aggregate.
+    let (block, value) = if matches!(stored, ValueShape::Reference(reference)
+        if reference.heap == RefShape::Erased)
+    {
+        lowerer.wit_payload_conversion(block, value, value_node.shape(), true, span)?
+    } else if erased {
+        (block, cast_reference(lowerer, value, &stored, block, span)?)
     } else {
-        value
+        (block, value)
     };
     Ok((Some(value), block))
 }
@@ -241,6 +244,7 @@ fn read_value_concrete<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
     match shape {
+        ValueShape::State => Err(unsupported(span)),
         ValueShape::Integer | ValueShape::Boolean => {
             read_scalar(lowerer, kind, address, offset, block, span)
         }
@@ -383,23 +387,17 @@ fn read_record<L: WitCallLowerer>(
             .iter()
             .position(|candidate| candidate == &label)
             .ok_or_else(|| unsupported(span))?;
-        let (value, next) = build_concrete(
+        let (value, next) = build_payload(
             lowerer,
             &wit_field.ty,
             &product[index].value,
+            product[index].stored,
             address,
             offset + field_offset,
             block,
             span,
         )?;
-        // The concrete node builds the nested representation; the record's
-        // storage slot may be an erased or aggregate supertype that needs a
-        // cast before the struct is built.
-        let value = if is_erased(product[index].stored) {
-            cast_reference(lowerer, value, &product[index].stored, next, span)?
-        } else {
-            value
-        };
+        let value = value.ok_or_else(|| unsupported(span))?;
         values[index] = Some(value);
         block = next;
     }

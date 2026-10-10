@@ -1,5 +1,10 @@
 # Foreign Imports
 
+> **Selected revision:** [library-owned effects and state dependencies](../../backend/fp/library-owned-effects.md)
+> replaces the Effect-specific token contract with a library newtype and generic
+> state dependencies. Implementation and acceptance evidence have not migrated;
+> this document retains the existing contract pending that migration.
+
 **Feature:** F-02
 
 **Status:** Draft
@@ -11,11 +16,34 @@ handles, and [modules and resolution](modules-and-resolution.md). Read
 [canonical ABI](../../backend/wasm/canonical-abi-and-wit.md) first. Roadmap row
 FE-19 tracks this surface.
 
-**Summary:** A `foreign import` names either a WIT function or an opaque type.
+**Summary:** A `foreign import` declares a library foreign value, explicitly
+names a WIT function, or introduces an opaque type.
 `foreign import data T :: Kind` introduces a nominal type with no constructors.
 A nullary opaque type is the source image of a WIT resource; `Int` remains
 accepted at the ABI boundary so existing integer placeholders keep compiling.
 JavaScript FFI is not part of this surface.
+
+An ordinary `foreign import name :: Type` retains its source-declared signature
+and declaring-module identity. AST stores the absence of an explicit target
+binding; resolution produces a library external rather than inventing a WIT
+name or a source body. Type checking, imports, operator fixities, and checked
+external signatures apply normally. Foreign value signatures cannot contain
+class constraints, matching the official source restriction. Backend linking must
+reject a library value without a registered target implementation explicitly.
+This supports faithful source inventory and checking, not JavaScript execution
+or an assertion that all library values already have Wasm implementations.
+
+An explicit `"psrs:intrinsic#operation"` binding selects an operation from the
+authoritative intrinsic registry. Resolution records `Primitive(Intrinsic)`;
+the declaration still owns its source type and symbol. P8 linking generates an
+ordinary typed Core function, checks its operand and result identities with the
+existing Core intrinsic verifier, and discharges the external only after those
+checks succeed. The generated function supports ordinary first-class use and
+partial application. A wrong type is rejected even if the binding is unused.
+The initial foreign-binding implementation covers monomorphic unary and binary
+scalar operations. Other registered operations remain explicit unsupported
+bindings until their full checked implementation exists. The binding string,
+never the source function's name or declaring module, selects the operation.
 
 ## Scope
 
@@ -50,14 +78,18 @@ corresponds to a handle.
 ## Model
 
 ```text
-ForeignValue = { name, binding: Interface "#" Function, type, span }
+ForeignValue = { name, binding: Optional(Interface "#" Function), type, span }
+Binding = WIT(Interface, Function) | Primitive(Intrinsic) | Library(Module, Symbol)
 ForeignData  = { name, kind, span }
 OpaqueType   = nominal TypeId with no constructors
 SourceResource = { type_id: TypeId }
 ```
 
 `ForeignValue` is a value-namespace declaration. Its binding text is
-`<interface>#<function>` and is metadata, not a term. `ForeignData` is a
+`<interface>#<function>` when present and is metadata, not a term. An absent
+binding identifies an ordinary library declaration by its declaring module
+and value symbol. Explicit source declarations and imports take precedence
+over bootstrap intrinsic names. `ForeignData` is a
 type-namespace declaration. The type expression after `::` is the kind, not a
 value type. The kind may be `Type` or an arrow such as `Type -> Type`. There
 are no type parameters beside that kind, and there is no value constructor.
@@ -93,7 +125,8 @@ Foreign data is lowered as a type declaration, not as a foreign value. The CST
 already records the optional `data` keyword and the kind expression; lowering
 rejects a WIT binding string on a data declaration, because a resource's
 identity is the nominal type rather than a function name. A foreign value
-import still requires `<interface>#<function>`.
+import preserves either an explicit `<interface>#<function>` binding or its
+absence for a library declaration.
 
 Resolution allocates a type id and no value symbol. The type name occupies the
 uppercase namespace, so it conflicts with another type of the same name and
@@ -141,7 +174,7 @@ lower_foreign(cst):
         reject a binding string
         emit ForeignData { name, kind: lower(cst.kind), span }
     else:
-        require a "<interface>#<function>" binding
+        preserve an optional "<interface>#<function>" binding
         emit ForeignValue { name, binding, type, span }
 
 resolve_module:
@@ -166,7 +199,7 @@ validate_handle(source):
 ```
 
 Edge cases: a binding string on foreign data is a lowering error; a missing
-binding on a foreign value is a lowering error; a duplicate type name is a
+binding on a foreign value denotes a library declaration; a duplicate type name is a
 declaration conflict; an imported opaque type stays opaque under an alias; a
 higher-kinded foreign constructor used without enough arguments fails kind
 checking rather than becoming a handle.

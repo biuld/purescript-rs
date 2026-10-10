@@ -1,5 +1,7 @@
 //! Source cases shared by semantic, differential, and execution acceptance.
 
+mod reify;
+
 pub const CHECK_ONLY: &[(&str, &str)] = &[(
     "annotated_polymorphic_array",
     r#"module Main where
@@ -32,6 +34,9 @@ main = case Holder (make 0) of
 ];
 
 pub const ACCEPT: &[(&str, &str)] = &[
+    ("rank_n_separate_equations", reify::EQUATIONS),
+    ("rank_n_multiple_scrutinees", reify::MULTIPLE),
+    ("rank_n_guarded_equations", reify::GUARDED),
     (
         "returned_constraint",
         r#"module Main where

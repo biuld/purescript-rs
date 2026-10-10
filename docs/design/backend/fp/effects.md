@@ -1,5 +1,11 @@
 # Effects
 
+> **Selected revision:** [library-owned effects and state dependencies](library-owned-effects.md)
+> replaces the Effect-specific token contract with a library newtype and generic
+> state dependencies, with executable storage and termination owned by
+> `psrs-runtime` and combinators owned by stdlib. Integrated acceptance has not migrated;
+> this document retains the existing contract pending that migration.
+
 **Feature:** F-02  
 **Status:** Draft (design)  
 **Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md), and
@@ -17,7 +23,11 @@ effectful entry once and returns zero after normal completion.
 
 This document owns the representation of `Effect a` and the meaning of `pure`,
 `bind`, and `runEffect`, including the execution token and effect sequencing. It
-does not own the WASI services an effect may call
+is the `Effect` representation owner in the shared model of
+[representation and evidence](representation-and-evidence.md): `Effect a` is a
+`Callable` policy with a fixed state-token parameter and the payload as result,
+so it uses the ordinary closure and conversion contract rather than a private
+path. It does not own the WASI services an effect may call
 ([WASI platform library](../wasm/wasi-platform-library.md)), the do/ado
 desugaring that produces `bind` (frontend; `FE-05` in
 [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md)), or the
@@ -174,9 +184,14 @@ flag, private constructor, or representation mode.
 - No stage stores an "effect" flag on an expression or adds a dedicated Effect
   IR node, closure kind, or runtime object. After representation lowering, CC
   and MIR see generic closures and calls.
-- The synchronous token may be the integer zero. It carries no scheduling or
-  ordering guarantee. Call order and multiplicity are preserved by the
-  evaluation and optimizer contracts.
+- The runtime token is the state token of a strict IO-like effect, the
+  `State# RealWorld` analogue in GHC. It is the compiler-owned opaque
+  `TypeId::STATE_TOKEN`, threaded through the chain and neither duplicated nor
+  observed; ordering comes from the calls and strict evaluation order, not from
+  the token's bits. For the current synchronous, single-threaded `Effect` the
+  token carries no payload, so its runtime shape is a scalar constant; the type
+  stays opaque, so no pass treats it as an `Int`. Call order and multiplicity
+  are preserved by the evaluation and optimizer contracts.
 - Entry selection produces one resolved command-entry `SymbolId`: use
   `Main.main` when present, otherwise require one unique top-level `main`.
   The lexical `runEffect` reference check and generated entry wrapper use that
@@ -228,10 +243,15 @@ becomes a record/closure over its operation implementations and
 `runEffect` interprets it. That is a change of the operation set, not of the
 lowering mechanism, and it still introduces no dedicated CC/MIR node.
 
-The synchronous token may be the constant `i32` value `0`. The calls themselves
-are observable and cannot be merged or removed; distinct token bits are not a
-substitute for that optimizer rule. A later runtime may pass state or resource
-handles without exposing the token to source programs.
+The token is a single abstract state value, the `State# RealWorld` analogue:
+the lowering passes it along and never inspects or copies it. The compiler
+interns it as the opaque `TypeId::STATE_TOKEN`, which has no source spelling;
+its one value is the `StateToken` expression the effect runner supplies. Its
+runtime shape is a scalar constant because the synchronous effect carries no
+payload — distinct token bits carry no meaning, and the calls themselves are
+observable and cannot be merged or removed. A later runtime may pass a state or
+resource handle through the same parameter without exposing it to source
+programs.
 
 ### Partial application
 
@@ -374,7 +394,10 @@ rewrites to `bind` before Core, so the backend sees only `pure`, `bind`,
 - **`bind` with a continuation that ignores its argument.** Still sequenced; the
   first computation runs before the continuation.
 - **Polymorphic effect.** `Effect a` with an erased `a` uses the erased
-  protocol; `runEffect`'s consumer knows the concrete type
+  protocol; `runEffect`'s consumer knows the concrete type. Crossing an abstract
+  constructor boundary (`f a`, including `f Unit`) uses the common checked
+  representation conversion contract, including the producer's stored closure
+  signature; source instantiation alone does not authorize a signature cast
   ([polymorphism and erasure](polymorphism-and-erasure.md)).
 - **A future richer token.** Changing the token to a stateful value changes the
   representation lowering and the runtime, not the source API or the CC/MIR
@@ -439,14 +462,30 @@ Responsibilities and required types:
 - The wrapper and rewritten Core are structurally verified before CC. This
   checks binding and type-shape contracts; it does not add a Core or CC Effect
   node or prove runtime behavior.
+- Authoritative source Core remains available until checked boundary relations
+  and representation conversion plans have been consumed. The application-to-
+  closure mapping is explicit. An internal rewritten Core-shaped module is a
+  separate physical view, verified against its own complete structural contract;
+  it is not passed to the source matcher as though `Effect a` were a source
+  function. Arity-based reconstruction of the erased constructor is forbidden.
+- The Effect representation owner contributes its trusted constructor mapping,
+  token parameter, result representation and representation policy to the common
+  conversion planner. It owns operation synthesis, suspension and command-entry
+  behavior. Generic calls, dictionary fields, captures and adapter construction
+  consume ordinary checked boundary evidence and representation policies; they
+  do not select an Effect-specific conversion path. A representation-only
+  canonical closure receives its authority from the plan that creates it,
+  without a fabricated source `Effect` type or closure-origin field.
 - CC and MIR lower the resulting generic closures through `FunctionRef` and
   direct or indirect calls. Curried-arrow flattening reads source `Function`
-  spines only. Partial application
-  (`lower_partial_global_application`) applies to under-applied source arrows,
-  not to the token of an effect.
-- The representation may later grow into dictionary passing
-  ([type classes and dictionaries](type-classes-and-dictionaries.md)). The token
-  stays inside effect lowering; its type is chosen there.
+  spines only. Partial application applies to under-applied source arrows,
+  whether the callee is a declaration or an indirect value, and never to the
+  token of an effect.
+- Dictionary passing uses the ordinary product and closure representation
+  ([type classes and dictionaries](type-classes-and-dictionaries.md)). A chosen
+  `Bind Effect` instance still crosses the definition ABI of a shared generic
+  method; instance selection does not specialize that ABI automatically. The
+  token stays inside effect lowering; its type is chosen there.
 - WASI operations are owned by the
   [WASI platform library](../wasm/wasi-platform-library.md) and the
   [canonical ABI and WIT](../wasm/canonical-abi-and-wit.md). A host call is
@@ -561,6 +600,8 @@ the behavioral guarantees above.
 - Wadler, P., *Monads for Functional Programming* (1992/1995).
 - Levy, P. B., *Call-by-Push-Value: A Subsuming Paradigm* (1999) and
   *Call-by-Push-Value* (2004).
+- GHC's `IO` as `State# RealWorld` (Launchbury and Peyton Jones, *State in
+  Haskell*, 1994): the state-token representation of a strict IO effect.
 - [CC IR](cc-ir.md): closures, captures, and partial application.
 - [type classes and dictionaries](type-classes-and-dictionaries.md): the
   dictionary form the effect representation may grow into.

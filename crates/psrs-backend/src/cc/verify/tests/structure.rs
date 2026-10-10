@@ -157,7 +157,13 @@ fn rejects_a_direct_call_with_the_wrong_arity() {
             result: ValueShape::Integer,
         },
     )]);
-    assert!(verify_function(&function, &signatures, &table()).is_err());
+    let errors = verify_function(&function, &signatures, &table())
+        .expect_err("the callee expects one integer argument");
+    let message = &errors[0].message;
+    assert!(message.contains("call shape mismatch"));
+    assert!(message.contains("bad_arity"));
+    assert!(message.contains("expected 1 argument(s) [Integer]"));
+    assert!(message.contains("got 0 []"));
 }
 
 #[test]

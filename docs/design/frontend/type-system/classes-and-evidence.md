@@ -54,10 +54,13 @@ the signature applies to that consecutive equation group. Consecutive equations
 for one member form one definition, while a later separated group with the
 same name is a duplicate declaration. A signature without its matching member
 is an orphan type declaration. Member signatures are checked against the class
-method after substituting the instance head, and their unbound type variables
-resolve in the instance-head scope. The implementation supports the existing
-subsumption rules for these annotations; it does not yet solve a constrained
-annotation merely to specialize it to a monomorphic expected method type.
+method after substituting the instance head. Variables introduced by the
+instance context share the same type identities in method bodies and
+annotations; a context-only variable is valid when the context's functional
+dependencies determine it from the instance head. The implementation supports
+the existing subsumption rules for these annotations; it does not yet solve a
+constrained annotation merely to specialize it to a monomorphic expected method
+type.
 
 ## Design
 
@@ -66,14 +69,13 @@ instances. Source default implementations are not part of PureScript syntax.
 A backend fixture placing a default closure in a dictionary does not add a
 source-language feature.
 
-Compiler-supported deriving rules are selected by resolved class identity,
-including the declaring module; re-exporting a class does not change its
-identity, and an unrelated user class with the same short name does not gain
-the rule. Structural rules traverse the declared type's normalized field
-types. `derive newtype` delegates to the wrapped class dictionary and checked
-coercion boundaries instead of generating per-class wrappers. Every generated
-method and underlying dictionary obligation goes through ordinary instance
-checking and evidence selection, including for classes with no methods.
+Compiler-supported deriving is its own topic, [deriving](deriving.md). This
+document owns only what every derivation consumes: the class environment, the
+instance solver, and evidence elaboration. A derived instance is an ordinary
+instance whose members happen to be generated, so it is checked and its evidence
+selected by the same path as a written instance; the deriving registry is
+selected by resolved class identity, including the declaring module, rather than
+by a name at the use site.
 
 `Coercible` consults the role vector in the checked kind environment. Equal
 types are reflexive. Matching constructors decompose arguments by role: nominal
@@ -101,6 +103,18 @@ relation, not a raw Wasm cast: array elements, functions, records, and ADT
 payloads follow their established conversion plans, and unsupported conversion
 shapes fail lowering.
 
+Compiler-supported library class interfaces have one declared registration in
+`psrs-hir`'s compiler-interface catalog. Resolution links the canonical export
+to its normal source declaration identity; qualification, aliases, and
+re-exports retain that identity. This is an explicit language/library interface
+binding, not recognition by class shape. P5 validates the parameter kinds and
+elaborated dictionary contract before enabling synthesis. The solver dispatches
+on that recorded identity and never on a function name or the spelling of a
+literal. A synthesized runtime dictionary retains its checked ordinary terms as
+`DictionaryValue` evidence until Core lowers them. THIR checks those terms and
+their dictionary type; it trusts the frontend's registered class rule for the
+semantic authorization, as it trusts ordinary instance selection.
+
 Type-level `Symbol` values use the same Unicode scalar sequence as source
 strings ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
 `IsSymbol` evidence and `Reflectable` preserve or produce that sequence.
@@ -110,11 +124,18 @@ literal is rejected before solving. `SymbolCons` splits or builds one scalar
 head and a scalar tail. These solver rules do not change value-level string
 storage.
 
-Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Compiler-owned primitive evidence has an evidence-defined place in the search order: proof and relation rules run before direct given lookup; report rules run after it so a warning or unsolved report constraint can propagate through the enclosing declaration. For ordinary class constraints, search givens first, then superclass paths and candidate instances. Matching a given unifies flexible wanted arguments with the given's arguments transactionally; it never assigns a rigid given variable, and a failed candidate leaves no substitutions behind. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
+Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Compiler-owned primitive evidence has an evidence-defined place in the search order: proof and relation rules run before direct given lookup; report rules run after it so a warning or unsolved report constraint can propagate through the enclosing declaration. For ordinary class constraints, search givens first, then superclass paths and candidate instances. Matching a given compares all resolved wanted arguments with the given's arguments without choosing values for unknowns. Instantiated superclass arguments follow the same equality rule. Functional dependencies may improve unknowns separately, using the declared dependency relation. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
+
+The common instance recorder rejects a class-argument count mismatch with
+`ClassInstanceArityMismatch` before deriving or member inference. Derived
+known-class rules separately diagnose a supported rule's own arity contract
+with `InvalidDerivedInstance`. THIR compares instance context dictionaries
+with semantic type equality, including alpha-equivalent method quantifiers;
+Core lowering consumes that verified result rather than comparing arena IDs.
 
 Elaboration turns a constrained binding into explicit evidence parameters and inserts evidence at overloaded uses. A method selection projects from its dictionary; a superclass selection follows a dictionary field. The frontend proves and records the selected path. Backend optimization may specialize dictionaries but cannot change which instance was selected. Which constraints become parameters is decided by generalization, not here: a declaration's scheme carries the constraints inference retained, and elaboration realizes exactly those as dictionary parameters, so a signature and an inferred scheme produce the same evidence shape.
 
-A superclass edge is instantiated, never re-derived. Dictionary construction and superclass search substitute the subclass's arguments into the edge's template and unify the result against the wanted constraint, so an edge written over an arbitrary type such as `C (Array a)` needs no separate rule. The dictionary field that stores a superclass dictionary is chosen from the edge's position, so the evidence and the field agree by construction.
+A superclass edge is instantiated, never re-derived. Dictionary construction and superclass search substitute the subclass's arguments into the edge's template; construction checks the field type, while lookup compares the instantiated arguments against the wanted constraint, so an edge written over an arbitrary type such as `C (Array a)` needs no separate rule. The dictionary field that stores a superclass dictionary is chosen from the edge's position, so the evidence and the field agree by construction.
 
 Rejected alternatives: a global ban on overlapping heads would reject valid instance-chain programs; choosing the first ordinary candidate is incoherent; postponing instance choice to runtime changes PureScript semantics; and representing a superclass edge as a permutation of parameter names would leave a constraint with two forms that only one of them can express.
 
@@ -207,7 +228,7 @@ Evidence verification in the checked IR has a stated boundary, following [type i
 
 ## Open questions and future work
 
-Track the official compiler's exact orphan, instance-chain apartness, and primitive-class rules as executable compatibility cases. The current source subset covers role-aware higher-kinded given rewriting, checked kind compatibility, canonical open-row alignment, structural `Eq`/`Ord`, covariant `Functor.map`, `Bifunctor.bimap`, `Contravariant.cmap` through `Profunctor.lcmap`, and `derive newtype`. Class method `forall` signatures, quantified method parameters, and method-local constraints are checked with independent instantiation and scoped dictionary evidence; their verification is tracked in the [rank-N acceptance record](../../../implementation/frontend/rank-n.md). The remaining class-specific deriving traversals remain open. The function-based `Contravariant` case still reaches a backend closure-capture limit, and open-row runtime conversion remains outside the current CC layout. Implementation coverage belongs in [D-04](../../D-04-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md).
+Track the official compiler's exact orphan, instance-chain apartness, and primitive-class rules as executable compatibility cases. The current source subset covers role-aware higher-kinded given rewriting, checked kind compatibility, and canonical open-row alignment. Class method `forall` signatures, quantified method parameters, and method-local constraints are checked with independent instantiation and scoped dictionary evidence; their verification is tracked in the [rank-N acceptance record](../../../implementation/frontend/rank-n.md). Class-specific deriving rules are owned by [deriving](deriving.md). The function-based `Contravariant` case still reaches a backend closure-capture limit, and open-row runtime conversion remains outside the current CC layout. Implementation coverage belongs in [D-04](../../D-04-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md).
 
 ## References
 
@@ -221,13 +242,9 @@ The current bounded coercion solver is a dedicated checker helper, while the
 design target exposes it as a separate `solve_coercible` service. Implemented
 source cases cover higher-kinded application-head rewrites, kind compatibility,
 role-aware canonical-given interactions, and aligned open rows; open-row values
-still lack a runtime layout. Structural `Eq`/`Ord`, nested `Functor.map`,
-`Bifunctor.bimap`, and checked newtype-derived methods execute for the covered
-method signatures. Function-result mapping and `Contravariant` through a
-profunctor dictionary match the upstream source rules; the function-based
-Contravariant case still lacks Wasmtime evidence because of closure capture.
-Class-method local constraints and quantified parameters are covered under
-FE-18; the remaining upstream deriving classes keep FE-16 partial.
+still lack a runtime layout. Class-method local constraints and quantified
+parameters are covered under FE-18; class-specific deriving rules and their
+coverage are owned by [deriving](deriving.md).
 
 The primitive rule table now covers all twelve row, row-list, symbol, and integer
 relations as well as the `Coercible` proof. `Prim.TypeError.Warn` reports through

@@ -39,7 +39,14 @@ fn type_has_forall(id: TypeId, types: &[Type], seen: &mut HashSet<TypeId>) -> bo
     }
 }
 
-fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
+pub(in crate::opt::inline) fn expr_introduces_type_binders(
+    expression: &Expr,
+    types: &[Type],
+) -> bool {
+    psrs_span::with_sufficient_stack(|| expr_introduces_type_binders_inner(expression, types))
+}
+
+fn expr_introduces_type_binders_inner(expression: &Expr, types: &[Type]) -> bool {
     if type_has_forall(expression.ty, types, &mut HashSet::new()) {
         return true;
     }
@@ -110,6 +117,7 @@ fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
         | ExprKind::String(_)
         | ExprKind::Char(_)
         | ExprKind::Unit
+        | ExprKind::StateToken
         | ExprKind::Trap => false,
     }
 }
@@ -154,6 +162,10 @@ pub(super) fn is_recursive(root: SymbolId, graph: &HashMap<SymbolId, Vec<SymbolI
 }
 
 pub(super) fn contains_case(expression: &Expr) -> bool {
+    psrs_span::with_sufficient_stack(|| contains_case_inner(expression))
+}
+
+fn contains_case_inner(expression: &Expr) -> bool {
     match &expression.kind {
         ExprKind::Case { .. } => true,
         ExprKind::Constructor { arguments, .. }
@@ -185,11 +197,16 @@ pub(super) fn contains_case(expression: &Expr) -> bool {
         | ExprKind::String(_)
         | ExprKind::Char(_)
         | ExprKind::Unit
+        | ExprKind::StateToken
         | ExprKind::Trap => false,
     }
 }
 
 pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
+    psrs_span::with_sufficient_stack(|| collect_globals_inner(expression, out))
+}
+
+fn collect_globals_inner(expression: &Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
         ExprKind::Global(symbol) => out.push(*symbol),
         ExprKind::Constructor { arguments, .. }
@@ -249,6 +266,6 @@ pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
-        ExprKind::Unit | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
     }
 }

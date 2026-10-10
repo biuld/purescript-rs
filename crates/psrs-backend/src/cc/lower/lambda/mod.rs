@@ -1,4 +1,6 @@
-use super::super::layout::{function_type_signature, scalar_type, unquantified_type};
+use super::super::layout::{
+    function_arrow_parameters, function_type_signature, scalar_type, unquantified_type,
+};
 use super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, ValueId, ValueShape,
 };
@@ -103,8 +105,11 @@ impl LambdaLowering for FunctionLowerer<'_> {
         let mut nested = self.child_lowerer();
         let closure_parameter = nested.fresh(closure_value_type());
         let mut parameters = vec![closure_parameter];
-        for binder in &binders {
-            let parameter_type = scalar_type(
+        let source_parameter_types = function_arrow_parameters(self.module, expression.ty).0;
+        let mut nested_assignments = Vec::new();
+        let mut binder_adaptations = Vec::with_capacity(binders.len());
+        for (index, binder) in binders.iter().enumerate() {
+            let binder_shape = scalar_type(
                 self.module,
                 binder.ty,
                 binder.span,
@@ -115,9 +120,26 @@ impl LambdaLowering for FunctionLowerer<'_> {
                 self.record_types,
                 self.function_types,
             )?;
-            let parameter = nested.fresh(parameter_type);
-            nested.locals.insert(binder.id, parameter);
+            let parameter_shape = signature_definition
+                .as_ref()
+                .and_then(|signature| signature.parameters.get(index))
+                .copied()
+                .unwrap_or(binder_shape);
+            let parameter = nested.fresh(parameter_shape);
             nested.local_types.insert(binder.id, binder.ty);
+            let source_type = source_parameter_types
+                .get(index)
+                .copied()
+                .unwrap_or(binder.ty);
+            binder_adaptations.push((
+                binder.id,
+                parameter,
+                source_type,
+                binder.ty,
+                parameter_shape,
+                binder_shape,
+                binder.span,
+            ));
             parameters.push(parameter);
         }
         let mut extra_parameters = Vec::new();
@@ -131,7 +153,26 @@ impl LambdaLowering for FunctionLowerer<'_> {
                 extra_parameters.push(parameter);
             }
         }
-        let mut nested_assignments = Vec::new();
+        for (local, parameter, source_type, binder_type, parameter_shape, binder_shape, span) in
+            binder_adaptations
+        {
+            let conversion = nested.typed_conversion(
+                source_type,
+                binder_type,
+                parameter_shape,
+                binder_shape,
+                span,
+            )?;
+            let bound_value = nested.emit_conversion(
+                parameter,
+                parameter_shape,
+                binder_shape,
+                conversion,
+                span,
+                &mut nested_assignments,
+            );
+            nested.locals.insert(local, bound_value);
+        }
         for (index, capture) in captures.into_iter().enumerate() {
             let Some(outer_value) = self.locals.get(&capture).copied() else {
                 return Err(capture_error(expression));
@@ -274,6 +315,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             signatures: self.signatures,
             representations: self.representations,
             module: self.module,
+            boundary: self.boundary,
             enum_types: self.enum_types,
             aggregate_types: self.aggregate_types,
             newtype_ids: self.newtype_ids,

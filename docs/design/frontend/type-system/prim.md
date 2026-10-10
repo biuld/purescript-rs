@@ -1,5 +1,10 @@
 # Primitive Interfaces and Relations
 
+> **Selected extension:** [library-owned effects and state dependencies](../../backend/fp/library-owned-effects.md)
+> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
+> and checked zero-width projection. Implementation and acceptance evidence
+> have not migrated; the existing contracts below remain the implementation baseline.
+
 **Feature:** F-02
 
 **Status:** Draft
@@ -59,6 +64,7 @@ Kinds are the official ones, since source compatibility requires them. "Provided
 | `Prim.Partial` | `Constraint` | Diagnostic | ReportOnly | yes | partial |
 | `Prim.Boolean.True`, `Prim.Boolean.False` | `Boolean` | Interface | — | yes | n/a |
 | `Safe.Coerce.coerce` (value) | `forall a b. Coercible a b => a -> b` | Interface | — | yes, as an intrinsic | n/a |
+| `Unsafe.Coerce.unsafeCoerce` (value) | `forall a b. a -> b` | Interface | — | yes, as an intrinsic | yes |
 | `Prim.Coerce.Coercible` | `forall k. k -> k -> Constraint` | Proof | CompileTimeProof | yes | yes |
 | `Prim.Ordering.Ordering` | `Type` | Interface | — | yes | n/a |
 | `Prim.Ordering.LT`, `EQ`, `GT` | `Ordering` | Interface | — | yes | n/a |
@@ -257,9 +263,26 @@ constraint and a source `import Prim (Partial)` therefore reach
 `TypeId::PRIM_PARTIAL`, and `purs` reads the same kind for `Partial` as this
 compiler does.
 
-Type-level `Reflectable` and `IsSymbol` relations exist in later official versions
-and are not part of the inventory above; adding a member is a registry change
-with the same requirements as any other.
+`Data.Symbol.IsSymbol` is a compiler-supported library interface rather than a
+member of the `Prim` declaration inventory. The shared compiler-interface
+registry owns its canonical export binding alongside `Safe.Coerce` and
+`Unsafe.Coerce`; P3 associates the source declaration's ordinary `TypeId` with
+the registered class identity. The source module and its exports still resolve
+normally. P5 validates the checked parameter kind and elaborated method contract
+before registering a rule for that resolved identity. Synonyms and import
+aliases do not change the contract, and an unrelated user class with the same
+spelling receives no rule.
+
+A known Symbol literal produces a runtime dictionary whose `reflectSymbol`
+method returns that literal's Unicode scalar sequence. The primitive framework
+checks both its decided arguments and its dictionary type. `DictionaryValue`
+evidence retains the ordinary typed record and method lambda; THIR verifies
+their types and lexical scope, and Core lowers the terms through the normal
+expression path. Unknown symbols decline the rule and may use lexical givens
+or ordinary instances; no default symbol is chosen. Runtime dictionaries never
+authorize a `Coercible` conversion. `Reflectable` remains outside this
+compiler-interface registry; its current library instances use ordinary class
+solving.
 
 Implementation coverage belongs in [D-04](../../D-04-suite-roadmap.md). A rule for a member whose shared foundations are incomplete is not a local shortcut: the argument types it needs must participate in ordinary instantiation, substitution, unification, generalization, and scope checking first, and a rule that cannot satisfy that reports the limitation rather than approximating the member with a private path.
 

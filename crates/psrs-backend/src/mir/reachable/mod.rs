@@ -1,87 +1,33 @@
 //! Reachability analysis for target-neutral CC layout requirements.
 
 mod assignments;
+mod projection;
 
 use super::layout::LayoutError;
 use crate::cc::{
-    GuestLayout, Module as CcModule, RefShape, Reference, ReprId, Representation,
-    RepresentationTable, Signature, SignatureId, ValueShape,
+    Module as CcModule, RefShape, Reference, ReprId, Representation, RepresentationTable,
+    Signature, SignatureId, ValueShape,
 };
 use std::collections::{HashMap, HashSet};
 
 use assignments::add_assignments;
 
-/// Adds every representation the instance-aware projection names. The concrete
-/// `value` node of an erased parameter field references a nested representation
-/// the abstract signature does not reach, so the projection is what keeps a
-/// nested `option<record>` payload's struct and array types planned.
-fn add_projection(
-    layout: &GuestLayout,
-    representations: &mut HashSet<ReprId>,
-    signatures: &mut HashSet<SignatureId>,
-    representation_work: &mut Vec<ReprId>,
-    signature_work: &mut Vec<SignatureId>,
-) {
-    match layout {
-        GuestLayout::Scalar { shape } | GuestLayout::Boxed { shape } => add_value(
-            shape,
-            representations,
-            signatures,
-            representation_work,
-            signature_work,
-        ),
-        GuestLayout::Product { repr, fields, .. } => {
-            add_representation(*repr, representations, representation_work);
-            for field in fields {
-                add_projection(
-                    &field.value,
-                    representations,
-                    signatures,
-                    representation_work,
-                    signature_work,
-                );
-            }
-        }
-        GuestLayout::Variant { repr, cases } => {
-            add_representation(*repr, representations, representation_work);
-            for case in cases {
-                for field in &case.fields {
-                    add_projection(
-                        &field.value,
-                        representations,
-                        signatures,
-                        representation_work,
-                        signature_work,
-                    );
-                }
-            }
-        }
-        GuestLayout::Array { repr, element } => {
-            add_representation(*repr, representations, representation_work);
-            add_projection(
-                &element.value,
-                representations,
-                signatures,
-                representation_work,
-                signature_work,
-            );
-        }
-    }
-}
+use projection::add_projection;
 
-pub(super) struct ReachableHandles {
-    pub(super) representations: Vec<ReprId>,
-    pub(super) signatures: Vec<SignatureId>,
+pub(in crate::mir) struct ReachableHandles {
+    pub(in crate::mir) direct_calls: HashSet<psrs_hir::SymbolId>,
+    pub(in crate::mir) representations: Vec<ReprId>,
+    pub(in crate::mir) signatures: Vec<SignatureId>,
     /// Whether any reachable value, field, element, capture, signature
     /// parameter/result, or constant is a `String`, so the planner reserves the
     /// GC `$string` type.
-    pub(super) needs_string: bool,
+    pub(in crate::mir) needs_string: bool,
 }
 
 impl ReachableHandles {
     /// Computes reachability for the GC planner, whose closure environments box
     /// integer and number captures for the `eqref` capture array.
-    pub(super) fn from_module(module: &CcModule) -> Result<Self, LayoutError> {
+    pub(in crate::mir) fn from_module(module: &CcModule) -> Result<Self, LayoutError> {
         let mut representations = HashSet::new();
         let mut signatures = HashSet::new();
         let mut representation_work = Vec::new();
@@ -142,20 +88,22 @@ impl ReachableHandles {
                 for parameter in &projection.parameters {
                     add_projection(
                         parameter,
+                        &module.representations,
                         &mut representations,
                         &mut signatures,
                         &mut representation_work,
                         &mut signature_work,
-                    );
+                    )?;
                 }
                 if let Some(result) = &projection.result {
                     add_projection(
                         result,
+                        &module.representations,
                         &mut representations,
                         &mut signatures,
                         &mut representation_work,
                         &mut signature_work,
-                    );
+                    )?;
                 }
             }
         }
@@ -236,7 +184,16 @@ impl ReachableHandles {
         representations.sort_by_key(|id| id.0);
         let mut signatures = signatures.into_iter().collect::<Vec<_>>();
         signatures.sort_by_key(|id| id.0);
-        let needs_string = module.functions.iter().any(|function| {
+        let needs_string = module.externals.iter().any(|external| {
+            direct_calls.contains(&external.symbol)
+                && external.projection.as_ref().is_some_and(|layout| {
+                    layout
+                        .parameters
+                        .iter()
+                        .chain(layout.result.iter())
+                        .any(projection::has_string)
+                })
+        }) || module.functions.iter().any(|function| {
             function
                 .values
                 .iter()
@@ -252,6 +209,7 @@ impl ReachableHandles {
                     .is_some_and(signature_has_string)
             });
         Ok(Self {
+            direct_calls,
             representations,
             signatures,
             needs_string,
@@ -339,7 +297,7 @@ fn add_value(
     }
 }
 
-pub(super) fn add_reference(
+pub(in crate::mir) fn add_reference(
     reference: &Reference,
     representations: &mut HashSet<ReprId>,
     signatures: &mut HashSet<SignatureId>,
@@ -353,7 +311,7 @@ pub(super) fn add_reference(
     }
 }
 
-pub(super) fn add_representation(
+pub(in crate::mir) fn add_representation(
     id: ReprId,
     representations: &mut HashSet<ReprId>,
     work: &mut Vec<ReprId>,
@@ -363,7 +321,7 @@ pub(super) fn add_representation(
     }
 }
 
-pub(super) fn add_signature(
+pub(in crate::mir) fn add_signature(
     id: SignatureId,
     signatures: &mut HashSet<SignatureId>,
     work: &mut Vec<SignatureId>,

@@ -6,26 +6,34 @@
 use crate::TargetCapabilities;
 use crate::types::ValueType;
 use psrs_hir::{ModuleId, SymbolId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
 
 pub(crate) mod canonical;
+mod definitions;
 mod handles;
 pub(crate) mod layout;
 pub(crate) mod link;
+mod reserved;
 #[cfg(test)]
 mod tests;
 mod validation;
+
+pub(crate) use reserved::*;
 
 use canonical::{
     CanonicalType, FnAbi, Ownership, function_abi, function_abi_from_types,
     resolve as resolve_canonical,
 };
+pub(crate) use definitions::load_wit;
+use definitions::supported_interfaces;
 pub use handles::{HandleMode, HandleResource};
 #[cfg(test)]
 pub(crate) use link::intern_source_type;
-use validation::{unsupported_shape, wasi_interface_enabled};
+use validation::unsupported_shape;
+pub(crate) use validation::wasi_interface_enabled;
 
 /// Maps a resolved WIT core value type to the backend's value type.
 fn value_type(ty: wit_parser::abi::WasmType) -> Result<ValueType, String> {
@@ -55,17 +63,16 @@ pub const SCRATCH_SIZE: u32 = 16;
 /// The first linear-memory offset after the scratch region.
 pub const SCRATCH_END: u32 = PRINT_SCRATCH as u32 + SCRATCH_SIZE;
 
-/// The start of the allocator's heap-state segment: two pointer-width words
-/// holding the free-list head and the bump break. It follows the scratch region.
+/// Former generated-allocator state address. The runtime provider keeps no
+/// state here, so the range is empty and the planner skips it.
 pub const HEAP_STATE: u32 = SCRATCH_END;
 
-/// The byte size of the heap-state segment: a free-list head word and a bump
-/// break word, each one wasm32 pointer word.
-pub const HEAP_STATE_SIZE: u32 = 2 * WORD_SIZE;
+/// The generated heap-state segment is not reserved.
+pub const HEAP_STATE_SIZE: u32 = 0;
 
 /// The first address the canonical allocator may hand out. It is aligned to the
-/// block granularity so every block header stays aligned.
-pub const HEAP_START: u32 = (HEAP_STATE + HEAP_STATE_SIZE).next_multiple_of(MIN_BLOCK);
+/// block granularity and begins immediately after the scratch region.
+pub const HEAP_START: u32 = SCRATCH_END.next_multiple_of(MIN_BLOCK);
 
 /// A wasm32 address word.
 pub const WORD_SIZE: u32 = 4;
@@ -76,34 +83,6 @@ pub const HEADER_SIZE: u32 = 8;
 /// The block granularity. It matches the maximum canonical ABI field alignment
 /// (`i64`/`f64`), so block headers and payloads stay aligned.
 pub const MIN_BLOCK: u32 = 8;
-
-/// Reserved MIR symbol for the allocator synthesized after ABI memory layout
-/// is known. Calls to this symbol become calls to the local `cabi_realloc`
-/// function during Wasm lowering; it is never emitted as a core import.
-pub(crate) const REALLOC_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1);
-
-/// Reserved symbols for the string boundary helpers at the canonical ABI.
-/// P10 synthesizes them as ordinary local Wasm functions; like
-/// `REALLOC_SYMBOL` they are never emitted as core imports.
-pub(crate) const STRING_TO_BYTES_SYMBOL: SymbolId =
-    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 2);
-pub(crate) const BYTES_TO_STRING_SYMBOL: SymbolId =
-    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 3);
-
-/// Reserved MIR symbol for the synthesized `validate_step` helper. Like the
-/// other boundary symbols it is never a core import.
-pub(crate) const VALIDATE_STEP_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 4);
-
-/// Intrinsic symbols the MIR lowering reserves for the canonical ABI and the
-/// string boundary. Any other intrinsic-symbol allocator (for example the
-/// aggregate conversion helpers, which allocate downward from `u32::MAX`) must
-/// skip these.
-pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 4] = [
-    REALLOC_SYMBOL,
-    STRING_TO_BYTES_SYMBOL,
-    BYTES_TO_STRING_SYMBOL,
-    VALIDATE_STEP_SYMBOL,
-];
 
 /// WASI interfaces and functions the backend itself references. The standard
 /// library names its own imports in source.
@@ -163,10 +142,12 @@ impl WasiImport {
 /// Resolves WASI imports against the vendored WIT, interning each distinct
 /// `(module, name)` to a stable [`SymbolId`].
 pub struct WasiRegistry {
-    resolve: Resolve,
+    resolve: Arc<Resolve>,
     imports: Vec<WasiImport>,
     keys: HashMap<(String, String), usize>,
     target: TargetCapabilities,
+    /// Canonical ids of the interfaces the default world permits.
+    supported: HashSet<String>,
 }
 
 impl WasiRegistry {
@@ -175,11 +156,20 @@ impl WasiRegistry {
     const SYMBOL_BASE: u32 = 1 << 20;
 
     pub(crate) fn from_resolve(resolve: Resolve, target: TargetCapabilities) -> Self {
+        Self::from_shared_resolve(Arc::new(resolve), target)
+    }
+
+    /// Builds a registry over the linker's resolved-world context. The same
+    /// parsed definitions are shared, so interface identities are not
+    /// regenerated.
+    pub(crate) fn from_shared_resolve(resolve: Arc<Resolve>, target: TargetCapabilities) -> Self {
+        let supported = supported_interfaces(&resolve);
         Self {
             resolve,
             imports: Vec::new(),
             keys: HashMap::new(),
             target,
+            supported,
         }
     }
 
@@ -187,10 +177,11 @@ impl WasiRegistry {
         Self::load_with_capabilities(TargetCapabilities::default())
     }
 
-    /// Loads the vendored WIT with the service families enabled by `target`.
+    /// Loads the pinned WIT from the runtime catalog with the service families
+    /// enabled by `target`.
     pub fn load_with_capabilities(target: TargetCapabilities) -> Result<Self, String> {
         let mut resolve = Resolve::default();
-        crate::component::load_vendored_wasi(&mut resolve)?;
+        load_wit(&mut resolve)?;
         Ok(Self::from_resolve(resolve, target))
     }
 
@@ -279,7 +270,7 @@ impl WasiRegistry {
                 })
             })
             .or_else(|| {
-                (!crate::component::component_interface_supported(&module)).then(|| {
+                (!self.supported.contains(&module)).then(|| {
                     format!(
                         "WASI interface `{module}` is not in the current component capability profile"
                     )
@@ -354,6 +345,12 @@ impl WasiRegistry {
 
     pub fn imports(&self) -> &[WasiImport] {
         &self.imports
+    }
+
+    /// A shared handle to the parsed definitions this registry resolves
+    /// against. Isolated lowering fixtures wrap it in a permissive context.
+    pub(crate) fn shared_resolve(&self) -> Arc<Resolve> {
+        Arc::clone(&self.resolve)
     }
 
     /// The core import module and field for an interned import symbol. This is

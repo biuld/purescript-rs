@@ -8,7 +8,7 @@ mod evidence;
 mod scope;
 mod verify;
 
-pub use evidence::{Evidence, EvidenceKind};
+pub use evidence::{Evidence, EvidenceKind, UncheckedCoercionOrigin};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -177,10 +177,11 @@ pub struct ConstructorInfo {
     pub parameters: Vec<TypeVariableId>,
 }
 
-/// The normalized checked scheme for one WIT value import. Unlike the HIR
+/// The normalized checked scheme for one source foreign value import. Unlike the HIR
 /// signature kept for names and diagnostics, `ty` has had type synonyms
-/// expanded by the type checker and uses this module's type table. Intrinsics
-/// use registry-owned contracts and do not appear in this table.
+/// expanded by the type checker and uses this module's type table. Bootstrap
+/// intrinsics use registry-owned contracts; explicit primitive bindings still
+/// require the checked source scheme recorded here.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalType {
     pub symbol: SymbolId,
@@ -249,7 +250,7 @@ pub struct Binding {
     pub span: TextRange,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Eq)]
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: TypeId,
@@ -287,6 +288,16 @@ pub enum ExprKind {
         source_type: TypeId,
         target_type: TypeId,
     },
+    /// An unchecked representational conversion with an explicit authority. Unlike
+    /// [`ExprKind::Coerce`] it carries no `Coercible` proof; the value crosses
+    /// its erased representation unchanged. Core lowers it to a
+    /// `RepresentationCast`.
+    UnsafeCoerce {
+        value: Box<Expr>,
+        source_type: TypeId,
+        target_type: TypeId,
+        origin: UncheckedCoercionOrigin,
+    },
     Application(Box<Expr>, Box<Expr>),
     Lambda {
         binder: Binder,
@@ -305,6 +316,32 @@ pub enum ExprKind {
         scrutinee: Box<Expr>,
         branches: Vec<CaseBranch>,
     },
+}
+
+impl Clone for Expr {
+    fn clone(&self) -> Self {
+        psrs_span::with_sufficient_stack(|| clone_expr(self))
+    }
+}
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        psrs_span::with_sufficient_stack(|| expr_eq(self, other))
+    }
+}
+
+#[inline(never)]
+fn clone_expr(expression: &Expr) -> Expr {
+    Expr {
+        kind: expression.kind.clone(),
+        ty: expression.ty,
+        span: expression.span,
+    }
+}
+
+#[inline(never)]
+fn expr_eq(left: &Expr, right: &Expr) -> bool {
+    left.ty == right.ty && left.span == right.span && left.kind == right.kind
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

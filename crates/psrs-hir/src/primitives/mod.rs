@@ -7,6 +7,7 @@ use psrs_span::TextRange;
 mod core;
 mod numbers;
 mod rows;
+mod state;
 mod type_error;
 
 #[cfg(test)]
@@ -20,6 +21,7 @@ pub fn primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)> {
         rows::declarations(),
         numbers::declarations(),
         type_error::declarations(),
+        state::declarations(),
     ]
     .into_iter()
     .flatten()
@@ -38,6 +40,7 @@ fn class(
         name: name.to_owned(),
         name_span: empty_span(),
         kind: TypeDeclarationKind::Class,
+        compiler_class: None,
         parameters: parameters
             .iter()
             .map(|name| TypeParameter {
@@ -63,6 +66,7 @@ fn foreign_type(id: TypeId, name: &str, declared_kind: Type, roles: &[Role]) -> 
         name: name.to_owned(),
         name_span: empty_span(),
         kind: TypeDeclarationKind::Foreign,
+        compiler_class: None,
         parameters: Vec::new(),
         constructors: Vec::new(),
         members: Vec::new(),

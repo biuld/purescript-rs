@@ -1,0 +1,34 @@
+[package]
+name = "psrs-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["catalog", "formatter"]
+# Immutable host-consumed catalog data: WIT sources, world identity, artifact
+# bytes and provenance. Compiles no executable target code.
+catalog = []
+# The executable number module: formatting, parsing, and scalar math.
+# The feature name is retained for existing artifact build commands.
+formatter = ["dep:ryu-js", "dep:libm"]
+# The executable canonical realloc provider. The Wasm artifact build enables
+# only this feature, separate from the numeric runtime.
+allocator = ["dep:dlmalloc"]
+# Host-side encoding of the executable GC storage provider. Its target code
+# uses Wasm GC directly, without a Rust heap or linear-memory handles.
+gc-storage = ["dep:wasm-encoder"]
+
+[dependencies]
+ryu-js = { version = "=1.0.2", default-features = false, optional = true }
+libm = { version = "=0.2.15", default-features = false, optional = true }
+dlmalloc = { version = "=0.2.14", default-features = false, optional = true }
+wasm-encoder = { workspace = true, optional = true }
+
+[dev-dependencies]
+wasm-encoder = { workspace = true, features = ["wasmparser"] }
+wasmprinter.workspace = true
+wasmparser.workspace = true

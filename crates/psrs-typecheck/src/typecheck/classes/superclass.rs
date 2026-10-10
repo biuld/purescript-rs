@@ -161,6 +161,26 @@ pub(in crate::typecheck) fn instantiate_template(
 }
 
 impl Checker {
+    /// The constraint and all instantiated superclass constraints reachable
+    /// from it. The checked class environment rejects superclass cycles, and
+    /// each path retains its argument types even when paths share a class.
+    pub(in crate::typecheck) fn superclass_closure(
+        &self,
+        constraint: &ClassConstraint,
+    ) -> Vec<ClassConstraint> {
+        let mut pending = vec![constraint.clone()];
+        let mut closure = Vec::new();
+        while let Some(constraint) = pending.pop() {
+            pending.extend(
+                self.superclass_constraints(constraint.class_id, &constraint.arguments)
+                    .into_iter()
+                    .map(|(_, superclass)| superclass),
+            );
+            closure.push(constraint);
+        }
+        closure
+    }
+
     /// The superclass constraints a dictionary for `class_id arguments` stores,
     /// each with the dictionary field that holds it, in edge order. Each edge is
     /// instantiated over the subclass's arguments through the shared

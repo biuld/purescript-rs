@@ -7,6 +7,17 @@ impl Checker {
         interner: &mut TypeInterner,
         generics: &HashSet<u32>,
     ) -> Option<thir::Expr> {
+        psrs_span::with_sufficient_stack(|| {
+            self.finalize_expr_inner(expression, interner, generics)
+        })
+    }
+
+    fn finalize_expr_inner(
+        &mut self,
+        expression: InferredExpr,
+        interner: &mut TypeInterner,
+        generics: &HashSet<u32>,
+    ) -> Option<thir::Expr> {
         let mut active_generics = generics.clone();
         let mut scope = self.resolve_type(expression.ty.clone());
         while let InferType::ForAll { variables, body } = scope {
@@ -103,6 +114,43 @@ impl Checker {
                         evidence,
                         source_type,
                         target_type,
+                    },
+                    ty: target_type,
+                    span: expression.span,
+                };
+                thir::ExprKind::Lambda {
+                    binder,
+                    body: Box::new(body),
+                }
+            }
+            InferredExprKind::UnsafeCoerceFunction {
+                source,
+                target,
+                origin,
+            } => {
+                let source_type =
+                    self.finalize_type(&source, expression.span, interner, generics)?;
+                let target_type =
+                    self.finalize_type(&target, expression.span, interner, generics)?;
+                let local = LocalId(self.state.next_dictionary_local);
+                self.state.next_dictionary_local += 1;
+                let binder = thir::Binder {
+                    id: local,
+                    name: "__unsafe_coerce_value".to_owned(),
+                    ty: source_type,
+                    span: expression.span,
+                };
+                let value = thir::Expr {
+                    kind: thir::ExprKind::Local(local),
+                    ty: source_type,
+                    span: expression.span,
+                };
+                let body = thir::Expr {
+                    kind: thir::ExprKind::UnsafeCoerce {
+                        value: Box::new(value),
+                        source_type,
+                        target_type,
+                        origin,
                     },
                     ty: target_type,
                     span: expression.span,

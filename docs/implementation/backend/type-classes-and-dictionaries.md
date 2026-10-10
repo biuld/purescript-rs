@@ -14,7 +14,7 @@ currently reaches a P8 closure-capture limit and is not runtime-verified.
 Scoped method-local constraints and quantified method parameters have evidence
 in the [rank-N acceptance record](../frontend/rank-n.md). FE-14/15 remain partial
 because the complete official-suite reconciliation is incomplete. Other deriving
-rules remain tracked under FE-16.
+rules remain tracked under FE-22.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), supporting BE-02 and BE-09; FE-14 and FE-15 supply resolved evidence.
 
@@ -108,7 +108,7 @@ DICT-01:
   Result: pass; the positive case executed under Wasmtime.
   Gaps: an instance-member constrained annotation is not yet solved merely to
   specialize it to a monomorphic expected class-method type; the frontend owns
-  this FE-14 boundary. FE-16 executes structural `Eq`/`Ord`, nested `Functor`,
+  this FE-14 boundary. FE-22 executes structural `Eq`/`Ord`, nested `Functor`,
   `Bifunctor`, and newtype-derived dictionaries.
   `Contravariant` and function-result `Functor` have source and upstream
   differential evidence, but no Wasmtime result for the function adapter due
@@ -139,10 +139,14 @@ DICT-03:
     Core lambda parameters in source order; cc/lower/call/application.rs
     evaluates callee then arguments left to right.
   Tests: dictionary_audit::execution::constrained_dictionary_parameters_precede_ordinary_arguments
-    asserts the Core lambda binder order [da, db, x], compiles the program, and
-    executes it under Wasmtime to exit 42.
-  Input boundary: verified Typed Core.
-  Result: pass; executed.
+    asserts Core binder order [da, db, x] and checks the dictionary-reference,
+    dictionary-reference, integer signature in CC and MIR before optimization.
+    The first method returns true; varying the second method between false
+    and true makes optimized execution return 42 and 0 respectively, so both
+    dictionary positions affect the result. An optimized artifact is not
+    required to retain the constrained function after inlining.
+  Input boundary: verified Typed Core, pre-optimization CC and MIR.
+  Result: pass; both dictionary variants executed under mandatory Wasmtime.
   Gaps: none.
 DICT-04:
   Implementation: crates/psrs-core/src/lower/dictionary.rs (Instance applies the
@@ -255,7 +259,7 @@ DICT-11:
   Result: source tests pass with required Wasmtime execution for imported
     chains, transitive fundep selection, independent-argument fallback,
     repeated-head apartness, and recursive variable-headed application heads.
-  Gaps: deriving under FE-16 is partial (structural `Eq`/`Ord`, `Functor`,
+  Gaps: deriving under FE-22 is partial (structural `Eq`/`Ord`, `Functor`,
   `Bifunctor`, and newtype methods execute; function-based `Contravariant` is
   type-checked but not runtime-verified due closure capture), explicit foralls or
   constraints in method signatures and full official-suite acceptance remain
@@ -302,7 +306,7 @@ DICT-11:
   annotation still cannot be solved solely to specialize it to a monomorphic
   expected class-method type; see the [frontend class and evidence
   design](../../design/frontend/type-system/classes-and-evidence.md).
-  Deriving belongs to FE-16. Source default methods are not part of PureScript
+  Deriving belongs to FE-22. Source default methods are not part of PureScript
   syntax; Typed Core default-field fixtures establish only the backend
   dictionary behavior.
 - Official test suite: class/instance upstream cases have not been individually

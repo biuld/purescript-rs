@@ -18,7 +18,7 @@ mod type_decl;
 pub use export::{ExportList, ExportRef, TypeMembers};
 pub use expr::{
     Binder, CaseBranch, Declaration, Expr, ExprKind, Guard, GuardedExpr, Pattern, PatternKind,
-    RecordPatternMode,
+    RecordPatternMode, RecordUpdateField, RecordUpdateValue,
 };
 pub use fixity::{Associativity, FixityDeclaration, FixityNamespace, Operator, SectionSide};
 pub use import::{Import, ImportList, ImportRef};
@@ -48,14 +48,13 @@ pub struct Module {
     pub span: TextRange,
 }
 
-/// A `foreign import` with a WIT binding: a value provided by a WIT interface
-/// rather than defined in source.
+/// A source-declared foreign value, implemented by the target rather than source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForeignImport {
     pub name: Name,
     pub annotation: Type,
-    /// The WIT binding, `<interface>#<function>`.
-    pub binding: String,
+    /// An explicit target binding, or an ordinary library foreign declaration.
+    pub binding: Option<String>,
     pub span: TextRange,
 }
 
@@ -97,19 +96,13 @@ impl LowerError {
 }
 
 fn lower_foreign_import(declaration: cst::ForeignDeclaration) -> Result<ForeignImport, LowerError> {
-    let Some(binding) = declaration.binding else {
-        return Err(LowerError::new(
-            declaration.span,
-            "a foreign import requires a `\"<interface>#<function>\"` WIT binding",
-        ));
-    };
     Ok(ForeignImport {
         name: Name {
             text: declaration.name.text,
             span: declaration.name.span,
         },
         annotation: lower_type(declaration.type_expr)?,
-        binding: binding.text,
+        binding: declaration.binding.map(|binding| binding.text),
         span: declaration.span,
     })
 }
@@ -191,6 +184,10 @@ pub(crate) fn check_argument_names(parameters: &[cst::Pattern]) -> Option<LowerE
 }
 
 pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
+    psrs_span::with_sufficient_stack(|| lower_expr_inner(expression))
+}
+
+fn lower_expr_inner(expression: cst::Expr) -> Result<Expr, LowerError> {
     let span = expression.span;
     let cst_kind = match expression.kind {
         CstExprKind::Let {
@@ -212,16 +209,19 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 .map(lower_expr)
                 .collect::<Result<Vec<_>, _>>()?,
         ),
-        CstExprKind::Record { fields, tail, .. } => expr::lower_record(fields, tail, span)?,
+        CstExprKind::Record { fields, tail, .. } => return expr::lower_record(fields, tail, span),
         CstExprKind::RecordUpdate {
             expression, fields, ..
-        } => expr::lower_record_update(*expression, fields)?,
+        } => return expr::lower_record_update(*expression, fields, span),
         CstExprKind::FieldAccess {
             expression, field, ..
-        } => ExprKind::FieldAccess {
-            expression: Box::new(lower_expr(*expression)?),
-            field: field.text,
-        },
+        } => return expr::lower_field_access(*expression, field, span),
+        CstExprKind::RecordAccessor {
+            marker_span,
+            fields,
+        } => {
+            return Ok(expr::lower_record_accessor(marker_span, fields, span));
+        }
         CstExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(lower_expr(*function)?),
             Box::new(lower_expr(*argument)?),
@@ -230,7 +230,7 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             operator,
             left,
             right,
-        } => return lower_operator_chain(operator, *left, *right, span),
+        } => return expr::lower_operator_chain(operator, *left, *right, span),
         CstExprKind::OperatorSection {
             operator,
             operand,
@@ -273,11 +273,9 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             then_branch,
             else_branch,
             ..
-        } => ExprKind::If {
-            condition: Box::new(lower_expr(*condition)?),
-            then_branch: Box::new(lower_expr(*then_branch)?),
-            else_branch: Box::new(lower_expr(*else_branch)?),
-        },
+        } => {
+            return expr::lower_if(*condition, *then_branch, *else_branch, span);
+        }
         CstExprKind::Case {
             scrutinees,
             alternatives,
@@ -425,55 +423,6 @@ fn lower_lambda(binder: Binder, body: Expr) -> Expr {
             body: Box::new(body),
         },
         span,
-    }
-}
-
-fn lower_operator_chain(
-    operator: cst::CstName,
-    left: cst::Expr,
-    right: cst::Expr,
-    span: TextRange,
-) -> Result<Expr, LowerError> {
-    let mut operands = Vec::new();
-    let mut operators = Vec::new();
-    collect_operator_chain(left, &mut operands, &mut operators)?;
-    operators.push(Operator {
-        name: lower_name(operator.clone()),
-        span: operator.span,
-    });
-    collect_operator_chain(right, &mut operands, &mut operators)?;
-    Ok(Expr {
-        kind: ExprKind::OperatorChain {
-            operands,
-            operators,
-        },
-        span,
-    })
-}
-
-fn collect_operator_chain(
-    expression: cst::Expr,
-    operands: &mut Vec<Expr>,
-    operators: &mut Vec<Operator>,
-) -> Result<(), LowerError> {
-    let span = expression.span;
-    match expression.kind {
-        CstExprKind::Operator {
-            operator,
-            left,
-            right,
-        } => {
-            collect_operator_chain(*left, operands, operators)?;
-            operators.push(Operator {
-                name: lower_name(operator.clone()),
-                span: operator.span,
-            });
-            collect_operator_chain(*right, operands, operators)
-        }
-        kind => {
-            operands.push(lower_expr(cst::Expr { kind, span })?);
-            Ok(())
-        }
     }
 }
 

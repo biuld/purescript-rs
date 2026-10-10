@@ -21,7 +21,9 @@ the boundary-verification philosophy, and the responsibilities of the thin Wasm
 encoding (P10) and artifact production (P11). It is the cross-cutting contract
 between the two backend concerns.
 
-It does not own the individual representations or topics. The typed core
+It does not own the individual representations or topics. The shared
+representation model and checked-boundary conversion contract is
+[representation and evidence](fp/representation-and-evidence.md); the typed core
 calculus is [functional core](../frontend/semantics/functional-core.md); ANF and closure conversion
 are [CC IR](fp/cc-ir.md); SSA/CFG and representation planning are [MIR](fp/mir.md);
 control-flow structuring and tail calls are
@@ -124,6 +126,14 @@ requirements explicit. P9 chooses how those requirements are represented for
 the selected target. P10 may optimize while preserving MIR types and the order
 and multiplicity of potentially effectful calls. It structures control flow and
 assigns final indices mechanically; it must not choose a representation.
+
+The draft [linking and runtime](wasm/linking-and-runtime.md) contract adds
+checked target requirements alongside MIR and a link plan before Wasm emission.
+The plan is metadata, not another language IR. It joins implementation/provider
+selection, memory ownership, and component composition without moving WIT names
+into CC or reinterpreting source types after ABI lowering. P10 and P11 consume
+the same checked plan for the formatter slice; general guest providers are not
+yet implemented.
 
 ## Model
 
@@ -318,7 +328,8 @@ lib.rs            crate surface: `compile` / `compile_with_target`, `ExternalBin
 capability.rs     `TargetCapabilities` and validator feature mapping
 types.rs          shared Wasm value/type model
 abi/              WIT registry, canonical ABI classification, checked source signatures
-component.rs      component packaging
+linking/          checked target requirements and plan/diagnostic mapping
+target_runtime.rs intrinsic-to-artifact implementation catalog
 cc/               CC IR (functional)
   mod.rs           `Module`, `Function`, `Assignment`, `AssignmentKind`, lowering entry
   representation.rs `ReprId`, `ValueShape`, `Reference`, `RefShape`, `Representation`, `RepresentationTable`
@@ -335,7 +346,7 @@ mir/              MIR
   verify/          MIR verifier
   wit/             canonical ABI adaptation for WIT calls
   reachable.rs     reachability of representation requirements
-  scalar_helpers.rs, numeric.rs   scalar operations and helpers
+  numeric.rs                    concrete scalar operations
 wasm/             thin structured Wasm target
   mod.rs           Wasm IR: `Module`, `Op`, `Function`, `Export`, `DataSegment`
   encode.rs        binary encoding
@@ -450,7 +461,10 @@ and P10/P11 would name it from the ABI registry; CC would be unchanged.
   ([D-01](../D-01-frontend-and-ir-boundaries.md),
   [Wasm encoding](wasm/encoding-and-structuring.md)).
 - **P7 to P8.** Verified Core plus explicit trusted-effect and selected-entry
-  metadata. P8 builds WIT bindings from Core's checked `ExternalType`
+  metadata, plus the boundary side table that carries checked instantiation
+  evidence and representation policies
+  ([representation and evidence](fp/representation-and-evidence.md)). P8 builds
+  WIT bindings from Core's checked `ExternalType`
   schemes before erasure. See
   [functional core](../frontend/semantics/functional-core.md) and
   [CC IR](fp/cc-ir.md).

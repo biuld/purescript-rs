@@ -1,4 +1,5 @@
 use super::*;
+use crate::boundary::BoundaryEvidence;
 use crate::cc::RepresentationTable;
 use crate::cc::lower::GeneratedSymbolAllocator;
 use psrs_core::Type;
@@ -36,6 +37,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
     let constructor_reprs = HashMap::new();
     let function_types = HashMap::new();
     let function_wrappers = HashMap::new();
+    let boundary = BoundaryEvidence::empty(&module);
     let mut lowerer = FunctionLowerer {
         next_value: 0,
         values: Vec::new(),
@@ -43,6 +45,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         signatures: &signatures,
         representations: &representations,
         module: &module,
+        boundary: &boundary,
         enum_types: &ids,
         aggregate_types: &ids,
         newtype_ids: &ids,
@@ -69,6 +72,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
             ValueShape::Integer,
             ValueShape::Number,
             span,
+            None,
         )
         .unwrap_err();
     assert!(
@@ -90,12 +94,12 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         heap: RefShape::Repr(ReprId(3)),
     });
     assert!(matches!(
-        lowerer.plan_conversion(TypeId(0), TypeId(1), aggregate, representation, span),
+        lowerer.plan_conversion(TypeId(0), TypeId(1), aggregate, representation, span, None),
         Ok(ValueConversion::RecoverReference { .. })
     ));
     assert!(matches!(
         lowerer
-            .plan_conversion(TypeId(0), TypeId(1), representation, aggregate, span)
+            .plan_conversion(TypeId(0), TypeId(1), representation, aggregate, span, None)
             .expect("a representation should recover its aggregate supertype"),
         ValueConversion::RecoverReference { .. }
     ));

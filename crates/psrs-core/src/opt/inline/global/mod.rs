@@ -1,4 +1,4 @@
-mod analysis;
+pub(super) mod analysis;
 mod call;
 
 use super::super::util::{FreshLocals, next_locals};
@@ -53,6 +53,29 @@ pub(super) fn run(mut module: Module, max_body_nodes: usize, sites_left: &mut us
 
 #[allow(clippy::too_many_arguments)]
 fn inline_expr(
+    expression: Expr,
+    fresh: &mut FreshLocals,
+    sites_left: &mut usize,
+    max_body_nodes: usize,
+    declarations: &HashMap<SymbolId, Declaration>,
+    recursive: &HashSet<SymbolId>,
+    types: &[Type],
+) -> Expr {
+    psrs_span::with_sufficient_stack(|| {
+        inline_expr_inner(
+            expression,
+            fresh,
+            sites_left,
+            max_body_nodes,
+            declarations,
+            recursive,
+            types,
+        )
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inline_expr_inner(
     mut expression: Expr,
     fresh: &mut FreshLocals,
     sites_left: &mut usize,
@@ -339,6 +362,7 @@ fn inline_expr(
         ExprKind::String(value) => ExprKind::String(value),
         ExprKind::Char(value) => ExprKind::Char(value),
         ExprKind::Unit => ExprKind::Unit,
+        ExprKind::StateToken => ExprKind::StateToken,
         ExprKind::Trap => ExprKind::Trap,
     };
     expression

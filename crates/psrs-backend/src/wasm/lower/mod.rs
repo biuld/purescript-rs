@@ -1,13 +1,13 @@
 use super::convert::val_type;
 use super::{
-    DataIndex, DataMode, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType,
-    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
+    Entry, Export, ExportIndex, ExportKind, FuncType, FunctionIndex, Import, Memory, MemoryIndex,
+    Module, Op, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{DataId, HeapType, MemoryId, ValueId, ValueType};
+use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ mod structure;
 
 use function::types::collect_function_types;
 use function::{ListLocals, lower_function};
-use realloc::build_realloc;
+use realloc::forward_realloc;
 use runtime::{collect_literal_globals, collect_strings};
 
 /// Structures MIR control flow and builds the thin Wasm IR. The ABI registry
@@ -36,11 +36,29 @@ pub fn lower_module(
     lower_module_with_capabilities(module, wasi, TargetCapabilities::default())
 }
 
-/// Lowers MIR using an explicit target capability profile.
+/// Lowers MIR using an explicit target capability profile. Isolated callers
+/// that already resolved custom WIT use a permissive context over their own
+/// definitions; the production pipeline calls [`lower_module_with_plan`] with
+/// the default world's checked plan.
 pub fn lower_module_with_capabilities(
     module: &mir::Module,
     wasi: &mut abi::WasiRegistry,
     target: TargetCapabilities,
+) -> Result<Module, Vec<BackendError>> {
+    let context = std::sync::Arc::new(psrs_linker::ResolvedWorldContext::permissive(
+        wasi.shared_resolve(),
+    ));
+    let link = crate::linking::plan_for_module(&context, module, wasi, target)?;
+    lower_module_with_plan(module, wasi, target, &link)
+}
+
+/// Lowers MIR using the memory and import plan of one checked link plan. The
+/// emitter cannot choose libraries or derive storage; it consumes the plan.
+pub(crate) fn lower_module_with_plan(
+    module: &mir::Module,
+    wasi: &mut abi::WasiRegistry,
+    target: TargetCapabilities,
+    link: &crate::linking::LinkPlan,
 ) -> Result<Module, Vec<BackendError>> {
     mir::verify_module_with_capabilities(module, target)?;
     let Some(entry_symbol) = module.entry else {
@@ -67,7 +85,7 @@ pub fn lower_module_with_capabilities(
         ));
     }
 
-    let (mut data, string_lengths) = collect_strings(module);
+    let (data, string_lengths) = collect_strings(module);
     let literal_globals = collect_literal_globals(module);
     if !literal_globals.globals.is_empty() && !target.mutable_globals {
         return Err(wasm_error(
@@ -101,7 +119,7 @@ pub fn lower_module_with_capabilities(
     for import in &module.imports {
         if matches!(
             import.symbol,
-            abi::REALLOC_SYMBOL | abi::STRING_TO_BYTES_SYMBOL | abi::BYTES_TO_STRING_SYMBOL
+            abi::STRING_TO_BYTES_SYMBOL | abi::BYTES_TO_STRING_SYMBOL
         ) {
             continue;
         }
@@ -113,13 +131,13 @@ pub fn lower_module_with_capabilities(
                 .map(|ty| vec![val_type(ty)])
                 .unwrap_or_default(),
         });
-        let (module_name, field) = wasi.symbol_name(import.symbol).ok_or_else(|| {
-            wasm_error(module.span, "a MIR import symbol has no ABI registry entry")
+        let (module_name, field) = link.imports.get(&import.symbol).ok_or_else(|| {
+            wasm_error(module.span, "a MIR import symbol has no checked provider")
         })?;
         import_indices.insert(import.symbol, FunctionIndex(imports.len() as u32));
         imports.push(Import {
-            module: module_name.to_string(),
-            name: field.to_string(),
+            module: module_name.clone(),
+            name: field.clone(),
             type_index,
         });
     }
@@ -136,18 +154,29 @@ pub fn lower_module_with_capabilities(
                     message,
                 )]
             })?;
-        let exit_type_index = TypeIndex(defined + types.len() as u32);
-        types.push(FuncType {
-            parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
-            results: Vec::new(),
-        });
-        let index = FunctionIndex(imports.len() as u32);
-        imports.push(Import {
-            module: exit.module,
-            name: exit.name,
-            type_index: exit_type_index,
-        });
-        Some(index)
+        if let Some(index) = import_indices.get(&exit.symbol) {
+            Some(*index)
+        } else {
+            let (exit_module, exit_field) =
+                link.imports.get(&exit.symbol).cloned().ok_or_else(|| {
+                    wasm_error(
+                        module.span,
+                        "the command entry exit has no checked provider",
+                    )
+                })?;
+            let exit_type_index = TypeIndex(defined + types.len() as u32);
+            types.push(FuncType {
+                parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
+                results: Vec::new(),
+            });
+            let index = FunctionIndex(imports.len() as u32);
+            imports.push(Import {
+                module: exit_module,
+                name: exit_field,
+                type_index: exit_type_index,
+            });
+            Some(index)
+        }
     } else {
         None
     };
@@ -176,7 +205,7 @@ pub fn lower_module_with_capabilities(
     // The GC string type index is carried by the reserved helper imports' value
     // types, so the synthesized codec names the same concrete type MIR does.
     let string_type = if needs_helpers {
-        let string_type = codec::string_type_from_imports(module)
+        let string_type = crate::target_intrinsics::generated::string_type_from_imports(module)
             .ok_or_else(|| wasm_error(module.span, "the string codec has no GC string type"))?;
         function_indices.insert(
             abi::STRING_TO_BYTES_SYMBOL,
@@ -216,11 +245,9 @@ pub fn lower_module_with_capabilities(
 
     let main_index = FunctionIndex(import_count + entry_function.id.0);
 
-    // `cabi_realloc` backs guest allocations for indirect parameter records and
-    // host allocations for returned lists/strings. Export it so the component
-    // host can allocate returned buffers. The bump allocator's free pointer
-    // lives after string data, and each allocation has a four-byte length
-    // prefix before its returned payload pointer.
+    // `cabi_realloc` backs guest allocations and host allocations for returned
+    // lists and strings. The export is a forwarder to the allocator runtime
+    // unit. The constant getter publishes the checked heap boundary.
     let mut exports = vec![
         Export {
             name: abi::RUN_CORE_EXPORT.into(),
@@ -233,42 +260,31 @@ pub fn lower_module_with_capabilities(
             index: ExportIndex::Memory(MemoryIndex(0)),
         },
     ];
-    let mut minimum = 1;
+    let minimum = link.plan.memory().minimum_pages;
+    let globals = literal_globals.globals;
     let mut realloc = None;
     if needs_realloc {
-        let realloc_type = TypeIndex(defined + types.len() as u32);
-        types.push(FuncType {
-            parameters: vec![ValType::I32; 4],
-            results: vec![ValType::I32],
-        });
+        let import_index = *import_indices.get(&abi::REALLOC_SYMBOL).ok_or_else(|| {
+            wasm_error(
+                module.span,
+                "cabi_realloc has no checked allocator provider",
+            )
+        })?;
+        let realloc_type = imports
+            .get(import_index.0 as usize)
+            .ok_or_else(|| wasm_error(module.span, "cabi_realloc import is missing"))?
+            .type_index;
         let index = indices.realloc.expect("a needed realloc has an index");
         exports.push(Export {
-            name: "cabi_realloc".into(),
+            name: psrs_runtime::REALLOC_EXPORT.into(),
             kind: ExportKind::Function,
             index: ExportIndex::Function(index),
         });
-        // The heap-state segment holds the free-list head (null) and the bump
-        // break (the first allocatable address).
-        let mut state = 0_u32.to_le_bytes().to_vec();
-        state.extend_from_slice(&abi::HEAP_START.to_le_bytes());
-        data.push(DataSegment {
-            id: DataId(data.len() as u32),
-            index: DataIndex(data.len() as u32),
-            mode: DataMode::Active {
-                offset: abi::HEAP_STATE,
-            },
-            bytes: state,
-        });
-        minimum = (u64::from(abi::HEAP_START)).div_ceil(0x10000) + 1;
-        realloc = Some(build_realloc(realloc_type, module.span));
+        realloc = Some(forward_realloc(realloc_type, import_index.0, module.span));
     }
-    let helpers = if needs_helpers {
+    let mut helpers = if needs_helpers {
         let string_type = string_type.expect("a needed codec has a GC string type");
-        let string_ref = val_type(ValueType::Ref(crate::types::RefType {
-            nullable: false,
-            heap: HeapType::Index(string_type),
-        }));
-        let (stb, bts, step) = codec::signatures(string_ref);
+        let (stb, bts, step) = codec::signatures(string_type);
         let stb_type = TypeIndex(defined + types.len() as u32);
         types.push(stb);
         let bts_type = TypeIndex(defined + types.len() as u32);
@@ -288,6 +304,24 @@ pub fn lower_module_with_capabilities(
         Vec::new()
     };
 
+    if needs_realloc {
+        let boundary =
+            link.plan.memory().heap_getter.as_ref().ok_or_else(|| {
+                wasm_error(module.span, "the allocator provider has no heap getter")
+            })?;
+        let index = FunctionIndex(entry_index.0 + 2 + helpers.len() as u32);
+        exports.push(Export {
+            name: boundary.field.clone(),
+            kind: ExportKind::Function,
+            index: ExportIndex::Function(index),
+        });
+        helpers.push(realloc::heap_getter(
+            entry_type,
+            link.plan.memory().heap_start,
+            module.span,
+        ));
+    }
+
     // `wasi:cli/run` returns a scalar, so the command export contributes no
     // post-return. The synthesis entry points stay reachable so an export
     // mechanism can populate the descriptor lists without dead code.
@@ -305,7 +339,7 @@ pub fn lower_module_with_capabilities(
             minimum,
             maximum: None,
         }],
-        globals: literal_globals.globals,
+        globals,
         data,
         exports,
         entry: Some(Entry {

@@ -1,6 +1,66 @@
 use super::*;
 
 #[test]
+fn explicit_update_expression_uses_the_local_record_even_when_labels_match() {
+    let source = r#"
+module Main where
+main :: Int
+main = let field = { value: 0, kept: 42 }
+           original = { field: { value: 0, kept: 1 } }
+           explicit = original { field = field { value = 7 } }
+           nested = original { field { value = 7 } }
+       in if intEq nested.field.kept 1 then explicit.field.kept else 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn record_wildcards_bind_in_source_order_and_keep_nested_scopes() {
+    let source = r#"
+module Main where
+make :: Int -> Int -> { z :: Int, a :: Int, nested :: Int -> { value :: Int }, fixed :: Int }
+make = { z: _, a: _, nested: { value: _ }, fixed: 7 }
+main :: Int
+main = let record = make 40 2
+       in if intEq record.z 40
+          then if intEq record.a 2
+               then if intEq record.fixed 7 then (record.nested 42).value else 0
+               else 0
+          else 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn record_update_wildcards_share_nested_paths_and_keep_explicit_scopes() {
+    let source = r#"
+module Main where
+update :: { z :: Int, nested :: { a :: Int, b :: Int }, callback :: Int -> { value :: Int } }
+       -> Int -> Int -> Int
+       -> { z :: Int, nested :: { a :: Int, b :: Int }, callback :: Int -> { value :: Int } }
+update = _ { z = _, nested { a = _, b = _ }, callback = { value: _ } }
+main :: Int
+main = let original = { z: 0, nested: { a: 0, b: 0 }, callback: \x -> { value: x } }
+           record = update original 10 20 30
+       in if intEq record.z 10
+          then if intEq record.nested.a 20
+               then if intEq record.nested.b 30 then (record.callback 42).value else 0
+               else 0
+          else 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
 fn runs_a_tuple_as_a_closed_record() {
     let source = "\
 module Main where
@@ -50,6 +110,16 @@ fn runs_a_record_field_access_through_a_gc_struct() {
         return;
     };
     assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn anonymous_record_accessor_projects_nested_fields() {
+    let source = "module Main where\nproject :: { inner :: { value :: Int } } -> Int\nproject = _.inner.value\nmain = if intEq (project { inner: { value: 42 } }) 42 then 0 else 1\n";
+    let Some(output) = run_program_with_wasmtime(&[("Main.purs", source)]) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
 }
 
 #[test]

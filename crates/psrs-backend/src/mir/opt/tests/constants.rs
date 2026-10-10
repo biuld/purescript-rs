@@ -4,6 +4,7 @@ use super::*;
 fn folds_total_arithmetic_but_keeps_an_unused_trapping_operation() {
     let symbol = SymbolId::new(ModuleId(0), 0);
     let function = Function {
+        state: None,
         id: FunctionId(0),
         symbol,
         name: "main".into(),

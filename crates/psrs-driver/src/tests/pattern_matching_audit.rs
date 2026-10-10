@@ -211,6 +211,22 @@ fn recursive_pattern_compilation_terminates_and_stays_first_match() {
     assert_eq!(output.status.code(), Some(42));
 }
 
+/// PM-10: a recursive product grows the specialization query unless missing
+/// constructor signatures use the default matrix before witness construction.
+#[test]
+fn recursive_binary_products_execute_in_either_constructor_order() {
+    for declaration in ["Node Int Tree Tree | Leaf", "Leaf | Node Int Tree Tree"] {
+        let source = format!(
+            "module Main where\ndata Tree = {declaration}\nread tree = case tree of\n  Node n Leaf Leaf -> n\n  Node _ _ _ -> 1\n  Leaf -> 0\nmain = read (Node 42 Leaf Leaf)\n"
+        );
+        let Some(output) = run_with_wasmtime(&source) else {
+            eprintln!("skipping: wasmtime is not installed");
+            return;
+        };
+        assert_eq!(output.status.code(), Some(42), "{source}");
+    }
+}
+
 /// PM-11: the optimizer and Wasm lowering preserve the selected branch value
 /// and keep the source-associated redundancy warning.
 #[test]

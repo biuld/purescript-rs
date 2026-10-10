@@ -7,6 +7,11 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) fn forward_copies(module: &mut Module) {
     for function in &mut module.functions {
+        if function.state.is_some() {
+            // Source predicates, action operands and adapter inputs remain
+            // anchored until this pass can transfer their alias evidence.
+            continue;
+        }
         forward_function(function);
     }
 }
@@ -47,6 +52,12 @@ fn forward_function(function: &mut Function) {
 
 pub(super) fn eliminate_dead_pure(module: &mut Module) {
     for function in &mut module.functions {
+        if function.state.is_some() {
+            // Dependency correspondence retains source destinations and exact
+            // adapter instruction ranges, including unused Unit recovery.
+            // Deletion requires an explicit transfer of that evidence.
+            continue;
+        }
         eliminate_function(function);
     }
 }
@@ -98,6 +109,7 @@ fn eliminate_function(function: &mut Function) {
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
+        Terminator::Trap { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
@@ -224,6 +236,16 @@ pub(crate) fn remap_instruction(
             replace(destination);
             replace(length);
         }
+        I::ArrayNewFilled {
+            destination,
+            length,
+            value,
+            ..
+        } => {
+            replace(destination);
+            replace(length);
+            replace(value);
+        }
         I::CallRef {
             destination,
             function,
@@ -348,6 +370,7 @@ pub(crate) fn remap_terminator(terminator: &mut Terminator, mapping: &HashMap<Va
         *value = mapping.get(value).copied().unwrap_or(*value);
     };
     match terminator {
+        Terminator::Trap { .. } => {}
         Terminator::Return { value, .. } => replace(value),
         Terminator::Jump { arguments, .. } => arguments.iter_mut().for_each(replace),
         Terminator::Branch { condition, .. } => replace(condition),

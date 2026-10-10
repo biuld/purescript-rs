@@ -1,7 +1,6 @@
 use crate::{
     Evidence, EvidenceKind, Expr, ExprKind, Module, Pattern, PatternKind, Type, TypeId, VerifyError,
 };
-use psrs_hir::ExternalKind;
 use psrs_span::TextRange;
 
 mod semantics;
@@ -34,7 +33,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
         );
     }
     for external in &module.externals {
-        if matches!(&external.kind, ExternalKind::Wit { .. })
+        if external.kind.requires_checked_signature()
             && !external_type_symbols.contains(&external.symbol)
         {
             errors.push(VerifyError {
@@ -85,7 +84,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
             declaration.name_span,
             &mut errors,
         );
-        verify_expr(&declaration.value, &module.types, &mut errors);
+        verify_expr(&declaration.value, module, &mut errors);
     }
     if !errors.is_empty() {
         return Err(errors);
@@ -98,7 +97,12 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
     }
 }
 
-fn verify_expr(expression: &Expr, types: &[Type], errors: &mut Vec<VerifyError>) {
+fn verify_expr(expression: &Expr, module: &Module, errors: &mut Vec<VerifyError>) {
+    psrs_span::with_sufficient_stack(|| verify_expr_inner(expression, module, errors))
+}
+
+fn verify_expr_inner(expression: &Expr, module: &Module, errors: &mut Vec<VerifyError>) {
+    let types = &module.types;
     verify_type_id(expression.ty, types.len(), expression.span, errors);
     match &expression.kind {
         ExprKind::Local(_)
@@ -110,30 +114,30 @@ fn verify_expr(expression: &Expr, types: &[Type], errors: &mut Vec<VerifyError>)
         | ExprKind::Char(_) => {}
         ExprKind::Array(elements) => {
             for element in elements {
-                verify_expr(element, types, errors);
+                verify_expr(element, module, errors);
             }
         }
         ExprKind::Record(fields) => {
             for (_, value) in fields {
-                verify_expr(value, types, errors);
+                verify_expr(value, module, errors);
             }
         }
         ExprKind::RecordUpdate { expression, fields } => {
-            verify_expr(expression, types, errors);
+            verify_expr(expression, module, errors);
             for (_, value) in fields {
-                verify_expr(value, types, errors);
+                verify_expr(value, module, errors);
             }
         }
-        ExprKind::FieldAccess { expression, .. } => verify_expr(expression, types, errors),
-        ExprKind::Evidence(evidence) => verify_evidence(evidence, types, errors),
+        ExprKind::FieldAccess { expression, .. } => verify_expr(expression, module, errors),
+        ExprKind::Evidence(evidence) => verify_evidence(evidence, module, errors),
         ExprKind::Coerce {
             value,
             evidence,
             source_type,
             target_type,
         } => {
-            verify_expr(value, types, errors);
-            verify_evidence(evidence, types, errors);
+            verify_expr(value, module, errors);
+            verify_evidence(evidence, module, errors);
             if evidence.class_id != psrs_hir::TypeId::COERCIBLE {
                 errors.push(VerifyError {
                     span: evidence.span,
@@ -163,46 +167,88 @@ fn verify_expr(expression: &Expr, types: &[Type], errors: &mut Vec<VerifyError>)
                 }),
             }
         }
+        ExprKind::UnsafeCoerce {
+            value,
+            source_type,
+            target_type,
+            origin,
+        } => {
+            verify_expr(value, module, errors);
+            if *source_type != value.ty || *target_type != expression.ty {
+                errors.push(VerifyError {
+                    span: expression.span,
+                    message: "unsafe coercion boundary types do not match its value and result",
+                });
+            }
+            if let crate::UncheckedCoercionOrigin::NewtypeDeriving { newtype_id, .. } = origin {
+                let constructors = module
+                    .constructors
+                    .iter()
+                    .filter(|constructor| constructor.type_id == *newtype_id)
+                    .collect::<Vec<_>>();
+                if !module.newtype_ids.contains(newtype_id)
+                    || constructors.len() != 1
+                    || constructors[0].field_count != 1
+                    || constructors[0].field_types.len() != 1
+                {
+                    errors.push(VerifyError {
+                        span: expression.span,
+                        message: "newtype deriving conversion requires a declared single-field newtype",
+                    });
+                }
+            }
+        }
         ExprKind::Application(function, argument) => {
-            verify_expr(function, types, errors);
-            verify_expr(argument, types, errors);
+            verify_expr(function, module, errors);
+            verify_expr(argument, module, errors);
         }
         ExprKind::Lambda { binder, body } => {
             verify_type_id(binder.ty, types.len(), binder.span, errors);
-            verify_expr(body, types, errors);
+            verify_expr(body, module, errors);
         }
         ExprKind::Let { bindings, body } => {
             for binding in bindings {
                 verify_type_id(binding.binder.ty, types.len(), binding.binder.span, errors);
-                verify_expr(&binding.value, types, errors);
+                verify_expr(&binding.value, module, errors);
             }
-            verify_expr(body, types, errors);
+            verify_expr(body, module, errors);
         }
         ExprKind::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            verify_expr(condition, types, errors);
-            verify_expr(then_branch, types, errors);
-            verify_expr(else_branch, types, errors);
+            verify_expr(condition, module, errors);
+            verify_expr(then_branch, module, errors);
+            verify_expr(else_branch, module, errors);
         }
         ExprKind::Case {
             scrutinee,
             branches,
         } => {
-            verify_expr(scrutinee, types, errors);
+            verify_expr(scrutinee, module, errors);
             for branch in branches {
                 verify_pattern(&branch.pattern, types.len(), errors);
-                verify_expr(&branch.value, types, errors);
+                verify_expr(&branch.value, module, errors);
             }
         }
     }
 }
 
-fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyError>) {
+fn verify_evidence(evidence: &Evidence, module: &Module, errors: &mut Vec<VerifyError>) {
+    let types = &module.types;
     verify_type_id(evidence.ty, types.len(), evidence.span, errors);
     match &evidence.kind {
+        EvidenceKind::DictionaryValue(value) => {
+            verify_expr(value, module, errors);
+            if !semantics::types_equal(value.ty, evidence.ty, module) {
+                errors.push(VerifyError {
+                    span: evidence.span,
+                    message: "constructed evidence has the wrong dictionary type",
+                });
+            }
+        }
+
         EvidenceKind::Given(_) | EvidenceKind::Global(_) => {}
         EvidenceKind::Coercible {
             source_type,
@@ -227,7 +273,7 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
             }
         }
         EvidenceKind::Superclass { parent, field } => {
-            verify_evidence(parent, types, errors);
+            verify_evidence(parent, module, errors);
             let Some(fields) = crate::record_fields(types, parent.ty) else {
                 errors.push(VerifyError {
                     span: evidence.span,
@@ -236,7 +282,15 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
                 return;
             };
             match fields.iter().find(|(label, _)| label == field) {
-                Some((_, field_ty)) if *field_ty == evidence.ty => {}
+                Some((_, field_ty))
+                    if crate::arrow_parts(types, *field_ty).is_some_and(
+                        |(parameter, result)| {
+                            matches!(
+                                types.get(parameter.0 as usize),
+                                Some(Type::Constructor(crate::TypeConstructor::Unit))
+                            ) && semantics::types_equal(result, evidence.ty, module)
+                        },
+                    ) => {}
                 _ => errors.push(VerifyError {
                     span: evidence.span,
                     message: "superclass evidence field has the wrong type",
@@ -251,7 +305,7 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
             verify_type_id(*constructor_type, types.len(), evidence.span, errors);
             let mut result = *constructor_type;
             for argument in context {
-                verify_evidence(argument, types, errors);
+                verify_evidence(argument, module, errors);
                 let Some((parameter, next)) = crate::arrow_parts(types, result) else {
                     errors.push(VerifyError {
                         span: argument.span,
@@ -259,7 +313,7 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
                     });
                     return;
                 };
-                if parameter != argument.ty {
+                if !semantics::types_equal(parameter, argument.ty, module) {
                     errors.push(VerifyError {
                         span: argument.span,
                         message: "instance evidence does not match its context parameter",
@@ -267,7 +321,7 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
                 }
                 result = next;
             }
-            if result != evidence.ty {
+            if !semantics::types_equal(result, evidence.ty, module) {
                 errors.push(VerifyError {
                     span: evidence.span,
                     message: "instance evidence result has the wrong dictionary type",

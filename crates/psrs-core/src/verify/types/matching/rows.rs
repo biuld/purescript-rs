@@ -1,16 +1,10 @@
-use super::super::types_compatible;
-use super::TypeMatcher;
 use super::helpers::collect_free_variables;
+use super::{TypeMatcher, Variance};
 use crate::{Type, TypeId, record_row};
 use psrs_hir::TypeVariableId;
 use std::collections::{HashMap, HashSet};
 
-/// A row variable instantiated to a residual that has no single type-table node.
-#[derive(Clone, Debug)]
-pub(super) struct RowForm {
-    fields: Vec<(String, TypeId)>,
-    tail: Option<TypeId>,
-}
+pub(super) use crate::instantiation::RowInstantiation as RowForm;
 
 enum TailKind {
     Closed,
@@ -21,14 +15,14 @@ enum TailKind {
 type RowShape = (Vec<(String, TypeId)>, Option<TypeId>);
 
 impl TypeMatcher<'_> {
-    /// Record subsumption (`covariant`) or invariant matching. Closed rows and
-    /// rigid open rows must agree exactly. A flexible tail is a quantifier
-    /// being instantiated and may absorb the other side's residual row.
+    /// Record relation in the given [`Variance`]. Closed rows and rigid open
+    /// rows must agree exactly. A flexible tail is a quantifier being
+    /// instantiated and may absorb the other side's residual row.
     pub(super) fn relate_records(
         &mut self,
         actual: TypeId,
         expected: TypeId,
-        covariant: bool,
+        variance: Variance,
     ) -> bool {
         let (Some(actual_row), Some(expected_row)) = (
             record_row(&self.module.types, actual),
@@ -36,34 +30,68 @@ impl TypeMatcher<'_> {
         ) else {
             return false;
         };
+        for row in [actual_row, expected_row] {
+            let Some((fields, _)) = self.flatten_row(row) else {
+                return false;
+            };
+            let mut labels = HashSet::new();
+            if fields.iter().any(|(label, _)| !labels.insert(label)) {
+                return false;
+            }
+        }
+        self.relate_rows(actual_row, expected_row, variance)
+    }
+
+    /// Bare rows in nominal arguments use the same checked residual relation as
+    /// records. The caller owns variance; nominal row arguments are invariant.
+    pub(super) fn relate_rows(
+        &mut self,
+        actual: TypeId,
+        expected: TypeId,
+        variance: Variance,
+    ) -> bool {
         let (Some((actual_fields, actual_tail)), Some((expected_fields, expected_tail))) =
-            (self.flatten_row(actual_row), self.flatten_row(expected_row))
+            (self.flatten_row(actual), self.flatten_row(expected))
         else {
             return false;
         };
-        let Some(mut expected_fields) = index_fields(expected_fields) else {
-            return false;
-        };
+        let mut expected_fields = expected_fields;
+        let mut actual_fields = actual_fields;
+        // Preserve duplicate-label occurrence order while ignoring the order
+        // of distinct labels. Bare rows may contain duplicates (e.g. Union).
+        actual_fields.sort_by(|left, right| left.0.cmp(&right.0));
+        expected_fields.sort_by(|left, right| left.0.cmp(&right.0));
+        let (mut actual_index, mut expected_index) = (0, 0);
         let mut actual_rest = Vec::new();
-        let mut seen = HashSet::new();
-        for (label, actual_ty) in actual_fields {
-            if !seen.insert(label.clone()) {
-                return false;
-            }
-            if let Some(expected_ty) = expected_fields.remove(&label) {
-                let agrees = if covariant {
-                    self.subsumes(actual_ty, expected_ty, true)
-                } else {
-                    self.matches(actual_ty, expected_ty, false)
-                };
-                if !agrees {
-                    return false;
+        let mut expected_rest = Vec::new();
+        while actual_index < actual_fields.len() && expected_index < expected_fields.len() {
+            let actual_field = &actual_fields[actual_index];
+            let expected_field = &expected_fields[expected_index];
+            match actual_field.0.cmp(&expected_field.0) {
+                std::cmp::Ordering::Equal => {
+                    if !self.relate(
+                        actual_field.1,
+                        expected_field.1,
+                        variance,
+                        variance == Variance::Subsumption,
+                    ) {
+                        return false;
+                    }
+                    actual_index += 1;
+                    expected_index += 1;
                 }
-            } else {
-                actual_rest.push((label, actual_ty));
+                std::cmp::Ordering::Less => {
+                    actual_rest.push(actual_field.clone());
+                    actual_index += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    expected_rest.push(expected_field.clone());
+                    expected_index += 1;
+                }
             }
         }
-        let expected_rest = expected_fields.into_iter().collect::<Vec<_>>();
+        actual_rest.extend(actual_fields[actual_index..].iter().cloned());
+        expected_rest.extend(expected_fields[expected_index..].iter().cloned());
         self.finish_row(actual_rest, actual_tail, expected_rest, expected_tail)
     }
 
@@ -198,15 +226,7 @@ impl TypeMatcher<'_> {
     }
 
     fn types_equal(&mut self, left: TypeId, right: TypeId) -> bool {
-        let mut alpha = self.alpha.clone();
-        types_compatible(left, right, self.module, &mut HashSet::new(), &mut alpha)
-            && types_compatible(
-                right,
-                left,
-                self.module,
-                &mut HashSet::new(),
-                &mut self.alpha.clone(),
-            )
+        self.relate(left, right, Variance::Invariant, false)
     }
 
     fn flatten_row(&self, mut row: TypeId) -> Option<RowShape> {
@@ -264,16 +284,6 @@ impl TypeMatcher<'_> {
             Some(TailKind::Rigid(*variable))
         }
     }
-}
-
-fn index_fields(fields: Vec<(String, TypeId)>) -> Option<HashMap<String, TypeId>> {
-    let mut indexed = HashMap::new();
-    for (label, ty) in fields {
-        if indexed.insert(label, ty).is_some() {
-            return None;
-        }
-    }
-    Some(indexed)
 }
 
 fn same_labels(left: &[(String, TypeId)], right: &[(String, TypeId)]) -> bool {

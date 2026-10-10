@@ -3,6 +3,7 @@ use super::{
     Assignment, AssignmentKind, Function, ReprId, RepresentationTable, Signature, SignatureId,
     ValueDecl, ValueId, ValueShape,
 };
+use crate::boundary::BoundaryEvidence;
 use crate::{BackendError, BackendWarning};
 use psrs_core::{Expr, ExprKind, Module as CoreModule, dictionary::ClassLayout};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
@@ -22,7 +23,6 @@ mod lambda;
 mod letrec;
 mod literals;
 mod record;
-mod scalar;
 mod string_bytes;
 mod symbols;
 use call::ApplicationLowering;
@@ -34,6 +34,10 @@ pub(in crate::cc) use symbols::GeneratedSymbolAllocator;
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
+    /// The Core-to-CC boundary side table: checked instantiation evidence and
+    /// the registered representation policies. Replaces ambient reads of the
+    /// Core arena and any HIR-keyed protocol table.
+    pub(super) boundary: &'a BoundaryEvidence<'a>,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) representations: &'a RepresentationTable,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
@@ -64,6 +68,7 @@ pub(super) fn lower_function(
         signatures: context.signatures,
         representations: context.representations,
         module,
+        boundary: context.boundary,
         enum_types: context.enum_types,
         aggregate_types: context.aggregate_types,
         newtype_ids: context.newtype_ids,
@@ -203,6 +208,9 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) representations: &'a RepresentationTable,
     pub(super) module: &'a CoreModule,
+    /// Checked instantiation evidence and registered representation policies,
+    /// supplied by the Core-to-CC boundary.
+    pub(super) boundary: &'a BoundaryEvidence<'a>,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
@@ -223,6 +231,14 @@ pub(super) struct FunctionLowerer<'a> {
 
 impl FunctionLowerer<'_> {
     pub(super) fn lower_value(
+        &mut self,
+        expression: &Expr,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        psrs_span::with_sufficient_stack(|| self.lower_value_inner_entry(expression, assignments))
+    }
+
+    fn lower_value_inner_entry(
         &mut self,
         expression: &Expr,
         assignments: &mut Vec<Assignment>,
@@ -306,6 +322,15 @@ impl FunctionLowerer<'_> {
                 assignments,
             )),
             ExprKind::Unit => Ok(self.lower_literal(
+                AssignmentKind::Constant(0),
+                expression.span,
+                ty,
+                assignments,
+            )),
+            // The state token carries no payload for the synchronous effect
+            // model, so it lowers to a constant scalar. Its type stays opaque,
+            // so no pass can treat it as an `Int`.
+            ExprKind::StateToken => Ok(self.lower_literal(
                 AssignmentKind::Constant(0),
                 expression.span,
                 ty,

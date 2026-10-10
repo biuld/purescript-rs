@@ -17,6 +17,12 @@ mod interface;
 
 use interface::Interface;
 
+/// Whether the compiler provides `name` as a primitive interface rather than
+/// from source. A library file with the same name must not shadow it.
+pub fn compiler_provided_module(name: &str) -> bool {
+    Interface::primitive_module(name).is_some()
+}
+
 /// A resolution error tied to one module of a program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramError {
@@ -254,12 +260,18 @@ fn build_import(
                     symbols.push(imported(*symbol, name, name, import.span));
                 }
                 for (name, reference) in &interface.types {
-                    types.push(imported_type(
+                    let mut imported = imported_type(
                         *reference,
                         name,
                         import.span,
                         reference_is_opaque(interface, *reference),
-                    ));
+                    );
+                    imported.constructors = interface
+                        .constructors
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_default();
+                    types.push(imported);
                 }
             }
             Some(list) if list.hiding => {
@@ -287,12 +299,18 @@ fn build_import(
                 }
                 for (name, reference) in &interface.types {
                     if !hidden.contains(name) {
-                        types.push(imported_type(
+                        let mut imported = imported_type(
                             *reference,
                             name,
                             import.span,
                             reference_is_opaque(interface, *reference),
-                        ));
+                        );
+                        imported.constructors = interface
+                            .constructors
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default();
+                        types.push(imported);
                     }
                 }
             }
@@ -311,18 +329,21 @@ fn build_import(
                                 unknown_import(module_index, name, errors);
                                 continue;
                             };
-                            types.push(imported_type(
+                            let mut imported_ty = imported_type(
                                 reference,
                                 &name.text,
                                 name.span,
                                 reference_is_opaque(interface, reference),
-                            ));
+                            );
                             match members {
                                 None => {}
                                 Some(members) if members.all => {
-                                    for (member, symbol) in
-                                        interface.constructors.get(&name.text).into_iter().flatten()
-                                    {
+                                    imported_ty.constructors = interface
+                                        .constructors
+                                        .get(&name.text)
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    for (member, symbol) in &imported_ty.constructors {
                                         symbols.push(imported(*symbol, member, member, name.span));
                                     }
                                 }
@@ -335,12 +356,17 @@ fn build_import(
                                                 .find(|(name, _)| *name == member.text)
                                         });
                                         match found {
-                                            Some((name, symbol)) => symbols.push(imported(
-                                                *symbol,
-                                                name,
-                                                name,
-                                                member.span,
-                                            )),
+                                            Some((constructor_name, symbol)) => {
+                                                imported_ty
+                                                    .constructors
+                                                    .push((constructor_name.clone(), *symbol));
+                                                symbols.push(imported(
+                                                    *symbol,
+                                                    constructor_name,
+                                                    constructor_name,
+                                                    member.span,
+                                                ));
+                                            }
                                             None => errors.push(ProgramError {
                                                 module: module_index,
                                                 error: ResolveError::named(
@@ -353,6 +379,7 @@ fn build_import(
                                     }
                                 }
                             }
+                            types.push(imported_ty);
                         }
                         ast::ImportRef::Class(name) => {
                             match interface.types.get(&name.text).copied() {
@@ -454,6 +481,7 @@ fn imported_type(
         name: name.to_string(),
         span,
         opaque,
+        constructors: Vec::new(),
     }
 }
 

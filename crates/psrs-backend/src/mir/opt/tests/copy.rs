@@ -4,6 +4,7 @@ use super::*;
 fn copy_forwarding_updates_the_structurer_result_value() {
     let symbol = SymbolId::new(ModuleId(0), 0);
     let function = Function {
+        state: None,
         id: FunctionId(0),
         symbol,
         name: "identity".into(),

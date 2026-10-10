@@ -124,6 +124,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 .collect::<Vec<_>>()
         })?;
     }
+    super::state::derive_all(module)?;
     Ok(())
 }
 
@@ -194,6 +195,7 @@ fn verify_function_inner(
         representations,
         functions,
         function.span,
+        &function.name,
     )?;
     if !available.contains(&function.result) {
         return Err(vec![BackendError::invalid_ir(

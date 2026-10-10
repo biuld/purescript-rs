@@ -94,6 +94,16 @@ fn boolean_case_patterns_preserve_source_order() {
 }
 
 #[test]
+fn an_anonymous_if_condition_is_a_function_parameter() {
+    let source = "module Main where\nchoose left right = (if _ then left else right) true\nmain = choose 7 9\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(7), "{output:?}");
+}
+
+#[test]
 fn anonymous_case_inputs_become_function_parameters_in_source_order() {
     let source = "module Main where\nchoose = case _, 2, _ of\n  _, 2, _ -> 19\n  _, _, _ -> 23\nmain = choose 1 3\n";
     let artifact = compile_source("Main.purs", source).expect("anonymous case inputs compile");
@@ -372,12 +382,13 @@ fn official_guard_and_case_sources_lower_through_p2() {
 
 #[test]
 fn user_defined_false_otherwise_does_not_prove_guard_coverage() {
-    let constants = "module Boolean.Constants (otherwise) where\nimport Prelude\notherwise :: Boolean\notherwise = false\n";
-    let boolean = "module Data.Boolean (otherwise) where\nimport Boolean.Constants (otherwise)\n";
-    let main = "module Main where\nimport Prelude\nimport Data.Boolean (otherwise)\nread n\n  | otherwise = n\nmain = read 1\n";
+    let constants =
+        "module Boolean.Constants (otherwise) where\notherwise :: Boolean\notherwise = false\n";
+    let alias = "module Boolean.Alias (otherwise) where\nimport Boolean.Constants (otherwise)\n";
+    let main = "module Main where\nimport Boolean.Alias (otherwise)\nread n\n  | otherwise = n\nmain = read 1\n";
     let errors = compile_program_sources_with_prelude(&[
         ("Boolean.Constants.purs", constants),
-        ("Data.Boolean.purs", boolean),
+        ("Boolean.Alias.purs", alias),
         ("Main.purs", main),
     ])
     .expect_err("an arbitrary binding named otherwise is not a coverage proof");
@@ -393,13 +404,12 @@ fn user_defined_false_otherwise_does_not_prove_guard_coverage() {
 
 #[test]
 fn cross_module_true_alias_is_a_verified_unconditional_guard() {
-    let constants =
-        "module Boolean.Constants (truth) where\nimport Prelude\ntruth :: Boolean\ntruth = true\n";
-    let boolean = "module Data.Boolean (otherwise) where\nimport Prelude\nimport Boolean.Constants (truth)\notherwise :: Boolean\notherwise = truth\n";
-    let main = "module Main where\nimport Prelude\nimport Data.Boolean (otherwise)\nread n\n  | otherwise = n\nmain = read 11\n";
+    let constants = "module Boolean.Constants (truth) where\ntruth :: Boolean\ntruth = true\n";
+    let alias = "module Boolean.Alias (otherwise) where\nimport Boolean.Constants (truth)\notherwise :: Boolean\notherwise = truth\n";
+    let main = "module Main where\nimport Boolean.Alias (otherwise)\nread n\n  | otherwise = n\nmain = read 11\n";
     let artifact = compile_program_sources_with_prelude(&[
         ("Boolean.Constants.purs", constants),
-        ("Data.Boolean.purs", boolean),
+        ("Boolean.Alias.purs", alias),
         ("Main.purs", main),
     ])
     .expect("resolved aliases to true prove guard coverage");

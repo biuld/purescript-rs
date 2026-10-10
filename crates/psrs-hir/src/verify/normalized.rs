@@ -19,6 +19,10 @@ pub(crate) fn normalized(module: &crate::Module) -> Result<(), Vec<VerifyError>>
 }
 
 fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
+    psrs_span::with_sufficient_stack(|| check_normalized_expr_inner(expression, errors))
+}
+
+fn check_normalized_expr_inner(expression: &Expr, errors: &mut Vec<VerifyError>) {
     match &expression.kind {
         ExprKind::Guarded(clauses) => {
             errors.push(VerifyError {
@@ -88,7 +92,7 @@ fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
                 check_normalized_expr(item, errors);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 check_normalized_expr(value, errors);
             }

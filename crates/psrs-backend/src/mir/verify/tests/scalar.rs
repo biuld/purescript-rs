@@ -10,6 +10,7 @@ fn primitive_function(
     let right = ValueId(1);
     let output = ValueId(2);
     Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "bad_primitive".into(),
@@ -110,6 +111,7 @@ fn rejects_an_integer_comparison_that_produces_i32() {
 fn rejects_a_boolean_constant_that_is_not_canonical() {
     let output = ValueId(0);
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "bad_boolean_constant".into(),
@@ -149,6 +151,7 @@ fn rejects_a_boolean_constant_that_is_not_canonical() {
 fn rejects_a_call_with_the_wrong_argument_type() {
     let callee_symbol = SymbolId::new(ModuleId(0), 1);
     let helper = Function {
+        state: None,
         id: crate::types::FunctionId(1),
         symbol: callee_symbol,
         name: "__psrs_euclidean_int_div".into(),
@@ -180,6 +183,7 @@ fn rejects_a_call_with_the_wrong_argument_type() {
     let argument = ValueId(0);
     let call_result = ValueId(1);
     let caller = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "caller".into(),

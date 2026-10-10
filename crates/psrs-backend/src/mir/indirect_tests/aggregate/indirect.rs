@@ -161,6 +161,7 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

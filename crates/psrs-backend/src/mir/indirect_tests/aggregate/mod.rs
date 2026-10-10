@@ -2,6 +2,7 @@
 //! record and variant payloads.
 
 mod collections;
+mod erased_storage;
 mod fixtures;
 mod indirect;
 mod large;
@@ -10,7 +11,6 @@ mod nested;
 mod record_fields;
 mod resource_result;
 mod scalars;
-
 use super::lower_module_with_registry;
 use crate::ExternalBindings;
 use crate::TargetCapabilities;

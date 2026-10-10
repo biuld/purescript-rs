@@ -23,12 +23,30 @@ impl Checker {
         )
     }
 
+    /// `Unsafe.Coerce.unsafeCoerce`: the same value shape as `coerce` with no
+    /// `Coercible` wanted. Its result type is fixed by the context.
+    pub(super) fn unsafe_coercion_function(
+        &mut self,
+        _span: TextRange,
+    ) -> (InferredExprKind, InferType) {
+        let source = self.fresh();
+        let target = self.fresh();
+        (
+            InferredExprKind::UnsafeCoerceFunction {
+                source: source.clone(),
+                target: target.clone(),
+                origin: psrs_thir::UncheckedCoercionOrigin::UnsafeCoerce,
+            },
+            arrow(source, target),
+        )
+    }
+
     /// The type of an intrinsic, instantiated from its descriptor's scheme.
     ///
-    /// `Coerce` is handled by the caller before this point, because it needs a
-    /// `Coercible` wanted and a distinct expression node. `Prim.undefined`'s
-    /// scheme `forall a. a` needs no special case: instantiating it yields the
-    /// fresh variable the use decides.
+    /// `Coerce` and `UnsafeCoerce` are handled by the caller before this point,
+    /// because they need a distinct expression node (and, for `Coerce`, a
+    /// `Coercible` wanted). `Prim.undefined`'s scheme `forall a. a` needs no
+    /// special case: instantiating it yields the fresh variable the use decides.
     pub(super) fn intrinsic_type(&mut self, intrinsic: Intrinsic) -> InferType {
         let descriptor = intrinsic.descriptor();
         self.elaborate_imported_signature(&(descriptor.scheme)())

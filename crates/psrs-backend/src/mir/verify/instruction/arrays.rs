@@ -380,3 +380,50 @@ pub(super) fn verify_len(
     }
     Ok(())
 }
+
+/// Initialized allocation never creates a default/null logical source element.
+pub(super) fn verify_array_new_filled(
+    function: &Function,
+    instruction: &Instruction,
+    definitions: &HashMap<ValueId, ValueType>,
+    defined: &[&DefinedType],
+) -> Result<(), Vec<BackendError>> {
+    let Instruction::ArrayNewFilled {
+        destination,
+        type_index,
+        length,
+        value,
+        span,
+    } = instruction
+    else {
+        unreachable!("filled array verifier received another instruction")
+    };
+    let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
+        return Err(mir_error(*span, "MIR array.new type is not an array"));
+    };
+    if require_value(definitions, *length, *span)? != ValueType::I32 {
+        return Err(mir_error(*span, "MIR array.new length must be i32"));
+    }
+    if !value_type_assignable(
+        require_value(definitions, *value, *span)?,
+        storage_value_type(&element.storage)
+            .ok_or_else(|| mir_error(*span, "MIR array element storage is not representable"))?,
+    ) {
+        return Err(mir_error(
+            *span,
+            "MIR array.new initializer does not match element storage",
+        ));
+    }
+    if !is_array_reference(
+        value_type(function, *destination)
+            .ok_or_else(|| mir_error(*span, "MIR array.new result has no value type"))?,
+        *type_index,
+        defined,
+    ) {
+        return Err(mir_error(
+            *span,
+            "MIR array.new result must match its array type",
+        ));
+    }
+    Ok(())
+}

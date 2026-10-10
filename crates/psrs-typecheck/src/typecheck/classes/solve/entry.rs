@@ -121,9 +121,7 @@ impl Checker {
                     .iter()
                     .any(|error| error.kind.reports_constraint_failure());
                 if constraint.solution.is_none() && !reported_resolution_error {
-                    if unsolved == UnsolvedPolicy::Retain
-                        && self.can_generalize_constraint(&constraint)
-                    {
+                    if self.policy_keeps_unsolved(unsolved, &constraint) {
                         retained.push(index);
                     } else {
                         let rendered =
@@ -149,6 +147,21 @@ impl Checker {
             self.check_ambiguity(result, start);
         }
         retained
+    }
+
+    /// Whether `unsolved` keeps this constraint instead of reporting it.
+    ///
+    /// `Retain` keeps one only while it can still be quantified by the
+    /// enclosing declaration.
+    pub(in crate::typecheck) fn policy_keeps_unsolved(
+        &self,
+        unsolved: UnsolvedPolicy,
+        constraint: &WantedConstraint,
+    ) -> bool {
+        match unsolved {
+            UnsolvedPolicy::Retain => self.can_generalize_constraint(constraint),
+            UnsolvedPolicy::RequireSolved => false,
+        }
     }
 
     /// A constraint that still mentions something generalization

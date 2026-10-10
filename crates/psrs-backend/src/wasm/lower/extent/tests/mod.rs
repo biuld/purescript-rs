@@ -27,6 +27,7 @@ fn function(
         .expect("result value has a declaration")
         .ty;
     Function {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "extent_test".into(),
@@ -45,6 +46,7 @@ fn module(function: Function) -> Module {
         name: "ExtentTest".into(),
         types: Vec::new(),
         strings: Vec::new(),
+        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![function],
@@ -124,7 +126,7 @@ fn allows_reads_and_writes_inside_the_scratch_region() {
 }
 
 #[test]
-fn allows_reads_and_writes_inside_the_heap_state_region() {
+fn rejects_reads_and_writes_at_the_old_heap_state_address() {
     let function = function(
         vec![
             decl(0, ValueType::I32),
@@ -170,7 +172,12 @@ fn allows_reads_and_writes_inside_the_heap_state_region() {
         ValueId(3),
     );
 
-    verify(function).expect("heap state is a readable and writable ABI region");
+    let errors = verify(function).expect_err("the old heap-state address is not reserved");
+    assert!(
+        errors[0]
+            .message
+            .contains("outside the canonical ABI regions")
+    );
 }
 
 #[test]

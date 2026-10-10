@@ -360,7 +360,7 @@ fn call_recursive(
 ) -> Expr {
     let decremented = expression(
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::I32Sub,
+            intrinsic: Intrinsic::IntSub,
             arguments: vec![local(parameter, int, start + 1), integer(1, int, start + 2)],
         },
         int,
@@ -381,7 +381,7 @@ fn call_recursive(
 fn eq_zero(local_id: LocalId, int: TypeId, boolean: TypeId, start: u32) -> Expr {
     expression(
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::I32Eq,
+            intrinsic: Intrinsic::IntEq,
             arguments: vec![local(local_id, int, start), integer(0, int, start + 1)],
         },
         boolean,

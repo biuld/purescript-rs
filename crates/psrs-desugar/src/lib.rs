@@ -22,7 +22,6 @@ mod case_helpers;
 mod constant_truth;
 mod expr;
 mod fixity;
-mod free_vars;
 mod guards;
 mod types;
 
@@ -111,6 +110,10 @@ pub fn desugar_module_with_true_symbols(
 }
 
 fn desugar_expr(expression: Expr) -> Expr {
+    psrs_span::with_sufficient_stack(|| desugar_expr_inner(expression))
+}
+
+fn desugar_expr_inner(expression: Expr) -> Expr {
     let span = expression.span;
     let kind = match expression.kind {
         ExprKind::Operator {
@@ -158,7 +161,10 @@ fn desugar_expr(expression: Expr) -> Expr {
                 span: binder.span,
             };
             let function = Expr {
-                kind: ExprKind::Global(operator.symbol),
+                kind: match operator.local {
+                    Some(local) => ExprKind::Local(local),
+                    None => ExprKind::Global(operator.symbol),
+                },
                 span: operator.operator_span,
             };
             let (left, right) = match side {
@@ -186,6 +192,12 @@ fn desugar_expr(expression: Expr) -> Expr {
             ExprKind::Array(elements.into_iter().map(desugar_expr).collect())
         }
         ExprKind::Record(fields) => ExprKind::Record(
+            fields
+                .into_iter()
+                .map(|(label, value)| (label, desugar_expr(value)))
+                .collect(),
+        ),
+        ExprKind::MatchProduct(fields) => ExprKind::MatchProduct(
             fields
                 .into_iter()
                 .map(|(label, value)| (label, desugar_expr(value)))

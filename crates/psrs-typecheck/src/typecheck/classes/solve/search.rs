@@ -2,10 +2,7 @@
 //! rule's entry into it.
 
 use super::super::super::prim::requeue::RequeueChain;
-use super::super::super::prim::{
-    PrimitiveDispatch, is_report_only, primitive_rule_precedes_givens,
-    primitive_rule_skips_given_lookup,
-};
+use super::super::super::prim::{PrimitiveDispatch, is_report_only};
 use super::super::super::unify::substitute;
 use super::super::fundeps::collect_infer_variables;
 use super::entry::{SolveDepth, UnsolvedPolicy};
@@ -14,14 +11,10 @@ impl Checker {
     /// Solves one wanted constraint, consulting givens, the primitive rule
     /// table, and instance search in that order.
     ///
-    /// The order is the one the primitive design fixes, and the one place it
-    /// varies is where a `Proof` member's rule is consulted:
-    /// [`primitive_rule_precedes_givens`] is the predicate, and it is false for
-    /// every other member. A `Proof` member's evidence is a checked boundary
-    /// rather than a dictionary, so a matching given cannot supply it — THIR
-    /// rejects a coercion whose evidence is not an explicit proof boundary — and
-    /// the rule has to derive the proof before the givens are consulted, which is
-    /// also what official solving does.
+    /// The registered rule's evidence classification owns its position. Proof
+    /// boundaries and runtime relation dictionaries precede givens; report rules
+    /// may propagate through a lexical dictionary first. A declined rule leaves
+    /// the ordinary given, superclass, and instance paths available.
     ///
     /// An instance's context is solved recursively before the instance is
     /// selected.
@@ -49,8 +42,13 @@ impl Checker {
         }
         let class_id = constraint.class_id;
         let arguments = constraint.arguments.clone();
-        let solves_before_givens = primitive_rule_precedes_givens(class_id);
-        let skips_given_lookup = primitive_rule_skips_given_lookup(class_id);
+        let rule = self.registered_primitive_rule(class_id);
+        let solves_before_givens = rule
+            .as_ref()
+            .is_some_and(|rule| rule.evidence.precedes_givens());
+        let skips_given_lookup = rule
+            .as_ref()
+            .is_some_and(|rule| !rule.evidence.accepts_a_given());
 
         // Relation rules precede ordinary dictionary lookup, as in
         // Entailment.hs:204-223. A checked proof also precedes givens, but its
@@ -73,10 +71,7 @@ impl Checker {
             if let Some(solution) = self.given_solution(constraint, depth) {
                 return Some(solution);
             }
-            if policy == UnsolvedPolicy::Retain
-                && is_report_only(class_id)
-                && self.can_generalize_constraint(constraint)
-            {
+            if is_report_only(class_id) && self.policy_keeps_unsolved(policy, constraint) {
                 return None;
             }
         }
@@ -141,11 +136,7 @@ impl Checker {
     ) -> Option<WantedSolution> {
         for (given, solution) in self.scope.givens.clone() {
             if given.class_id == constraint.class_id
-                && self.constraint_arguments_match_or_unify(
-                    &given.arguments,
-                    &constraint.arguments,
-                    constraint.span,
-                )
+                && self.constraint_arguments_match(&given.arguments, &constraint.arguments)
             {
                 return Some(solution);
             }
@@ -196,11 +187,7 @@ impl Checker {
                 field,
             };
             if edge.class_id == wanted.class_id
-                && self.constraint_arguments_match_or_unify(
-                    &edge.arguments,
-                    &wanted.arguments,
-                    wanted.span,
-                )
+                && self.constraint_arguments_match(&edge.arguments, &wanted.arguments)
             {
                 return Some(solution);
             }
@@ -217,28 +204,15 @@ impl Checker {
         None
     }
 
-    /// Matches a wanted constraint against a given or projected superclass.
-    /// Wanted type variables can be refined to the known argument types, but a
-    /// failed candidate must leave no substitution, level, kind, or evidence
-    /// behind. Its diagnostic is discarded, because a candidate that does not
-    /// match is not itself an error.
-    fn constraint_arguments_match_or_unify(
-        &mut self,
-        expected: &[InferType],
-        actual: &[InferType],
-        span: TextRange,
-    ) -> bool {
-        if expected.len() != actual.len() {
-            return false;
-        }
-        self.speculate(|checker| {
-            let errors_before = checker.state.errors.len();
-            for (expected, actual) in expected.iter().zip(actual) {
-                checker.unify(actual.clone(), expected.clone(), span);
-            }
-            (checker.state.errors.len() == errors_before).then_some(())
-        })
-        .is_some()
+    /// A given proves only its existing argument types. Entailment must not
+    /// choose an unknown wanted argument by unifying it with a dictionary in
+    /// scope; functional-dependency improvement owns permitted refinement.
+    fn constraint_arguments_match(&self, expected: &[InferType], actual: &[InferType]) -> bool {
+        expected.len() == actual.len()
+            && expected
+                .iter()
+                .zip(actual)
+                .all(|(expected, actual)| self.infer_types_equal(expected, actual))
     }
 
     /// Solves one instance's context and, on success, returns the instance
@@ -270,10 +244,7 @@ impl Checker {
                 let has_nested_diagnostic = self.state.errors[errors_before..]
                     .iter()
                     .any(|error| error.kind.reports_constraint_failure());
-                if !has_nested_diagnostic
-                    && policy == UnsolvedPolicy::Retain
-                    && self.can_generalize_constraint(&wanted)
-                {
+                if !has_nested_diagnostic && self.policy_keeps_unsolved(policy, &wanted) {
                     // The selected instance's dictionary needs this context
                     // dictionary; the declaration can supply it as a generalized
                     // parameter. The stable id lets evidence elaboration read the

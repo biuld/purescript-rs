@@ -198,7 +198,7 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
 /// Copies a GC string's canonical UTF-8 bytes into a fresh linear buffer. The
 /// helper returns the address of a length prefix; the canonical exchange passes
 /// the payload pointer and byte length, and the buffer is freed after the call.
-fn lower_string<L: WitCallLowerer>(
+pub(in crate::mir) fn lower_string<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
     flat: &mut Vec<ValueId>,

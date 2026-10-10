@@ -8,6 +8,27 @@
 use super::*;
 
 #[test]
+fn uncurried_foreign_signatures_retain_polymorphic_arguments_in_core() {
+    // Like Data.Number.fromStringImpl, this foreign signature supplies a
+    // checked universal argument to a parameterized uncurried newtype.
+    let source = r#"
+module Main where
+newtype Fn2 a b c = Fn2 (a -> b -> c)
+run :: forall a b c. Fn2 a b c -> a -> b -> c
+run (Fn2 f) a b = f a b
+identity :: forall a. a -> a
+identity x = x
+foreign import choose :: Fn2 (forall a. a -> a) Int Int
+main :: Int
+main = run choose identity 42
+"#;
+    let core = lower_program_to_core(&[("Main.purs", source)])
+        .expect("an explicit universal argument survives scheme instantiation");
+    core.verify()
+        .expect("the checked foreign call remains valid Core");
+}
+
+#[test]
 fn the_application_operators_resolve_through_the_library_re_export() {
     let source = r#"
 module Main where

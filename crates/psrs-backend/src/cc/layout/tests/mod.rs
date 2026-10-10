@@ -1,3 +1,5 @@
+mod arrays;
+
 use super::*;
 use crate::cc::{RefShape, Reference};
 use psrs_core::{
@@ -5,6 +7,7 @@ use psrs_core::{
 };
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
+mod opaque;
 mod records;
 
 fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
@@ -42,54 +45,37 @@ fn layout_for(module: &Module) -> TypeLayout {
     type_layout(module, &enums, &aggregates, &newtypes).expect("layout should succeed")
 }
 
-#[test]
-fn canonical_arrays_key_by_element_shape() {
-    let module = empty_module(vec![
-        Type::Variable(TypeVariableId(0)),
-        Type::Constructor(TypeConstructor::Array),
-        Type::Application(TypeId(1), TypeId(0)),
-        Type::Constructor(psrs_core::TypeConstructor::Int),
-        Type::Application(TypeId(1), TypeId(3)),
-        Type::Application(TypeId(1), TypeId(2)),
-    ]);
-    let layout = layout_for(&module);
-    let generic = layout.array_types[&TypeId(2)];
-    let concrete = layout.array_types[&TypeId(4)];
-    let nested = layout.array_types[&TypeId(5)];
-    assert_ne!(generic, concrete, "Array a and Array Int must differ");
-    assert_eq!(
-        layout.representations.representation(generic),
-        Some(&Representation::Array {
-            element: ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Erased,
-            }),
-        })
-    );
-    assert_eq!(
-        layout.representations.representation(concrete),
-        Some(&Representation::Array {
-            element: ValueShape::Integer,
-        })
-    );
-    assert_eq!(
-        layout.representations.representation(nested),
-        Some(&Representation::Array {
-            element: ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Repr(generic),
-            }),
-        })
-    );
+/// Roots aggregate types through declarations so the layout builder treats
+/// them as live. The production builder only lays out types reachable from a
+/// declaration or a constructor field, so a fixture with neither has no
+/// arrays or records to normalize.
+fn root_types(module: &mut Module, roots: impl IntoIterator<Item = TypeId>) {
+    for (index, ty) in roots.into_iter().enumerate() {
+        module.declarations.push(Declaration {
+            symbol: SymbolId::new(module.id, index as u32),
+            name: format!("root{index}"),
+            name_span: psrs_span::TextRange::new(0, 1),
+            quantified: Vec::new(),
+            ty,
+            value: Expr {
+                kind: ExprKind::Unit,
+                ty,
+                span: psrs_span::TextRange::new(0, 1),
+            },
+            span: psrs_span::TextRange::new(0, 1),
+        });
+    }
 }
 
 #[test]
 fn recursive_aggregate_normalization_terminates() {
-    let module = empty_module(vec![
+    let mut module = empty_module(vec![
         Type::Application(TypeId(2), TypeId(1)),
         Type::Application(TypeId(2), TypeId(0)),
         Type::Constructor(TypeConstructor::Array),
     ]);
+    // The two mutually recursive arrays are unreachable without a root.
+    root_types(&mut module, [TypeId(0)]);
     let layout = layout_for(&module);
     let first = layout.array_types[&TypeId(0)];
     let second = layout.array_types[&TypeId(1)];
@@ -101,9 +87,9 @@ fn recursive_aggregate_normalization_terminates() {
         layout.representations.representation(second),
         Some(Representation::Array { .. })
     ));
-    assert_ne!(
+    assert_eq!(
         first, second,
-        "mutually recursive arrays keep distinct canonical handles"
+        "recursive source arrays share canonical erased storage"
     );
 }
 
@@ -120,6 +106,68 @@ fn quantifier_erasure_terminates_on_a_malformed_cycle() {
         quantified,
         "backend erasure must remain bounded even before Core verification"
     );
+}
+
+#[test]
+fn bound_rank_n_record_fields_do_not_make_dictionary_layout_dependent() {
+    fn push_closed_record(types: &mut Vec<Type>, field_type: TypeId) -> TypeId {
+        let empty = TypeId(types.len() as u32);
+        types.push(Type::RowEmpty);
+        let row = TypeId(types.len() as u32);
+        types.push(Type::RowExtend {
+            label: "method".into(),
+            ty: field_type,
+            tail: empty,
+        });
+        let record_constructor = TypeId(types.len() as u32);
+        types.push(Type::Constructor(TypeConstructor::Record));
+        let record = TypeId(types.len() as u32);
+        types.push(Type::Application(record_constructor, row));
+        record
+    }
+
+    let variable = TypeVariableId(0);
+    let mut types = vec![
+        Type::Variable(variable),
+        Type::Constructor(TypeConstructor::Int),
+    ];
+    let identity = push_arrow(&mut types, TypeId(0), TypeId(0));
+    let polymorphic_identity = TypeId(types.len() as u32);
+    types.push(Type::ForAll {
+        variables: vec![variable],
+        body: identity,
+    });
+    let dictionary = push_closed_record(&mut types, polymorphic_identity);
+    let genuinely_dependent = push_closed_record(&mut types, TypeId(0));
+    let module = empty_module(types);
+
+    fn parameter_shape(module: &Module, ty: TypeId, representation: ReprId) -> ValueShape {
+        let record_types = HashMap::from([(ty, representation)]);
+        super::scalar::scalar_type(
+            module,
+            ty,
+            module.span,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &record_types,
+            &HashMap::new(),
+        )
+        .expect("a closed record parameter has a canonical product shape")
+    }
+
+    assert!(!depends_on_type_variable(&module, dictionary));
+    assert!(depends_on_type_variable(&module, genuinely_dependent));
+    for (ty, representation) in [(dictionary, ReprId(7)), (genuinely_dependent, ReprId(8))] {
+        assert_eq!(
+            parameter_shape(&module, ty, representation),
+            ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(representation),
+            })
+        );
+    }
 }
 
 #[test]
@@ -191,9 +239,9 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
     let layout = type_layout(&module, &enums, &aggregates, &newtypes)
         .expect("distinct function types should normalize and intern");
 
-    assert_ne!(
+    assert_eq!(
         layout.array_types[&array_int], layout.array_types[&array_string],
-        "Array Int and Array String are distinct semantic shapes with distinct canonical arrays"
+        "distinct source element types share physical array storage"
     );
     assert_eq!(
         layout.array_types[&array_int], layout.array_types[&array_int_b],
@@ -205,9 +253,9 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
         first, second,
         "function types that are equal after normalization must share one SignatureId"
     );
-    assert_ne!(
+    assert_eq!(
         layout.function_types[&f_int], layout.function_types[&f_string],
-        "arrays with different semantic element shapes keep distinct signatures"
+        "array function signatures share a physical storage convention"
     );
     let signature = layout
         .representations
@@ -369,7 +417,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
     let opaque = HirTypeId::new(module_id, 0);
     let handle = TypeId(0);
     let array_handle = TypeId(2);
-    let module = Module {
+    let mut module = Module {
         type_names: Vec::new(),
         id: module_id,
         name: "OpaqueHandleLayoutTest".into(),
@@ -388,6 +436,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
         entry: None,
         span: psrs_span::TextRange::new(0, 40),
     };
+    root_types(&mut module, [array_handle]);
     let newtypes = HashSet::new();
     let enums = enum_type_ids(&module, &newtypes);
     let aggregates = aggregate_type_ids(&module, &newtypes);
@@ -402,7 +451,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
             .representations
             .representation(layout.array_types[&array_handle]),
         Some(&Representation::Array {
-            element: ValueShape::Integer,
+            element: crate::cc::payload::erased_shape(),
         })
     );
     let _ = handle;

@@ -1,5 +1,5 @@
 use crate::{Module, Type, TypeId, VerifyError};
-use psrs_hir::{ExternalKind, LocalId};
+use psrs_hir::LocalId;
 use std::collections::HashMap;
 
 mod expr;
@@ -8,6 +8,7 @@ mod scopes;
 mod types;
 
 pub(crate) use types::equivalent_types;
+pub(crate) use types::instantiation;
 
 use expr::verify_expr;
 use patterns::verify_pattern;
@@ -23,7 +24,7 @@ pub(super) struct SchemeType {
 
 type Locals = HashMap<LocalId, SchemeType>;
 
-pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
+pub(crate) fn module(module: &Module, source: Option<&Module>) -> Result<(), Vec<VerifyError>> {
     let globals = module
         .declarations
         .iter()
@@ -81,7 +82,7 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
         );
     }
     for external in &module.externals {
-        if matches!(&external.kind, ExternalKind::Wit { .. })
+        if external.kind.requires_checked_signature()
             && !external_type_symbols.contains(&external.symbol)
         {
             errors.push(error(
@@ -145,11 +146,17 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
             &declaration.value,
             Some(declaration.ty),
             module,
+            source,
             owner,
             &globals,
             &mut locals,
             &mut errors,
         );
+    }
+    if errors.is_empty()
+        && let Err(state_errors) = crate::state::flow::check(module)
+    {
+        errors.extend(state_errors);
     }
     if errors.is_empty() {
         Ok(())
@@ -159,18 +166,6 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
 }
 
 fn external_scheme(module: &Module, ty: TypeId) -> Option<SchemeType> {
-    let mut current = ty;
-    let mut quantified = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    while seen.insert(current) {
-        let Some((variables, body)) = crate::forall_parts(&module.types, current) else {
-            return Some(SchemeType {
-                ty: current,
-                quantified,
-            });
-        };
-        quantified.extend_from_slice(variables);
-        current = body;
-    }
-    None
+    let (quantified, ty) = crate::scheme_parts(&module.types, ty)?;
+    Some(SchemeType { ty, quantified })
 }

@@ -1,0 +1,2206 @@
+{
+  "schema_version": 1,
+  "scope": "Restored ordinary foreign declarations; runtime support is unimplemented.",
+  "bindings": [
+    {
+      "value": "Control.Apply.arrayApply",
+      "module_path": "Control/Apply.purs",
+      "declaration": "foreign import arrayApply :: forall a b. Array (a -> b) -> Array a -> Array b",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Control/Apply.purs#L63",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Bind.arrayBind",
+      "module_path": "Control/Bind.purs",
+      "declaration": "foreign import arrayBind :: forall a b. Array a -> (a -> Array b) -> Array b",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Control/Bind.purs#L97",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Extend.arrayExtend",
+      "module_path": "Control/Extend.purs",
+      "declaration": "foreign import arrayExtend :: forall a b. (Array a -> b) -> Array a -> Array b",
+      "upstream_url": "https://github.com/purescript/purescript-control/blob/a6033808790879a17b2729e73747a9ed3fb2264e/src/Control/Extend.purs#L30",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.map_",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import map_ :: forall r a b. (a -> b) -> ST r a -> ST r b",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L38",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.pure_",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import pure_ :: forall r a. a -> ST r a",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L40",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.bind_",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import bind_ :: forall r a b. ST r a -> (a -> ST r b) -> ST r b",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L42",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.run",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import run :: forall a. (forall r. ST r a) -> a",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L89",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.while",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import while :: forall r a. ST r Boolean -> ST r a -> ST r Unit",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L96",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.for",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import for :: forall r a. Int -> Int -> (Int -> ST r a) -> ST r Unit",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L102",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.foreach",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import foreach :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L108",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.new",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import new :: forall a r. a -> ST r (STRef r a)",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L117",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.read",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import read :: forall a r. STRef r a -> ST r a",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L120",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.modifyImpl",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import modifyImpl :: forall r a b. (a -> { state :: a, value :: b }) -> STRef r a -> ST r b",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L128",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Internal.write",
+      "module_path": "Control/Monad/ST/Internal.purs",
+      "declaration": "foreign import write :: forall a r. a -> STRef r a -> ST r a",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Internal.purs#L136",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn1",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn1 :: forall a t r. (a -> ST t r) -> STFn1 a t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L61",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn2",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn2 :: forall a b t r. (a -> b -> ST t r) -> STFn2 a b t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L63",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn3",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn3 :: forall a b c t r. (a -> b -> c -> ST t r) -> STFn3 a b c t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L65",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn4",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn4 :: forall a b c d t r. (a -> b -> c -> d -> ST t r) -> STFn4 a b c d t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L67",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn5",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn5 :: forall a b c d e t r. (a -> b -> c -> d -> e -> ST t r) -> STFn5 a b c d e t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L69",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn6",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn6 :: forall a b c d e f t r. (a -> b -> c -> d -> e -> f -> ST t r) -> STFn6 a b c d e f t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L71",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn7",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn7 :: forall a b c d e f g t r. (a -> b -> c -> d -> e -> f -> g -> ST t r) -> STFn7 a b c d e f g t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L73",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn8",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn8 :: forall a b c d e f g h t r. (a -> b -> c -> d -> e -> f -> g -> h -> ST t r) -> STFn8 a b c d e f g h t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L75",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn9",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn9 :: forall a b c d e f g h i t r. (a -> b -> c -> d -> e -> f -> g -> h -> i -> ST t r) -> STFn9 a b c d e f g h i t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L77",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.mkSTFn10",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import mkSTFn10 :: forall a b c d e f g h i j t r. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> ST t r) -> STFn10 a b c d e f g h i j t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L79",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn1",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn1 :: forall a t r. STFn1 a t r -> a -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L82",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn2",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn2 :: forall a b t r. STFn2 a b t r -> a -> b -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L84",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn3",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn3 :: forall a b c t r. STFn3 a b c t r -> a -> b -> c -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L86",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn4",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn4 :: forall a b c d t r. STFn4 a b c d t r -> a -> b -> c -> d -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L88",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn5",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn5 :: forall a b c d e t r. STFn5 a b c d e t r -> a -> b -> c -> d -> e -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L90",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn6",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn6 :: forall a b c d e f t r. STFn6 a b c d e f t r -> a -> b -> c -> d -> e -> f -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L92",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn7",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn7 :: forall a b c d e f g t r. STFn7 a b c d e f g t r -> a -> b -> c -> d -> e -> f -> g -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L94",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn8",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn8 :: forall a b c d e f g h t r. STFn8 a b c d e f g h t r -> a -> b -> c -> d -> e -> f -> g -> h -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L96",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn9",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn9 :: forall a b c d e f g h i t r. STFn9 a b c d e f g h i t r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L98",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Control.Monad.ST.Uncurried.runSTFn10",
+      "module_path": "Control/Monad/ST/Uncurried.purs",
+      "declaration": "foreign import runSTFn10 :: forall a b c d e f g h i j t r. STFn10 a b c d e f g h i j t r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> ST t r",
+      "upstream_url": "https://github.com/purescript/purescript-st/blob/fc2fe2972bb12e6a2bd3b295baf01577240c23ac/src/Control/Monad/ST/Uncurried.purs#L100",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.NonEmpty.Internal.foldr1Impl",
+      "module_path": "Data/Array/NonEmpty/Internal.purs",
+      "declaration": "foreign import foldr1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/NonEmpty/Internal.purs#L75",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.NonEmpty.Internal.foldl1Impl",
+      "module_path": "Data/Array/NonEmpty/Internal.purs",
+      "declaration": "foreign import foldl1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/NonEmpty/Internal.purs#L76",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.NonEmpty.Internal.traverse1Impl",
+      "module_path": "Data/Array/NonEmpty/Internal.purs",
+      "declaration": "foreign import traverse1Impl :: forall m a b . Fn3 (forall a' b'. (m (a' -> b') -> m a' -> m b')) (forall a' b'. (a' -> b') -> m a' -> m b') (a -> m b) (NonEmptyArray a -> m (NonEmptyArray b))",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/NonEmpty/Internal.purs#L78",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.Partial.peekImpl",
+      "module_path": "Data/Array/ST/Partial.purs",
+      "declaration": "foreign import peekImpl :: forall h a. STFn2 Int (STArray h a) h a",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST/Partial.purs#L24",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.Partial.pokeImpl",
+      "module_path": "Data/Array/ST/Partial.purs",
+      "declaration": "foreign import pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Unit",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST/Partial.purs#L36",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.unsafeFreezeImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import unsafeFreezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L78",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.unsafeThawImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import unsafeThawImpl :: forall h a. STFn1 (Array a) h (STArray h a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L85",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.new",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import new :: forall h a. ST h (STArray h a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L88",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.thawImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import thawImpl :: forall h a. STFn1 (Array a) h (STArray h a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L97",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.cloneImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import cloneImpl :: forall h a. STFn1 (STArray h a) h (STArray h a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L106",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.shiftImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import shiftImpl :: forall h a . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L117",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.sortByImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import sortByImpl :: forall a h . STFn3 (a -> a -> Ordering) (Ordering -> Int) (STArray h a) h (STArray h a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L134",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.freezeImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import freezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L155",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.peekImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import peekImpl :: forall h a r. STFn4 (a -> r) r Int (STArray h a) h r",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L165",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.pokeImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L176",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.lengthImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import lengthImpl :: forall h a. STFn1 (STArray h a) h Int",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L178",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.popImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import popImpl :: forall h a . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L188",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.pushImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import pushImpl :: forall h a. STFn2 a (STArray h a) h Int",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L197",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.pushAllImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import pushAllImpl :: forall h a . STFn2 (Array a) (STArray h a) h Int",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L208",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.unshiftAllImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import unshiftAllImpl :: forall h a . STFn2 (Array a) (STArray h a) h Int",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L226",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.spliceImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import spliceImpl :: forall h a . STFn4 Int Int (Array a) (STArray h a) h (Array a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L248",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.ST.toAssocArrayImpl",
+      "module_path": "Data/Array/ST.purs",
+      "declaration": "foreign import toAssocArrayImpl :: forall h a . STFn1 (STArray h a) h (Array (Assoc a))",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array/ST.purs#L260",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.fromFoldableImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import fromFoldableImpl :: forall f a . Fn2 (forall b. (a -> b -> b) -> b -> f a -> b) (f a) (Array a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L177",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.rangeImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import rangeImpl :: Fn2 Int Int (Array Int)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L195",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.replicateImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import replicateImpl :: forall a. Fn2 Int a (Array a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L204",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.length",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import length :: forall a. Array a -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L243",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.unconsImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import unconsImpl :: forall a b . Fn3 (Unit -> b) (a -> Array a -> b) (Array a) b",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L373",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.indexImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import indexImpl :: forall a . Fn4 (forall r. r -> Maybe r) (forall r. Maybe r) (Array a) Int (Maybe a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L405",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.findMapImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import findMapImpl :: forall a b . Fn4 (forall c. Maybe c) (forall c. Maybe c -> Boolean) (a -> Maybe b) (Array a) (Maybe b)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L462",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.findIndexImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import findIndexImpl :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) (a -> Boolean) (Array a) (Maybe Int)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L481",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.findLastIndexImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import findLastIndexImpl :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) (a -> Boolean) (Array a) (Maybe Int)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L500",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array._insertAt",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import _insertAt :: forall a . Fn5 (forall b. b -> Maybe b) (forall b. Maybe b) Int a (Array a) (Maybe (Array a))",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L520",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array._deleteAt",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import _deleteAt :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) Int (Array a) (Maybe (Array a))",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L541",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array._updateAt",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import _updateAt :: forall a . Fn5 (forall b. b -> Maybe b) (forall b. Maybe b) Int a (Array a) (Maybe (Array a))",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L561",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.reverse",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import reverse :: forall a. Array a -> Array a",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L642",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.concat",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import concat :: forall a. Array (Array a) -> Array a",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L650",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.filterImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import filterImpl :: forall a . Fn2 (a -> Boolean) (Array a) (Array a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L673",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.partitionImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import partitionImpl :: forall a . Fn2 (a -> Boolean) (Array a) { yes :: Array a, no :: Array a }",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L692",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.scanlImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import scanlImpl :: forall a b. Fn3 (b -> a -> b) b (Array a) (Array b)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L857",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.scanrImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import scanrImpl :: forall a b. Fn3 (a -> b -> b) b (Array a) (Array b)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L870",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.sortByImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import sortByImpl :: forall a. Fn3 (a -> a -> Ordering) (Ordering -> Int) (Array a) (Array a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L914",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.sliceImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import sliceImpl :: forall a. Fn3 Int Int (Array a) (Array a)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L932",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.zipWithImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import zipWithImpl :: forall a b c . Fn3 (a -> b -> c) (Array a) (Array b) (Array c)",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L1253",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.anyImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import anyImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L1322",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.allImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import allImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L1336",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Array.unsafeIndexImpl",
+      "module_path": "Data/Array.purs",
+      "declaration": "foreign import unsafeIndexImpl :: forall a. Fn2 (Array a) Int a",
+      "upstream_url": "https://github.com/purescript/purescript-arrays/blob/6554b3d9c1ebb871477ffa88c2f3850d714b42b0/src/Data/Array.purs#L1371",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Bounded.topInt",
+      "module_path": "Data/Bounded.purs",
+      "declaration": "foreign import topInt :: Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Bounded.purs#L40",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Bounded.bottomInt",
+      "module_path": "Data/Bounded.purs",
+      "declaration": "foreign import bottomInt :: Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Bounded.purs#L41",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Bounded.topChar",
+      "module_path": "Data/Bounded.purs",
+      "declaration": "foreign import topChar :: Char",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Bounded.purs#L48",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Bounded.bottomChar",
+      "module_path": "Data/Bounded.purs",
+      "declaration": "foreign import bottomChar :: Char",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Bounded.purs#L49",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Bounded.topNumber",
+      "module_path": "Data/Bounded.purs",
+      "declaration": "foreign import topNumber :: Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Bounded.purs#L59",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Bounded.bottomNumber",
+      "module_path": "Data/Bounded.purs",
+      "declaration": "foreign import bottomNumber :: Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Bounded.purs#L60",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Enum.toCharCode",
+      "module_path": "Data/Enum.purs",
+      "declaration": "foreign import toCharCode :: Char -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-enums/blob/cd373c580b69fdc00e412bddbc299adabe242cc5/src/Data/Enum.purs#L320",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Enum.fromCharCode",
+      "module_path": "Data/Enum.purs",
+      "declaration": "foreign import fromCharCode :: Int -> Char",
+      "upstream_url": "https://github.com/purescript/purescript-enums/blob/cd373c580b69fdc00e412bddbc299adabe242cc5/src/Data/Enum.purs#L321",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Eq.eqBooleanImpl",
+      "module_path": "Data/Eq.purs",
+      "declaration": "foreign import eqBooleanImpl :: Boolean -> Boolean -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L77",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Eq.eqIntImpl",
+      "module_path": "Data/Eq.purs",
+      "declaration": "foreign import eqIntImpl :: Int -> Int -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L78",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Eq.eqNumberImpl",
+      "module_path": "Data/Eq.purs",
+      "declaration": "foreign import eqNumberImpl :: Number -> Number -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L79",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Eq.eqCharImpl",
+      "module_path": "Data/Eq.purs",
+      "declaration": "foreign import eqCharImpl :: Char -> Char -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L80",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Eq.eqStringImpl",
+      "module_path": "Data/Eq.purs",
+      "declaration": "foreign import eqStringImpl :: String -> String -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L81",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Eq.eqArrayImpl",
+      "module_path": "Data/Eq.purs",
+      "declaration": "foreign import eqArrayImpl :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Eq.purs#L83",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.EuclideanRing.intDegree",
+      "module_path": "Data/EuclideanRing.purs",
+      "declaration": "foreign import intDegree :: Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/EuclideanRing.purs#L84",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.EuclideanRing.intDiv",
+      "module_path": "Data/EuclideanRing.purs",
+      "declaration": "foreign import intDiv :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/EuclideanRing.purs#L85",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.EuclideanRing.intMod",
+      "module_path": "Data/EuclideanRing.purs",
+      "declaration": "foreign import intMod :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/EuclideanRing.purs#L86",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.EuclideanRing.numDiv",
+      "module_path": "Data/EuclideanRing.purs",
+      "declaration": "foreign import numDiv :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/EuclideanRing.purs#L88",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Foldable.foldrArray",
+      "module_path": "Data/Foldable.purs",
+      "declaration": "foreign import foldrArray :: forall a b. (a -> b -> b) -> b -> Array a -> b",
+      "upstream_url": "https://github.com/purescript/purescript-foldable-traversable/blob/b3926f870532d287ea59e2d5cd3873b81ef2a93a/src/Data/Foldable.purs#L135",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Foldable.foldlArray",
+      "module_path": "Data/Foldable.purs",
+      "declaration": "foreign import foldlArray :: forall a b. (b -> a -> b) -> b -> Array a -> b",
+      "upstream_url": "https://github.com/purescript/purescript-foldable-traversable/blob/b3926f870532d287ea59e2d5cd3873b81ef2a93a/src/Data/Foldable.purs#L136",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn0",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn0 :: forall a. (Unit -> a) -> Fn0 a",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L59",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn2",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn2 :: forall a b c. (a -> b -> c) -> Fn2 a b c",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L66",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn3",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn3 :: forall a b c d. (a -> b -> c -> d) -> Fn3 a b c d",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L69",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn4",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn4 :: forall a b c d e. (a -> b -> c -> d -> e) -> Fn4 a b c d e",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L72",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn5",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn5 :: forall a b c d e f. (a -> b -> c -> d -> e -> f) -> Fn5 a b c d e f",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L75",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn6",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn6 :: forall a b c d e f g. (a -> b -> c -> d -> e -> f -> g) -> Fn6 a b c d e f g",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L78",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn7",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn7 :: forall a b c d e f g h. (a -> b -> c -> d -> e -> f -> g -> h) -> Fn7 a b c d e f g h",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L81",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn8",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn8 :: forall a b c d e f g h i. (a -> b -> c -> d -> e -> f -> g -> h -> i) -> Fn8 a b c d e f g h i",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L84",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn9",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn9 :: forall a b c d e f g h i j. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j) -> Fn9 a b c d e f g h i j",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L87",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.mkFn10",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import mkFn10 :: forall a b c d e f g h i j k. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k) -> Fn10 a b c d e f g h i j k",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L90",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn0",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn0 :: forall a. Fn0 a -> a",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L93",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn2",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn2 :: forall a b c. Fn2 a b c -> a -> b -> c",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L100",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn3",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn3 :: forall a b c d. Fn3 a b c d -> a -> b -> c -> d",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L103",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn4",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn4 :: forall a b c d e. Fn4 a b c d e -> a -> b -> c -> d -> e",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L106",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn5",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn5 :: forall a b c d e f. Fn5 a b c d e f -> a -> b -> c -> d -> e -> f",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L109",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn6",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn6 :: forall a b c d e f g. Fn6 a b c d e f g -> a -> b -> c -> d -> e -> f -> g",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L112",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn7",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn7 :: forall a b c d e f g h. Fn7 a b c d e f g h -> a -> b -> c -> d -> e -> f -> g -> h",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L115",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn8",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn8 :: forall a b c d e f g h i. Fn8 a b c d e f g h i -> a -> b -> c -> d -> e -> f -> g -> h -> i",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L118",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn9",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn9 :: forall a b c d e f g h i j. Fn9 a b c d e f g h i j -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L121",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Function.Uncurried.runFn10",
+      "module_path": "Data/Function/Uncurried.purs",
+      "declaration": "foreign import runFn10 :: forall a b c d e f g h i j k. Fn10 a b c d e f g h i j k -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k",
+      "upstream_url": "https://github.com/purescript/purescript-functions/blob/f626f20580483977c5b27a01aac6471e28aff367/src/Data/Function/Uncurried.purs#L124",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Functor.arrayMap",
+      "module_path": "Data/Functor.purs",
+      "declaration": "foreign import arrayMap :: forall a b. (a -> b) -> Array a -> Array b",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Functor.purs#L55",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.FunctorWithIndex.mapWithIndexArray",
+      "module_path": "Data/FunctorWithIndex.purs",
+      "declaration": "foreign import mapWithIndexArray :: forall a b. (Int -> a -> b) -> Array a -> Array b",
+      "upstream_url": "https://github.com/purescript/purescript-foldable-traversable/blob/b3926f870532d287ea59e2d5cd3873b81ef2a93a/src/Data/FunctorWithIndex.purs#L38",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.HeytingAlgebra.boolConj",
+      "module_path": "Data/HeytingAlgebra.purs",
+      "declaration": "foreign import boolConj :: Boolean -> Boolean -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/HeytingAlgebra.purs#L103",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.HeytingAlgebra.boolDisj",
+      "module_path": "Data/HeytingAlgebra.purs",
+      "declaration": "foreign import boolDisj :: Boolean -> Boolean -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/HeytingAlgebra.purs#L104",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.HeytingAlgebra.boolNot",
+      "module_path": "Data/HeytingAlgebra.purs",
+      "declaration": "foreign import boolNot :: Boolean -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/HeytingAlgebra.purs#L105",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.Bits.and",
+      "module_path": "Data/Int/Bits.purs",
+      "declaration": "foreign import and :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L13",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.Bits.or",
+      "module_path": "Data/Int/Bits.purs",
+      "declaration": "foreign import or :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L18",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.Bits.xor",
+      "module_path": "Data/Int/Bits.purs",
+      "declaration": "foreign import xor :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L23",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.Bits.shl",
+      "module_path": "Data/Int/Bits.purs",
+      "declaration": "foreign import shl :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L28",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.Bits.shr",
+      "module_path": "Data/Int/Bits.purs",
+      "declaration": "foreign import shr :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L31",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.Bits.zshr",
+      "module_path": "Data/Int/Bits.purs",
+      "declaration": "foreign import zshr :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L34",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.Bits.complement",
+      "module_path": "Data/Int/Bits.purs",
+      "declaration": "foreign import complement :: Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int/Bits.purs#L37",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.fromNumberImpl",
+      "module_path": "Data/Int.purs",
+      "declaration": "foreign import fromNumberImpl :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Number -> Maybe Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int.purs#L40",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.toNumber",
+      "module_path": "Data/Int.purs",
+      "declaration": "foreign import toNumber :: Int -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int.purs#L81",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.quot",
+      "module_path": "Data/Int.purs",
+      "declaration": "foreign import quot :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int.purs#L227",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.rem",
+      "module_path": "Data/Int.purs",
+      "declaration": "foreign import rem :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int.purs#L245",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.pow",
+      "module_path": "Data/Int.purs",
+      "declaration": "foreign import pow :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int.purs#L248",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.fromStringAsImpl",
+      "module_path": "Data/Int.purs",
+      "declaration": "foreign import fromStringAsImpl :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Radix -> String -> Maybe Int",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int.purs#L250",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Int.toStringAs",
+      "module_path": "Data/Int.purs",
+      "declaration": "foreign import toStringAs :: Radix -> Int -> String",
+      "upstream_url": "https://github.com/purescript/purescript-integers/blob/54d712b25c594833083d15dc9ff2418eb9c52822/src/Data/Int.purs#L257",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Lazy.defer",
+      "module_path": "Data/Lazy.purs",
+      "declaration": "foreign import defer :: forall a. (Unit -> a) -> Lazy a",
+      "upstream_url": "https://github.com/purescript/purescript-lazy/blob/48347841226b27af5205a1a8ec71e27a93ce86fd/src/Data/Lazy.purs#L35",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Lazy.force",
+      "module_path": "Data/Lazy.purs",
+      "declaration": "foreign import force :: forall a. Lazy a -> a",
+      "upstream_url": "https://github.com/purescript/purescript-lazy/blob/48347841226b27af5205a1a8ec71e27a93ce86fd/src/Data/Lazy.purs#L38",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.Format.toPrecisionNative",
+      "module_path": "Data/Number/Format.purs",
+      "declaration": "foreign import toPrecisionNative ::   Int -> Number -> String",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number/Format.purs#L33",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.Format.toFixedNative",
+      "module_path": "Data/Number/Format.purs",
+      "declaration": "foreign import toFixedNative ::       Int -> Number -> String",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number/Format.purs#L34",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.Format.toExponentialNative",
+      "module_path": "Data/Number/Format.purs",
+      "declaration": "foreign import toExponentialNative :: Int -> Number -> String",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number/Format.purs#L35",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.Format.toString",
+      "module_path": "Data/Number/Format.purs",
+      "declaration": "foreign import toString :: Number -> String",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number/Format.purs#L76",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.nan",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import nan :: Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L47",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.isNaN",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import isNaN :: Number -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L57",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.infinity",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import infinity :: Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L67",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.isFinite",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import isFinite :: Number -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L83",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.fromStringImpl",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import fromStringImpl :: Fn4 String (Number -> Boolean) (forall a. a -> Maybe a) (forall a. Maybe a) (Maybe Number)",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L115",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.abs",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import abs :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L123",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.acos",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import acos :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L130",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.asin",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import asin :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L137",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.atan",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import atan :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L144",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.atan2",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import atan2 :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L157",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.ceil",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import ceil :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L164",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.cos",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import cos :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L171",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.exp",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import exp :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L178",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.floor",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import floor :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L185",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.log",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import log :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L191",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.max",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import max :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L195",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.min",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import min :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L199",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.pow",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import pow :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L209",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.remainder",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import remainder :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L216",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.round",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import round :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L225",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.sign",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import sign :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L235",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.sin",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import sin :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L242",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.sqrt",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import sqrt :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L249",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.tan",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import tan :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L256",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Number.trunc",
+      "module_path": "Data/Number.purs",
+      "declaration": "foreign import trunc :: Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-numbers/blob/27d54effdd2c0e7a86fe356b1cd813dca5981c2d/src/Data/Number.purs#L264",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Ord.ordBooleanImpl",
+      "module_path": "Data/Ord.purs",
+      "declaration": "foreign import ordBooleanImpl :: Ordering -> Ordering -> Ordering -> Boolean -> Boolean -> Ordering",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ord.purs#L84",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Ord.ordIntImpl",
+      "module_path": "Data/Ord.purs",
+      "declaration": "foreign import ordIntImpl :: Ordering -> Ordering -> Ordering -> Int -> Int -> Ordering",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ord.purs#L92",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Ord.ordNumberImpl",
+      "module_path": "Data/Ord.purs",
+      "declaration": "foreign import ordNumberImpl :: Ordering -> Ordering -> Ordering -> Number -> Number -> Ordering",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ord.purs#L100",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Ord.ordStringImpl",
+      "module_path": "Data/Ord.purs",
+      "declaration": "foreign import ordStringImpl :: Ordering -> Ordering -> Ordering -> String -> String -> Ordering",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ord.purs#L108",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Ord.ordCharImpl",
+      "module_path": "Data/Ord.purs",
+      "declaration": "foreign import ordCharImpl :: Ordering -> Ordering -> Ordering -> Char -> Char -> Ordering",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ord.purs#L116",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Ord.ordArrayImpl",
+      "module_path": "Data/Ord.purs",
+      "declaration": "foreign import ordArrayImpl :: forall a. (a -> a -> Int) -> Array a -> Array a -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ord.purs#L124",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Reflectable.unsafeCoerce",
+      "module_path": "Data/Reflectable.purs",
+      "declaration": "foreign import unsafeCoerce :: forall a b. a -> b",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Reflectable.purs#L36",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Ring.intSub",
+      "module_path": "Data/Ring.purs",
+      "declaration": "foreign import intSub :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ring.purs#L54",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Ring.numSub",
+      "module_path": "Data/Ring.purs",
+      "declaration": "foreign import numSub :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Ring.purs#L55",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Semigroup.concatString",
+      "module_path": "Data/Semigroup.purs",
+      "declaration": "foreign import concatString :: String -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semigroup.purs#L60",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Semigroup.concatArray",
+      "module_path": "Data/Semigroup.purs",
+      "declaration": "foreign import concatArray :: forall a. Array a -> Array a -> Array a",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semigroup.purs#L61",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Semiring.intAdd",
+      "module_path": "Data/Semiring.purs",
+      "declaration": "foreign import intAdd :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semiring.purs#L89",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Semiring.intMul",
+      "module_path": "Data/Semiring.purs",
+      "declaration": "foreign import intMul :: Int -> Int -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semiring.purs#L90",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Semiring.numAdd",
+      "module_path": "Data/Semiring.purs",
+      "declaration": "foreign import numAdd :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semiring.purs#L91",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Semiring.numMul",
+      "module_path": "Data/Semiring.purs",
+      "declaration": "foreign import numMul :: Number -> Number -> Number",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Semiring.purs#L92",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Show.Generic.intercalate",
+      "module_path": "Data/Show/Generic.purs",
+      "declaration": "foreign import intercalate :: String -> Array String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Show/Generic.purs#L57",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Show.showIntImpl",
+      "module_path": "Data/Show.purs",
+      "declaration": "foreign import showIntImpl :: Int -> String",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Show.purs#L93",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Show.showNumberImpl",
+      "module_path": "Data/Show.purs",
+      "declaration": "foreign import showNumberImpl :: Number -> String",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Show.purs#L94",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Show.showCharImpl",
+      "module_path": "Data/Show.purs",
+      "declaration": "foreign import showCharImpl :: Char -> String",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Show.purs#L95",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Show.showStringImpl",
+      "module_path": "Data/Show.purs",
+      "declaration": "foreign import showStringImpl :: String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Show.purs#L96",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Show.showArrayImpl",
+      "module_path": "Data/Show.purs",
+      "declaration": "foreign import showArrayImpl :: forall a. (a -> String) -> Array a -> String",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Show.purs#L97",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodePoints._singleton",
+      "module_path": "Data/String/CodePoints.purs",
+      "declaration": "foreign import _singleton :: (CodePoint -> String) -> CodePoint -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodePoints.purs#L91",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodePoints._fromCodePointArray",
+      "module_path": "Data/String/CodePoints.purs",
+      "declaration": "foreign import _fromCodePointArray :: (CodePoint -> String) -> Array CodePoint -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodePoints.purs#L117",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodePoints._toCodePointArray",
+      "module_path": "Data/String/CodePoints.purs",
+      "declaration": "foreign import _toCodePointArray :: (String -> Array CodePoint) -> (String -> CodePoint) -> String -> Array CodePoint",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodePoints.purs#L136",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodePoints._codePointAt",
+      "module_path": "Data/String/CodePoints.purs",
+      "declaration": "foreign import _codePointAt :: (Int -> String -> Maybe CodePoint) -> (forall a. a -> Maybe a) -> (forall a. Maybe a) -> (String -> CodePoint) -> Int -> String -> Maybe CodePoint",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodePoints.purs#L166",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodePoints._countPrefix",
+      "module_path": "Data/String/CodePoints.purs",
+      "declaration": "foreign import _countPrefix :: ((CodePoint -> Boolean) -> String -> Int) -> (String -> CodePoint) -> (CodePoint -> Boolean) -> String -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodePoints.purs#L230",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodePoints._take",
+      "module_path": "Data/String/CodePoints.purs",
+      "declaration": "foreign import _take :: (Int -> String -> String) -> Int -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodePoints.purs#L331",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodePoints._unsafeCodePointAt0",
+      "module_path": "Data/String/CodePoints.purs",
+      "declaration": "foreign import _unsafeCodePointAt0 :: (String -> CodePoint) -> String -> CodePoint",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodePoints.purs#L421",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.singleton",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import singleton :: Char -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L83",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.fromCharArray",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import fromCharArray :: Array Char -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L90",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.toCharArray",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import toCharArray :: String -> Array Char",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L97",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits._charAt",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import _charAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Int -> String -> Maybe Char",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L109",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits._toChar",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import _toChar :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> String -> Maybe Char",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L126",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.length",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import length :: String -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L150",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.countPrefix",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import countPrefix :: (Char -> Boolean) -> String -> Int",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L159",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits._indexOf",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import _indexOf :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> String -> Maybe Int",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L172",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits._indexOfStartingAt",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import _indexOfStartingAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> Int -> String -> Maybe Int",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L191",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits._lastIndexOf",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import _lastIndexOf :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> String -> Maybe Int",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L210",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits._lastIndexOfStartingAt",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import _lastIndexOfStartingAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> Int -> String -> Maybe Int",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L238",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.take",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import take :: Int -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L252",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.drop",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import drop :: Int -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L279",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.slice",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import slice :: Int -> Int -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L311",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.CodeUnits.splitAt",
+      "module_path": "Data/String/CodeUnits.purs",
+      "declaration": "foreign import splitAt :: Int -> String -> { before :: String, after :: String }",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/CodeUnits.purs#L332",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Common._localeCompare",
+      "module_path": "Data/String/Common.purs",
+      "declaration": "foreign import _localeCompare :: Ordering -> Ordering -> Ordering -> String -> String -> Ordering",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Common.purs#L37",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Common.replace",
+      "module_path": "Data/String/Common.purs",
+      "declaration": "foreign import replace :: Pattern -> Replacement -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Common.purs#L50",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Common.replaceAll",
+      "module_path": "Data/String/Common.purs",
+      "declaration": "foreign import replaceAll :: Pattern -> Replacement -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Common.purs#L57",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Common.split",
+      "module_path": "Data/String/Common.purs",
+      "declaration": "foreign import split :: Pattern -> String -> Array String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Common.purs#L65",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Common.toLower",
+      "module_path": "Data/String/Common.purs",
+      "declaration": "foreign import toLower :: String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Common.purs#L72",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Common.toUpper",
+      "module_path": "Data/String/Common.purs",
+      "declaration": "foreign import toUpper :: String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Common.purs#L79",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Common.trim",
+      "module_path": "Data/String/Common.purs",
+      "declaration": "foreign import trim :: String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Common.purs#L88",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Common.joinWith",
+      "module_path": "Data/String/Common.purs",
+      "declaration": "foreign import joinWith :: String -> Array String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Common.purs#L96",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex.showRegexImpl",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import showRegexImpl :: Regex -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L31",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex.regexImpl",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import regexImpl :: (String -> Either String Regex) -> (Regex -> Either String Regex) -> String -> String -> Either String Regex",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L36",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex.source",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import source :: Regex -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L49",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex.flagsImpl",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import flagsImpl :: Regex -> RegexFlagsRec",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L56",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex.test",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import test :: Regex -> String -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L82",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex._match",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import _match :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> String -> Maybe (NonEmptyArray (Maybe String))",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L84",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex.replace",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import replace :: Regex -> String -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L101",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex._replaceBy",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import _replaceBy :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> (String -> Array (Maybe String) -> String) -> String -> String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L103",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex._search",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import _search :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> String -> Maybe Int",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L118",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Regex.split",
+      "module_path": "Data/String/Regex.purs",
+      "declaration": "foreign import split :: Regex -> String -> Array String",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Regex.purs#L131",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Unsafe.charAt",
+      "module_path": "Data/String/Unsafe.purs",
+      "declaration": "foreign import charAt :: Int -> String -> Char",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Unsafe.purs#L10",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.String.Unsafe.char",
+      "module_path": "Data/String/Unsafe.purs",
+      "declaration": "foreign import char :: String -> Char",
+      "upstream_url": "https://github.com/purescript/purescript-strings/blob/3d3e2f7197d4f7aacb15e854ee9a645489555fff/src/Data/String/Unsafe.purs#L15",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Symbol.unsafeCoerce",
+      "module_path": "Data/Symbol.purs",
+      "declaration": "foreign import unsafeCoerce :: forall a b. a -> b",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Data/Symbol.purs#L14",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Traversable.traverseArrayImpl",
+      "module_path": "Data/Traversable.purs",
+      "declaration": "foreign import traverseArrayImpl :: forall m a b . (forall x y. m (x -> y) -> m x -> m y) -> (forall x y. (x -> y) -> m x -> m y) -> (forall x. x -> m x) -> (a -> m b) -> Array a -> m (Array b)",
+      "upstream_url": "https://github.com/purescript/purescript-foldable-traversable/blob/b3926f870532d287ea59e2d5cd3873b81ef2a93a/src/Data/Traversable.purs#L106",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Unfoldable.unfoldrArrayImpl",
+      "module_path": "Data/Unfoldable.purs",
+      "declaration": "foreign import unfoldrArrayImpl :: forall a b . (forall x. Maybe x -> Boolean) -> (forall x. Maybe x -> x) -> (forall x y. Tuple x y -> x) -> (forall x y. Tuple x y -> y) -> (b -> Maybe (Tuple a b)) -> b -> Array a",
+      "upstream_url": "https://github.com/purescript/purescript-unfoldable/blob/493dfe04ed590e20d8f69079df2f58486882748d/src/Data/Unfoldable.purs#L47",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Data.Unfoldable1.unfoldr1ArrayImpl",
+      "module_path": "Data/Unfoldable1.purs",
+      "declaration": "foreign import unfoldr1ArrayImpl :: forall a b . (forall x. Maybe x -> Boolean) -> (forall x. Maybe x -> x) -> (forall x y. Tuple x y -> x) -> (forall x y. Tuple x y -> y) -> (b -> Tuple a (Maybe b)) -> b -> Array a",
+      "upstream_url": "https://github.com/purescript/purescript-unfoldable/blob/493dfe04ed590e20d8f69079df2f58486882748d/src/Data/Unfoldable1.purs#L48",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Console.time",
+      "module_path": "Effect/Console.purs",
+      "declaration": "foreign import time :: String -> Effect Unit",
+      "upstream_url": "https://github.com/purescript/purescript-console/blob/3b83d7b792d03872afeea5e62b4f686ab0f09842/src/Effect/Console.purs#L59",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Console.timeLog",
+      "module_path": "Effect/Console.purs",
+      "declaration": "foreign import timeLog :: String -> Effect Unit",
+      "upstream_url": "https://github.com/purescript/purescript-console/blob/3b83d7b792d03872afeea5e62b4f686ab0f09842/src/Effect/Console.purs#L62",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Console.timeEnd",
+      "module_path": "Effect/Console.purs",
+      "declaration": "foreign import timeEnd :: String -> Effect Unit",
+      "upstream_url": "https://github.com/purescript/purescript-console/blob/3b83d7b792d03872afeea5e62b4f686ab0f09842/src/Effect/Console.purs#L65",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Console.clear",
+      "module_path": "Effect/Console.purs",
+      "declaration": "foreign import clear :: Effect Unit",
+      "upstream_url": "https://github.com/purescript/purescript-console/blob/3b83d7b792d03872afeea5e62b4f686ab0f09842/src/Effect/Console.purs#L68",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Ref._new",
+      "module_path": "Effect/Ref.purs",
+      "declaration": "foreign import _new :: forall s. s -> Effect (Ref s)",
+      "upstream_url": "https://github.com/purescript/purescript-refs/blob/f8e6216da4cb9309fde1f20cd6f69ac3a3b7f9e8/src/Effect/Ref.purs#L44",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Ref.newWithSelf",
+      "module_path": "Effect/Ref.purs",
+      "declaration": "foreign import newWithSelf :: forall s. (Ref s -> s) -> Effect (Ref s)",
+      "upstream_url": "https://github.com/purescript/purescript-refs/blob/f8e6216da4cb9309fde1f20cd6f69ac3a3b7f9e8/src/Effect/Ref.purs#L51",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Ref.read",
+      "module_path": "Effect/Ref.purs",
+      "declaration": "foreign import read :: forall s. Ref s -> Effect s",
+      "upstream_url": "https://github.com/purescript/purescript-refs/blob/f8e6216da4cb9309fde1f20cd6f69ac3a3b7f9e8/src/Effect/Ref.purs#L54",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Ref.modifyImpl",
+      "module_path": "Effect/Ref.purs",
+      "declaration": "foreign import modifyImpl :: forall s b. (s -> { state :: s, value :: b }) -> Ref s -> Effect b",
+      "upstream_url": "https://github.com/purescript/purescript-refs/blob/f8e6216da4cb9309fde1f20cd6f69ac3a3b7f9e8/src/Effect/Ref.purs#L61",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Ref.write",
+      "module_path": "Effect/Ref.purs",
+      "declaration": "foreign import write :: forall s. s -> Ref s -> Effect Unit",
+      "upstream_url": "https://github.com/purescript/purescript-refs/blob/f8e6216da4cb9309fde1f20cd6f69ac3a3b7f9e8/src/Effect/Ref.purs#L73",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn1",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn1 :: forall a r. (a -> Effect r) -> EffectFn1 a r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L178",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn2",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn2 :: forall a b r. (a -> b -> Effect r) -> EffectFn2 a b r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L180",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn3",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn3 :: forall a b c r. (a -> b -> c -> Effect r) -> EffectFn3 a b c r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L182",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn4",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn4 :: forall a b c d r. (a -> b -> c -> d -> Effect r) -> EffectFn4 a b c d r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L184",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn5",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn5 :: forall a b c d e r. (a -> b -> c -> d -> e -> Effect r) -> EffectFn5 a b c d e r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L186",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn6",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn6 :: forall a b c d e f r. (a -> b -> c -> d -> e -> f -> Effect r) -> EffectFn6 a b c d e f r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L188",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn7",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn7 :: forall a b c d e f g r. (a -> b -> c -> d -> e -> f -> g -> Effect r) -> EffectFn7 a b c d e f g r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L190",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn8",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn8 :: forall a b c d e f g h r. (a -> b -> c -> d -> e -> f -> g -> h -> Effect r) -> EffectFn8 a b c d e f g h r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L192",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn9",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn9 :: forall a b c d e f g h i r. (a -> b -> c -> d -> e -> f -> g -> h -> i -> Effect r) -> EffectFn9 a b c d e f g h i r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L194",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.mkEffectFn10",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import mkEffectFn10 :: forall a b c d e f g h i j r. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> Effect r) -> EffectFn10 a b c d e f g h i j r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L196",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn1",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn1 :: forall a r. EffectFn1 a r -> a -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L199",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn2",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn2 :: forall a b r. EffectFn2 a b r -> a -> b -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L201",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn3",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn3 :: forall a b c r. EffectFn3 a b c r -> a -> b -> c -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L203",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn4",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn4 :: forall a b c d r. EffectFn4 a b c d r -> a -> b -> c -> d -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L205",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn5",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn5 :: forall a b c d e r. EffectFn5 a b c d e r -> a -> b -> c -> d -> e -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L207",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn6",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn6 :: forall a b c d e f r. EffectFn6 a b c d e f r -> a -> b -> c -> d -> e -> f -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L209",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn7",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn7 :: forall a b c d e f g r. EffectFn7 a b c d e f g r -> a -> b -> c -> d -> e -> f -> g -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L211",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn8",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn8 :: forall a b c d e f g h r. EffectFn8 a b c d e f g h r -> a -> b -> c -> d -> e -> f -> g -> h -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L213",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn9",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn9 :: forall a b c d e f g h i r. EffectFn9 a b c d e f g h i r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L215",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Uncurried.runEffectFn10",
+      "module_path": "Effect/Uncurried.purs",
+      "declaration": "foreign import runEffectFn10 :: forall a b c d e f g h i j r. EffectFn10 a b c d e f g h i j r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> Effect r",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Uncurried.purs#L217",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Effect.Unsafe.unsafePerformEffect",
+      "module_path": "Effect/Unsafe.purs",
+      "declaration": "foreign import unsafePerformEffect :: forall a. Effect a -> a",
+      "upstream_url": "https://github.com/purescript/purescript-effect/blob/a192ddb923027d426d6ea3d8deb030c9aa7c7dda/src/Effect/Unsafe.purs#L8",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    },
+    {
+      "value": "Partial.Unsafe._unsafePartial",
+      "module_path": "Partial/Unsafe.purs",
+      "declaration": "foreign import _unsafePartial :: forall a b. a -> b",
+      "upstream_url": "https://github.com/purescript/purescript-partial/blob/0fa0646f5ea1ec5f0c46dcbd770c705a6c9ad3ec/src/Partial/Unsafe.purs#L16",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Partial._crashWith",
+      "module_path": "Partial.purs",
+      "declaration": "foreign import _crashWith :: forall a. String -> a",
+      "upstream_url": "https://github.com/purescript/purescript-partial/blob/0fa0646f5ea1ec5f0c46dcbd770c705a6c9ad3ec/src/Partial.purs#L15",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Record.Unsafe.unsafeHas",
+      "module_path": "Record/Unsafe.purs",
+      "declaration": "foreign import unsafeHas :: forall r1. String -> Record r1 -> Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Record/Unsafe.purs#L10",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Record.Unsafe.unsafeGet",
+      "module_path": "Record/Unsafe.purs",
+      "declaration": "foreign import unsafeGet :: forall r a. String -> Record r -> a",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Record/Unsafe.purs#L15",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Record.Unsafe.unsafeSet",
+      "module_path": "Record/Unsafe.purs",
+      "declaration": "foreign import unsafeSet :: forall r1 r2 a. String -> a -> Record r1 -> Record r2",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Record/Unsafe.purs#L21",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Record.Unsafe.unsafeDelete",
+      "module_path": "Record/Unsafe.purs",
+      "declaration": "foreign import unsafeDelete :: forall r1 r2. String -> Record r1 -> Record r2",
+      "upstream_url": "https://github.com/purescript/purescript-prelude/blob/f4cad0ae8106185c9ab407f43cf9abf05c256af4/src/Record/Unsafe.purs#L27",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Test.Assert.checkThrows",
+      "module_path": "Test/Assert.purs",
+      "declaration": "foreign import checkThrows :: forall a . (Unit -> a) -> Effect Boolean",
+      "upstream_url": "https://github.com/purescript/purescript-assert/blob/27c0edb57d2ee497eb5fab664f5601c35b613eda/src/Test/Assert.purs#L59",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": true
+    },
+    {
+      "value": "Unsafe.Coerce.unsafeCoerce",
+      "module_path": "Unsafe/Coerce.purs",
+      "declaration": "foreign import unsafeCoerce :: forall a b. a -> b",
+      "upstream_url": "https://github.com/purescript/purescript-unsafe-coerce/blob/ab956f82e66e633f647fb3098e8ddd3ec58d689f/src/Unsafe/Coerce.purs#L27",
+      "target_implementation": "missing",
+      "all_stdlib_reproducer_reports_missing": false
+    }
+  ]
+}

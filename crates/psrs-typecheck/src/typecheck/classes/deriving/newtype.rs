@@ -3,10 +3,16 @@ use super::super::super::*;
 use super::super::evidence::record_field_type;
 use super::flatten_spine;
 
+struct CheckedNewtype {
+    type_id: hir::TypeId,
+    underlying: InferType,
+}
+
 impl Checker {
     /// Builds the method implementation for a `derive newtype` instance.
     /// The source method is selected from the wrapped type's dictionary, then
-    /// adapted at each function boundary through checked Coercible evidence.
+    /// adapted through the trusted representation-transparent newtype contract.
+    /// This is dictionary reuse, not a claim of ordinary Coercible entailment.
     pub(in crate::typecheck::classes) fn derive_newtype_method(
         &mut self,
         class_id: hir::TypeId,
@@ -16,9 +22,18 @@ impl Checker {
         span: TextRange,
     ) -> Option<InferredExpr> {
         if class.parameters.len() != class_arguments.len() {
-            return self.deriving_error(span, "derive newtype class head has the wrong arity");
+            return self.deriving_error(
+                TypeCheckErrorKind::InvalidNewtypeInstance,
+                span,
+                "derive newtype class head has the wrong arity",
+            );
         }
-        let underlying = self.newtype_underlying_type(class_arguments, span)?;
+        let checked = self.checked_newtype(class_arguments, span, false)?;
+        let origin = thir::UncheckedCoercionOrigin::NewtypeDeriving {
+            class_id,
+            newtype_id: checked.type_id,
+        };
+        let underlying = checked.underlying;
 
         let mut underlying_arguments = class_arguments.to_vec();
         *underlying_arguments.last_mut()? = underlying;
@@ -74,12 +89,17 @@ impl Checker {
             ty: underlying_method_type.clone(),
             span,
         };
-        self.adapt_newtype_method(
-            selected_method,
-            underlying_method_type,
-            derived_method_type,
-            span,
-        )
+        let mut method_foralls = Vec::new();
+        leading_forall_variables(&derived_method_type, &mut method_foralls);
+        self.with_skolem_scope(&method_foralls, |checker| {
+            checker.adapt_newtype_method(
+                selected_method,
+                underlying_method_type,
+                derived_method_type,
+                span,
+                origin,
+            )
+        })
     }
 
     pub(in crate::typecheck::classes) fn validate_newtype_deriving_instance(
@@ -87,16 +107,28 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferType> {
-        self.newtype_underlying_type(class_arguments, span)
+        self.newtype_underlying_type(class_arguments, span, false)
     }
 
-    fn newtype_underlying_type(
+    pub(in crate::typecheck::classes) fn newtype_underlying_type(
         &mut self,
         class_arguments: &[InferType],
         span: TextRange,
+        deriving_newtype_class: bool,
     ) -> Option<InferType> {
+        self.checked_newtype(class_arguments, span, deriving_newtype_class)
+            .map(|checked| checked.underlying)
+    }
+
+    fn checked_newtype(
+        &mut self,
+        class_arguments: &[InferType],
+        span: TextRange,
+        deriving_newtype_class: bool,
+    ) -> Option<CheckedNewtype> {
         let Some(newtype) = class_arguments.last() else {
             return self.deriving_error(
+                TypeCheckErrorKind::InvalidNewtypeInstance,
                 span,
                 "derive newtype requires a class with a final type parameter",
             );
@@ -105,27 +137,46 @@ impl Checker {
         let (head, arguments) = flatten_spine(&resolved_newtype);
         let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
             return self.deriving_error(
+                TypeCheckErrorKind::InvalidNewtypeInstance,
                 span,
                 "derive newtype requires its final class argument to be a newtype constructor",
             );
         };
         let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
-            return self.deriving_error(span, "cannot find the newtype declaration to derive");
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotFindDerivingType,
+                span,
+                "cannot find the newtype declaration to derive",
+            );
         };
         if declaration.kind != hir::TypeDeclarationKind::Newtype
             || type_id.module != self.env.module_id
             || arguments.len() > declaration.parameters.len()
         {
+            let kind = if deriving_newtype_class
+                && declaration.kind == hir::TypeDeclarationKind::Data
+                && type_id.module == self.env.module_id
+            {
+                TypeCheckErrorKind::CannotDeriveNewtypeForData
+            } else {
+                TypeCheckErrorKind::InvalidNewtypeInstance
+            };
             return self.deriving_error(
+                kind,
                 span,
                 "derive newtype requires a locally declared newtype constructor",
             );
         }
         let Some(constructor) = declaration.constructors.first() else {
-            return self.deriving_error(span, "the newtype has no data constructor");
+            return self.deriving_error(
+                TypeCheckErrorKind::InvalidNewtypeInstance,
+                span,
+                "the newtype has no data constructor",
+            );
         };
         let [field] = constructor.fields.as_slice() else {
             return self.deriving_error(
+                TypeCheckErrorKind::InvalidNewtypeInstance,
                 span,
                 "derive newtype requires a constructor with exactly one field",
             );
@@ -146,11 +197,15 @@ impl Checker {
         let underlying = self.elaborate_type(field, &mut newtype_variables);
         let Some(underlying) = strip_newtype_arguments(underlying, &omitted_arguments, self) else {
             return self.deriving_error(
+                TypeCheckErrorKind::InvalidNewtypeInstance,
                 span,
                 "the wrapped type must end in every unapplied newtype parameter",
             );
         };
-        Some(underlying)
+        Some(CheckedNewtype {
+            type_id: *type_id,
+            underlying,
+        })
     }
 
     fn adapt_newtype_method(
@@ -159,6 +214,7 @@ impl Checker {
         source: InferType,
         target: InferType,
         span: TextRange,
+        origin: thir::UncheckedCoercionOrigin,
     ) -> Option<InferredExpr> {
         let source = self.resolve_type(source);
         let target = self.resolve_type(target);
@@ -187,6 +243,7 @@ impl Checker {
                 source_body.as_ref().clone(),
                 target_body.as_ref().clone(),
                 span,
+                origin,
             )?;
             return Some(InferredExpr {
                 ty: target,
@@ -219,6 +276,7 @@ impl Checker {
                 target_parameter.clone(),
                 source_parameter,
                 span,
+                origin,
             );
             let applied = InferredExpr {
                 kind: InferredExprKind::Application(Box::new(value), Box::new(converted_argument)),
@@ -230,6 +288,7 @@ impl Checker {
                 source_result.clone(),
                 target_result.clone(),
                 span,
+                origin,
             )?;
             return Some(InferredExpr {
                 kind: InferredExprKind::Lambda {
@@ -243,7 +302,7 @@ impl Checker {
                 span,
             });
         }
-        Some(self.apply_newtype_coercion(value, source, target, span))
+        Some(self.apply_newtype_coercion(value, source, target, span, origin))
     }
 
     fn apply_newtype_coercion(
@@ -252,20 +311,14 @@ impl Checker {
         source: InferType,
         target: InferType,
         span: TextRange,
+        origin: thir::UncheckedCoercionOrigin,
     ) -> InferredExpr {
-        let constraint = ClassConstraint {
-            class_id: hir::TypeId::COERCIBLE,
-            arguments: vec![source.clone(), target.clone()],
-            span,
-        };
-        let dictionary_type = self.dictionary_type(&constraint);
-        let wanted = self.push_wanted(constraint, dictionary_type);
         let function_type = arrow(source.clone(), target.clone());
         let function = InferredExpr {
-            kind: InferredExprKind::CoerceFunction {
-                wanted,
+            kind: InferredExprKind::UnsafeCoerceFunction {
                 source,
                 target: target.clone(),
+                origin,
             },
             ty: function_type,
             span,
@@ -309,4 +362,18 @@ fn strip_newtype_arguments(
         ty = *function;
     }
     Some(ty)
+}
+
+fn leading_forall_variables(ty: &InferType, variables: &mut Vec<u32>) {
+    match ty {
+        InferType::ForAll {
+            variables: binders,
+            body,
+        } => {
+            variables.extend(binders);
+            leading_forall_variables(body, variables);
+        }
+        InferType::Constrained { body, .. } => leading_forall_variables(body, variables),
+        _ => {}
+    }
 }

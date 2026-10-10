@@ -90,6 +90,129 @@ main = let ignored = runEffect checks in 0
 }
 
 #[test]
+fn formatter_plan_records_the_pinned_runtime_artifact_digests() {
+    let source = r#"
+module Main where
+
+import Prelude
+import Effect.Console (log)
+
+main = let ignored = log (show 1.0e21) in 0
+"#;
+    let report = compile_program_sources_with_prelude_diagnosis(&[("Main.purs", source)], false);
+    assert!(
+        report.artifact.is_some(),
+        "show should compile: {:?}",
+        report.diagnostics
+    );
+    let trace = report.backend_trace.expect("backend pass trace");
+    let plan = trace
+        .executions
+        .iter()
+        .find(|execution| execution.pass_key == "backend.target.plan")
+        .expect("the checked plan is an observed execution");
+    let parameter = |key: &str| {
+        plan.parameters
+            .iter()
+            .find(|parameter| parameter.key == key)
+            .map(|parameter| parameter.value.as_str())
+    };
+    assert_eq!(parameter("artifacts"), Some("2"));
+    let digests = parameter("artifact_digests").expect("artifact digests are recorded");
+    assert!(digests.contains("psrs:runtime-number"), "{digests}");
+    assert!(digests.contains("psrs:runtime-allocator"), "{digests}");
+    assert!(
+        digests.contains("a6f556d0151e8c474c495ad4488b9a23d67bb105dda2dc84eff17eaba70bbf19"),
+        "{digests}"
+    );
+    assert!(
+        digests.contains("458a7df7eb27038c4d6b22aa52fc8ea283c6dca41120b0c0bf31f6a851aa0260"),
+        "{digests}"
+    );
+    assert!(
+        parameter("selected_providers")
+            .expect("selected providers are recorded")
+            .contains("NumberToString"),
+    );
+}
+
+#[test]
+fn show_covers_number_and_aggregate_boundaries() {
+    let source = r#"
+module Main where
+
+import Prelude
+import Effect.Console (log)
+
+checks :: Effect Unit
+checks = do
+  log (show (0.0 / 0.0))
+  log (show (1.0 / 0.0))
+  log (show ((0.0 - 1.0) / 0.0))
+  log (show (numberNeg 0.0))
+  log (show 1.0e-6)
+  log (show 1.0e-7)
+  log (show 1.0e20)
+  log (show 5.0e-324)
+  log (show ([] :: Array Int))
+  log (show [[1, 2], [3]])
+  pure unit
+
+main = let ignored = runEffect checks in 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = concat!(
+        "NaN\n",
+        "Infinity\n",
+        "-Infinity\n",
+        "0.0\n",
+        "0.000001\n",
+        "1e-7\n",
+        "100000000000000000000.0\n",
+        "5e-324\n",
+        "[]\n",
+        "[[1,2],[3]]\n",
+    );
+    assert_eq!(
+        stdout.as_ref(),
+        expected,
+        "stdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn formats_many_numbers_without_exhausting_the_runtime_stack() {
+    // The formatter is nonrecursive; a large array of numbers calls its raw
+    // export once per element through the same private stack region.
+    let mut elements = String::new();
+    for index in 0..64 {
+        if index > 0 {
+            elements.push(',');
+        }
+        elements.push_str(&format!("{index}.5"));
+    }
+    let source = format!(
+        "module Main where\n\nimport Prelude\nimport Effect.Console (log)\n\nmain = let ignored = runEffect (log (show [{elements}])) in 0\n"
+    );
+    let Some(output) = run_with_wasmtime(&source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.starts_with("[0.5,1.5,") && stdout.ends_with("63.5]\n"),
+        "stdout should hold every formatted element: {stdout}"
+    );
+}
+
+#[test]
 fn a_type_without_show_is_rejected() {
     let source = r#"
 module Main where
@@ -109,4 +232,25 @@ main = show Box
             .any(|error| error.diagnostic.code == Some("NoInstanceFound")),
         "expected NoInstanceFound, got {errors:?}"
     );
+}
+
+#[test]
+fn retained_show_strings_survive_wasi_allocation_and_memory_growth() {
+    // The formatter's initial heap has one page. A 70,000-byte canonical
+    // random result must grow shared memory while the GC String stays live.
+    let source = r#"module Main where
+import Prelude
+import Effect.Console (log)
+import WASI.Random (randomBytes)
+main = let retained = show 1.0e21
+           first = runEffect (log retained)
+           large = runEffect (randomBytes 70000)
+           next = runEffect (log (show 5.0e-324))
+           last = runEffect (log retained)
+       in if arrayLength large == 70000 && retained == "1e+21" then 42 else 1
+"#;
+    let output = run_with_wasmtime(source).expect("Wasmtime required for growth evidence");
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+    assert_eq!(output.stdout, b"1e+21\n5e-324\n1e+21\n");
+    assert!(output.stderr.is_empty(), "{output:?}");
 }

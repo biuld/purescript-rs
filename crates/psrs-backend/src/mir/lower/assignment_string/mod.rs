@@ -278,7 +278,7 @@ impl FunctionLowerer<'_> {
         Ok(capacity)
     }
 
-    fn constant(
+    pub(super) fn constant(
         &mut self,
         block: BlockId,
         value: i32,

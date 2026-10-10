@@ -21,6 +21,9 @@ pub(super) fn inline_small_functions(module: &mut Module) -> bool {
 
     let mut changed = false;
     for caller in &mut module.functions {
+        if caller.state.is_some() {
+            continue;
+        }
         let mut next_id = caller
             .values
             .iter()
@@ -136,6 +139,9 @@ pub(super) fn inline_small_functions(module: &mut Module) -> bool {
 }
 
 fn is_candidate(function: &Function) -> bool {
+    if function.state.is_some() {
+        return false;
+    }
     if function.blocks.len() != 1 || !function.blocks[0].parameters.is_empty() {
         return false;
     }

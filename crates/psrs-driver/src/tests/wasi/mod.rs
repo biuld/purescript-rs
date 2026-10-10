@@ -2,6 +2,7 @@ use super::*;
 
 mod do_notation;
 mod filesystem;
+mod payloads;
 mod wat;
 mod where_clause;
 use wat::*;
@@ -427,59 +428,27 @@ fn rejects_an_import_of_unexported_exit_with_code_raw() {
     );
 }
 
-/// The library `exit-with-code` import sits in the effect closure, and
-/// `runEffect` reaches it with `call_ref`. A stored action must not
-/// `call_ref` from the entry. The synthesized command entry calls a separate
-/// `exit-with-code` import with `main`'s code; `imported_func` names the
-/// library import, which is emitted first.
+/// Source and command entry share one checked exit import. Stored actions do
+/// not invoke their closure; forced actions exit with their own observable code.
 #[test]
 fn stored_exit_with_code_leaves_exit_with_code_inside_the_effect_closure() {
-    let stored = "module Main where\n\
-        import WASI.Process\n\
-        main = let action = exitWithCode 0 in 0\n";
-    let forced = "module Main where\n\
-        import Prelude\n\
-        import WASI.Process\n\
-        main = let value = runEffect (exitWithCode 0) in 0\n";
-    let stored_wat = compile_source("Main.purs", stored)
-        .expect("a stored exitWithCode action should compile")
-        .wat;
-    let forced_wat = compile_source("Main.purs", forced)
-        .expect("runEffect (exitWithCode 0) should compile")
-        .wat;
-
-    let stored_core = core_main(&stored_wat);
-    let forced_core = core_main(&forced_wat);
-    let stored_import = imported_func(stored_core, "wasi:cli/exit@0.2.12", "exit-with-code");
-    let forced_import = imported_func(forced_core, "wasi:cli/exit@0.2.12", "exit-with-code");
-    let stored_entry = exported_func(stored_core, "wasi:cli/run@0.2.12#run");
-    let forced_entry = exported_func(forced_core, "wasi:cli/run@0.2.12#run");
-    let stored_funcs = core_functions(stored_core);
-    let forced_funcs = core_functions(forced_core);
-
-    let stored_from_entry = reachable_by_call(&stored_funcs, stored_entry);
-    assert!(
-        !calls_import(&stored_funcs, &stored_from_entry, stored_import),
-        "the command entry must not call the library exit-with-code when the action is not run"
-    );
-    assert!(
-        !has_call_ref(&stored_funcs, &stored_from_entry),
-        "storing the action must not run the effect"
-    );
-    assert!(
-        import_is_reached_only_from_a_closure(&stored_funcs, stored_entry, stored_import),
-        "exit-with-code must be inside the effect closure"
-    );
-
-    let forced_from_entry = reachable_by_call(&forced_funcs, forced_entry);
-    assert!(
-        has_call_ref(&forced_funcs, &forced_from_entry),
-        "runEffect must invoke the closure from the command entry"
-    );
-    assert!(
-        import_is_reached_only_from_a_closure(&forced_funcs, forced_entry, forced_import),
-        "runEffect still calls exit-with-code from the closure, not the entry"
-    );
+    let stored =
+        "module Main where\nimport WASI.Process\nmain = let action = exitWithCode 99 in 0\n";
+    let forced = "module Main where\nimport Prelude\nimport WASI.Process\nmain = let value = runEffect (exitWithCode 99) in 0\n";
+    for (source, invokes_action, expected_exit) in [(stored, false, 0), (forced, true, 99)] {
+        let artifact = compile_source("Main.purs", source).expect("exit action should compile");
+        let core = core_main(&artifact.wat);
+        let entry = exported_func(core, "wasi:cli/run@0.2.12#run");
+        let functions = core_functions(core);
+        let reachable = reachable_by_call(&functions, entry);
+        assert_eq!(has_call_ref(&functions, &reachable), invokes_action);
+        // Source and synthesized command exit share one checked import. Values
+        // distinguish forcing the stored action from normal command completion.
+        let output = run_with_wasmtime(source).expect("Wasmtime required for exit sequencing");
+        assert_eq!(output.status.code(), Some(expected_exit), "{output:?}");
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty(), "{output:?}");
+    }
 }
 
 #[test]

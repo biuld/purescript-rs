@@ -1,3 +1,4 @@
+use crate::boundary::BoundaryEvidence;
 use crate::cc::lower::{FunctionLowerer, GeneratedSymbolAllocator};
 use crate::cc::{AssignmentKind, Function, RepresentationTable, ValueDecl, ValueShape};
 use psrs_core::{
@@ -115,6 +116,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
     let function_types = HashMap::new();
     let function_wrappers = HashMap::new();
     let generated_symbols = Rc::new(RefCell::new(GeneratedSymbolAllocator::new(&module)));
+    let boundary = BoundaryEvidence::empty(&module);
     let mut lowerer = FunctionLowerer {
         next_value: 1,
         values: vec![ValueDecl {
@@ -125,6 +127,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
         signatures: &signatures,
         representations: &representations,
         module: &module,
+        boundary: &boundary,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,

@@ -7,6 +7,17 @@
 
 ## Scope
 
+The proposed [target linker](linking-and-runtime.md) owns artifact providers,
+dependency closure, storage, and composition schedules. This document owns the
+WASI command world and service policy. Private runtime imports must be closed
+inside the final component; only permitted residual host interfaces appear in
+its external world. General guest WIT provider composition is not yet supported.
+
+Pinned WIT dependencies and the default command-world source are planned runtime
+package assets. `psrs-linker` resolves them, and the backend supplies its target
+capability policy and checked canonical call requirements;
+catalog ownership does not make `psrs-runtime` the implementation of WASI.
+
 This document owns the artifact shape, the application world, componentization
 with `wit-component`, the enabled WASI services, and validation and execution of
 the component. It does not own canonical ABI adaptation and call lowering
@@ -86,12 +97,11 @@ world command {
 `wasi:io/streams` transitively pulls in the support interfaces
 `wasi:io/error@0.2.12` and `wasi:io/poll@0.2.12`. The `wasi:cli` terminal and
 `sockets/ip-name-lookup` interfaces are accepted but not wrapped by the platform
-library. `component.rs` records the
-full resolved set in `COMPONENT_INTERFACES`, next to the world, so ABI discovery
-and component encoding share one contract; a test asserts the resolved world
-matches that list exactly and imports only named interfaces. The vendored WASI
-0.2.12 WIT is loaded in dependency order by `load_vendored_wasi`, and
-`command_world` resolves `psrs:app` against it.
+library. The `psrs-linker` resolved default world records the full set, and the
+backend derives the permitted interface set from it, so ABI discovery and
+component encoding share one contract; a test asserts the resolved world imports
+only named interfaces. The pinned WASI 0.2.12 WIT is loaded from the
+`psrs-runtime` catalog by `psrs-linker::resolve_default_definitions`.
 
 ### Enabled services
 
@@ -128,7 +138,7 @@ wrapper owns the corpus-facing name.
 | `Data.Function` | `apply`, `applyFlipped`, `const`, `flip`, `on`, `$`, `#` | nothing: it is the definition site, and `$`/`#` are its fixity aliases | FE-05 |
 | `Data.Semigroup` | `class Semigroup`, `append`, `<>` | nothing: it is the definition site for the class, and `append` for `String` is built from the compiler's `stringToBytes` / `arrayAppend` / `bytesToString`; `append` for `Array a` is `arrayAppend` | FE-14, BE-10 |
 | `Data.Monoid` | `class Monoid`, `mempty` | `Data.Semigroup`; `String`, `Unit`, and `Array a` identities | FE-14 |
-| `Data.Foldable` | `class Foldable`, `foldr`, `foldl`, `foldMap` | `Data.Monoid` and the array index primitives; `Array`, `Maybe`, and `Either a` instances | FE-14, FE-16 |
+| `Data.Foldable` | `class Foldable`, `foldr`, `foldl`, `foldMap` | `Data.Monoid` and the array index primitives; `Array`, `Maybe`, and `Either a` instances | FE-14 |
 | `Data.Tuple` | `Tuple`, `fst`, `snd`, `curry`, `uncurry`, `swap` | the closed record `{ _1 :: a, _2 :: b }` that FE-06 already lowers a tuple to; `type Tuple a b` is that record, not an algebraic `data Tuple a b = Tuple a b` | FE-06 |
 | `Effect` | re-exports the `Prelude` surface above | `Prelude` | FE-02 |
 | `Effect.Console` | `log`, `warn`, `error`, `logShow` | `WASI.Console`, and the library `Data.Show.show` for `logShow` | BE-21 |
@@ -145,7 +155,7 @@ consolidated capability layout: `WASI.Resource`, `WASI.IO`, `WASI.Console`,
 
 | Feature | Owner | State |
 | --- | --- | --- |
-| On-disk `stdlib/lib` and the trusted prefix | WASI-10 | Done. The driver reads `stdlib/lib/trusted`. |
+| On-disk `psrs-stdlib/lib` and the trusted prefix | WASI-10 | Done. The driver reads `psrs-stdlib/lib/trusted`. |
 | Exported wrappers | This library, [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md) | Every service wrapper, plus the `WASI` umbrella. Raw imports stay unexported. |
 | `wasi:cli/exit.exit` (`status: result`) | Not wrapped | One canonical `i32`, and still not a library wrapper. See below. |
 | `Effect` as `foreign import data` | [Effects](../fp/effects.md) | Trusted library binding carries the resolved constructor and operation identities. Effect lowering turns applications into generic one-parameter closures, and import wrappers come only from plans formed from checked external schemes before `Effect` erasure. |
@@ -187,17 +197,18 @@ pruned so an unused service adds no import.
 
 ### Componentization
 
-`componentize(core, resolve, world)` embeds component metadata describing the
-world the core module implements, then encodes the component:
+`compose(context, plan, core)` embeds component metadata describing the
+world the core module implements, attaches the plan's verified libraries, then
+encodes the component:
 
 ```text
-componentize(core, resolve, world):
+compose(context, plan, core):
     bytes = core
-    embed_component_metadata(bytes, resolve, world, StringEncoding::UTF8)
-    ComponentEncoder::default()
-        .module(bytes)?
-        .validate(true)
-        .encode()
+    embed_component_metadata(bytes, context.resolve(), context.world(), StringEncoding::UTF8)
+    encoder = ComponentEncoder::default().module(bytes)?
+    for artifact in plan.artifacts():
+        encoder = encoder.library(artifact.module_name, artifact.bytes, ...)?
+    encoder.validate(true).encode()
 ```
 
 `embed_component_metadata` records how the core module's `(module, field)`
@@ -232,8 +243,8 @@ observes the trailing constant, which exists to give the entry its declared
 
 ### The platform library
 
-The platform library is source code under `stdlib/lib`, read from disk and
-resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
+The platform library is source code under `psrs-stdlib/lib`, read from disk and
+resolved, type-checked, and linked like any module. `psrs-stdlib/lib/trusted` fixes
 the trusted prefix order (`Prelude`, `Data.Function`, `Data.Semigroup`,
 `Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, `WASI`). `Data.Function`
 declares the application operators and their fixities; `Data.Semigroup`
@@ -293,11 +304,12 @@ that contract into the component world.
 ```text
 compile(program, target):
     cc            = lower Typed Core to CC with ExternalBindings
-    (mir, wasi)   = lower CC to MIR, resolving and validating WIT bindings
+    context       = psrs_linker::resolve_default_definitions()
+    (mir, wasi)   = lower CC to MIR over context's shared resolve
     wasm          = structure MIR, synthesize the run entry, allocate indices
     core          = encode_module(wasm)
-    (resolve, w)  = command_world()
-    component     = componentize(core, resolve, w)
+    plan          = psrs_linker::plan(context, target requirements + artifacts)
+    component     = psrs_linker::compose(context, plan, core)
     validate_all(component) with features from `target`
     wat           = wasmprinter::print_bytes(component)
     return Artifact { wasm: component, wat }
@@ -338,11 +350,17 @@ representation the imports ride on stays in
 [effects](../fp/effects.md).
 
 ```text
-crates/psrs-backend/
+crates/psrs-runtime/
   wit/psrs-app.wit
   wit/deps/
-  src/
-    component.rs
+  artifact/psrs_runtime.wasm
+crates/psrs-linker/
+  definitions.rs   WIT loading and resolved-world context
+  plan.rs          provider closure, memory and initialization planning
+  verify/          artifact contracts and emitted-plan agreement
+  compose.rs       component assembly and final import closure
+crates/psrs-backend/src/
+    linking/         checked requirements and diagnostic mapping
     abi.rs
     abi/wasi.rs
     wasm/lower/mod.rs
@@ -353,20 +371,15 @@ crates/psrs-driver/src/wasi.rs
 
 Responsibilities and required entry points:
 
-- `component.rs` owns the application world and componentization. It must define
-  the `psrs:app` `command` world, the resolved interface set
-  `COMPONENT_INTERFACES`, the command entry name `RUN_CORE_EXPORT`, and the two
-  required entry points:
-  - `fn command_world() -> (Resolve, WorldId)`: load the vendored WASI 0.2.12
-    WIT in dependency order and resolve `psrs:app` against it.
-  - `fn componentize(core: &[u8], resolve: &Resolve, world: WorldId) -> Result<Vec<u8>>`:
-    embed component metadata with `StringEncoding::UTF8`, lift the core module's
-    imports and exports, and validate the encoded component. The enabled service
-    set is the `psrs-app` `command` world: `wasi:io/error`, `wasi:io/poll`,
-    `wasi:io/streams`, `wasi:clocks/monotonic-clock`, `wasi:clocks/wall-clock`,
-    `wasi:random/random`, `wasi:random/insecure`, `wasi:random/insecure-seed`,
-    `wasi:cli/environment`, `wasi:cli/exit`, `wasi:cli/stdin`,
-    `wasi:cli/stdout`, `wasi:cli/stderr`, `wasi:filesystem/types`,
+- `psrs-runtime/wit/` owns the `psrs:app` `command` world and the pinned WASI
+  0.2.12 WIT; `psrs-linker` resolves it and owns componentization. The backend
+  `linking` module supplies the target policy and checked requirements and maps
+  link failures to source diagnostics. The enabled service set is the
+  `psrs-app` `command` world: `wasi:io/error`, `wasi:io/poll`,
+  `wasi:io/streams`, `wasi:clocks/monotonic-clock`, `wasi:clocks/wall-clock`,
+  `wasi:random/random`, `wasi:random/insecure`, `wasi:random/insecure-seed`,
+  `wasi:cli/environment`, `wasi:cli/exit`, `wasi:cli/stdin`,
+  `wasi:cli/stdout`, `wasi:cli/stderr`, `wasi:filesystem/types`,
     `wasi:filesystem/preopens`, `wasi:sockets/network`,
     `wasi:sockets/instance-network`, `wasi:sockets/udp`,
     `wasi:sockets/udp-create-socket`, `wasi:sockets/tcp`, and
@@ -379,25 +392,27 @@ Responsibilities and required entry points:
   per-service host function.
 - `wasm/lower/mod.rs` must synthesize the `run` entry that calls `main`, passes
   the result to `wasi:cli/exit.exit-with-code`, and returns `0`.
-- `lib.rs` must own the build pipeline: lower to CC, lower to MIR, structure,
-  encode, call `command_world` and `componentize`, validate with the target's
-  features, and return the component and its WAT form.
+- `lib.rs` must own the build pipeline: lower to CC, lower to MIR over the
+  resolved-world context, structure, encode, build and check the target link
+  plan, compose, validate with the target's features, and return the component
+  and its WAT form.
 - The WASI library must be ordinary PureScript source resolved, type-checked,
-  and linked like any other module. The driver loads it from `stdlib/lib`
+  and linked like any other module. The driver loads it from `psrs-stdlib/lib`
   rather than embedding it, and defines `log`, `error`, `now`, `randomBytes`,
   `randomU64`, `exitWithCode`, and `arguments` over WIT imports; the portable
   `Prelude` must
   not import WASI.
 - `psrs-cli/src/main.rs` must expose `psrs build`, `psrs wat`, and `psrs dump`.
-- `wit/psrs-app.wit` and `wit/deps/` own the vendored WASI 0.2.12 WIT sources.
+- `psrs-runtime/wit/psrs-app.wit` and `psrs-runtime/wit/deps/` own the pinned
+  WASI 0.2.12 WIT sources.
 
 ## Invariants and verification
 
 The component test suite checks that the resolved application world imports
-exactly `COMPONENT_INTERFACES` and only named interfaces, that a minimal core
-module componentizes and validates, and, when `wasmtime` is available, that
-`wasmtime run` executes the component. The build pipeline validates the encoded
-component with the profile's features before returning it
+only named interfaces, that a minimal core module composes and validates, and,
+when `wasmtime` is available, that `wasmtime run` executes the component. The
+build pipeline validates the encoded component with the profile's features
+before returning it
 ([capability profile](capability-profile.md)). Observable behavior is checked by
 execution tests that run the component under the pinned runtime and compare
 standard output and the process exit code; structural validation alone is not
@@ -413,7 +428,7 @@ produces the Canonical ABI call shown in
 [canonical ABI and WIT](canonical-abi-and-wit.md), and the string literal lives
 in a data segment ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
 The generated command wrapper runs the selected action once and returns zero.
-`componentize` lifts the core module: the component imports
+`compose` lifts the core module: the component imports
 `wasi:cli/stdout@0.2.12` and `wasi:io/streams@0.2.12` (plus their support
 interfaces) and exports `wasi:cli/run@0.2.12`. `wasmtime run hello.wasm` calls
 `run`, which writes `hello\n` and exits successfully.
@@ -425,8 +440,8 @@ interfaces) and exports `wasi:cli/run@0.2.12`. `wasmtime run hello.wasm` calls
 - **Output:** a validated component artifact and its WAT form.
 - **To the ABI layer:** the world and the interface set it may import; a service
   outside the world is rejected before MIR emits a call.
-- **To the driver:** `command_world` and `componentize`; the CLI writes the
-  artifact and the WAT form.
+- **To the driver:** the compiled component artifact; the CLI writes the
+  artifact and the WAT form. WIT loading and composition live in `psrs-linker`.
 
 ## Open questions and future work
 
@@ -449,7 +464,7 @@ wrapped. `WASI.Process.arguments` and `WASI.Process.environment` wrap
 with execution tests. `WASI.Network` wraps the socket services and lowers; it
 has no execution test, and HTTP/TLS are not implemented, so their capability
 flags stay disabled in the default profile. The standard library is read from
-`stdlib/lib` at runtime (`stdlib/lib/trusted` lists `Prelude`, `Data.Function`,
+`psrs-stdlib/lib` at runtime (`psrs-stdlib/lib/trusted` lists `Prelude`, `Data.Function`,
 `Data.Semigroup`, `Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, and `WASI` in
 trusted-prefix order). The driver discovers user modules from the entry files'
 directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`

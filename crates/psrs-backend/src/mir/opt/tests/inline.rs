@@ -5,6 +5,7 @@ fn inlines_small_direct_functions_and_folds_the_result() {
     let caller_symbol = SymbolId::new(ModuleId(0), 0);
     let callee_symbol = SymbolId::new(ModuleId(0), 1);
     let caller = Function {
+        state: None,
         id: FunctionId(0),
         symbol: caller_symbol,
         name: "main".into(),
@@ -37,6 +38,7 @@ fn inlines_small_direct_functions_and_folds_the_result() {
         span: span(),
     };
     let callee = Function {
+        state: None,
         id: FunctionId(1),
         symbol: callee_symbol,
         name: "increment".into(),
@@ -106,6 +108,7 @@ fn inlining_uses_the_callee_function_result_value() {
     let caller_symbol = SymbolId::new(ModuleId(0), 0);
     let callee_symbol = SymbolId::new(ModuleId(0), 1);
     let caller = Function {
+        state: None,
         id: FunctionId(0),
         symbol: caller_symbol,
         name: "main".into(),
@@ -131,6 +134,7 @@ fn inlining_uses_the_callee_function_result_value() {
         span: span(),
     };
     let callee = Function {
+        state: None,
         id: FunctionId(1),
         symbol: callee_symbol,
         name: "different_result_values".into(),

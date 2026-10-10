@@ -25,7 +25,7 @@ pub struct LocalBinding {
     pub span: TextRange,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Eq)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: TextRange,
@@ -41,6 +41,10 @@ pub enum ExprKind {
     Char(char),
     Array(Vec<Expr>),
     Record(Vec<(String, Expr)>),
+    /// An ordered product of independent match scrutinees. Unlike a source
+    /// record literal, its fields retain polymorphism until pattern checking.
+    /// P5 checks the fields and converts the product to an ordinary typed record.
+    MatchProduct(Vec<(String, Expr)>),
     RecordUpdate {
         expression: Box<Expr>,
         fields: Vec<(String, Expr)>,
@@ -108,9 +112,38 @@ pub enum ExprKind {
     Guarded(Vec<GuardedExpr>),
 }
 
+impl Clone for Expr {
+    fn clone(&self) -> Self {
+        psrs_span::with_sufficient_stack(|| clone_expr(self))
+    }
+}
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        psrs_span::with_sufficient_stack(|| expr_eq(self, other))
+    }
+}
+
+#[inline(never)]
+fn clone_expr(expression: &Expr) -> Expr {
+    Expr {
+        kind: expression.kind.clone(),
+        span: expression.span,
+    }
+}
+
+#[inline(never)]
+fn expr_eq(left: &Expr, right: &Expr) -> bool {
+    left.span == right.span && left.kind == right.kind
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedOperator {
     pub symbol: SymbolId,
+    /// A backticked value in scope, such as `` `f` ``. The CST grammar binds
+    /// that form tighter than every symbolic operator. `symbol` is unused
+    /// when this is set.
+    pub local: Option<LocalId>,
     pub operator_span: TextRange,
     pub associativity: Associativity,
     pub precedence: u32,
@@ -140,6 +173,9 @@ pub enum CaseBranchCoverage {
     Guarded,
     /// A generated fallthrough or guard test is excluded from diagnostics.
     Generated,
+    /// A checked explicit `Partial` scope authorizes this generated trap
+    /// fallback. Source syntax and desugaring never produce this marker.
+    PartialFallback,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

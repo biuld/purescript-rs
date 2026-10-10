@@ -4,11 +4,12 @@ use psrs_hir::{ExternalKind, ExternalSymbol, Intrinsic};
 ///
 /// The name, arity, category, and type of each intrinsic come from its
 /// descriptor in `psrs-hir`, so this table is not a second source of truth.
-/// `Intrinsic::ALL` is kept exact by a compile-time assertion, so every variant
-/// is bootstrapped.
+/// `Intrinsic::ALL` is kept exact by a compile-time assertion. Binding-only
+/// operations are resolved from explicit primitive bindings, not exposed here.
 pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
     Intrinsic::ALL
         .into_iter()
+        .filter(|intrinsic| intrinsic.is_bootstrap())
         .map(|intrinsic| {
             let descriptor = intrinsic.descriptor();
             ExternalSymbol {

@@ -3,6 +3,23 @@ use crate::{add_layout, lex};
 use psrs_cst::{Declaration, ExprKind, PatternKind, TypeExprKind, ValueRhs};
 use psrs_span::SourceFile;
 
+#[test]
+fn parses_qualified_symbolic_operators_with_symbolic_dots_and_sections() {
+    let module = parse("module Main where\na = 2 A... 5\nb = 4 Foo.Bar.-#- 10\nc = (_ A.!! 1)\nd = (2 A.: _)\ne = A.(..) 2 5\nf = A.(:) 2 []\n").unwrap();
+    for (declaration, expected) in module.declarations[..2].iter().zip(["A...", "Foo.Bar.-#-"]) {
+        let ExprKind::Operator { operator, .. } = &plain_value(as_value(declaration)).kind else {
+            panic!("expected qualified infix operator");
+        };
+        assert_eq!(operator.text, expected);
+    }
+    for declaration in &module.declarations[2..4] {
+        assert!(matches!(
+            plain_value(as_value(declaration)).kind,
+            ExprKind::OperatorSection { .. }
+        ));
+    }
+}
+
 fn parse(source: &str) -> Result<Module, ParseError> {
     let source_file = SourceFile::new("test.purs", source);
     let (tokens, errors) = lex(source);
@@ -77,6 +94,16 @@ fn parses_lambdas_conditionals_and_operator_precedence() {
 }
 
 #[test]
+fn parses_a_qualified_name_between_backticks_as_one_operator() {
+    let module = parse("module Main where\nzip xs ys = xs `A.zip` ys\n").unwrap();
+    let ExprKind::Operator { operator, .. } = &plain_value(as_value(&module.declarations[0])).kind
+    else {
+        panic!("expected an infix operator");
+    };
+    assert_eq!(operator.text, "A.zip");
+}
+
+#[test]
 fn distinguishes_parenthesized_negation_from_explicit_operator_sections() {
     let module = parse(
         "module Main where\nnegative = (-5)\nnegativeVariable x = (-x)\nsubtractOne = (_ - 1)\naddOne = (1 + _)\n",
@@ -127,6 +154,23 @@ fn distinguishes_lowercase_record_fields_from_uppercase_qualified_values() {
 
     let qualified = plain_value(as_value(&module.declarations[1]));
     assert!(matches!(&qualified.kind, ExprKind::Name(name) if name.text == "Data.Array.map"));
+}
+
+#[test]
+fn parses_anonymous_record_field_accessors() {
+    let module = parse("module Main where\nproject = _.value.nested\n").unwrap();
+    let accessor = plain_value(as_value(&module.declarations[0]));
+    let ExprKind::RecordAccessor {
+        marker_span,
+        fields,
+    } = &accessor.kind
+    else {
+        panic!("expected `_ .field` to have its own CST node");
+    };
+    assert_eq!(marker_span, &TextRange::new(28, 29));
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].field.text, "value");
+    assert_eq!(fields[1].field.text, "nested");
 }
 
 #[test]
@@ -219,6 +263,18 @@ fn parses_forall_with_multiple_variables() {
             .collect::<Vec<_>>(),
         ["a", "b"]
     );
+}
+
+#[test]
+fn parses_empty_parentheses_as_an_empty_row_type() {
+    let module = parse("module Main where\ntype Empty = ()\n").unwrap();
+    let Declaration::TypeSynonym(declaration) = &module.declarations[0] else {
+        panic!("expected a type synonym");
+    };
+    assert!(matches!(
+        &declaration.body.kind,
+        TypeExprKind::Row { fields, tail: None, .. } if fields.is_empty()
+    ));
 }
 
 #[test]
@@ -385,4 +441,39 @@ fn keeps_a_deeper_indented_minus_in_a_case_rhs_as_an_operator() {
         panic!("expected a plain case alternative");
     };
     assert!(matches!(&value.kind, ExprKind::Operator { operator, .. } if operator.text == "-"));
+}
+
+#[test]
+fn record_projection_and_update_bind_before_value_application() {
+    let module = parse(
+        "module Main where\nproject r = consume r.value\nupdate r = consume r { value = 42 }\n",
+    )
+    .unwrap();
+    for (index, projection) in [(0, true), (1, false)] {
+        let expression = plain_value(as_value(&module.declarations[index]));
+        let ExprKind::Application(function, argument) = &expression.kind else {
+            panic!("record postfix must belong to the argument: {expression:?}");
+        };
+        assert!(matches!(&function.kind, ExprKind::Name(name) if name.text == "consume"));
+        if projection {
+            assert!(
+                matches!(&argument.kind, ExprKind::FieldAccess { expression, .. } if matches!(&expression.kind, ExprKind::Name(name) if name.text == "r"))
+            );
+        } else {
+            assert!(
+                matches!(&argument.kind, ExprKind::RecordUpdate { expression, .. } if matches!(&expression.kind, ExprKind::Name(name) if name.text == "r"))
+            );
+        }
+    }
+}
+
+#[test]
+fn empty_braces_are_a_record_argument() {
+    let module = parse("module Main where\nforce action = action {}\n").unwrap();
+    let expression = plain_value(as_value(&module.declarations[0]));
+    let ExprKind::Application(function, argument) = &expression.kind else {
+        panic!("expected an application: {expression:?}");
+    };
+    assert!(matches!(&function.kind, ExprKind::Name(name) if name.text == "action"));
+    assert!(matches!(&argument.kind, ExprKind::Record { fields, .. } if fields.is_empty()));
 }

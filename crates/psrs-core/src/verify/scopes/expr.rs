@@ -9,6 +9,15 @@ pub(super) fn scoped_expr(
     scope: &mut HashSet<TypeVariableId>,
     errors: &mut Vec<VerifyError>,
 ) {
+    psrs_span::with_sufficient_stack(|| scoped_expr_inner(expression, module, scope, errors))
+}
+
+fn scoped_expr_inner(
+    expression: &Expr,
+    module: &Module,
+    scope: &mut HashSet<TypeVariableId>,
+    errors: &mut Vec<VerifyError>,
+) {
     scoped_type(
         expression.ty,
         module,
@@ -27,10 +36,16 @@ pub(super) fn scoped_expr(
         | ExprKind::Char(_) => {}
         // Both are leaves: their type is already checked by the expression
         // check, and neither mentions a binder.
-        ExprKind::Unit | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
         ExprKind::Constructor { arguments, .. } => {
+            // Constructor lowering collapses a THIR application spine. Its
+            // result quantifiers still bind the corresponding free variables
+            // in instantiated constructor fields, just as for Application.
+            let binders = leading_foralls(module, expression.ty);
             for argument in arguments {
-                scoped_expr(argument, module, scope, errors);
+                let mut argument_scope = scope.clone();
+                open_child_binders(argument, &binders, module, &mut argument_scope, errors);
+                scoped_expr(argument, module, &mut argument_scope, errors);
             }
         }
         ExprKind::IntrinsicCall { arguments, .. } => {
@@ -39,13 +54,24 @@ pub(super) fn scoped_expr(
             }
         }
         ExprKind::Array { elements } => {
+            let binders = leading_foralls(module, expression.ty);
             for element in elements {
-                scoped_expr(element, module, scope, errors);
+                let mut element_scope = scope.clone();
+                open_child_binders(element, &binders, module, &mut element_scope, errors);
+                scoped_expr(element, module, &mut element_scope, errors);
             }
         }
         ExprKind::Record { fields } => {
-            for (_, value) in fields {
-                scoped_expr(value, module, scope, errors);
+            let field_types = module.record_fields(expression.ty).unwrap_or_default();
+            for (label, value) in fields {
+                let binders = field_types
+                    .iter()
+                    .find(|(field_label, _)| field_label == label)
+                    .map(|(_, ty)| leading_foralls(module, *ty))
+                    .unwrap_or_default();
+                let mut field_scope = scope.clone();
+                open_child_binders(value, &binders, module, &mut field_scope, errors);
+                scoped_expr(value, module, &mut field_scope, errors);
             }
         }
         ExprKind::RecordUpdate { record, fields } => {
@@ -54,7 +80,12 @@ pub(super) fn scoped_expr(
                 scoped_expr(value, module, scope, errors);
             }
         }
-        ExprKind::FieldAccess { record, .. } => scoped_expr(record, module, scope, errors),
+        ExprKind::FieldAccess { record, .. } => {
+            let binders = leading_foralls(module, expression.ty);
+            let mut record_scope = scope.clone();
+            open_child_binders(record, &binders, module, &mut record_scope, errors);
+            scoped_expr(record, module, &mut record_scope, errors);
+        }
         ExprKind::RepresentationCast {
             value,
             source_type,
@@ -101,8 +132,10 @@ pub(super) fn scoped_expr(
             scoped_expr(body, module, &mut body_scope, errors);
         }
         ExprKind::Let { bindings, body } => {
+            let mut body_scope = scope.clone();
+            open_expression_binders(expression, module, &mut body_scope, errors);
             for binding in bindings {
-                let mut binding_scope = scope.clone();
+                let mut binding_scope = body_scope.clone();
                 enter(
                     &binding.quantified,
                     &mut binding_scope,
@@ -121,8 +154,6 @@ pub(super) fn scoped_expr(
                 );
                 scoped_expr(&binding.value, module, &mut binding_scope, errors);
             }
-            let mut body_scope = scope.clone();
-            open_expression_binders(expression, module, &mut body_scope, errors);
             scoped_expr(body, module, &mut body_scope, errors);
         }
         ExprKind::If {

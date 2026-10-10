@@ -7,13 +7,16 @@ use crate::types::{DataId, MemoryId};
 mod convert;
 mod encode;
 mod lower;
+mod type_contract;
 mod verify;
 
 #[cfg(test)]
 mod tests;
 
 pub use encode::encode_module;
+pub(crate) use lower::lower_module_with_plan;
 pub use lower::{lower_module, lower_module_with_capabilities};
+pub(crate) use type_contract::raw_signature;
 
 /// Final index domains assigned by P10. These are deliberately distinct from
 /// MIR's module-local IDs and from one another; conversion to raw `u32` is
@@ -48,6 +51,8 @@ pub struct Global {
 pub enum GlobalInit {
     /// `ref.null` of the given heap type.
     RefNull(HeapType),
+    /// `i32.const`.
+    I32(u32),
 }
 
 /// A WebAssembly function signature in the thin Wasm IR.
@@ -79,6 +84,7 @@ pub struct Memory {
 pub enum ExportKind {
     Function,
     Memory,
+    Global,
 }
 
 /// An exported item.
@@ -95,6 +101,7 @@ pub struct Export {
 pub enum ExportIndex {
     Function(FunctionIndex),
     Memory(MemoryIndex),
+    Global(GlobalIndex),
 }
 
 /// A structured function body.

@@ -44,6 +44,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
         | I::ArrayNewData { .. }
         | I::ArrayNewDefault { .. }
         | I::ArrayNewSized { .. }
+        | I::ArrayNewFilled { .. }
         | I::ArrayGet { .. }
         | I::ArrayGetU { .. }
         | I::ArrayClone { .. }
@@ -66,6 +67,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
                     | I::ArrayNewData { .. }
                     | I::ArrayNewDefault { .. }
                     | I::ArrayNewSized { .. }
+                    | I::ArrayNewFilled { .. }
                     | I::ArrayClone { .. }
             ),
             ..InstructionEffects::default()

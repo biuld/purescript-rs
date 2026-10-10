@@ -257,25 +257,12 @@ fn compute_dominators(
 }
 
 fn terminator_successors(terminator: &Terminator) -> Vec<BlockId> {
-    match terminator {
-        Terminator::Return { .. } => Vec::new(),
-        Terminator::Jump { target, .. } => vec![*target],
-        Terminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
-        Terminator::Switch { cases, default, .. } => cases
-            .iter()
-            .map(|(_, block)| *block)
-            .chain(std::iter::once(*default))
-            .collect(),
-        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
-    }
+    crate::mir::cfg::successors(terminator)
 }
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
+        Terminator::Trap { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
@@ -293,7 +280,8 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
 
 fn terminator_span(terminator: &Terminator) -> psrs_span::TextRange {
     match terminator {
-        Terminator::Return { span, .. }
+        Terminator::Trap { span }
+        | Terminator::Return { span, .. }
         | Terminator::Jump { span, .. }
         | Terminator::Branch { span, .. }
         | Terminator::Switch { span, .. }
@@ -311,6 +299,7 @@ fn verify_terminator(
     defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
     match terminator {
+        Terminator::Trap { .. } => {}
         Terminator::Return { value, span } => {
             if require_value(definitions, *value, *span)? != function.result_type {
                 return Err(mir_error(*span, "MIR return value has the wrong type"));

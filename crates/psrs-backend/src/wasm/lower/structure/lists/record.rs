@@ -37,7 +37,7 @@ impl Structurer<'_> {
         for (field, (field_offset, _)) in canonical_fields.iter().zip(&layouts) {
             let label = abi::source_field_name(&field.name);
             let index = label_index(labels, &label, span)?;
-            let guest = self.resolve_guest(shapes[index as usize].stored, span)?;
+            let guest = self.resolve_field(&shapes[index as usize], span)?;
             let mut nested = path.to_vec();
             nested.push(Projection::Field {
                 ty: repr_index,
@@ -83,7 +83,7 @@ impl Structurer<'_> {
                 .position(|field| &abi::source_field_name(&field.name) == label)
                 .ok_or_else(|| wasm_error(span, "canonical record element has no field"))?;
             let field_offset = layouts[canonical_index].0;
-            let guest = self.resolve_guest(shape.stored, span)?;
+            let guest = self.resolve_field(shape, span)?;
             self.emit_load_node(
                 body,
                 context,

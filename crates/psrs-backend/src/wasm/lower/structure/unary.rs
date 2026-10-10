@@ -23,9 +23,29 @@ impl Structurer<'_> {
                 body.push(Op::Leaf(Instruction::I32Const(-1)));
                 body.push(Op::Leaf(Instruction::I32Xor));
             }
+            UnaryOp::F64Abs => {
+                body.push(Op::Leaf(Instruction::LocalGet(value_local)));
+                body.push(Op::Leaf(Instruction::F64Abs));
+            }
+            UnaryOp::F64Sqrt => {
+                body.push(Op::Leaf(Instruction::LocalGet(value_local)));
+                body.push(Op::Leaf(Instruction::F64Sqrt));
+            }
             UnaryOp::F64Neg => {
                 body.push(Op::Leaf(Instruction::LocalGet(value_local)));
                 body.push(Op::Leaf(Instruction::F64Neg));
+            }
+            UnaryOp::F64Trunc => {
+                body.push(Op::Leaf(Instruction::LocalGet(value_local)));
+                body.push(Op::Leaf(Instruction::F64Trunc));
+            }
+            UnaryOp::F64Floor => {
+                body.push(Op::Leaf(Instruction::LocalGet(value_local)));
+                body.push(Op::Leaf(Instruction::F64Floor));
+            }
+            UnaryOp::F64Ceil => {
+                body.push(Op::Leaf(Instruction::LocalGet(value_local)));
+                body.push(Op::Leaf(Instruction::F64Ceil));
             }
             UnaryOp::BoolNot => {
                 body.push(Op::Leaf(Instruction::LocalGet(value_local)));

@@ -30,6 +30,20 @@ pub(crate) fn resolve_ast_module(
             ));
         }
     }
+    // Foreign values share the ordinary value namespace and may be named by a
+    // fixity declaration before their signatures are resolved.
+    for (index, foreign) in module.foreign_imports.iter().enumerate() {
+        if globals
+            .insert(foreign.name.text.clone(), foreign_symbol(module_id, index))
+            .is_some()
+        {
+            errors.push(ResolveError::named(
+                ResolveErrorKind::DuplicateDeclaration,
+                foreign.name.text.clone(),
+                foreign.name.span,
+            ));
+        }
+    }
 
     let mut type_declarations = module.type_declarations;
     let role_declarations: HashMap<String, ast::RoleDeclaration> = module
@@ -47,12 +61,14 @@ pub(crate) fn resolve_ast_module(
 
     let mut external_globals = HashMap::new();
     for external in &inputs.externals {
-        // `coerce` and `undefined` are reached through their virtual module
-        // interfaces, not as free names, so their bootstrap spellings stay out
-        // of the value namespace.
+        // `coerce`, `unsafeCoerce`, and `undefined` are reached through their
+        // virtual module interfaces, not as free names, so their bootstrap
+        // spellings stay out of the value namespace.
         if matches!(
             &external.kind,
-            ExternalKind::Intrinsic(hir::Intrinsic::Coerce | hir::Intrinsic::Undefined)
+            ExternalKind::Intrinsic(
+                hir::Intrinsic::Coerce | hir::Intrinsic::UnsafeCoerce | hir::Intrinsic::Undefined
+            )
         ) {
             continue;
         }
@@ -82,24 +98,50 @@ pub(crate) fn resolve_ast_module(
     resolver.opaque_types.extend(opaque_types);
     resolver.note_imported_opaque_types();
 
-    // A `foreign import` declares an external value whose type and WIT binding
+    // A `foreign import` declares an external value whose type and target binding
     // come from source. Resolve its annotation first so expressions can refer
     // to it by name.
     for (index, foreign) in module.foreign_imports.iter().enumerate() {
-        let binding = foreign
-            .binding
-            .split_once('#')
-            .filter(|(interface, function)| !interface.is_empty() && !function.is_empty());
-        let Some((interface, function)) = binding else {
-            resolver.errors.push(ResolveError {
-                kind: ResolveErrorKind::InvalidHir,
-                span: foreign.span,
-                message: format!(
-                    "`{}` is not a `\"<interface>#<function>\"` WIT binding",
-                    foreign.binding
-                ),
-            });
-            continue;
+        let kind = match &foreign.binding {
+            None => ExternalKind::Library {
+                module: module.name.text.clone(),
+            },
+            Some(binding) => {
+                let Some((interface, function)) = binding
+                    .split_once('#')
+                    .filter(|(interface, function)| !interface.is_empty() && !function.is_empty())
+                else {
+                    resolver.errors.push(ResolveError {
+                        kind: ResolveErrorKind::InvalidHir,
+                        span: foreign.span,
+                        message: format!(
+                            "`{binding}` is not a `\"<interface>#<function>\"` WIT binding"
+                        ),
+                    });
+                    continue;
+                };
+                if interface == "psrs:intrinsic" {
+                    let Some(intrinsic) = hir::Intrinsic::from_binding(function) else {
+                        resolver.errors.push(ResolveError {
+                            kind: ResolveErrorKind::InvalidHir,
+                            span: foreign.span,
+                            message: format!("unknown primitive binding `{function}`"),
+                        });
+                        continue;
+                    };
+                    ExternalKind::Primitive(intrinsic)
+                } else if interface.starts_with("psrs:runtime-") {
+                    ExternalKind::Runtime {
+                        module: interface.into(),
+                        function: function.into(),
+                    }
+                } else {
+                    ExternalKind::Wit {
+                        interface: interface.into(),
+                        function: function.into(),
+                    }
+                }
+            }
         };
         let Some(signature) = resolver.resolve_type(foreign.annotation.clone()) else {
             continue;
@@ -111,10 +153,7 @@ pub(crate) fn resolve_ast_module(
             ExternalSymbol {
                 symbol,
                 name: foreign.name.text.clone(),
-                kind: ExternalKind::Wit {
-                    interface: interface.to_string(),
-                    function: function.to_string(),
-                },
+                kind,
                 signature: Some(signature),
             },
             foreign.name.span,
@@ -169,7 +208,21 @@ pub(crate) fn resolve_ast_module(
         .zip(plans)
         .filter_map(|(declaration, plan)| {
             let role = role_declarations.get(&declaration.name().text).cloned();
-            resolver.resolve_type_declaration(plan, declaration, role)
+            let mut declaration = resolver.resolve_type_declaration(plan, declaration, role)?;
+            // Bind canonical interface exports to the declaration's ordinary
+            // resolved identity. Type checking validates the interface contract.
+            declaration.compiler_class = hir::compiler_interface(&module.name.text)
+                .filter(|interface| {
+                    interface.implementation == hir::InterfaceImplementation::Source
+                })
+                .and_then(|interface| {
+                    interface
+                        .classes
+                        .iter()
+                        .find(|(name, _)| *name == declaration.name)
+                        .map(|(_, identity)| *identity)
+                });
+            Some(declaration)
         })
         .collect();
     let mut instance_names = HashSet::new();

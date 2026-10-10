@@ -1,3 +1,4 @@
+use crate::boundary::BoundaryEvidence;
 use crate::cc::lower::{FunctionLowerer, GeneratedSymbolAllocator};
 use crate::cc::{
     AssignmentKind, Function, RefShape, Reference, Representation, RepresentationTable, ValueDecl,
@@ -135,6 +136,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
         nullable: false,
         heap: RefShape::Repr(record_repr),
     });
+    let boundary = BoundaryEvidence::empty(&module);
     let mut lowerer = FunctionLowerer {
         next_value: 1,
         values: vec![ValueDecl {
@@ -145,6 +147,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
         signatures: &signatures,
         representations: &representations,
         module: &module,
+        boundary: &boundary,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,

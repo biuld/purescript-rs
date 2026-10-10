@@ -6,6 +6,21 @@ use psrs_core::{Module as CoreModule, TypeId as CoreTypeId};
 use psrs_hir::{ExternalKind, ModuleId, SymbolId};
 use std::collections::{HashMap, HashSet};
 
+mod primitives;
+mod runtime;
+pub(crate) use primitives::lower as lower_primitives;
+pub(crate) use runtime::call::{
+    canonical_signature as runtime_cc_signature, checked as checked_runtime_call,
+};
+pub use runtime::metadata::RuntimeBinding;
+pub(crate) use runtime::metadata::{
+    from_core as runtime_metadata_from_core, validate_core as validate_runtime_bindings,
+};
+pub(crate) use runtime::target::{
+    RawCallResult, error as runtime_projection_error, plan_import as plan_runtime_import,
+    verify_import as verify_runtime_import,
+};
+
 /// The complete input consumed by P9. Platform binding metadata is kept beside
 /// CC rather than embedded in the CC module itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,6 +33,7 @@ pub struct BackendInput {
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct ExternalBindings {
     pub imports: Vec<ExternalBinding>,
+    pub runtime: Vec<RuntimeBinding>,
 }
 
 impl ExternalBindings {
@@ -57,7 +73,10 @@ impl ExternalBindings {
                 })
             })
             .collect();
-        Self { imports }
+        Self {
+            imports,
+            runtime: runtime_metadata_from_core(module),
+        }
     }
 
     /// Resolves and validates every source WIT binding against the vendored WIT
@@ -118,6 +137,39 @@ impl ExternalBindings {
     /// cannot accidentally make a target binding disappear by supplying a
     /// partial table.
     pub(crate) fn validate_core(&self, module: &CoreModule) -> Result<(), Vec<BackendError>> {
+        validate_runtime_bindings(&self.runtime, module)?;
+        runtime::validate(module)?;
+        let unsupported = module
+            .externals
+            .iter()
+            .filter_map(|external| {
+                let ExternalKind::Library { module: owner } = &external.kind else {
+                    return None;
+                };
+                let mut error = BackendError::new(
+                    "P8 library linking",
+                    external
+                        .signature
+                        .as_ref()
+                        .map_or(module.span, |ty| ty.span),
+                    format!(
+                        "foreign value `{owner}.{}` has no target implementation",
+                        external.name
+                    ),
+                );
+                if let Some(checked) = module
+                    .external_types
+                    .iter()
+                    .find(|checked| checked.symbol == external.symbol)
+                {
+                    error = error.with_module(checked.source_module);
+                }
+                Some(error)
+            })
+            .collect::<Vec<_>>();
+        if !unsupported.is_empty() {
+            return Err(unsupported);
+        }
         let expected = module
             .externals
             .iter()
@@ -166,9 +218,9 @@ impl ExternalBindings {
         }
     }
 
-    /// Checks that P9 receives the same abstract signature that CC used when
-    /// type-checking calls. WIT names remain in this table, while CC sees only
-    /// the resulting target-neutral signature.
+    /// Checks that the binding inventory covers CC externals exactly once.
+    /// Source conformance is checked against Core before CC publication;
+    /// unsupported runtime call projection remains an explicit boundary.
     pub(crate) fn validate_cc(&self, module: &cc::Module) -> Result<(), Vec<BackendError>> {
         let mut cc_externals = HashMap::new();
         let mut errors = Vec::new();
@@ -199,6 +251,28 @@ impl ExternalBindings {
                 ));
             }
         }
+        for binding in &self.runtime {
+            if !seen.insert(binding.symbol) {
+                errors.push(
+                    BackendError::invalid_ir(
+                        "P9 external binding validation",
+                        binding.span,
+                        "runtime external binding is duplicated or conflicts with a WIT binding",
+                    )
+                    .with_module(binding.source_module),
+                );
+            }
+            if !cc_externals.contains_key(&binding.symbol) {
+                errors.push(
+                    BackendError::invalid_ir(
+                        "P9 external binding validation",
+                        binding.span,
+                        "runtime external binding is absent from CC",
+                    )
+                    .with_module(binding.source_module),
+                );
+            }
+        }
         for external in cc_externals.values() {
             if !seen.contains(&external.symbol) {
                 errors.push(BackendError::new(
@@ -208,11 +282,13 @@ impl ExternalBindings {
                 ));
             }
         }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
+        if !errors.is_empty() {
+            return Err(errors);
         }
+        for binding in &self.runtime {
+            runtime::call::checked(binding, module)?;
+        }
+        Ok(())
     }
 }
 

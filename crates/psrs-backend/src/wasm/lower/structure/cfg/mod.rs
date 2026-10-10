@@ -395,21 +395,7 @@ fn direct_children<'a>(
 }
 
 fn successors(terminator: &Terminator) -> Vec<BlockId> {
-    match terminator {
-        Terminator::Return { .. } => Vec::new(),
-        Terminator::Jump { target, .. } => vec![*target],
-        Terminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
-        Terminator::Switch { cases, default, .. } => cases
-            .iter()
-            .map(|(_, target)| *target)
-            .chain(std::iter::once(*default))
-            .collect(),
-        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
-    }
+    crate::mir::cfg::successors(terminator)
 }
 
 fn block_span(block: &BasicBlock, fallback: psrs_span::TextRange) -> psrs_span::TextRange {
@@ -417,7 +403,8 @@ fn block_span(block: &BasicBlock, fallback: psrs_span::TextRange) -> psrs_span::
         .terminator
         .as_ref()
         .map_or(fallback, |terminator| match terminator {
-            Terminator::Return { span, .. }
+            Terminator::Trap { span }
+            | Terminator::Return { span, .. }
             | Terminator::Jump { span, .. }
             | Terminator::Branch { span, .. }
             | Terminator::Switch { span, .. }

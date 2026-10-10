@@ -143,6 +143,7 @@ pub(super) fn fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -229,6 +230,7 @@ pub(super) fn result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -356,6 +358,7 @@ pub(super) fn string_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

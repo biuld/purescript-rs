@@ -5,20 +5,38 @@ use std::sync::atomic::{AtomicU32, Ordering};
 static WASM_ARTIFACT_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 mod assertions;
+mod closure_protocol;
 mod coercion;
 mod data_function;
 mod data_tuple;
+mod declaration_calls;
 mod deriving;
+mod diagnosis_trace;
 mod effect_arity;
 mod effects;
 mod foldable;
 mod functor;
 mod guard_coverage;
+mod intrinsic_contracts;
+mod let_constraints;
+mod library_foreign;
+mod number_abs;
+mod number_acos;
+mod number_asin;
+mod number_atan;
+mod number_atan2;
+mod number_decimal;
+mod number_elementary;
+mod number_rounding;
+mod number_sqrt;
+mod number_trunc;
 mod operators;
 mod partial_application;
+mod primitive_foreign;
 mod scalars;
 mod semigroup;
 mod show;
+mod state;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
     let backend_input = crate::lower_main_to_cc(source).expect("Core should lower to CC");
@@ -93,7 +111,14 @@ fn run_wasmtime_with_dirs(
 ) -> Option<std::process::Output> {
     wasmtime_available()?;
     use std::io::Write;
+    if let Some(path) = std::env::var_os("PSRS_DUMP_CC") {
+        let compilation = crate::compile_source_with_dumps("Main.purs", source).unwrap();
+        std::fs::write(path, compilation.dumps.cc).unwrap();
+    }
     let artifact = compile_source("Main.purs", source).unwrap();
+    if let Some(path) = std::env::var_os("PSRS_DUMP_WAT") {
+        std::fs::write(path, &artifact.wat).unwrap();
+    }
     let id = WASM_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
     std::fs::write(&path, &artifact.wasm).unwrap();
@@ -130,6 +155,7 @@ mod backend;
 mod declarations;
 mod integration;
 mod kinds;
+mod long_expression;
 mod resolution;
 mod typecheck;
 mod wasi;
@@ -154,3 +180,5 @@ mod module_loader;
 mod library_types;
 
 mod tail_calls;
+
+mod symbol_reflection;

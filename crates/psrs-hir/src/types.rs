@@ -35,6 +35,9 @@ pub struct TypeDeclaration {
     pub name: String,
     pub name_span: TextRange,
     pub kind: TypeDeclarationKind,
+    /// A canonical library interface identity attached by resolution. P5
+    /// validates the declared dictionary contract before enabling its rule.
+    pub compiler_class: Option<super::CompilerClass>,
     pub parameters: Vec<TypeParameter>,
     pub constructors: Vec<Constructor>,
     pub members: Vec<ClassMember>,

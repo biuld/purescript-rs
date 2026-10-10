@@ -15,6 +15,7 @@ except `AGENTS.md` and the root `README.md`.
 | Implementation and IR architecture | `docs/design/` |
 | A major, durable decision only | `docs/decision/DEC-XX-<slug>.md` |
 | Per-topic acceptance checklists and evidence | `docs/implementation/` |
+| Contributor process and repeatable workflows | `docs/workflow/` |
 
 ## Naming and identity
 

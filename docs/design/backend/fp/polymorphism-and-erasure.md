@@ -17,7 +17,7 @@ boxing, unboxing, casts, and generated function adapters. This document
 specifies that erased representation, the concrete-versus-erased boundary, and
 the adaptation operations. Generic arrays and closed records use the recursive
 layout and conversion rules in
-[generic aggregate erasure](generic-aggregate-erasure.md).
+[representation and evidence](representation-and-evidence.md).
 
 ## Scope
 
@@ -25,7 +25,8 @@ This document owns the erased representation for polymorphic values, the
 distinction between concrete and erased representation requirements, the
 semantics of the adaptation operations, the generated function adapters used at
 higher-order boundaries, and the closure capture rules that follow from
-erasure. It does not own concrete scalar and GC layouts (see
+erasure. This includes applications of abstract constructors (`f a`) and
+methods transported through ordinary class dictionaries. It does not own concrete scalar and GC layouts (see
 [data representation](data-representation.md)), the MIR type model and verifier
 (see [mir](mir.md)), type-class elaboration and dictionary construction (see
 [type classes and dictionaries](type-classes-and-dictionaries.md)), scalar
@@ -73,7 +74,7 @@ code signature is the erased one.
 **Terminology.** An *erased value* is the value of an abstract type variable,
 whose runtime representation is the uniform reference. A type such as
 `Array a` contains a variable but is itself a generic aggregate; see
-[generic aggregate erasure](generic-aggregate-erasure.md). *Boxing*
+[representation and evidence](representation-and-evidence.md). *Boxing*
 allocates a wrapper for a scalar so it can inhabit the erased representation;
 *unboxing* projects it back. A *concrete* value is one whose source type is
 variable-free and therefore has a specialized representation. An *adapter* is a
@@ -101,7 +102,7 @@ containing a type variable does not by itself make an entire aggregate value an
 fields, and function signatures. In particular, `Array a` uses the canonical
 generic array shape and a dependent closed record uses a canonical product;
 their element or field values may use `Erased`. See
-[generic aggregate erasure](generic-aggregate-erasure.md) for the normalization
+[representation and evidence](representation-and-evidence.md) for the normalization
 and layout conversions. A function value uses `Closure(SignatureId)`, whose
 `Signature` records the normalized `ValueShape` for each parameter and result.
 
@@ -174,6 +175,32 @@ same kind of boundary: `Effect (a -> b)` lowers to a closure that takes the
 runtime token and returns a function, and flattening that function into the
 effect closure is forbidden ([effects](effects.md)).
 
+### The erased instance
+
+The shared representation model, the definition of a representation policy, its
+ownership, and the one conversion planner are in
+[representation and evidence](representation-and-evidence.md). This document
+owns the erased instance of that model: a bare type variable has representation
+`Erased`, and the policy its producer recorded is one of `Boxed`, `Nominal`,
+`AggregateLayout`, or `Callable`.
+
+Three consequences are specific to erasure:
+
+- **A bare variable transports an existing object.** Its recovery policy is the
+  one established when the value entered the slot.
+- **An abstract constructor hides its constructor.** A generic method may
+  produce a new value of `f a` (including `f Unit`), so recovery uses the
+  constructor's policy, shared by the method and its generic consumers, never a
+  guess from the consumer's concrete type.
+- **An aggregate containing a variable is not itself `Erased`.** `Array a` and a
+  dependent closed record keep a canonical aggregate layout; only their bare
+  variable slots are erased
+  ([representation and evidence](representation-and-evidence.md)).
+
+The boundary, evidence, and `plan`/`emit` definitions and the edge cases are
+specified once in [representation and evidence](representation-and-evidence.md)
+and are not restated here.
+
 ### Erased values and boxes
 
 The erased representation is `eqref`, a non-null reference. Concrete values
@@ -198,8 +225,9 @@ an `eqref` cast alone is not that conversion.
 turning a string into an integer. The i31 shorthand is used only for closure
 *captures*, not
 for the general erased protocol (see [data representation](data-representation.md)).
-The empty-erasure case (an erased value used where an erased value is expected)
-is an identity, so nested polymorphic boundaries add no work.
+The empty-erasure case is an identity when both endpoints share the same
+representation policy. Equal `Erased` shapes alone do not prove that two hidden
+closure or aggregate policies agree.
 
 ### Dictionaries
 
@@ -236,7 +264,7 @@ type stay specialized. Aggregate types are normalized recursively, so a
 generic function's `a` parameter uses `Erased`, while its `Array a` parameter
 uses the canonical generic array. A call site with a concrete instantiation
 converts between that canonical shape and its specialized shape as specified
-in [generic aggregate erasure](generic-aggregate-erasure.md). There is exactly
+in [representation and evidence](representation-and-evidence.md). There is exactly
 one erased representation for abstract values, and it carries no source type
 identity.
 
@@ -330,36 +358,50 @@ normalize(ty, substitution):
 ```
 
 The array and record cases are defined by
-[generic aggregate erasure](generic-aggregate-erasure.md), including their
+[representation and evidence](representation-and-evidence.md), including their
 conversion plans. An application headed by an abstract constructor, such as
 `f a`, has no known aggregate layout and uses the erased value protocol; known
 constructors such as `Array a` still retain their canonical layouts. A type
 variable nested in an ADT field continues to follow
 [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 
+### Planning is shared
+
+Conversion planning is defined once in
+[representation and evidence](representation-and-evidence.md#algorithms) and is
+not restated here. Every boundary in this topic — a direct or indirect call, a
+partial application, a returned function, a dictionary field, an aggregate
+element, or a lifted capture — is an instance of that one planner. Emission
+consumes the completed plan: it does not rerun source matching for
+representation-only adapter types, search a module for a plausible signature,
+or recover directly to the desired consumer signature.
+
 ### Boxing and unboxing
 
 ```text
-adapt(value, source_type, destination_type):
-    if destination_type is a bare type variable:
+adapt(value, checked_boundary, producer_policy, consumer_requirement):
+    validate the checked plan and its endpoint contracts
+    if consumer is a bare type-variable slot:
         scalar -> allocate its existing erased box
         reference -> RepresentationCast(value, Erased)
-    else if source_type and destination_type are aggregate types:
-        AggregateConvert(value, plan_for(source_type, destination_type))
-    else if source_type is erased and destination_type is a concrete scalar:
-        project the typed box and unbox
-    else if source and destination reference shapes agree:
-        use identity or the compatible erased reference cast
+    else if producer and consumer policies require aggregate conversion:
+        AggregateConvert(value, checked recursive plan)
+    else if value is erased:
+        recover the box, layout or callable signature established by storage
+        apply the remaining plan to reach the consumer requirement
+    else if callable signatures differ:
+        generate the checked function adapter
+    else if physical shapes and representation policies agree:
+        Identity
     otherwise:
         report a source-spanned unsupported conversion
 ```
 
-Supplying a value to a bare erased parameter may erase an aggregate reference
-without copying it, as in `Hold a`. Supplying it to a generic aggregate such
-as `Array a` may need `AggregateConvert` first. Recovery from an erased ADT
-field likewise depends on the declared field template: `a` can recover a
-concrete reference directly, while `Array a` first recovers its canonical
-array and then maps to a concrete array when required. Aggregate conversions
+Supplying arrays and ordinary closed records to a bare erased parameter uses
+their owner's canonical element or field protocol. Generic aggregate parameters
+and erased ADT fields use the same recursive conversions. Recovery reads the
+canonical storage before constructing the consumer's concrete layout. Nominal
+references retain the identity policy established by their producer. Aggregate conversions
 are never implemented as `RepresentationCast`s between distinct nominal
 layouts.
 
@@ -375,25 +417,25 @@ payload. Unwrapping a newtype never allocates a separate wrapper object.
 ### Adapter generation
 
 ```text
-adapt(value, concrete_type, generic_type):
-    source = function_signature(concrete_type)
-    target = function_signature(generic_type)
+adapt(value, checked_callable_plan):
+    source = checked_callable_plan.producer_signature
+    target = checked_callable_plan.consumer_signature
     require source and target have equal arity
 
     adapter:
         captured  = ClosureGetCapture(closure = adapter_closure, index = 0)
-        concrete  = RepresentationCast(captured, Closure(signature(concrete_type)))
-        args' = for each (arg, source_param, target_param):
-            source erased and target concrete -> box(arg)
-            source concrete and target erased -> unbox(arg, source_param)
-            otherwise                         -> arg
-        result = IndirectCall(concrete, signature(concrete_type), args')
-        return  target erased and source concrete -> box(result)
-                target concrete and source erased -> unbox(result, target)
-                otherwise                         -> result
+        producer  = RepresentationCast(captured, Closure(source))
+        args' = emit each checked target-parameter -> source-parameter plan
+        result = IndirectCall(producer, source, args')
+        return emit the checked source-result -> target-result plan
 
-    emit FunctionRef(adapter, signature(generic_type), captures = [value])
+    emit FunctionRef(adapter, target, captures = [value])
 ```
+
+This is the equal-arity branch. Curried and eta-expanded adapters segment the
+call at quantifier and representation-closure boundaries and use the same
+checked plans for each segment; they do not flatten a returned closure into
+the producer's own parameters.
 
 The original `value` is named once and captured; the adapter body is verified
 against the CC signatures and representations exactly like a source function
@@ -433,6 +475,13 @@ The erased requirement itself is produced by the CC representation model as
 `Reference { nullable: false, heap: Erased }`; MIR represents it as the
 non-null `eqref` reference (`RefType { nullable: false, heap: Eq }`). No module
 may attach a runtime type tag to an erased value.
+
+The source Core checking owner supplies scoped instantiation and compatibility
+evidence. P8 representation lowering supplies source-to-physical mappings and
+storage protocols. `cc/lower/conversion/` combines those inputs into the common
+plan; `cc/lower/erased/` emits its callable leaves. Extracting evidence must
+preserve the source checker's acceptance contract. Missing evidence is a
+reported limitation, not a reason to silently strengthen or weaken subsumption.
 
 **Required types and helpers.** CC owns representation-directed conversion and
 adapter generation. Its callable-shape and adapter entry points are:
@@ -474,11 +523,14 @@ signatures map to one `SignatureId` and one MIR func type, so one
 
 The CC verifier:
 
+- validates stored representation policies and checked conversion-plan
+  endpoints before semantic evidence is discharged; equal erased shapes do
+  not authorize recovery to an arbitrary signature;
 - accepts `RepresentationTest`/`RepresentationCast` only when the source value
   is erased or the destination requirement is erased
   (`cc/verify/adaptation.rs`);
 - verifies `AggregateConvert` endpoints and nested plans as specified by
-  [generic aggregate erasure](generic-aggregate-erasure.md); and
+  [representation and evidence](representation-and-evidence.md); and
 - checks that direct-call arguments and results exactly match the callee
   `Signature`, closure-call arguments match the closure `SignatureId`, and
   capture count, order, and representations match the lifted function; and
@@ -496,6 +548,13 @@ The MIR verifier then checks the concrete side:
 
 Failure is a compiler bug or an unsupported program, reported with the
 operation's source span.
+
+If P8 uses an internal Core-shaped materialization, it is a distinct lowered
+representation with a complete structural verifier. Checking source Core and
+selected rewritten types alone does not verify its expressions, generated
+declarations, suspension wrappers or entry adapter. Removing source verification
+from a physical view requires replacing it with these target contracts; it
+does not remove the verification obligation.
 
 ## Worked example
 
@@ -555,13 +614,28 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
   reach the ABI boundary; ABI adaptation happens on concrete canonical
   signatures only.
 
+### Closed local row instantiations
+
+Before CC layout, checked nonrecursive local lambdas with row quantifiers may
+be expanded at finite closed uses. The Core checking relation owns each row
+solution, including residual fields with no existing type-arena node. Explicit
+materialization appends row nodes without changing the source arena's existing
+identities; capture-avoiding substitution discharges the scheme's quantifiers
+and freshens local identities. This preparation is independent of optimization
+budgets and preserves evaluation of captured computations.
+
+An unresolved use, recursive binding, or scheme with additional unresolved
+quantifiers retains its full source scheme. Open runtime rows remain an explicit
+unsupported layout; this preparation does not define an open-row ABI or narrow
+the source model. Input and output Core verification remain mandatory.
+
 ## Open questions and future work
 
 - **Dictionaries end to end.** Type-class elaboration must produce the
   dictionary values this design assumes and feed them through the normal
   aggregate path.
 - **Open-row aggregates.** Canonical generic arrays and closed records use the
-  conversion contract in [generic aggregate erasure](generic-aggregate-erasure.md).
+  conversion contract in [representation and evidence](representation-and-evidence.md).
   Open-row records still need a separate representation and conversion contract.
 - **Higher-order acceptance breadth.** Direct generic calls, concrete arguments
   to generic parameters, and returned polymorphic functions are the remaining
@@ -586,6 +660,15 @@ conversion plans, including recursive function-adapter leaves. The
 distinguishes source programs from verified Typed Core backend fixtures and
 records source coverage and remaining obligations.
 
+Checked instantiation evidence and each constructor's representation policy
+travel to P8 through the Core-to-CC side table
+(`psrs-backend/src/boundary.rs`), beside CC the way `ExternalBindings` carries
+the WIT boundary. The `RepresentationRegistry` registers `Function` (its checked
+instantiation arguments are the fixed protocol parameters) and the trusted
+`Effect` (its runtime token); an unregistered constructor is reported rather
+than resolved by arity or a signature search, and the payload-erased protocol
+signature is interned once per registered callable constructor.
+
 ## References
 
 - Reynolds, *Types, Abstraction and Parametric Polymorphism* (1983).
@@ -594,6 +677,12 @@ records source coverage and remaining obligations.
 - Wadler and Blott, *How to Make ad-hoc Polymorphism Less ad hoc* (1989).
 - Peyton Jones, Jones, and Meijer, *Type Classes: an exploration of the design
   space* (1997).
+- Eisenberg and Peyton Jones, *Levity Polymorphism* (2017); GHC's
+  `RuntimeRep` and `Any`, and `unsafeCoerce#` as the representation coercion.
+- Swift's function calling conventions (`@convention(thin)`/`thick`) and
+  *reabstraction thunks*; witness tables for dictionary evidence.
+- Java type erasure and *bridge methods* (JLS/JVMS), as the erased-call
+  compatibility analogue.
 - WebAssembly 3.0: garbage collection and typed function references.
 - [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md),
   [CC IR](cc-ir.md),

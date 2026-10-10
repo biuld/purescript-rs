@@ -26,6 +26,7 @@ pub(super) fn checker() -> Checker {
         &HashMap::new(),
         TypecheckContext {
             known_types: &[],
+            known_values: &[],
             imported_instances: &[],
             module_names: &HashMap::from([(hir::ModuleId(0), "Main".to_owned())]),
             checked_kinds: &psrs_kind::CheckedKindEnv::default(),

@@ -14,6 +14,7 @@
 //! than its neighbour, and [`InferState::snapshot`] is the only way a snapshot
 //! is taken.
 
+use super::classes::DerivingRegistry;
 use super::*;
 
 /// The read-only semantic inputs of one module being checked.
@@ -43,6 +44,9 @@ pub(super) struct SemanticEnv {
     pub(super) classes: HashMap<hir::TypeId, ClassInfo>,
     pub(super) class_methods: HashMap<SymbolId, (hir::TypeId, MethodInfo)>,
     pub(super) instances: Vec<InstanceInfo>,
+    /// The single table of compiler-known deriving classes and representation
+    /// declarations, built once from the resolved declarations.
+    pub(super) deriving: DerivingRegistry,
 }
 
 /// The mutable solver: everything a binding changes and a speculation must undo.
@@ -209,9 +213,10 @@ impl Checker {
         }
     }
 
-    /// Runs `f` with `givens` as the given evidence in scope, and restores what
-    /// leaving the scope restores: the givens, the rigid variables their
-    /// arguments added, and the given-rigid record that tracks them.
+    /// Runs `f` with `givens` added to the enclosing given evidence, and
+    /// restores what leaving the scope restores: the givens, the rigid
+    /// variables their arguments added, and the given-rigid record that tracks
+    /// them.
     ///
     /// A given's variables are rigid only while the given is in scope, which is
     /// why this is not [`Self::with_skolem_scope`]: a skolem outlives its scope,
@@ -221,10 +226,11 @@ impl Checker {
         givens: Vec<(ClassConstraint, WantedSolution)>,
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
-        let previous_givens = std::mem::replace(&mut self.scope.givens, givens);
+        let previous_givens = self.scope.givens.clone();
+        self.scope.givens.extend(givens);
         let previous_rigid = self.state.rigid.clone();
         let previous_given_rigid = std::mem::take(&mut self.scope.given_rigid);
-        for (constraint, _) in self.scope.givens.clone() {
+        for (constraint, _) in &self.scope.givens[previous_givens.len()..] {
             for argument in &constraint.arguments {
                 let mut variables = HashSet::new();
                 classes::collect_infer_variables(argument, &mut variables);

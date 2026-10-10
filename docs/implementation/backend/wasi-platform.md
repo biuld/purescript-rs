@@ -66,9 +66,11 @@ Revision: `81b2eee` plus the DEC-10 re-verification in this worktree. Runtime:
 
 ```text
 WASI-01:
-  Implementation: crates/psrs-backend/src/component.rs.
-  Tests: component::tests::{componentizes_a_command_exporting_run,
-    component_world_matches_the_capability_profile};
+  Implementation: crates/psrs-linker/src/compose.rs,
+    crates/psrs-runtime/wit/.
+  Tests: psrs-linker tests/compose.rs::composition_attaches_the_library_and_closes_the_private_import,
+    tests/plan.rs;
+    psrs-backend mir::number_format_tests::formats_a_number_through_the_runtime_artifact;
     psrs-driver tests::integration::emits_a_wasi_command_component.
   Input boundary: encoded core module.
   Commands: cargo test -p psrs-backend component;

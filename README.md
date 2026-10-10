@@ -25,9 +25,13 @@ cargo run -- check-program-kinds examples/basic.purs
 cargo run -- dump mir examples/basic.purs
 ```
 
+The local default expects `../psrs-stdlib` at the revision/content recorded in
+`stdlib.lock.json`. Set `PSRS_STDLIB_ROOT` for an explicit development package.
+See [package and conformance setup](docs/workflow/stdlib-conformance.md).
+
 `build <file.purs>...` resolves and links every listed module with the standard
-library from `stdlib/lib` and writes the artifact. `wat <file.purs>...` renders
-the text form. `dump <core|cc|mir> <file.purs>` prints an intermediate IR for
+library from the locked `psrs-stdlib` package and writes the artifact.
+`wat <file.purs>...` renders the text form. `dump <core|cc|mir> <file.purs>` prints an intermediate IR for
 debugging. A selected `main :: Int` returns its value as the process exit code.
 A selected `main :: Effect Unit` runs that action once and returns 0; a trap
 still propagates.
@@ -46,17 +50,17 @@ what remains in each layer.
 | Gate | Measured | Scope |
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
-| L2 resolution | 72/72 failing, 276/413 passing | official `errorCode`s; 53 `passing` files stop on a missing module and 80 at P3 |
-| L3 kinds | 36/48 failing | official kind `errorCode`s |
-| L4 types | 35/50 failing | official `errorCode`s |
-| L5 classes | 53/79 failing | official `errorCode`s |
-| L6/M7 runtime | 125/413 passing | all 125 exit 0; 63 have no selected `main`; 53 stop on a missing module |
+| L2 resolution | 72/72 failing, 403/413 passing | official `errorCode`s; 6 passing files stop at P3 and 4 at P0; no harness blockers |
+| L3 kinds | 39/48 failing | official kind `errorCode`s |
+| L4 types | 39/50 failing | official `errorCode`s |
+| L5 classes | 58/81 failing | official `errorCode`s |
+| L6/M7 runtime | 210/413 passing | all 210 exit 0; 203 do not agree, including 47 with no selected `main` |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Run the scoreboards yourself:
 
 ```sh
-PSRS_ORACLE=annotations \
+PSRS_ORACLE=annotations PSRS_REQUIRE_WASMTIME=1 \
   cargo test -p psrs-driver --test suite -- --ignored --nocapture
 ```
 
@@ -76,7 +80,7 @@ The compiler currently:
   functional dependencies**, then passes dictionaries through to Wasm — a
   method reached through a superclass constraint returns the right value under
   `wasmtime`, as does a call through a constrained function argument;
-- loads the PureScript standard library from [`stdlib/lib`](stdlib/lib) on disk,
+- loads the PureScript standard library from the locked `psrs-stdlib` package,
   exposing console, clock, random, process arguments and environment, filesystem,
   and sockets over WASI.
 
@@ -114,8 +118,12 @@ Verified working subsets, each with source tests and Wasmtime execution:
   scalar, string, list, flags, handle, and variant shapes
   ([canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md)), and the
   synthesized aggregate fixtures validate but do not yet execute;
-- **the standard library** — `stdlib/lib` holds 12 modules, and 244 corpus
-  programs import a module it does not provide.
+- **the standard library** — the independent `psrs-stdlib` package holds the
+  pinned official core libraries (215 source modules). A module the compiler owns,
+  such as `Safe.Coerce`,
+  resolves through its primitive interface rather than the vendored file, which
+  stays faithful to upstream; `Unsafe.Coerce.unsafeCoerce` has no interface yet
+  and is a recorded gap.
 
 ## Workspace
 
@@ -133,7 +141,7 @@ Verified working subsets, each with source tests and Wasmtime execution:
 | `psrs-desugar` | Operator desugaring while preserving HIR. |
 | `psrs-core` | Typed Core and its HIR lowering. |
 | `psrs-backend` | CC IR, MIR/CFG, structured Wasm encoding, WIT/ABI lowering, validation, and WAT. |
-| `psrs-driver` | Wires the compiler passes together and loads `stdlib/lib`. |
+| `psrs-driver` | Wires the compiler passes together and loads the locked `psrs-stdlib` package. |
 | `psrs-cli` | Source inspection, `build`, `wat`, and `dump` commands. |
 
 The architecture defines twelve major passes across six long-lived IR families;

@@ -15,7 +15,11 @@ pub(super) fn run(mut module: Module) -> Module {
     module
 }
 
-fn simplify_expr(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
+fn simplify_expr(expression: Expr, fresh: &mut FreshLocals) -> Expr {
+    psrs_span::with_sufficient_stack(|| simplify_expr_inner(expression, fresh))
+}
+
+fn simplify_expr_inner(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
     expression.kind = match expression.kind {
         ExprKind::Constructor { symbol, arguments } => ExprKind::Constructor {
             symbol,
@@ -215,7 +219,7 @@ fn simplify_expr(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
         ExprKind::Boolean(value) => ExprKind::Boolean(value),
         ExprKind::String(value) => ExprKind::String(value),
         ExprKind::Char(value) => ExprKind::Char(value),
-        kind @ (ExprKind::Unit | ExprKind::Trap) => kind,
+        kind @ (ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap) => kind,
     };
     expression
 }
@@ -308,19 +312,19 @@ fn fold_intrinsic(
         return None;
     };
     let folded = match intrinsic {
-        Intrinsic::I32Add => ExprKind::Integer(left.wrapping_add(*right)),
-        Intrinsic::I32Sub => ExprKind::Integer(left.wrapping_sub(*right)),
-        Intrinsic::I32Mul => ExprKind::Integer(left.wrapping_mul(*right)),
+        Intrinsic::IntAdd => ExprKind::Integer(left.wrapping_add(*right)),
+        Intrinsic::IntSub => ExprKind::Integer(left.wrapping_sub(*right)),
+        Intrinsic::IntMul => ExprKind::Integer(left.wrapping_mul(*right)),
         // checked_{div,rem} returns None for both trapping cases: zero divisor
         // and signed overflow. Leaving the operation intact preserves the trap.
-        Intrinsic::I32DivS => ExprKind::Integer(left.checked_div(*right)?),
-        Intrinsic::I32RemS => ExprKind::Integer(left.checked_rem(*right)?),
-        Intrinsic::I32Eq => ExprKind::Boolean(left == right),
-        Intrinsic::I32Ne => ExprKind::Boolean(left != right),
-        Intrinsic::I32LtS => ExprKind::Boolean(left < right),
-        Intrinsic::I32LeS => ExprKind::Boolean(left <= right),
-        Intrinsic::I32GtS => ExprKind::Boolean(left > right),
-        Intrinsic::I32GeS => ExprKind::Boolean(left >= right),
+        Intrinsic::IntQuot => ExprKind::Integer(left.checked_div(*right)?),
+        Intrinsic::IntRem => ExprKind::Integer(left.checked_rem(*right)?),
+        Intrinsic::IntEq => ExprKind::Boolean(left == right),
+        Intrinsic::IntNe => ExprKind::Boolean(left != right),
+        Intrinsic::IntLt => ExprKind::Boolean(left < right),
+        Intrinsic::IntLe => ExprKind::Boolean(left <= right),
+        Intrinsic::IntGt => ExprKind::Boolean(left > right),
+        Intrinsic::IntGe => ExprKind::Boolean(left >= right),
         _ => return None,
     };
     Some(Expr {
@@ -342,15 +346,15 @@ fn intrinsic_identity(
         span,
     };
     match (intrinsic, &left.kind, &right.kind) {
-        (Intrinsic::I32Add, _, ExprKind::Integer(0))
-        | (Intrinsic::I32Sub, _, ExprKind::Integer(0))
-        | (Intrinsic::I32Mul, _, ExprKind::Integer(1)) => Some(with_span(left.clone(), span)),
-        (Intrinsic::I32Add, ExprKind::Integer(0), _)
-        | (Intrinsic::I32Mul, ExprKind::Integer(1), _) => Some(with_span(right.clone(), span)),
-        (Intrinsic::I32Mul, ExprKind::Integer(0), _) if effects::summarize(right).inert() => {
+        (Intrinsic::IntAdd, _, ExprKind::Integer(0))
+        | (Intrinsic::IntSub, _, ExprKind::Integer(0))
+        | (Intrinsic::IntMul, _, ExprKind::Integer(1)) => Some(with_span(left.clone(), span)),
+        (Intrinsic::IntAdd, ExprKind::Integer(0), _)
+        | (Intrinsic::IntMul, ExprKind::Integer(1), _) => Some(with_span(right.clone(), span)),
+        (Intrinsic::IntMul, ExprKind::Integer(0), _) if effects::summarize(right).inert() => {
             Some(zero(left.ty))
         }
-        (Intrinsic::I32Mul, _, ExprKind::Integer(0)) if effects::summarize(left).inert() => {
+        (Intrinsic::IntMul, _, ExprKind::Integer(0)) if effects::summarize(left).inert() => {
             Some(zero(right.ty))
         }
         _ => None,

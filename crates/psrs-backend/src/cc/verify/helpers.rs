@@ -150,6 +150,9 @@ pub(super) fn verify_call_shape(
     declared: &HashMap<ValueId, ValueShape>,
     signature: &Signature,
     arguments: &[ValueId],
+    callee: &str,
+    function_name: &str,
+    function_span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
     if arguments.len() != signature.parameters.len()
         || arguments
@@ -157,17 +160,40 @@ pub(super) fn verify_call_shape(
             .zip(&signature.parameters)
             .any(|(argument, expected)| declared.get(argument).copied() != Some(*expected))
     {
+        let expected = signature
+            .parameters
+            .iter()
+            .map(|shape| format!("{shape:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let actual = arguments
+            .iter()
+            .map(|value| match declared.get(value) {
+                Some(shape) => format!("{value:?}: {shape:?}"),
+                None => format!("{value:?}: <undeclared>"),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(assignment_error(
             assignment,
-            "call arguments do not match its signature",
+            format!(
+                "call shape mismatch: callee `{callee}` in function `{function_name}` at {function_span:?}; expected {} argument(s) [{expected}], got {} [{actual}]",
+                signature.parameters.len(),
+                arguments.len(),
+            ),
         ));
     }
-    require_destination(
-        declared,
-        assignment,
-        signature.result,
-        "call result shape does not match its signature",
-    )
+    let actual_result = declared.get(&assignment.destination).copied();
+    if actual_result != Some(signature.result) {
+        return Err(assignment_error(
+            assignment,
+            format!(
+                "call result shape mismatch: callee `{callee}` in function `{function_name}` at {function_span:?}; expected {:?}, got {actual_result:?}",
+                signature.result,
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn verify_product_value(

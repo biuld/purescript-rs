@@ -1,10 +1,15 @@
 # MIR: SSA/CFG and Verification
 
+> **Selected extension:** [library-owned effects and state dependencies](library-owned-effects.md)
+> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
+> and checked zero-width projection. Implementation and acceptance evidence
+> have not migrated; the existing contracts below remain the implementation baseline.
+
 **Feature:** F-02  
 **Status:** Stable (design)  
 **Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md),
 [data representation](data-representation.md), and
-[generic aggregate erasure](generic-aggregate-erasure.md);
+[representation and evidence](representation-and-evidence.md);
 the WebAssembly type system (GC structs and arrays, typed function references)
 and the basics of SSA form and dominators. Read
 [IR boundaries](../00-ir-boundaries.md) first.  
@@ -27,7 +32,54 @@ in [scalars and primitives](scalars-and-primitives.md); concrete GC layouts in
 [data representation](data-representation.md); erased values in
 [polymorphism and erasure](polymorphism-and-erasure.md); generic aggregate
 normalization and conversion in
-[generic aggregate erasure](generic-aggregate-erasure.md).
+[representation and evidence](representation-and-evidence.md).
+
+## Logical dependency evidence
+
+P9 retains a module-level immutable inventory of checked logical CC requirements,
+independently of each function's mutable `state::DependencyFlow`. Every retained
+function identified by that inventory must carry evidence from the same source.
+Removing the function field, or attaching evidence from a different source, is
+an error. Planned MIR cannot omit the source inventory. Directly constructed
+physical MIR with no source projection has an explicit empty inventory and
+cannot attach unowned dependency evidence. Whole-function reachability pruning
+may remove unused definitions; it does not rewrite requirements for live ones.
+Retained declarations must belong to the source or to helpers explicitly
+registered by P9 during lowering. Changing a projected declaration's identity
+cannot turn it into an unchecked physical function.
+Logical dependency identities have no Wasm value type or local slot.
+The flow retains immutable checked CC provenance and checks its graph against
+actual MIR invocation coverage, order, producers and normal/trapping return.
+The signature projection must remove logical State parameters and declarations;
+reintroducing their identities as physical scalar slots is invalid.
+
+The evidence also retains closed execution graphs from checked CC runner
+instructions. P9 projects each `StateExecution` to one closure call with no
+State argument and a payload result, checking the action operand and complete
+call inventory against immutable CC. Nominal world/region and non-escape facts
+remain trusted from Core's checked source contract. Step product maps retain
+only their checked payload conversion when the State field is identity.
+Atomic callable adapters become calls to their checked factory with the source
+destination retained; correspondence checks its producer and input operand.
+General conversion expansion still requires explicit invocation evidence.
+
+The current correspondence checker supports straight-line bodies and nested
+binary and multiway choices. It anchors predicates, switch labels and default
+edges, block parameters, join payload operands, returns and the complete invocation
+inventory in each physical block to immutable CC, independently of dependency
+graph block numbering. Explicit `Trap` terminators have no operands or normal
+successors and encode as Wasm `unreachable`. P9 retains
+immutable logical CC and uses a private physical instruction view, projecting
+State parameters/declarations and known Step products to payload slots. It
+publishes dependency evidence before tail-call marking and verifies it before
+returning MIR. Signature selection uses the planner's existing reachability
+analysis; unused provisional signatures do not become storage requirements.
+Loop projection, raw-State choice results and general scoped/erased transport
+remain implementation obligations and reject until checked. State-aware host
+ABI adaptation retains independently checked canonical call plans.
+MIR optimization and final Wasm lowering invoke MIR verification. Transformations
+that cannot preserve the evidence must leave its body intact or explicitly
+reject the unsupported projection.
 
 ## Background
 
@@ -107,7 +159,8 @@ types and indexed by `DefinedTypeId`; P10 later computes the final Wasm indices.
 ### Terminators
 
 ```text
-Terminator = Return    { value: ValueId }
+Terminator = Trap
+           | Return    { value: ValueId }
            | Jump      { target: BlockId, arguments: [ValueId] }
            | Branch    { condition: ValueId, then_block: BlockId, else_block: BlockId }
            | Switch    { value: ValueId, cases: [(i32, BlockId)], default: BlockId }
@@ -166,12 +219,16 @@ the `RecGroup`s that become MIR's type table.
 - **Reachability.** Only requirements reachable from the CC module become types.
   Dead boxes, variants, or closures do not appear. The worklist walks value
   shapes, operations, external signatures, and referenced handles.
-- **Ordering.** A defined type must precede its uses; in particular a variant
-  supertype precedes its case subtypes. P9 assigns `DefinedTypeId`s in this
-  order and puts every definition in a single recursion group, which admits
-  recursive and mutually recursive references within that group. IDs are
-  reserved before definitions are filled; forward references inside the group
-  are valid. Only a supertype edge must point to a previously declared type.
+- **Ordering.** Type dependencies precede their uses outside a recursion group;
+  in particular a variant
+  supertype precedes its case subtypes. P9 first reserves complete definitions,
+  then partitions their reference and supertype graph into strongly connected
+  components. Dependencies precede dependent groups; only mutually dependent
+  definitions share a recursion group. The planner remaps every definition
+  reference and every representation/signature/layout handle together. Forward
+  references are valid within a group; a supertype must precede its subtype.
+  Unrelated definitions cannot change a closed GC type's recursion-group
+  identity, which is required for cross-module runtime ABI matching.
 - **GC target.** The planner uses `struct`, `array`, typed function references,
   `ref.test`, `ref.cast`, and `call_ref`. A profile without GC or function
   references is rejected here with a source-associated diagnostic, never by a
@@ -214,7 +271,7 @@ generic array layout, and other dependent arrays use an array of recursively
 normalized element shapes. Dependent closed records likewise use canonical
 product layouts. P9 converts between these nominal layouts by fresh
 allocation and recursive reconstruction, following
-[generic aggregate erasure](generic-aggregate-erasure.md).
+[representation and evidence](representation-and-evidence.md).
 
 ### Aggregate conversion lowering
 
@@ -277,7 +334,8 @@ plan_selected(table, reachable):
         each case gets a fresh id with that supertype
     for each closure signature:
         allocate the capture array type and the closure struct type
-    build one RecGroup from the definitions, supertypes before subtypes;
+    partition type dependencies into RecGroups and remap all definition IDs;
+    emit dependency groups first, with supertypes before subtypes;
     validate all references after the group is complete
 ```
 
@@ -298,8 +356,8 @@ lower_if(cond, then_assignments, then_value, else_assignments, else_value):
 ```
 
 A direct call becomes `Call`/`CallVoid`; a closure call becomes `ClosureCall`.
-The scalar helpers of `scalar_helpers` are appended as extra functions when the
-module uses floor division or modulo.
+Artifact calls use the shared raw-scalar or UTF-8 transport protocol in
+`lower/runtime_call.rs`. Public division/modulo remain ordinary library code.
 
 ### Dominance
 
@@ -339,7 +397,7 @@ mir/
   verify/          MIR verifier
   wit/             canonical ABI adaptation for WIT calls
   reachable.rs     reachability of representation requirements
-  scalar_helpers.rs, numeric.rs   scalar operations and helpers
+  numeric.rs                    concrete scalar operations
 ```
 
 **Required types.** `mir/mod.rs` MUST define `Module`, `Function`,
@@ -352,12 +410,12 @@ pub struct Module { name, types: Vec<RecGroup>, imports: Vec<Import>, functions:
 pub struct Import { symbol: SymbolId, parameters: Vec<ValueType>, result: Option<ValueType> }
 pub struct Function { id: FunctionId, symbol: SymbolId, name, parameters: Vec<ValueId>, values: Vec<ValueDecl>, entry: BlockId, blocks: Vec<BasicBlock>, result: ValueId, result_type: ValueType, span }
 pub struct BasicBlock { id: BlockId, parameters: Vec<ValueId>, instructions: Vec<Instruction>, terminator: Option<Terminator> }
-pub enum Terminator { Return, Jump, Branch, Switch, ReturnCall, ReturnCallRef }
+pub enum Terminator { Trap, Return, Jump, Branch, Switch, ReturnCall, ReturnCallRef }
 ```
 
 `mir/instruction.rs` MUST define `Instruction` so every variant carries a
 destination `ValueId`, its operand `ValueId`s, and a source span. The scalar
-vocabularies live in `mir/numeric.rs` and `mir/scalar_helpers.rs`
+vocabularies live in `mir/numeric.rs`
 ([scalars and primitives](scalars-and-primitives.md)); `mir/layout/` owns
 `PlannedLayout` and every concrete GC layout
 ([data representation](data-representation.md)); `mir/wit/` owns canonical ABI
@@ -502,7 +560,7 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
   meantime.
 - **Generic aggregate conversion.** Canonical generic arrays, closed records,
   and their explicit reconstruction helpers are specified in
-  [generic aggregate erasure](generic-aggregate-erasure.md). Open rows and
+  [representation and evidence](representation-and-evidence.md). Open rows and
   unknown foreign aggregate layouts require separate contracts.
 - **Optimization.** [MIR optimization](../opt/mir.md) specifies P10 passes.
   Scalar unboxing across call boundaries remains a P9 representation decision.

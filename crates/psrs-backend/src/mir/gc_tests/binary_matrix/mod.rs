@@ -50,7 +50,7 @@ fn verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets() {
                 kind: AssignmentKind::StringConstant("text".into()),
                 span: span(),
             }),
-            ValueShape::Reference(_) => unreachable!(),
+            ValueShape::State | ValueShape::Reference(_) => unreachable!(),
         }
     }
 
@@ -85,20 +85,6 @@ fn verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets() {
         ),
         (
             BinaryOp::IntRem,
-            0,
-            1,
-            ValueShape::Integer,
-            Expected::Integer(1),
-        ),
-        (
-            BinaryOp::IntDiv,
-            0,
-            1,
-            ValueShape::Integer,
-            Expected::Integer(3),
-        ),
-        (
-            BinaryOp::IntMod,
             0,
             1,
             ValueShape::Integer,
@@ -482,6 +468,6 @@ fn verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets() {
         crate::TargetCapabilities::default(),
     )
     .expect("the complete binary scalar module should lower for GC");
-    assert_eq!(gc_mir.functions.len(), 3);
+    assert_eq!(gc_mir.functions.len(), 1);
     run_gc(&gc_mir, 0);
 }

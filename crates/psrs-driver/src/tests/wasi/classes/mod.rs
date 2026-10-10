@@ -396,6 +396,20 @@ fn an_ambiguous_instance_context_variable_is_reported() {
     );
 }
 
+#[test]
+fn instance_context_variables_determined_by_functional_dependencies_are_accepted() {
+    let source = r#"
+module Main where
+
+class KeyValue key value | key -> value
+class Container key
+
+instance containerKeyValue :: KeyValue key value => Container key
+"#;
+    crate::typecheck_program_sources(&[("Main.purs", source)])
+        .expect("the instance head determines `value` through KeyValue's functional dependency");
+}
+
 const CLASS_DEFAULT_SOURCE: &str = r#"
 module Main where
 
@@ -434,14 +448,12 @@ fn a_class_method_body_is_rejected_as_invalid_purescript() {
 }
 
 #[test]
-fn a_deriving_declaration_is_reported_as_unsupported() {
+fn a_deriving_declaration_for_a_class_with_no_rule_is_rejected() {
     let errors = compile_source("Main.purs", DERIVE_SOURCE).expect_err("deriving must be rejected");
     assert!(
-        errors.iter().any(|error| {
-            error
-                .message
-                .contains("known-class deriving rule is unavailable")
-        }),
+        errors
+            .iter()
+            .any(|error| error.code == Some("CannotDerive")),
         "unexpected diagnostics: {errors:?}"
     );
 }

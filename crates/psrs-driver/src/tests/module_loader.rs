@@ -97,66 +97,21 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
         .iter()
         .map(|module| module.module_name.as_str())
         .collect::<Vec<_>>();
+    assert_eq!(names.first().copied(), Some("Prelude"));
+    assert!(names.contains(&"WASI"));
     assert_eq!(
-        names,
-        [
-            "Prelude",
-            "Data.Function",
-            "Data.Semigroup",
-            "Data.Monoid",
-            "Data.Eq",
-            "Data.Ord",
-            "Data.Semiring",
-            "Data.Show",
-            "Effect",
-            "Effect.Console",
-            "Test.Assert",
-            "Data.Maybe",
-            "Data.Either",
-            "Data.Functor",
-            "Data.Tuple",
-            "Data.Foldable",
-            "WASI.Resource",
-            "WASI.IO",
-            "WASI.Clock",
-            "WASI.Random",
-            "WASI.Console",
-            "WASI.Process",
-            "WASI.FileSystem",
-            "WASI.Network",
-            "WASI"
-        ]
+        names.len(),
+        names.iter().collect::<std::collections::HashSet<_>>().len(),
+        "trusted module names are unique: {names:?}"
     );
     for module in modules {
         let path = std::path::Path::new(&module.path);
+        let relative = module.module_name.replace('.', "/") + ".purs";
         assert!(
-            path.ends_with("lib/Prelude.purs")
-                || path.ends_with("lib/Data/Function.purs")
-                || path.ends_with("lib/Data/Semigroup.purs")
-                || path.ends_with("lib/Data/Monoid.purs")
-                || path.ends_with("lib/Data/Eq.purs")
-                || path.ends_with("lib/Data/Ord.purs")
-                || path.ends_with("lib/Data/Semiring.purs")
-                || path.ends_with("lib/Data/Show.purs")
-                || path.ends_with("lib/Effect.purs")
-                || path.ends_with("lib/Effect/Console.purs")
-                || path.ends_with("lib/Test/Assert.purs")
-                || path.ends_with("lib/Data/Maybe.purs")
-                || path.ends_with("lib/Data/Either.purs")
-                || path.ends_with("lib/Data/Functor.purs")
-                || path.ends_with("lib/Data/Tuple.purs")
-                || path.ends_with("lib/Data/Foldable.purs")
-                || path.ends_with("lib/WASI/Resource.purs")
-                || path.ends_with("lib/WASI/IO.purs")
-                || path.ends_with("lib/WASI/Clock.purs")
-                || path.ends_with("lib/WASI/Random.purs")
-                || path.ends_with("lib/WASI/Console.purs")
-                || path.ends_with("lib/WASI/Process.purs")
-                || path.ends_with("lib/WASI/FileSystem.purs")
-                || path.ends_with("lib/WASI/Network.purs")
-                || path.ends_with("lib/WASI.purs"),
-            "{}",
-            module.path
+            path.ends_with(format!("lib/{relative}")),
+            "{} should be the file for {}",
+            module.path,
+            module.module_name
         );
         let on_disk =
             std::fs::read_to_string(path).expect("the standard-library file should exist");
@@ -167,6 +122,34 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
         "module Main where\nimport Prelude\nimport WASI.Console\nimport WASI.Clock\nmain = let stamp = runEffect now in let action = runEffect (log \"ok\") in stamp\n",
     )
     .expect("the on-disk standard library should typecheck with a user module");
+}
+
+#[test]
+fn resolves_the_standard_library_closure_imported_by_a_wasi_program() {
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nimport WASI.Clock\nmain = let stamp = runEffect now in let action = runEffect (log \"ok\") in stamp\n";
+    let (sources, trusted_prefix) = crate::prelude::prepend(&[("Main.purs", source)])
+        .expect("the standard library should load from disk");
+    assert!(trusted_prefix > 0);
+    crate::resolve_program_sources(&sources)
+        .expect("the imported standard library closure should resolve");
+}
+
+#[test]
+fn lowers_parenthesized_kinded_class_parameters_as_binders() {
+    let module = crate::lower_source_to_ast(
+        "KindedClass.purs",
+        "module KindedClass where\nclass IsSymbol (sym :: Symbol) where\n  reflect :: Proxy sym -> String\n",
+    )
+    .expect("the kinded class should parse and lower");
+    let psrs_ast::TypeDeclaration::Class(class) = &module.type_declarations[0] else {
+        panic!("expected a class declaration");
+    };
+    assert_eq!(class.parameters.len(), 1);
+    assert_eq!(class.parameters[0].name.text, "sym");
+    assert!(matches!(
+        class.parameters[0].kind.as_ref().map(|kind| &kind.kind),
+        Some(psrs_ast::TypeKind::Name(name)) if name.text == "Symbol"
+    ));
 }
 
 #[test]

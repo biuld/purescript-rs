@@ -36,6 +36,10 @@ pub struct TypeCheckOutput {
 #[derive(Clone, Copy)]
 pub struct TypecheckContext<'a> {
     pub known_types: &'a [hir::TypeDeclaration],
+    /// Every value declaration in the resolved program, used to pin the core
+    /// library values a deriving rule names (`mempty`, `append`, `identity`,
+    /// `apply`, `pure`) to their declaring identity.
+    pub known_values: &'a [hir::Declaration],
     pub imported_instances: &'a [hir::InstanceDeclaration],
     pub module_names: &'a HashMap<hir::ModuleId, String>,
     pub checked_kinds: &'a CheckedKindEnv,

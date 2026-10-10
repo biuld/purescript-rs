@@ -10,6 +10,18 @@ pub(super) fn rewrite(
     state: &mut State,
     pending: &mut Vec<Declaration>,
 ) -> Expr {
+    psrs_span::with_sufficient_stack(|| {
+        rewrite_inner(expression, module, declarations, state, pending)
+    })
+}
+
+fn rewrite_inner(
+    expression: Expr,
+    module: &mut Module,
+    declarations: &HashMap<SymbolId, Declaration>,
+    state: &mut State,
+    pending: &mut Vec<Declaration>,
+) -> Expr {
     let mut expression = expression;
     expression.kind = match expression.kind {
         ExprKind::Constructor { symbol, arguments } => ExprKind::Constructor {
@@ -122,6 +134,7 @@ pub(super) fn rewrite(
         ExprKind::String(value) => ExprKind::String(value),
         ExprKind::Char(value) => ExprKind::Char(value),
         ExprKind::Unit => ExprKind::Unit,
+        ExprKind::StateToken => ExprKind::StateToken,
         ExprKind::Trap => ExprKind::Trap,
     };
     expression

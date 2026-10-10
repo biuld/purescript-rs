@@ -2,6 +2,8 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 use verify::verify_expr;
 
+mod compiler_class;
+mod compiler_interface;
 mod expr;
 mod module;
 mod primitives;
@@ -9,6 +11,10 @@ mod substitution;
 mod ty;
 mod types;
 
+pub use compiler_class::CompilerClass;
+pub use compiler_interface::{
+    COMPILER_INTERFACES, CompilerInterface, InterfaceImplementation, compiler_interface,
+};
 pub use expr::{
     CaseBranch, CaseBranchCoverage, Declaration, Expr, ExprKind, Guard, GuardedExpr, LocalBinder,
     LocalBinding, Pattern, PatternKind, RecordPatternMode, ResolvedOperator, SectionSide,
@@ -100,10 +106,18 @@ impl TypeId {
     pub const PRIM_TYPE_ERROR_QUOTE_LABEL: Self = Self::new(ModuleId::INTRINSICS, 28);
     pub const PRIM_TYPE_ERROR_BESIDE: Self = Self::new(ModuleId::INTRINSICS, 29);
     pub const PRIM_TYPE_ERROR_ABOVE: Self = Self::new(ModuleId::INTRINSICS, 30);
+    /// Legacy compiler-owned Effect invocation trigger. It has no source
+    /// spelling and lowers to a scalar constant; it does not carry the generic
+    /// dependency semantics of PRIM_STATE. Retire after Effect/ST migration.
+    pub const STATE_TOKEN: Self = Self::new(ModuleId::INTRINSICS, 31);
+    /// Generic state dependency carrier. Its region parameter has a nominal role.
+    pub const PRIM_STATE: Self = Self::new(ModuleId::INTRINSICS, 32);
+    /// Region marker for state operations on the external world.
+    pub const PRIM_REAL_WORLD: Self = Self::new(ModuleId::INTRINSICS, 33);
 }
 
 mod intrinsic;
-pub use intrinsic::{Intrinsic, IntrinsicCategory, IntrinsicDescriptor};
+pub use intrinsic::{Intrinsic, IntrinsicCategory, IntrinsicDescriptor, StateOperation};
 
 /// Symbol index base for source-declared `foreign import`s, which live in the
 /// reserved intrinsic module but above the intrinsic and WASI import ranges.
@@ -119,6 +133,23 @@ pub enum ExternalKind {
     /// resolves the canonical signature from the vendored WIT and lowers calls
     /// generically. See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
     Wit { interface: String, function: String },
+    /// An ordinary library foreign declaration awaiting target implementation.
+    /// Its identity is the declaring module and the external value's name;
+    /// absence of an implementation must remain an explicit linking failure.
+    Library { module: String },
+    /// A source value explicitly bound to a compiler primitive. Its checked
+    /// declaration type remains authoritative until target linking verifies it.
+    Primitive(Intrinsic),
+    /// An explicitly named runtime provider/export. Source resolution records
+    /// identity only; target linking owns the checked ABI and implementation.
+    Runtime { module: String, function: String },
+}
+
+impl ExternalKind {
+    /// Source declarations must retain a checked signature across IR boundaries.
+    pub fn requires_checked_signature(&self) -> bool {
+        !matches!(self, Self::Intrinsic(_))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

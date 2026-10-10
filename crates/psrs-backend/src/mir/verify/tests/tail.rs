@@ -20,6 +20,7 @@ fn module_with(caller: Function, callee: Function) -> Module {
         name: "TailVerifierTest".into(),
         types: Vec::new(),
         strings: Vec::new(),
+        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         entry: Some(caller.symbol),
@@ -33,6 +34,7 @@ fn callee(parameters: Vec<ValueDecl>, result_type: ValueType) -> Function {
         let result = parameter.id;
         let parameter_ty = parameter.ty;
         return Function {
+            state: None,
             id: FunctionId(1),
             symbol: symbol(1),
             name: "callee".into(),
@@ -67,6 +69,7 @@ fn callee(parameters: Vec<ValueDecl>, result_type: ValueType) -> Function {
         },
     };
     Function {
+        state: None,
         id: FunctionId(1),
         symbol: symbol(1),
         name: "callee".into(),
@@ -98,6 +101,7 @@ fn caller(
     terminator: Terminator,
 ) -> Function {
     Function {
+        state: None,
         id: FunctionId(0),
         symbol: symbol(0),
         name: "caller".into(),

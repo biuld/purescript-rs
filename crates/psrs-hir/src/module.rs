@@ -25,6 +25,9 @@ pub struct ImportedType {
     /// Importers must keep that nominal identity; the declaring module is not
     /// consulted again when a signature mentions the type.
     pub opaque: bool,
+    /// Data constructors brought in with this type. A `module` re-export
+    /// publishes these, so `Ordering(..)` stays available through `Data.Ord`.
+    pub constructors: Vec<(String, SymbolId)>,
 }
 
 /// A resolved import declaration. The imported module is identified by ID and

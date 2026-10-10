@@ -57,6 +57,7 @@ fn rejects_ref_cast_between_unrelated_heaps() {
         results: Vec::new(),
     });
     let function = Function {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "bad_cast".into(),
@@ -106,6 +107,7 @@ fn accepts_an_erased_upcast_to_eqref() {
     let output = ValueId(1);
     let struct_type = final_type(CompositeType::Struct(Vec::new()));
     let function = Function {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "erased_upcast".into(),
@@ -172,6 +174,7 @@ fn closure_callee() -> Function {
     let closure = ValueId(0);
     let argument = ValueId(1);
     Function {
+        state: None,
         id: FunctionId(1),
         symbol: SymbolId::new(ModuleId(0), 1),
         name: "callee".into(),
@@ -199,6 +202,7 @@ fn rejects_a_closure_capture_outside_the_eq_hierarchy() {
     let closure = ValueId(1);
     let mut module = custom_module(
         Function {
+            state: None,
             id: FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "bad_capture".into(),
@@ -281,6 +285,7 @@ fn helper_function(blocks: Vec<BasicBlock>, values: Vec<ValueDecl>) -> Function 
     let input = ValueId(0);
     let output = ValueId(1);
     Function {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "aggregate_convert_0".into(),
@@ -369,6 +374,7 @@ fn get_capture_function(destination_type: ValueType) -> Function {
     let closure = ValueId(0);
     let destination = ValueId(1);
     Function {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "capture_projection".into(),

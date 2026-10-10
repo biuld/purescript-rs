@@ -51,6 +51,7 @@ fn slot_type(
         .copied()
         .ok_or_else(|| unsupported_parameter(span))?;
     let ty = match shape {
+        ValueShape::State => return Err(unsupported_parameter(span)),
         ValueShape::Integer => match leaf {
             FlatLeaf::Int32 => CanonicalType::Int {
                 width: 32,

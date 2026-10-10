@@ -4,7 +4,7 @@
 **Status:** Stable (design)  
 **Prerequisites:** [CC IR](cc-ir.md), [MIR](mir.md),
 [polymorphism and erasure](polymorphism-and-erasure.md), and
-[generic aggregate erasure](generic-aggregate-erasure.md); the WebAssembly 3.0
+[representation and evidence](representation-and-evidence.md); the WebAssembly 3.0
 type system (structs, arrays, subtyping, `ref.test`/`ref.cast`, `i31`, and
 typed function references). Read [IR boundaries](../00-ir-boundaries.md)
 first.  
@@ -13,21 +13,28 @@ entirely by the P9 planner: sums become a tag-carrying abstract supertype with
 one final subtype per case (or an immediate `i32` tag when every case is
 nullary), products and records become structs, arrays become mutable GC arrays,
 and closures become `{ funref, capture-array }` structs whose captures are
-stored in one uniform `eqref` array. This document fixes those layouts, the
-operation lowering, and the execution-evidence expectations that promote a
-backend capability.
+stored in one uniform `eqref` array. This document is the Wasm GC half of the
+runtime representation model: it realizes the `heap_layout : RuntimeRep ->
+HeapLayout` mapping of
+[representation and evidence](representation-and-evidence.md). It fixes those
+layouts, the operation lowering, and the execution-evidence expectations that
+promote a backend capability.
 
 ## Scope
 
 This document owns the concrete GC heap layouts that the P9 GC planner builds
 from CC requirements, the Wasm operations that construct and observe them, and
-the execution-evidence expectations recorded for each capability. It does not
+the execution-evidence expectations recorded for each capability. It realizes
+the target-specific `Layout` of every `RuntimeRep` the Wasm GC profile supports,
+so the runtime representation model is complete on this target. It does not
 own the planner contract (see [IR boundaries](../00-ir-boundaries.md)), the
+shared representation model and checked-boundary contract (see
+[representation and evidence](representation-and-evidence.md)), the
 target-neutral `Variant` model (see [CC IR](cc-ir.md)),
 the erased protocol for polymorphic values (see
 [polymorphism and erasure](polymorphism-and-erasure.md)), the normalization and
 conversion between generic and concrete aggregate layouts (see
-[generic aggregate erasure](generic-aggregate-erasure.md)), scalar semantics (see
+[representation and evidence](representation-and-evidence.md)), scalar semantics (see
 [scalars and primitives](scalars-and-primitives.md)), or the byte-oriented
 string and ABI boundary (see
 [linear memory and the canonical ABI
@@ -59,10 +66,10 @@ array before writing.
 so an ADT field's storage comes from its declared template, independent of
 concrete instantiations. Bare variables use erased references; composite
 fields retain canonical array, product, or closure references. Captures use a
-separate uniform reference-array protocol. A generic array or closed record
-has its own canonical aggregate layout;
-converting to or from a specialized concrete layout requires reconstruction,
-as specified by [generic aggregate erasure](generic-aggregate-erasure.md).
+separate uniform reference-array protocol. All source arrays share erased-element
+storage, preserving their aliases across polymorphic boundaries. Closed records
+retain canonical field layouts; converting between distinct record layouts requires reconstruction,
+as specified by [representation and evidence](representation-and-evidence.md).
 
 **Target-neutral variants.** [CC IR](cc-ir.md)
 makes the sum encoding a P9 decision: CC states one `Variant` requirement per
@@ -72,6 +79,10 @@ chooses the object layout.
 ## Model
 
 ### Value types
+
+A CC `ValueShape` is the materialization of a
+[`RuntimeRep`](representation-and-evidence.md), and the MIR `ValueType` is its
+`HeapLayout` on this target. The mapping is total on the supported profile:
 
 | CC `ValueShape` | MIR `ValueType` |
 | --- | --- |
@@ -133,20 +144,25 @@ not depend on its capture types:
 - a reference capture is stored as-is; and
 - an erased capture is already `eqref`.
 
-Concrete array layouts specialize their element storage. The canonical layout
-for `Array a` is `Array(Erased)` with nullable `eqref` storage; other generic
-array layouts are keyed by their recursively normalized element shape. Closed
+All source array layouts use `Array(Erased)` with nullable `eqref` physical storage.
+Element construction and writes apply the shared payload erasure protocol;
+indexing and patterns recover the checked element use type. Private integer
+buffers used by text codecs have a separate explicit value conversion boundary. Closed
 generic records likewise use canonical products of normalized field shapes.
 Their conversions are explicit aggregate reconstruction, not `ref.cast`
-between nominal layouts. See [generic aggregate erasure](generic-aggregate-erasure.md).
+between nominal layouts. See [representation and evidence](representation-and-evidence.md).
 
 ### Type-table invariants
 
-- Every defined type reference resolves within the completed recursion group;
-  mutual references may point forward. A variant supertype precedes every case
-  subtype because Wasm subtyping requires that order.
-- All planned definitions live in one `RecGroup`, so recursive and mutually
-  recursive types are admissible.
+- Every defined type reference resolves in an earlier group or its own group.
+  Mutual references may point forward inside that group. A variant supertype
+  precedes every case subtype because Wasm subtyping requires that order.
+- Reference and supertype dependencies determine the strongly connected
+  components emitted as `RecGroup`s. Acyclic definitions have separate groups;
+  mutually recursive definitions share one. Remapping updates both definitions
+  and all layout handles. A closed array type therefore has the same canonical
+  group shape regardless of unrelated application types, allowing an
+  independently encoded runtime provider to share its ABI.
 - `Box` types exist only when a value is actually boxed; an unreachable box
   does not become a type.
 - Every field is immutable except an array's element field.
@@ -160,7 +176,8 @@ between nominal layouts. See [generic aggregate erasure](generic-aggregate-erasu
 P9 is the only stage that chooses representation
 ([IR boundaries](../00-ir-boundaries.md)). The `GcPlanner` receives the
 CC `RepresentationTable` plus the reachable handles and produces a
-`PlannedLayout` containing one `RecGroup` and the index maps the lowering uses.
+`PlannedLayout` containing dependency-ordered `RecGroup`s and the index maps
+the lowering uses.
 The lowering then emits a fixed set of GC operations; the Wasm emitter maps
 each MIR instruction to its GC opcode mechanically.
 
@@ -195,13 +212,12 @@ Two details are load-bearing:
   to the closure struct when its code reference is projected, so the signature
   does not depend on the closure type.
 
-For generic aggregates, P8 supplies canonical `ReprId`s: `Array a` uses
-`Array(Erased)`, other dependent arrays use recursively normalized element
-shapes, and dependent closed records use canonical record keys containing
+For generic aggregates, P8 supplies canonical `ReprId`s: every source Array uses
+`Array(Erased)`, and dependent closed records use canonical record keys containing
 sorted labels and normalized field shapes. P9 assigns one `DefinedTypeId` per
-reachable `ReprId`; concrete `Array Int` and canonical `Array(Erased)` remain
-distinct nominal types. An aggregate conversion plan that names distinct layouts is lowered to
-reconstruction by [generic aggregate erasure](generic-aggregate-erasure.md),
+reachable `ReprId`; concrete `Array Int` and generic `Array a` share storage.
+An aggregate conversion plan that names distinct private buffer or record layouts is lowered to
+reconstruction by [representation and evidence](representation-and-evidence.md),
 never to an array or struct `ref.cast`.
 
 A profile without `gc`, `reference_types`, or (for closures) `function_references`
@@ -237,10 +253,11 @@ Three sequences are worth spelling out:
   type yields a nullable reference. When the destination is non-null, P9 emits
   a temporary nullable `ArrayGet` followed by a `RefCast` to the non-null
   element type.
-- **Converting aggregate layouts.** A generic/concrete array boundary lowers
-  to a fresh array and a loop that converts each element; a closed record
+- **Converting aggregate layouts.** A generic/concrete source array boundary
+  retains the original storage. Private codec buffers convert elements into a
+  fresh array at their explicit value boundary; a closed record
   boundary reads, converts, and rebuilds its fields. The aggregate conversion
-  plan is defined in [generic aggregate erasure](generic-aggregate-erasure.md).
+  plan is defined in [representation and evidence](representation-and-evidence.md).
   No conversion uses a cast between distinct nominal array or struct types.
 - **Closure call.** The closure is loaded, the arguments are loaded, and the
   closure is loaded again, cast to the closure struct, and its field 0 code
@@ -361,7 +378,7 @@ Required types and entry points:
 
 - The representation value/type model (`ValueType`, `CompositeType`,
   `RecGroup`, `DefinedTypeId`) must live in `types.rs`; `PlannedLayout` must
-  populate exactly one `RecGroup` of those definitions.
+  partition those definitions into dependency-ordered recursion groups.
 - `RepresentationPlanner` must be the only component that assigns concrete type
   IDs, with the entry point
 
@@ -378,7 +395,8 @@ Required types and entry points:
   It must reject an unsupported profile with `LayoutError::UnsupportedGcTarget`
   or `LayoutError::UnsupportedClosureTarget` and must never emit a fallback for
   a missing `gc`, `reference_types`, or `function_references` capability.
-- `PlannedLayout` must own one `RecGroup` whose definitions precede their uses,
+- `PlannedLayout` must own dependency-ordered `RecGroup`s, with mutual
+  references confined to their group and supertypes preceding subtypes,
   the `boxed_integer_index` and `boxed_number_index` discovery slots, the
   closure and capture-array indices, and the accessors `repr_index`,
   `variant_index`, `product_field`, `signature_index`, `closure_layout`, and
@@ -507,8 +525,9 @@ w    = StructGet $rect(field 1, case)            # 7
 ```
 
 A record literal `{ x: 3, y: 4.5 }` lowers to `StructNew $point(3, 4.5)`, and
-its field read to `StructGet $point(field 0, ...)`. All four definitions are in
-one `RecGroup`, and the `Rect` subtype follows its `$variant` supertype.
+its field read to `StructGet $point(field 0, ...)`. These acyclic definitions
+have separate dependency-ordered groups; the `Rect` subtype follows its
+`$variant` supertype.
 
 ## Boundaries and interfaces
 
@@ -557,7 +576,7 @@ Recovery to scalar fields uses typed GC boxes; conversion between different
 nominal array or closed-record layouts uses explicit reconstruction between
 `ReprId`s, and function signatures change through closure adapters. Canonical layouts and
 conversion plans are implemented as specified in
-[generic aggregate erasure](generic-aggregate-erasure.md). The
+[representation and evidence](representation-and-evidence.md). The
 [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
 includes source-to-component execution and verified Typed Core fixtures for
 backend inputs that source lowering does not yet produce. It also records the

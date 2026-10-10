@@ -2,19 +2,22 @@ use super::VariantCase;
 use super::{ReprId, Representation, RepresentationTable, Signature, SignatureId, ValueShape};
 use crate::BackendError;
 use psrs_core::{Module as CoreModule, Type, TypeConstructor, TypeId};
-use psrs_hir::{SymbolId, TypeId as HirTypeId};
+use psrs_hir::{SymbolId, TypeId as HirTypeId, TypeVariableId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
 mod aggregate;
 mod captures;
+mod declaration;
 mod functions;
+pub(crate) mod protocols;
 mod scalar;
 
 #[cfg(test)]
 mod tests;
 
 use captures::module_has_integer_capture;
+pub(super) use declaration::declaration_call_parts;
 pub(crate) use functions::function_signature;
 pub(super) use scalar::{declaration_shape, is_abstract_type, scalar_type};
 
@@ -47,6 +50,9 @@ pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<Valu
 /// The primitive shape of a Core type when its head is a primitive constructor.
 pub(super) fn primitive_shape_of(module: &CoreModule, id: TypeId) -> Option<ValueShape> {
     let id = unquantified_type(module, id);
+    if psrs_core::state::region(module, id).is_some() {
+        return Some(ValueShape::State);
+    }
     match module.types.get(id.0 as usize)? {
         Type::Constructor(constructor) => primitive_value_shape(*constructor),
         _ => None,
@@ -185,6 +191,11 @@ pub(super) fn type_layout(
             .any(|declaration| depends_on_type_variable(module, declaration.ty))
         || module_has_integer_capture(module)
         || module
+            .types
+            .iter()
+            .enumerate()
+            .any(|(index, _)| array_element_type(module, TypeId(index as u32)).is_some())
+        || module
             .constructors
             .iter()
             .flat_map(|constructor| &constructor.field_types)
@@ -287,7 +298,17 @@ pub(super) fn type_layout(
         representations.set(id, Representation::Variant { cases });
     }
 
+    protocols::append(&mut representations);
+    let function_slot = crate::boundary::function_slot_protocol(&mut representations);
+    crate::cc::state::register_payload_slots(&mut representations);
+    let protocols = crate::boundary::payload_erased_protocols(
+        &mut representations,
+        &function_types,
+        module.span,
+    )?;
     Ok(TypeLayout {
+        function_slot,
+        protocols,
         representations,
         array_types,
         record_types,
@@ -299,6 +320,11 @@ pub(super) fn type_layout(
 }
 
 pub(super) struct TypeLayout {
+    pub(super) function_slot: SignatureId,
+    /// The payload-erased protocol signature of each callable constructor,
+    /// keyed by its concrete signature. Built from the registered
+    /// representation owners and the module's callable signatures.
+    pub(super) protocols: HashMap<SignatureId, SignatureId>,
     pub(super) representations: RepresentationTable,
     pub(super) array_types: HashMap<TypeId, ReprId>,
     pub(super) record_types: HashMap<TypeId, ReprId>,
@@ -333,38 +359,13 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
 
 /// Whether a Core type is a callable closure value: an ordinary function arrow
 /// or a closure born with a fixed parameter list.
-pub(super) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
+pub(crate) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
     let id = unquantified_type(module, id);
     psrs_core::arrow_parts(&module.types, id).is_some()
         || psrs_core::closure_parts(&module.types, id).is_some()
 }
 
-/// Derives the calling convention of a value.
-///
-/// A closure contributes exactly the parameter list it was born with. Its
-/// result stays a value, even when that value is a function or another
-/// closure. An ordinary function flattens every arrow: the parameters are the
-/// arrow domains and the result is the codomain. A quantifier in a codomain
-/// stops the walk so that polymorphic result stays a separate closure.
-pub(crate) fn function_arrow_parameters(module: &CoreModule, id: TypeId) -> (Vec<TypeId>, TypeId) {
-    let id = unquantified_type(module, id);
-    if let Some((parameters, result)) = psrs_core::closure_parts(&module.types, id) {
-        return (parameters.to_vec(), result);
-    }
-    let mut parameters = Vec::new();
-    let mut current = id;
-    while let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, current) {
-        parameters.push(parameter);
-        current = result;
-        // A quantifier in the codomain starts a new polymorphic closure
-        // boundary. Keep that type intact as the result value; unwrapping it
-        // there would merge its arrows into the current closure's arity.
-        if psrs_core::forall_parts(&module.types, current).is_some() {
-            break;
-        }
-    }
-    (parameters, current)
-}
+pub(crate) use functions::parts::{checked_function_arrow_parameters, function_arrow_parameters};
 
 /// Returns the runtime-facing body of a type after removing quantifiers that
 /// wrap the value itself. A quantifier reached in an arrow's codomain is kept
@@ -408,24 +409,44 @@ pub(super) fn array_element_type(module: &CoreModule, id: TypeId) -> Option<Type
 }
 
 pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool {
-    fn visit(module: &CoreModule, id: TypeId, visiting: &mut HashSet<TypeId>) -> bool {
+    fn visit(
+        module: &CoreModule,
+        id: TypeId,
+        bound: &mut HashMap<TypeVariableId, usize>,
+        visiting: &mut HashSet<TypeId>,
+    ) -> bool {
         if !visiting.insert(id) {
             return false;
         }
         let result = match module.types.get(id.0 as usize) {
-            Some(Type::Variable(_)) => true,
+            Some(Type::Variable(variable)) => !bound.contains_key(variable),
             Some(Type::Application(function, argument)) => {
-                visit(module, *function, visiting) || visit(module, *argument, visiting)
+                visit(module, *function, bound, visiting)
+                    || visit(module, *argument, bound, visiting)
             }
-            Some(Type::ForAll { body, .. }) => visit(module, *body, visiting),
+            Some(Type::ForAll { variables, body }) => {
+                for variable in variables {
+                    *bound.entry(*variable).or_default() += 1;
+                }
+                let dependent = visit(module, *body, bound, visiting);
+                for variable in variables {
+                    if let Some(count) = bound.get_mut(variable) {
+                        *count -= 1;
+                        if *count == 0 {
+                            bound.remove(variable);
+                        }
+                    }
+                }
+                dependent
+            }
             Some(Type::RowExtend { ty, tail, .. }) => {
-                visit(module, *ty, visiting) || visit(module, *tail, visiting)
+                visit(module, *ty, bound, visiting) || visit(module, *tail, bound, visiting)
             }
             Some(Type::Closure { parameters, result }) => {
                 parameters
                     .iter()
-                    .any(|parameter| visit(module, *parameter, visiting))
-                    || visit(module, *result, visiting)
+                    .any(|parameter| visit(module, *parameter, bound, visiting))
+                    || visit(module, *result, bound, visiting)
             }
             Some(Type::RowEmpty) => false,
             _ => false,
@@ -434,5 +455,5 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
         result
     }
 
-    visit(module, id, &mut HashSet::new())
+    visit(module, id, &mut HashMap::new(), &mut HashSet::new())
 }

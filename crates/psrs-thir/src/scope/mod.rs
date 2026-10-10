@@ -1,12 +1,15 @@
 use crate::{
-    Evidence, EvidenceKind, Expr, ExprKind, Module, Pattern, PatternKind, Type, TypeId, VerifyError,
+    Evidence, EvidenceKind, Expr, Module, Pattern, PatternKind, Type, TypeId, VerifyError,
 };
 use psrs_hir::TypeVariableId;
 use psrs_span::TextRange;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
+mod expr;
 mod free_type_variables;
-use free_type_variables::free_type_variables;
+mod polymorphic;
+use expr::verify_expr_scope;
+use polymorphic::{leading_foralls, open_child_binders};
 
 pub(super) fn verify_module(module: &Module) -> Vec<VerifyError> {
     let mut errors = Vec::new();
@@ -121,10 +124,12 @@ fn verify_type_scope(
         return;
     }
     match types.get(id.0 as usize) {
-        Some(Type::Variable(variable)) if !scope.contains(variable) => errors.push(VerifyError {
-            span,
-            message: "type variable is outside its quantifier scope",
-        }),
+        Some(Type::Variable(variable)) if !scope.contains(variable) => {
+            errors.push(VerifyError {
+                span,
+                message: "type variable is outside its quantifier scope",
+            });
+        }
         Some(Type::Application(function, argument)) => {
             verify_type_scope(*function, types, scope, span, active, errors);
             verify_type_scope(*argument, types, scope, span, active, errors);
@@ -172,145 +177,6 @@ fn enter_binders(
     scope.extend(local);
 }
 
-fn verify_expr_scope(
-    expression: &Expr,
-    types: &[Type],
-    scope: &mut HashSet<TypeVariableId>,
-    errors: &mut Vec<VerifyError>,
-) {
-    verify_type_scope(
-        expression.ty,
-        types,
-        scope,
-        expression.span,
-        &mut HashSet::new(),
-        errors,
-    );
-    match &expression.kind {
-        ExprKind::Local(_)
-        | ExprKind::Global(_)
-        | ExprKind::Integer(_)
-        | ExprKind::Number(_)
-        | ExprKind::Boolean(_)
-        | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
-        ExprKind::Array(elements) => {
-            for element in elements {
-                verify_expr_scope(element, types, scope, errors);
-            }
-        }
-        ExprKind::Record(fields) => {
-            for (_, value) in fields {
-                verify_expr_scope(value, types, scope, errors);
-            }
-        }
-        ExprKind::RecordUpdate { expression, fields } => {
-            verify_expr_scope(expression, types, scope, errors);
-            for (_, value) in fields {
-                verify_expr_scope(value, types, scope, errors);
-            }
-        }
-        ExprKind::FieldAccess { expression, .. } => {
-            verify_expr_scope(expression, types, scope, errors)
-        }
-        ExprKind::Evidence(evidence) => verify_evidence_scope(evidence, types, scope, errors),
-        ExprKind::Coerce {
-            value,
-            evidence,
-            source_type,
-            target_type,
-        } => {
-            verify_expr_scope(value, types, scope, errors);
-            verify_evidence_scope(evidence, types, scope, errors);
-            verify_type_scope(
-                *source_type,
-                types,
-                scope,
-                evidence.span,
-                &mut HashSet::new(),
-                errors,
-            );
-            verify_type_scope(
-                *target_type,
-                types,
-                scope,
-                evidence.span,
-                &mut HashSet::new(),
-                errors,
-            );
-        }
-        ExprKind::Application(function, argument) => {
-            let binders = leading_foralls(types, expression.ty);
-            let mut function_scope = scope.clone();
-            open_child_binders(function, &binders, types, &mut function_scope, errors);
-            verify_expr_scope(function, types, &mut function_scope, errors);
-            let mut argument_scope = scope.clone();
-            open_child_binders(argument, &binders, types, &mut argument_scope, errors);
-            verify_expr_scope(argument, types, &mut argument_scope, errors);
-        }
-        ExprKind::Lambda { binder, body } => {
-            let mut body_scope = scope.clone();
-            open_expression_binders(expression, types, &mut body_scope, errors);
-            verify_type_scope(
-                binder.ty,
-                types,
-                &body_scope,
-                binder.span,
-                &mut HashSet::new(),
-                errors,
-            );
-            verify_expr_scope(body, types, &mut body_scope, errors);
-        }
-        ExprKind::Let { bindings, body } => {
-            for binding in bindings {
-                let mut binding_scope = scope.clone();
-                enter_binders(
-                    &binding.quantified,
-                    &mut binding_scope,
-                    binding.span,
-                    "binding quantifiers must be unique and lexically distinct",
-                    errors,
-                );
-                verify_type_scope(
-                    binding.binder.ty,
-                    types,
-                    &binding_scope,
-                    binding.binder.span,
-                    &mut HashSet::new(),
-                    errors,
-                );
-                verify_expr_scope(&binding.value, types, &mut binding_scope, errors);
-            }
-            let mut body_scope = scope.clone();
-            open_expression_binders(expression, types, &mut body_scope, errors);
-            verify_expr_scope(body, types, &mut body_scope, errors);
-        }
-        ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            verify_expr_scope(condition, types, scope, errors);
-            let mut branch_scope = scope.clone();
-            open_expression_binders(expression, types, &mut branch_scope, errors);
-            verify_expr_scope(then_branch, types, &mut branch_scope, errors);
-            verify_expr_scope(else_branch, types, &mut branch_scope, errors);
-        }
-        ExprKind::Case {
-            scrutinee,
-            branches,
-        } => {
-            verify_expr_scope(scrutinee, types, scope, errors);
-            let mut branch_scope = scope.clone();
-            open_expression_binders(expression, types, &mut branch_scope, errors);
-            for branch in branches {
-                verify_pattern_scope(&branch.pattern, types, &branch_scope, errors);
-                verify_expr_scope(&branch.value, types, &mut branch_scope, errors);
-            }
-        }
-    }
-}
-
 fn open_expression_binders(
     expression: &Expr,
     types: &[Type],
@@ -328,42 +194,6 @@ fn open_expression_binders(
     {
         errors.push(VerifyError {
             span: expression.span,
-            message: "forall binder shadows an active type variable",
-        });
-    }
-    scope.extend(local);
-}
-
-fn open_child_binders(
-    child: &Expr,
-    candidates: &[TypeVariableId],
-    types: &[Type],
-    scope: &mut HashSet<TypeVariableId>,
-    errors: &mut Vec<VerifyError>,
-) {
-    let mut free = HashSet::new();
-    free_type_variables(
-        child.ty,
-        types,
-        &mut HashMap::new(),
-        &mut HashSet::new(),
-        &mut free,
-    );
-    let relevant = candidates
-        .iter()
-        .copied()
-        .filter(|variable| free.contains(variable))
-        .collect::<Vec<_>>();
-    if relevant.is_empty() {
-        return;
-    }
-    let mut local = HashSet::new();
-    if relevant
-        .iter()
-        .any(|variable| !local.insert(*variable) || scope.contains(variable))
-    {
-        errors.push(VerifyError {
-            span: child.span,
             message: "forall binder shadows an active type variable",
         });
     }
@@ -425,6 +255,9 @@ fn verify_evidence_scope(
         errors,
     );
     match &evidence.kind {
+        EvidenceKind::DictionaryValue(value) => {
+            verify_expr_scope(value, types, &mut scope.clone(), errors)
+        }
         EvidenceKind::Given(_) | EvidenceKind::Global(_) => {}
         EvidenceKind::Coercible {
             source_type,
@@ -480,21 +313,4 @@ fn verify_evidence_scope(
             }
         }
     }
-}
-
-fn leading_foralls(types: &[Type], mut id: TypeId) -> Vec<TypeVariableId> {
-    let mut variables = Vec::new();
-    let mut seen = HashSet::new();
-    while let Some(Type::ForAll {
-        variables: binders,
-        body,
-    }) = types.get(id.0 as usize)
-    {
-        if !seen.insert(id) {
-            break;
-        }
-        variables.extend(binders.iter().copied());
-        id = *body;
-    }
-    variables
 }

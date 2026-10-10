@@ -350,3 +350,76 @@ fn verifier_rejects_an_empty_forall() {
         "forall binders must be non-empty, unique, and lexically distinct",
     );
 }
+
+#[test]
+fn quantified_let_scopes_its_locals_and_rejects_unbound_local_variables() {
+    for unbound in [false, true] {
+        let outer = TypeVariableId(10);
+        let inner = if unbound { TypeVariableId(11) } else { outer };
+        let mut types = vec![Type::Variable(outer), Type::Variable(inner)];
+        let outer_arrow = arrow(&mut types, TypeId(0), TypeId(0));
+        let inner_arrow = arrow(&mut types, TypeId(1), TypeId(1));
+        let quantified = TypeId(types.len() as u32);
+        types.push(Type::ForAll {
+            variables: vec![outer],
+            body: outer_arrow,
+        });
+        let binder = Binder {
+            id: LocalId(0),
+            name: "ident".into(),
+            ty: inner_arrow,
+            span: SPAN,
+        };
+        let local_value = Expr {
+            kind: ExprKind::Lambda {
+                binder: Binder {
+                    id: LocalId(1),
+                    name: "x".into(),
+                    ty: TypeId(1),
+                    span: SPAN,
+                },
+                body: Box::new(Expr {
+                    kind: ExprKind::Local(LocalId(1)),
+                    ty: TypeId(1),
+                    span: SPAN,
+                }),
+            },
+            ty: inner_arrow,
+            span: SPAN,
+        };
+        let value = Expr {
+            kind: ExprKind::Let {
+                bindings: vec![Binding {
+                    binder,
+                    quantified: Vec::new(),
+                    value: local_value,
+                    span: SPAN,
+                }],
+                body: Box::new(Expr {
+                    kind: ExprKind::Local(LocalId(0)),
+                    ty: outer_arrow,
+                    span: SPAN,
+                }),
+            },
+            ty: quantified,
+            span: SPAN,
+        };
+        let module = module(
+            types,
+            vec![declaration(0, "main", Vec::new(), quantified, value)],
+        );
+        if unbound {
+            assert!(
+                module
+                    .verify()
+                    .unwrap_err()
+                    .iter()
+                    .any(|error| error.message == "type variable is outside its quantifier scope")
+            );
+        } else {
+            module
+                .verify()
+                .expect("the enclosing forall scopes monomorphic local definitions");
+        }
+    }
+}

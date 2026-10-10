@@ -58,6 +58,22 @@ impl Context<'_> {
         );
     }
 
+    pub(super) fn verify_array_fill(&mut self, expression: &Expr, length: &Expr, value: &Expr) {
+        self.expr(
+            length,
+            Some(primitive_type_id(self.module, TypeConstructor::Int)),
+        );
+        let Some(element) = array_element(expression.ty, self.module) else {
+            self.errors.push(error(
+                self.owner,
+                expression.span,
+                "arrayFill must return an Array",
+            ));
+            return;
+        };
+        self.expr(value, Some(element));
+    }
+
     pub(super) fn verify_array_index(&mut self, expression: &Expr, array: &Expr, index: &Expr) {
         let Some(element_type) = array_element(array.ty, self.module) else {
             self.errors.push(error(

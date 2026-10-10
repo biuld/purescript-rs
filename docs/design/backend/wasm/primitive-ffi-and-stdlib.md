@@ -1,5 +1,12 @@
 # Primitive Foreign Imports and Standard-Library Wrappers
 
+> **Selected extension:** [library-owned effects and state dependencies](../fp/library-owned-effects.md)
+> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
+> and checked zero-width projection. GC storage/termination use runtime-owned
+> providers with a checked reference ABI, separate from scalar artifact calls.
+> Integrated implementation and acceptance evidence
+> have not migrated; the existing contracts below remain the implementation baseline.
+
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
 **Status:** Draft  
 **Prerequisites:** the Canonical ABI's flat signature (`Resolve::wasm_signature`: scalars, `string` as `(pointer, length)`, `option`/`result` as a discriminant plus a payload), and the difference between a PureScript foreign import and the host glue behind it. Read [DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md), [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md), [canonical ABI and WIT](canonical-abi-and-wit.md), and [WASI platform library](wasi-platform-library.md) first.  
@@ -12,6 +19,14 @@ the standard library: the primitive source types a foreign import may use, what
 the lowerer refuses to recognize, and how a wrapper encodes and decodes library
 types. It is the mechanism behind
 [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
+
+That contract applies to explicitly bound WIT imports. Ordinary upstream library
+`foreign import name :: Type` declarations keep their source contract under
+[foreign imports](../../frontend/semantics/foreign-imports.md) and
+[source fidelity](../../../workflow/stdlib-vendoring.md). They are not implicit
+WASI functions or subject to a fabricated canonical ABI. Until a checked target
+implementation exists, P8 library linking rejects them explicitly; retaining a
+declaration does not establish runtime support.
 
 It does not own canonical flattening, `lift`/`lower`, or `cabi_realloc`
 ([canonical ABI and WIT](canonical-abi-and-wit.md)), buffer lifetime
@@ -62,6 +77,26 @@ replaces that approach: those types stay in the library, and the compiler
 mapping does not learn them.
 
 ## Model
+
+### Intrinsic target implementations and linking
+
+`psrs:intrinsic#` selects a checked language primitive, not a raw runtime
+function. An implementation may be a direct Wasm operation, a generated helper,
+or an embedded target-library export. Backend implementation descriptors join
+the HIR identity to the raw export signature and recovery protocol; a target
+link plan verifies reachable imports, validates the runtime artifact, reserves
+shared-memory regions, and schedules instantiation. See
+[the linking design](linking-and-runtime.md) and
+[DEC-18](../../../decision/DEC-18-unified-target-linking.md). The formatter slice
+implements this contract.
+
+For `numberToString :: Number -> String`, the runtime receives a binary64 value
+and a caller-owned 32-byte output buffer, returns its initialized UTF-8 length,
+and retains nothing. MIR recovers a GC String and releases the temporary buffer.
+The linker packages the pinned formatter and closes the private import inside
+the emitted component. `Data.Show` keeps the official `.0` wrapper and ordinary
+PureScript escaping and array callbacks in the library. The formatter's raw
+signature is never substituted for the primitive's language signature.
 
 ### The primitive set
 
@@ -341,7 +376,7 @@ application world, and embedding stay in
 [canonical ABI and WIT](canonical-abi-and-wit.md).
 
 ```text
-stdlib/lib/
+psrs-stdlib/lib/
   Prelude.purs                 the Effect interface: pure, bind, runEffect, trap
   Data/Function.purs           const, flip, apply, applyFlipped, on, $, #
   Data/Semigroup.purs          class Semigroup, append, <>
@@ -576,6 +611,11 @@ not in `Prelude` and not compiler builtins. Nullary enum, closed record, and
 flags-record foreign imports still lower; new library code should not use that
 path. Handles are declared as the `Resource a` newtype over `Int`.
 
+`Data.Tuple.Tuple` is an ordinary two-field ADT. Its `Eq` instance compares
+both fields, its `Ord` instance compares them lexicographically, and its `Show`
+instance renders `(Tuple <first> <second>)` using each field's `Show` instance.
+These source instances do not change native tuple syntax or WIT tuple layout.
+
 ## References
 
 - [DEC-11 — Primitive foreign imports and standard-library wrappers](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
@@ -588,3 +628,91 @@ path. Handles are declared as the `Resource a` newtype over `Int`.
   `string`, and tuples.
 - Issue #56, whose request to grow compiler source types for `Maybe`, `Either`,
   and tuples this contract replaces. The user-facing types remain library types.
+
+## Primitive callable and array storage boundaries
+
+An explicit primitive binding retains its checked source signature. P8 reads
+leading lexical quantifiers through Core's shared scheme operation, preserves
+their identities in the declaration scope, and verifies the generated primitive
+body. Unsupported categories and invalid signatures fail even when unused.
+The complete candidate is published only after successful verification.
+
+Core then expands each checked primitive global occurrence into a typed lambda
+at that occurrence's already checked type. This is mandatory elaboration,
+independent of P7 optimization budgets. Shared Core local allocation prevents
+capture. It handles bare values and partial/saturated applications with the
+ordinary lambda/application path. A polymorphic array wrapper followed by an
+array-mapping ABI adapter is insufficient for mutation: the adapter can copy the
+array and direct writes at the copy. Occurrence expansion retains the exact
+array representation required by the call, including aliases and partial calls.
+
+The compiler provides small storage operations, not one intrinsic per stdlib
+algorithm. `arrayFill :: forall a. Int -> a -> Array a` allocates a fresh array
+fully initialized with one checked value; a negative length traps. Its MIR form
+validates the length, initializer, storage and destination types and lowers to
+Wasm GC `array.new`. It never exposes uninitialized or default-null logical
+elements. `arrayWrite :: forall a. Array a -> Int -> a -> Array a` is an unsafe
+in-place write and returns the same array; invalid indices trap. Core checks
+all element relationships and MIR preserves the write as an observable effect.
+The raw writes are private to target library code with fresh output ownership.
+
+`psrs-stdlib/lib/PSRS/Array.purs` owns `arrayApply`, `arrayBind` and
+`arrayExtend`. Original
+Prelude and Control exports and public signatures remain; only their foreign
+implementation
+slots delegate to this target module. Class/instance and other pure code remain
+official. No compiler registry entry, CC operation, callback invoker or MIR loop
+is dedicated to any of these algorithms. Recursion and callbacks use ordinary
+checked
+PureScript calls, closure adaptation and tail-call lowering.
+
+The library applies functions in function-major order, caching each function
+for its value traversal and invoking it once per pair. Bind visits inputs in
+order, invokes each callback once, snapshots its returned array immediately,
+and flattens the snapshots. The immediate shallow copy preserves the official
+behavior when a later callback mutates a previously returned array. Extend
+visits indices in increasing order, invokes its callback once per index, and
+passes a fresh shallow suffix copy, so callback mutation cannot change the source
+array. Storage and
+copy work are linear in input/result size. Array apply checks signed-i32 product
+capacity before callbacks; bind checks cumulative capacity before accepting a
+chunk. Allocation exhaustion and unrepresentable sizes trap as target resource
+boundaries. Empty inputs invoke no callbacks.
+
+Primitive additions require a runtime/storage justification and checked contracts.
+Missing JS FFI alone does not justify a new whole-function intrinsic. Generic
+Wasm/WASI adaptation belongs in source library code whenever these operations
+and ordinary language features can express it. See the independent package's
+`docs/array-kernels.md` and official JS generators for behavior evidence. Focused
+observations do not establish whole-library compile or runtime/FFI acceptance.
+
+`Control.Monad.ST` follows the same boundary without a new intrinsic. The target
+module `PSRS.ST` represents an action as a suspended `Unit -> a` thunk and a
+reference as a fresh one-element mutable array over the private storage
+primitives. `Control.Monad.ST.Internal` keeps the official `ST`/`STRef` newtypes
+and every class instance, because this compiler does not resolve an instance
+whose type is imported from another module; each operation is a thin adapter over
+the target module. `STFn{N}` stays abstract as a newtype over the curried action
+so rank-2 `STFn` arguments typecheck. The target's `ST` thunk and the compiler's
+scalar-token `Effect` closure are not representationally equal, so
+`Control.Monad.ST.Global.toEffect`'s `unsafeCoerce` is linked but not sound. See
+the independent package's `docs/st.md`.
+
+Uncurried functions follow the same representation rule. `Data.Function.Uncurried`
+keeps `Fn1` as a synonym and represents `Fn0` and `Fn2`..`Fn10` as abstract
+newtypes over the curried function, so `mkFn{N}`/`runFn{N}` adapt currying and
+rank-2 arguments stay abstract. This is a prerequisite for `Data.Array`, whose
+foreign signatures use `Fn2` and `Fn3`. See the independent package's
+`docs/function-uncurried.md`.
+
+`Data.Array`'s algorithms follow the same boundary. The Prelude-free target
+module `PSRS.Array` owns them over the private storage primitives; the official
+module delegates each foreign slot. Slots whose private signature carries a
+rank-2 `Maybe` constructor or observer are written monomorphically and the loop
+is inlined, leaving the public API unchanged, and `Data.Array.NonEmpty.Internal`'s
+`traverse1` is implemented in the `Traversable1` instance over the `Applicative`
+dictionary. See the independent package's `docs/array-operations.md`. A compiler
+obligation is recorded there: a recursive loop that writes to its output array
+only in one `if` branch produced wrong results; loops must write in a single
+tail call and select only the value in the branch. `unsafeIndex` out of range
+traps rather than returning JavaScript `undefined`.

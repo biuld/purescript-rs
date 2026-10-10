@@ -108,6 +108,7 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -214,6 +215,7 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

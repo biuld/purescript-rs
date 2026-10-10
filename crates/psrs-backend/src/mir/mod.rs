@@ -15,17 +15,18 @@ mod numeric;
 pub mod opt;
 mod planner;
 mod reachable;
-mod scalar_helpers;
+mod runtime;
+pub mod state;
 mod verify;
 mod wit;
 
 use literals::StringLiterals;
 use lower::lower_function;
 use planner::{GcPlanner, RepresentationPlanner};
-use scalar_helpers::lower_scalar_helpers;
 
 pub use instruction::{Instruction, ListDirection};
 pub use numeric::{NumericOp, UnaryOp};
+pub use runtime::RuntimeImport;
 pub use verify::{verify_module, verify_module_with_capabilities};
 
 #[cfg(test)]
@@ -34,6 +35,8 @@ mod binding_tests;
 mod gc_tests;
 #[cfg(test)]
 mod indirect_tests;
+#[cfg(test)]
+mod number_format_tests;
 #[cfg(test)]
 mod tests;
 
@@ -49,8 +52,7 @@ pub struct Module {
     pub types: Vec<RecGroup>,
     /// Static string literals referenced by `ArrayNewData` data indices.
     pub strings: Vec<String>,
-    /// Runtime ABI imports the module may call. Their canonical signatures come
-    /// from the WIT runtime ABI; see `docs/decision/DEC-06`.
+    /// Checked physical ABI imports, selected from WIT or raw runtime contracts.
     pub imports: Vec<Import>,
     pub functions: Vec<Function>,
     /// The program entry declaration, if selected by the driver.
@@ -60,14 +62,19 @@ pub struct Module {
     /// here to resolve a list element's guest layout. `None` for a hand-built
     /// test module with no representation table.
     pub(crate) layout: Option<layout::PlannedLayout>,
+    /// Immutable source requirements, independent of mutable function evidence.
+    pub(crate) dependencies: state::Inventory,
     pub span: TextRange,
 }
 
-/// A runtime ABI import, lowered to its canonical ABI signature.
+/// An external call target with its checked physical ABI signature.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Import {
-    /// The canonical ABI symbol the call references. The interface, function,
-    /// and return-pointer details live in the ABI registry, not here.
+    /// Explicit runtime provider identity; ordinary source bindings retain this
+    /// through MIR instead of being assigned a reserved intrinsic symbol.
+    pub runtime: Option<RuntimeImport>,
+    /// The call identity. WIT interface and return-pointer details live in the
+    /// ABI registry; raw runtime provider identity is retained above.
     pub symbol: SymbolId,
     pub parameters: Vec<ValueType>,
     pub result: Option<ValueType>,
@@ -86,6 +93,9 @@ pub(crate) struct BoundWasiImport {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
+    /// Logical dependencies and their checked correspondence to instructions.
+    /// They have no target value type and survive physical State projection.
+    pub state: Option<state::DependencyFlow>,
     /// Stable module-local MIR identity. P10 maps this identity to a final
     /// Wasm function index after imports are ordered.
     pub id: FunctionId,
@@ -110,6 +120,10 @@ pub struct BasicBlock {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Terminator {
+    /// Ends execution without a result operand or normal successor.
+    Trap {
+        span: TextRange,
+    },
     Return {
         value: ValueId,
         span: TextRange,
@@ -185,6 +199,19 @@ pub fn lower_module_with_bindings(
     lower_module_after_binding_validation(module, bindings, target, wasi)
 }
 
+/// Lowers CC to MIR over the linker's shared resolved definitions, so the
+/// registry borrows the same parsed WIT rather than loading a second copy.
+pub fn lower_module_with_bindings_and_resolve(
+    module: cc::Module,
+    bindings: crate::ExternalBindings,
+    target: TargetCapabilities,
+    resolve: std::sync::Arc<wit_parser::Resolve>,
+) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
+    bindings.validate_cc(&module)?;
+    let wasi = WasiRegistry::from_shared_resolve(resolve, target);
+    lower_module_after_binding_validation(module, bindings, target, wasi)
+}
+
 #[cfg(test)]
 pub(crate) fn lower_module_with_registry(
     module: cc::Module,
@@ -202,6 +229,10 @@ fn lower_module_after_binding_validation(
     target: TargetCapabilities,
     mut wasi: WasiRegistry,
 ) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
+    // P8 owns ordinary CC typing. Recheck actual dependency bodies at the
+    // physical boundary, including callers supplying CC directly.
+    let projected = state::project(module, &bindings.runtime)?;
+    let module = projected.physical;
     // Resolve every source-declared WIT binding and pair it with the CC
     // abstract signature. Conformance was already checked at the linking
     // boundary; a declaration the backend cannot lower is rejected here.
@@ -269,9 +300,13 @@ fn lower_module_after_binding_validation(
             module.entry.map(|entry| entry.module),
         )
     })?;
-    let (scalar_helpers, generated_helpers) =
-        lower_scalar_helpers(&module, module.functions.len() as u32);
-    let mut conversion_helpers = lower::ConversionHelpers::new(&module, &generated_helpers);
+    let runtime = runtime::RuntimeContext::checked(
+        &bindings.runtime,
+        projected.logical.clone(),
+        &module,
+        &layout,
+    )?;
+    let mut conversion_helpers = lower::ConversionHelpers::new(&module);
     let mut literals = StringLiterals::default();
     let mut functions = Vec::with_capacity(module.functions.len());
     for (id, function) in module.functions.iter().enumerate() {
@@ -279,10 +314,14 @@ fn lower_module_after_binding_validation(
             function,
             FunctionId(id as u32),
             &wit_imports,
-            &scalar_helpers,
+            &runtime,
             &layout,
             Some(&mut conversion_helpers),
             Some(&mut literals),
+            projected
+                .inventory
+                .requires(function.symbol)
+                .then(|| projected.logical.clone()),
             target,
         )
         .map_err(|errors| {
@@ -293,17 +332,17 @@ fn lower_module_after_binding_validation(
         })?;
         functions.push(lowered);
     }
-    functions.extend(generated_helpers);
     let first_helper_id = functions.len() as u32;
     for (offset, helper) in conversion_helpers.into_functions().iter().enumerate() {
         let lowered = lower_function(
             helper,
             FunctionId(first_helper_id + offset as u32),
             &wit_imports,
-            &scalar_helpers,
+            &runtime,
             &layout,
             None,
             Some(&mut literals),
+            None,
             target,
         )?;
         functions.push(lowered);
@@ -316,25 +355,36 @@ fn lower_module_after_binding_validation(
         .iter()
         .filter(|import| used.contains(&import.symbol))
         .map(|import| Import {
+            runtime: None,
             symbol: import.symbol,
             parameters: import.parameters.clone(),
             result: import.result,
         })
         .collect();
+    imports.extend(
+        runtime
+            .imports
+            .into_values()
+            .filter(|import| used.contains(&import.symbol)),
+    );
     if used.contains(&crate::abi::REALLOC_SYMBOL)
         || wasi
             .imports()
             .iter()
             .any(|import| used.contains(&import.symbol) && import.has_indirect_parameters())
     {
-        imports.push(Import {
-            symbol: crate::abi::REALLOC_SYMBOL,
-            parameters: vec![ValueType::I32; 4],
-            result: Some(ValueType::I32),
-        });
+        imports.push(
+            crate::target_intrinsics::generated::signature(crate::abi::REALLOC_SYMBOL, None)
+                .expect("allocator signature has no layout dependency"),
+        );
     }
-    // The canonical ABI boundary transcodes between the GC string's UTF-16 and
-    // the component's UTF-8. The adapter calls these reserved helpers, which P10
+    for implementation in crate::target_intrinsics::artifacts() {
+        if used.contains(&implementation.symbol) {
+            imports.push(implementation.import());
+        }
+    }
+    // The canonical ABI boundary copies canonical UTF-8 between GC strings and
+    // component linear buffers. The adapter calls these reserved helpers, which P10
     // synthesizes as ordinary Wasm functions; they are never core imports.
     if used.contains(&crate::abi::STRING_TO_BYTES_SYMBOL)
         || used.contains(&crate::abi::BYTES_TO_STRING_SYMBOL)
@@ -351,22 +401,33 @@ fn lower_module_after_binding_validation(
                     module.entry.map(|entry| entry.module),
                 )
             })?;
-        if used.contains(&crate::abi::STRING_TO_BYTES_SYMBOL) {
-            imports.push(Import {
-                symbol: crate::abi::STRING_TO_BYTES_SYMBOL,
-                parameters: vec![string_type],
-                result: Some(ValueType::I32),
-            });
-        }
-        if used.contains(&crate::abi::BYTES_TO_STRING_SYMBOL) {
-            imports.push(Import {
-                symbol: crate::abi::BYTES_TO_STRING_SYMBOL,
-                parameters: vec![ValueType::I32, ValueType::I32],
-                result: Some(string_type),
-            });
+        let ValueType::Ref(crate::types::RefType {
+            nullable: false,
+            heap: crate::types::HeapType::Index(string_id),
+        }) = string_type
+        else {
+            return Err(vec![BackendError::invalid_ir(
+                "P9 MIR lowering",
+                module.span,
+                "string layout must be a nonnullable concrete GC reference",
+            )]);
+        };
+        for symbol in [
+            crate::abi::STRING_TO_BYTES_SYMBOL,
+            crate::abi::BYTES_TO_STRING_SYMBOL,
+        ] {
+            if used.contains(&symbol) {
+                imports.push(
+                    crate::target_intrinsics::generated::signature(symbol, Some(string_id))
+                        .expect("codec has its checked string layout"),
+                );
+            }
         }
     }
     let strings = literals.into_strings();
+    let dependencies = projected
+        .inventory
+        .with_helpers(&functions[first_helper_id as usize..])?;
     let mir = Module {
         name: module.name,
         types: layout.types.clone(),
@@ -374,6 +435,7 @@ fn lower_module_after_binding_validation(
         imports,
         functions,
         entry: module.entry,
+        dependencies,
         layout: Some(layout),
         span: module.span,
     };

@@ -14,7 +14,7 @@ enum AggregateKey {
     Record(Vec<(String, ValueShape)>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct AggregateLayouts {
     pub(super) arrays: HashMap<TypeId, ReprId>,
     pub(super) records: HashMap<TypeId, ReprId>,
@@ -28,8 +28,12 @@ pub(super) fn reserve_aggregate_layouts(
 ) -> AggregateLayouts {
     let mut arrays = HashMap::new();
     let mut records = HashMap::new();
+    let live_types = super::functions::live_type_ids(module);
     for index in 0..module.types.len() {
         let id = TypeId(index as u32);
+        if !live_types.contains(&id) {
+            continue;
+        }
         if array_element_type(module, id).is_some() {
             arrays.insert(id, representations.reserve());
         } else if module.is_record_type(id) && !module.record_is_open(id).unwrap_or(false) {
@@ -43,6 +47,45 @@ pub(super) fn reserve_aggregate_layouts(
 /// Core IDs select normalization inputs, not runtime layout identities.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn normalize_aggregate_layouts(
+    module: &Module,
+    enum_types: &HashSet<HirTypeId>,
+    aggregate_types: &HashSet<HirTypeId>,
+    newtype_ids: &HashSet<HirTypeId>,
+    mut function_types: HashMap<TypeId, SignatureId>,
+    mut layouts: AggregateLayouts,
+    representations: &mut RepresentationTable,
+) -> Result<(AggregateLayouts, HashMap<TypeId, SignatureId>), Vec<BackendError>> {
+    // Aggregate keys contain closure signatures, whose keys in turn contain
+    // aggregate handles. Intern both until neither identity changes.
+    let bound = representations.representations.len() + representations.signatures.len() + 2;
+    for _ in 0..bound {
+        let previous_layouts = layouts.clone();
+        let previous_functions = function_types.clone();
+        let previous_table = representations.clone();
+        (layouts, function_types) = normalize_pass(
+            module,
+            enum_types,
+            aggregate_types,
+            newtype_ids,
+            function_types,
+            layouts,
+            representations,
+        )?;
+        if layouts == previous_layouts
+            && function_types == previous_functions
+            && *representations == previous_table
+        {
+            return Ok((layouts, function_types));
+        }
+    }
+    Err(layout_error(
+        module.span,
+        "aggregate and callable layout normalization did not converge",
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn normalize_pass(
     module: &Module,
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
@@ -100,6 +143,24 @@ pub(super) fn normalize_aggregate_layouts(
         }
         remap_shape(&mut signature.result, &remapped);
     }
+    for representation in &mut representations_table.representations {
+        match representation {
+            Representation::Box { value } => remap_shape(value, &remapped),
+            Representation::Product { fields } => {
+                for field in fields {
+                    remap_shape(field, &remapped);
+                }
+            }
+            Representation::Variant { cases } => {
+                for case in cases {
+                    for field in &mut case.fields {
+                        remap_shape(field, &remapped);
+                    }
+                }
+            }
+            Representation::Array { element } => remap_shape(element, &remapped),
+        }
+    }
     canonicalize_signatures(representations_table, &mut function_types);
     Ok((layouts, function_types))
 }
@@ -127,35 +188,34 @@ impl Builder<'_> {
         if !self.active.insert(id) {
             return Ok(handle);
         }
-        let (key, representation, labels) =
-            if let Some(element) = array_element_type(self.module, id) {
-                let shape = self.value_shape(element, span)?;
-                (
-                    AggregateKey::Array(shape),
-                    Representation::Array { element: shape },
-                    None,
-                )
-            } else {
-                let Some(fields) = self.module.record_fields(id) else {
-                    self.active.remove(&id);
-                    return Err(layout_error(
-                        span,
-                        "aggregate type has no array or record layout",
-                    ));
-                };
-                let mut fields = fields
-                    .iter()
-                    .map(|(label, ty)| Ok((label.clone(), self.value_shape(*ty, span)?)))
-                    .collect::<Result<Vec<_>, Vec<BackendError>>>()?;
-                fields.sort_by(|left, right| left.0.cmp(&right.0));
-                let labels = fields.iter().map(|(label, _)| label.clone()).collect();
-                let shapes = fields.iter().map(|(_, shape)| *shape).collect();
-                (
-                    AggregateKey::Record(fields),
-                    Representation::Product { fields: shapes },
-                    Some(labels),
-                )
+        let (key, representation, labels) = if array_element_type(self.module, id).is_some() {
+            let shape = crate::cc::payload::erased_shape();
+            (
+                AggregateKey::Array(shape),
+                Representation::Array { element: shape },
+                None,
+            )
+        } else {
+            let Some(fields) = self.module.record_fields(id) else {
+                self.active.remove(&id);
+                return Err(layout_error(
+                    span,
+                    "aggregate type has no array or record layout",
+                ));
             };
+            let mut fields = fields
+                .iter()
+                .map(|(label, ty)| Ok((label.clone(), self.value_shape(*ty, span)?)))
+                .collect::<Result<Vec<_>, Vec<BackendError>>>()?;
+            fields.sort_by(|left, right| left.0.cmp(&right.0));
+            let labels = fields.iter().map(|(label, _)| label.clone()).collect();
+            let shapes = fields.iter().map(|(_, shape)| *shape).collect();
+            (
+                AggregateKey::Record(fields),
+                Representation::Product { fields: shapes },
+                Some(labels),
+            )
+        };
         let canonical = if let Some(canonical) = self.canonical.get(&key).copied() {
             canonical
         } else {

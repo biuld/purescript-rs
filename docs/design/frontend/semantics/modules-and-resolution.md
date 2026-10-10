@@ -57,8 +57,15 @@ The driver loads the transitive source graph, checks duplicate module names and
 cycles according to the source language's module rules, then resolves modules
 in dependency order. P3 first registers declarations and their namespaces,
 then resolves bodies so same-module references and recursive groups can name
-their final IDs. Qualified lookup uses only the named imported module;
-unqualified lookup combines local declarations and permitted imports and
+their final IDs. Qualified lookup combines the selected names from all imports
+under that qualifier. Several imports may share an explicit alias. A member is
+ambiguous only when its namespace contains distinct declaration identities;
+multiple paths to the same declaration remain one member. Merely declaring a
+shared qualifier is not an error. A `module X` re-export checks each member of
+the combined scope by the same qualified lookup relation and reports
+`ScopeConflict` for an ambiguous member, while disjoint members form a union.
+
+Unqualified lookup combines local declarations and permitted imports and
 rejects ambiguity.
 
 Instance dictionary names follow the module's declared-identifier conflict
@@ -94,7 +101,19 @@ declared identities through qualification and re-exports, and carry a
 reach the same compiler-owned identity. A source module named `Prim` or
 beginning with `Prim.` is rejected; source cannot replace a compiler interface.
 The root `undefined` value reaches source only through this interface, not as a
-free name.
+free name. The compiler-provided set is not limited to `Prim`. Compiler-provided modules
+export primitive values, and `Safe.Coerce` and `Unsafe.Coerce` are two of them:
+`coerce` is the checked coercion intrinsic with `Coercible` as the shared
+declared class, and `unsafeCoerce` is the unchecked representation cast, the
+`unsafeCoerce#` analogue. Both are compiler-owned primitive values, not the
+bodies a faithful vendored source must carry. A module the compiler provides is
+never shadowed by an on-disk file: the loader omits such a module and an import
+of it resolves through the virtual interface, so the vendored source can stay
+faithful to upstream without its uncompilable body taking effect. `unsafeCoerce`
+is the unchecked `unsafeCoerce#` analogue: the compiler lowers it to a
+representation-preserving cast at the value's erased boundary, so a program that
+reaches it compiles and runs through the same compiler-owned value path
+`coerce` uses.
 
 This document owns that interface: which names exist, which identity each carries,
 and that nothing in source can replace one. What a member *means* — which of them
@@ -227,12 +246,18 @@ key policy. Orphan and overlapping instance visibility is specified with
 lookup alone.
 
 P3 checks explicit public signatures and declaration dependencies while their
-resolved type references are available. It does not infer a public value's
-type from expression syntax. After generalization, P5 traverses the checked
-scheme by stable `TypeId` and reports hidden local types in inferred results,
-function parameters, aliases, record fields, and constraints. The L2 export
-scoreboard runs annotated transitive-export cases through the lenient typed
-pipeline so each check is measured at its owning stage.
+resolved type references are available. A fully applied local type synonym in
+an explicit value signature is expanded first, and each in-module type
+constructor or class that remains is a dependency. The synonym's own name is
+not a dependency of that value. An exported data type, synonym, or class still
+requires the in-module names written in its synonym body, superclasses, and
+kinds. A data constructor's field types are dependencies only when that
+constructor is part of the export. P3 does not infer a public value's type from
+expression syntax. After generalization, P5 traverses the checked scheme by
+stable `TypeId` and reports hidden local types in inferred results, function
+parameters, aliases, record fields, and constraints. The L2 export scoreboard
+runs annotated transitive-export cases through the lenient typed pipeline so
+each check is measured at its owning stage.
 
 ## References
 

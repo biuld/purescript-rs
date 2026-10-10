@@ -2,23 +2,29 @@
 //! checking against imported signatures, Core lowering, and linking.
 
 use super::{
-    Artifact, DiagnosticOrigin, ProgramDiagnostic, ProgramWarning, Warning, backend_warnings,
-    coded_diagnostic, diagnostic, lower_source_to_ast,
+    DiagnosticOrigin, ProgramDiagnostic, ProgramWarning, Warning, coded_diagnostic, diagnostic,
+    lower_source_to_ast,
 };
 
+pub use compilation::compile_program_sources;
 pub use lenient::{
     check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
 };
 pub use library::{
     check_program_kinds_lenient_with_prelude, check_program_lenient_with_prelude,
     check_program_types_lenient_with_prelude, compile_program_sources_with_prelude,
+    compile_program_sources_with_prelude_diagnosis, compile_program_sources_with_prelude_report,
 };
 use std::collections::{HashMap, HashSet};
 
+mod compilation;
 mod effects;
 mod graph;
 mod lenient;
 mod library;
+mod lowering;
+#[cfg(test)]
+pub(crate) use lowering::lower_program_to_core_with_runner;
 mod reports;
 mod signatures;
 
@@ -41,45 +47,6 @@ fn desugar_diagnostic(error: psrs_desugar::DesugarError) -> super::Diagnostic {
 }
 
 use graph::{imported_instance_declarations, module_dependencies, module_table, typecheck_order};
-
-/// Compiles a whole program to a single Wasm component. Every module is type
-/// checked in dependency order and lowered to Core; the modules are then linked
-/// into one before the backend runs.
-pub fn compile_program_sources(
-    sources: &[(&str, &str)],
-) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    compile_program_sources_with_trusted_prefix(sources, 0)
-}
-
-fn compile_program_sources_with_trusted_prefix(
-    sources: &[(&str, &str)],
-    trusted_prefix: usize,
-) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let (core, source_warnings, effect_context) =
-        lower_program_to_core_and_effect_context(sources, trusted_prefix)?;
-    let output = match effect_context {
-        Some(context) => psrs_backend::compile_with_effect_context(core, context),
-        None => psrs_backend::compile(core),
-    }
-    .map_err(|errors| {
-        errors
-            .into_iter()
-            .map(|error| ProgramDiagnostic {
-                source: error.module.map_or(DiagnosticOrigin::Program, |module| {
-                    DiagnosticOrigin::Source(module.0 as usize)
-                }),
-                diagnostic: diagnostic(error.pass, error.span, error.message),
-            })
-            .collect::<Vec<_>>()
-    })?;
-    let mut warnings = typecheck_warnings(source_warnings, trusted_prefix);
-    warnings.extend(backend_warnings(output.warnings, trusted_prefix));
-    Ok(Artifact {
-        wasm: output.wasm,
-        wat: output.wat,
-        warnings,
-    })
-}
 
 #[cfg(test)]
 pub(crate) fn lower_program_to_core(
@@ -106,58 +73,7 @@ pub(crate) fn lower_program_to_core_with_trusted_prefix_and_warnings(
         .map(|(core, warnings, _context)| (core, warnings))
 }
 
-pub(super) fn lower_program_to_core_and_effect_context(
-    sources: &[(&str, &str)],
-    trusted_prefix: usize,
-) -> Result<
-    (
-        psrs_core::Module,
-        Vec<ProgramWarning>,
-        Option<psrs_core::effect::EffectCompilation>,
-    ),
-    Vec<ProgramDiagnostic>,
-> {
-    let resolved = resolve_program_sources(sources)?;
-    let entry = effects::require_unambiguous_entry(effects::select_entry(&resolved))?;
-    let trusted = effects::trusted_effect(&resolved, trusted_prefix)?;
-    effects::check_run_effect_scope(&resolved, entry, trusted.as_ref())?;
-    let (typed, warnings) = typecheck_resolved_program_with_warnings(resolved)?;
-    let command_entry = classify_command_entry(&typed, entry, trusted.as_ref())?;
-    let mut modules = Vec::with_capacity(typed.len());
-    for (index, module) in typed.into_iter().enumerate() {
-        match psrs_core::lower_module_unverified(module) {
-            Ok(core) => modules.push(core),
-            Err(errors) => {
-                return Err(errors
-                    .into_iter()
-                    .map(|error| ProgramDiagnostic {
-                        source: DiagnosticOrigin::Source(index),
-                        diagnostic: diagnostic("P6 Core lowering", error.span, error.message),
-                    })
-                    .collect());
-            }
-        }
-    }
-    let mut linked = psrs_core::link(modules);
-    if let Some(entry) = entry {
-        linked.entry = Some(entry.symbol);
-        psrs_core::prune_unreachable(&mut linked, entry.symbol);
-    }
-    if let Err(errors) = linked.verify() {
-        return Err(errors
-            .into_iter()
-            .map(|error| ProgramDiagnostic {
-                source: DiagnosticOrigin::Source(error.module.0 as usize),
-                diagnostic: diagnostic("P7 Core verification", error.span, error.message),
-            })
-            .collect());
-    }
-    let context = trusted.map(|trusted| psrs_core::effect::EffectCompilation {
-        trusted,
-        command_entry,
-    });
-    Ok((linked, warnings, context))
-}
+pub(super) use lowering::lower_program_to_core_and_effect_context;
 
 fn classify_command_entry(
     typed: &[psrs_thir::Module],
@@ -368,6 +284,12 @@ fn typecheck_resolved_program_with_warnings(
             .into_iter()
             .map(|(_, declaration)| declaration),
     );
+    // Value declarations are program-wide so a deriving rule can pin a core
+    // library value to its declaring identity.
+    let known_values = modules
+        .iter()
+        .flat_map(|module| module.declarations.iter().cloned())
+        .collect::<Vec<_>>();
     // Instance declarations are threaded per module, like values: a module can
     // only select an instance declared in a module it imports, directly or
     // transitively.
@@ -423,6 +345,7 @@ fn typecheck_resolved_program_with_warnings(
                 false,
                 psrs_typecheck::TypecheckContext {
                     known_types: &known_types,
+                    known_values: &known_values,
                     imported_instances: &imported_instances,
                     module_names: &module_names,
                     checked_kinds: &checked_kinds,
