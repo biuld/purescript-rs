@@ -4,7 +4,7 @@
 //! `PSRS_STDLIB_ROOT` explicitly selects an unlocked development package.
 
 mod package;
-pub use package::StandardLibraryInfo;
+pub use package::{CommandRunner, StandardLibraryInfo};
 
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -45,6 +45,19 @@ pub(crate) fn module_names() -> Result<HashSet<String>, String> {
 pub(crate) fn prepend<'a>(
     user_sources: &[(&'a str, &'a str)],
 ) -> Result<PrefixedSources<'a>, String> {
+    prepend_selected(user_sources, false)
+}
+
+pub(crate) fn prepend_for_command<'a>(
+    user_sources: &[(&'a str, &'a str)],
+) -> Result<PrefixedSources<'a>, String> {
+    prepend_selected(user_sources, true)
+}
+
+fn prepend_selected<'a>(
+    user_sources: &[(&'a str, &'a str)],
+    command: bool,
+) -> Result<PrefixedSources<'a>, String> {
     let library = sources()?;
     let by_name = library
         .iter()
@@ -53,6 +66,15 @@ pub(crate) fn prepend<'a>(
         .collect::<std::collections::HashMap<_, _>>();
     let mut needed = HashSet::new();
     let mut pending = VecDeque::new();
+    if command && let Some(runner) = &load()?.info.command_runner {
+        if !by_name.contains_key(runner.module.as_str()) {
+            return Err(format!(
+                "configured command runner module `{}` is absent from the trusted package inventory",
+                runner.module
+            ));
+        }
+        pending.push_back(runner.module.clone());
+    }
     for (name, text) in user_sources {
         if let Ok(parsed) = crate::lower_source_to_ast(name, text) {
             pending.extend(parsed.imports.into_iter().map(|import| import.module.text));

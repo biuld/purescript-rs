@@ -16,53 +16,46 @@ pub(crate) fn compile_program_sources_with_trusted_prefix(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
 ) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let report = compile_attempt(sources, trusted_prefix, false, false);
+    let report = compile_attempt(sources, trusted_prefix, false, false, None);
     match report.artifact {
         Some(artifact) => Ok(artifact),
         None => Err(report.diagnostics),
     }
 }
 
-pub(crate) fn compile_program_sources_with_trusted_prefix_report(
-    sources: &[(&str, &str)],
-    trusted_prefix: usize,
-) -> CompilationReport {
-    compile_attempt(sources, trusted_prefix, true, false)
-}
-
-pub(crate) fn compile_program_sources_with_trusted_prefix_diagnosis(
-    sources: &[(&str, &str)],
-    trusted_prefix: usize,
-    capture_dumps: bool,
-) -> CompilationReport {
-    compile_attempt(sources, trusted_prefix, capture_dumps, true)
-}
-
-fn compile_attempt(
+pub(super) fn compile_attempt(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
     capture_dumps: bool,
     trace_enabled: bool,
+    runner: Option<&crate::prelude::CommandRunner>,
 ) -> CompilationReport {
-    let (core, source_warnings, effect_context) =
-        match lower_program_to_core_and_effect_context(sources, trusted_prefix) {
-            Ok(lowered) => lowered,
-            Err(diagnostics) => {
-                let mut report = CompilationReport::failed(diagnostics, PartialIrDumps::default());
-                if trace_enabled {
-                    report.frontend_trace = Some(FrontendPassTrace {
-                        contract_version: 1,
-                        pass_key: "driver.frontend.lower_program_to_core",
-                        trusted_prefix,
-                        source_names: sources.iter().map(|(name, _)| (*name).to_owned()).collect(),
-                        status: TracePassStatus::Rejected,
-                        output_core: None,
-                        diagnostic_indices: (0..report.diagnostics.len()).collect(),
-                    });
-                }
-                return report;
+    let (core, source_warnings, effect_context) = match if let Some(runner) = runner {
+        super::lowering::lower_program_inner(
+            sources,
+            trusted_prefix,
+            Some((&runner.module, &runner.function)),
+        )
+    } else {
+        lower_program_to_core_and_effect_context(sources, trusted_prefix)
+    } {
+        Ok(lowered) => lowered,
+        Err(diagnostics) => {
+            let mut report = CompilationReport::failed(diagnostics, PartialIrDumps::default());
+            if trace_enabled {
+                report.frontend_trace = Some(FrontendPassTrace {
+                    contract_version: 1,
+                    pass_key: "driver.frontend.lower_program_to_core",
+                    trusted_prefix,
+                    source_names: sources.iter().map(|(name, _)| (*name).to_owned()).collect(),
+                    status: TracePassStatus::Rejected,
+                    output_core: None,
+                    diagnostic_indices: (0..report.diagnostics.len()).collect(),
+                });
             }
-        };
+            return report;
+        }
+    };
 
     let mut frontend_trace = trace_enabled.then(|| FrontendPassTrace {
         contract_version: 1,

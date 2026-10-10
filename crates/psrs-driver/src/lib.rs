@@ -3,7 +3,7 @@ use psrs_span::{SourceFile, TextRange};
 mod diagnostics;
 mod loader;
 mod prelude;
-pub use prelude::{StandardLibraryInfo, standard_library_info};
+pub use prelude::{CommandRunner, StandardLibraryInfo, standard_library_info};
 mod program;
 
 pub use diagnostics::{CompilationReport, FrontendPassTrace, IrDumpArtifacts, PartialIrDumps};

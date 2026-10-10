@@ -9,6 +9,15 @@ pub struct StandardLibraryInfo {
     pub source_fingerprint: String,
     /// Absent for an explicit development override.
     pub locked_revision: Option<String>,
+    pub command_runner: Option<CommandRunner>,
+}
+
+/// An ordinary package-owned declaration used to adapt command entries.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandRunner {
+    pub module: String,
+    pub function: String,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +95,24 @@ fn inspect(root: &Path, revision: Option<String>) -> Result<StandardLibraryInfo,
             ));
         }
     }
+    let command_runner = manifest
+        .pointer("/compiler_contract/command_runner")
+        .map(|value| {
+            serde_json::from_value::<CommandRunner>(value.clone())
+                .map_err(|error| format!("{}: invalid command_runner: {error}", root.display()))
+        })
+        .transpose()?;
+    if command_runner.as_ref().is_some_and(|runner| {
+        runner.module.is_empty()
+            || runner.function.is_empty()
+            || runner.module.trim() != runner.module
+            || runner.function.trim() != runner.function
+    }) {
+        return Err(format!(
+            "{}: command_runner requires nonempty module and function names",
+            root.display()
+        ));
+    }
     // Required metadata must exist even in development mode.
     read(&root.join("lib/trusted"))?;
     read(&root.join("lib/Prelude.purs"))?;
@@ -95,6 +122,7 @@ fn inspect(root: &Path, revision: Option<String>) -> Result<StandardLibraryInfo,
         root,
         source_fingerprint,
         locked_revision: revision,
+        command_runner,
     })
 }
 
@@ -265,5 +293,37 @@ mod tests {
         );
         std::fs::remove_dir_all(fixture.0.join("lib")).unwrap();
         assert!(select_locked(&lock_path).is_err());
+    }
+    #[test]
+    fn manifest_command_runner_is_explicit_and_rejects_malformed_configuration() {
+        let fixture = Fixture::new();
+        assert!(inspect(&fixture.0, None).unwrap().command_runner.is_none());
+        let path = fixture.0.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!({"module":"Runner"}),
+            serde_json::json!({"module":"Runner", "function":""}),
+            serde_json::json!({"module":"Runner", "function":"run", "extra":true}),
+        ] {
+            manifest["compiler_contract"]["command_runner"] = value;
+            std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+            assert!(
+                inspect(&fixture.0, None)
+                    .unwrap_err()
+                    .contains("command_runner")
+            );
+        }
+        manifest["compiler_contract"]["command_runner"] =
+            serde_json::json!({"module":"Runner", "function":"run"});
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert_eq!(
+            inspect(&fixture.0, None).unwrap().command_runner,
+            Some(CommandRunner {
+                module: "Runner".into(),
+                function: "run".into()
+            })
+        );
     }
 }

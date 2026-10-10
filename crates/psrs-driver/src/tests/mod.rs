@@ -36,6 +36,7 @@ mod primitive_foreign;
 mod scalars;
 mod semigroup;
 mod show;
+mod state;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
     let backend_input = crate::lower_main_to_cc(source).expect("Core should lower to CC");

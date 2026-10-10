@@ -281,54 +281,47 @@ fn a_polymorphic_imported_instance_method_recovers_through_an_adapter() {
             }),
         "main must not cast an erased method field straight to a concrete closure"
     );
-    let conversion = main
+    // A generic method is recovered as its own CC operation. CC exposes a
+    // dictionary's field conversions as explicit assignments, so the adapter
+    // that lifts the erased template calling convention is a top-level
+    // conversion rather than a field nested in a product-map plan.
+    let (adapted, function, signature) = main
         .assignments
         .iter()
-        .find_map(|assignment| match &assignment.kind {
-            AssignmentKind::AggregateConvert { conversion, .. } => {
-                let ValueConversion::ProductMap { fields, .. } = &conversion.plan else {
-                    return None;
-                };
-                let ValueConversion::FunctionAdapter { source, .. } = fields[0] else {
-                    return None;
-                };
-                let ValueShape::Reference(psrs_backend::cc::Reference {
-                    heap: RefShape::Closure(id),
+        .find_map(|assignment| {
+            let AssignmentKind::AggregateConvert {
+                destination,
+                conversion,
+                ..
+            } = &assignment.kind
+            else {
+                return None;
+            };
+            let ValueConversion::FunctionAdapter {
+                function, source, ..
+            } = &conversion.plan
+            else {
+                return None;
+            };
+            let ValueShape::Reference(psrs_backend::cc::Reference {
+                heap: RefShape::Closure(signature),
+                ..
+            }) = source
+            else {
+                return None;
+            };
+            matches!(
+                cc.representations.signatures[signature.0 as usize]
+                    .parameters
+                    .first(),
+                Some(ValueShape::Reference(psrs_backend::cc::Reference {
+                    heap: RefShape::Erased,
                     ..
-                }) = source
-                else {
-                    return None;
-                };
-                matches!(
-                    cc.representations.signatures[id.0 as usize]
-                        .parameters
-                        .first(),
-                    Some(ValueShape::Reference(psrs_backend::cc::Reference {
-                        heap: RefShape::Erased,
-                        ..
-                    }))
-                )
-                .then_some(conversion)
-            }
-            _ => None,
+                }))
+            )
+            .then_some((*destination, *function, *signature))
         })
-        .expect("dictionary instantiation uses the recursive conversion plan");
-    let psrs_backend::cc::ValueConversion::ProductMap { fields, .. } = &conversion.plan else {
-        panic!("dictionary conversion must reconstruct the product");
-    };
-    let psrs_backend::cc::ValueConversion::FunctionAdapter {
-        function, source, ..
-    } = fields[0]
-    else {
-        panic!("the method field must adapt its call signature");
-    };
-    let ValueShape::Reference(psrs_backend::cc::Reference {
-        heap: RefShape::Closure(signature),
-        ..
-    }) = source
-    else {
-        panic!("a generic method retains its template closure signature");
-    };
+        .expect("the dictionary method recovers through an adapter over its erased template");
     assert!(
         matches!(
             cc.representations.signatures[signature.0 as usize].parameters[0],
@@ -337,9 +330,15 @@ fn a_polymorphic_imported_instance_method_recovers_through_an_adapter() {
                 ..
             })
         ),
-        "template signature: {:?}; fields: {:?}",
-        cc.representations.signatures[signature.0 as usize],
-        fields
+        "template signature: {:?}",
+        cc.representations.signatures[signature.0 as usize]
+    );
+    assert!(
+        main.assignments.iter().any(|assignment| matches!(
+            &assignment.kind,
+            AssignmentKind::ProductNew { arguments, .. } if arguments.contains(&adapted)
+        )),
+        "the adapted method field is rebuilt into a dictionary product"
     );
     let factory = cc
         .functions

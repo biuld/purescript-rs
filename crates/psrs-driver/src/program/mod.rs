@@ -7,11 +7,6 @@ use super::{
 };
 
 pub use compilation::compile_program_sources;
-pub(super) use compilation::{
-    compile_program_sources_with_trusted_prefix,
-    compile_program_sources_with_trusted_prefix_diagnosis,
-    compile_program_sources_with_trusted_prefix_report,
-};
 pub use lenient::{
     check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
 };
@@ -27,6 +22,9 @@ mod effects;
 mod graph;
 mod lenient;
 mod library;
+mod lowering;
+#[cfg(test)]
+pub(crate) use lowering::lower_program_to_core_with_runner;
 mod reports;
 mod signatures;
 
@@ -75,58 +73,7 @@ pub(crate) fn lower_program_to_core_with_trusted_prefix_and_warnings(
         .map(|(core, warnings, _context)| (core, warnings))
 }
 
-pub(super) fn lower_program_to_core_and_effect_context(
-    sources: &[(&str, &str)],
-    trusted_prefix: usize,
-) -> Result<
-    (
-        psrs_core::Module,
-        Vec<ProgramWarning>,
-        Option<psrs_core::effect::EffectCompilation>,
-    ),
-    Vec<ProgramDiagnostic>,
-> {
-    let resolved = resolve_program_sources(sources)?;
-    let entry = effects::require_unambiguous_entry(effects::select_entry(&resolved))?;
-    let trusted = effects::trusted_effect(&resolved, trusted_prefix)?;
-    effects::check_run_effect_scope(&resolved, entry, trusted.as_ref())?;
-    let (typed, warnings) = typecheck_resolved_program_with_warnings(resolved)?;
-    let command_entry = classify_command_entry(&typed, entry, trusted.as_ref())?;
-    let mut modules = Vec::with_capacity(typed.len());
-    for (index, module) in typed.into_iter().enumerate() {
-        match psrs_core::lower_module_unverified(module) {
-            Ok(core) => modules.push(core),
-            Err(errors) => {
-                return Err(errors
-                    .into_iter()
-                    .map(|error| ProgramDiagnostic {
-                        source: DiagnosticOrigin::Source(index),
-                        diagnostic: diagnostic("P6 Core lowering", error.span, error.message),
-                    })
-                    .collect());
-            }
-        }
-    }
-    let mut linked = psrs_core::link(modules);
-    if let Some(entry) = entry {
-        linked.entry = Some(entry.symbol);
-        psrs_core::prune_unreachable(&mut linked, entry.symbol);
-    }
-    if let Err(errors) = linked.verify() {
-        return Err(errors
-            .into_iter()
-            .map(|error| ProgramDiagnostic {
-                source: DiagnosticOrigin::Source(error.module.0 as usize),
-                diagnostic: diagnostic("P7 Core verification", error.span, error.message),
-            })
-            .collect());
-    }
-    let context = trusted.map(|trusted| psrs_core::effect::EffectCompilation {
-        trusted,
-        command_entry,
-    });
-    Ok((linked, warnings, context))
-}
+pub(super) use lowering::lower_program_to_core_and_effect_context;
 
 fn classify_command_entry(
     typed: &[psrs_thir::Module],
