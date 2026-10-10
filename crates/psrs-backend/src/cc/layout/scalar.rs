@@ -217,6 +217,9 @@ pub(crate) fn scalar_type(
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<ValueShape, Vec<BackendError>> {
+    if primitive_shape_of(module, id) == Some(ValueShape::State) {
+        return Ok(ValueShape::State);
+    }
     // A callable closure value — an ordinary arrow or a registered callable
     // constructor application — is represented by its closure signature.
     if is_callable_type(module, id) {

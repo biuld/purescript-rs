@@ -12,6 +12,8 @@ use psrs_hir::TypeVariableId;
 use std::collections::{HashMap, HashSet};
 
 mod newtypes;
+#[cfg(test)]
+mod tests;
 
 /// A representation owner's policy for the runtime form of a source
 /// constructor. It records the constructor's fixed calling-convention
@@ -24,15 +26,9 @@ pub(crate) enum RepresentationPolicy {
     /// The owner registered explicit fixed parameters (the Effect runtime
     /// token). The payload remains the application's result.
     Fixed(Vec<TypeId>),
-    /// Domains of a transparent newtype's checked callable field. A domain
-    /// is either independent of constructor arguments or one fixed argument.
-    Newtype(Vec<ProtocolParameter>),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ProtocolParameter {
-    Fixed(TypeId),
-    Argument(usize),
+    /// Complete source and canonical callable fields of a transparent newtype.
+    /// Storage uses the declared field, without specializing its free variables.
+    Newtype(newtypes::NewtypeCallable),
 }
 
 /// The registry of representation owners, keyed by source constructor.
@@ -49,16 +45,16 @@ pub(crate) struct RepresentationRegistry {
 
 impl RepresentationRegistry {
     /// The checked newtype field owns its erased callable representation.
-    /// Register only domains expressible without inventing source type nodes.
+    /// Preserve full domains/results without inventing or specializing nodes.
     pub(crate) fn register_newtypes(&mut self, module: &CoreModule) {
         for id in &module.newtype_ids {
             if self.policies.contains_key(&TypeConstructor::User(*id)) {
                 continue;
             }
-            if let Some(parameters) = newtypes::parameters(module, *id) {
+            if let Some(template) = newtypes::callable(module, *id) {
                 self.register(
                     TypeConstructor::User(*id),
-                    RepresentationPolicy::Newtype(parameters),
+                    RepresentationPolicy::Newtype(template),
                 );
             }
         }
@@ -89,14 +85,17 @@ impl RepresentationRegistry {
         Some(match self.policies.get(&constructor)? {
             RepresentationPolicy::InstantiationArguments => arguments.to_vec(),
             RepresentationPolicy::Fixed(parameters) => parameters.clone(),
-            RepresentationPolicy::Newtype(parameters) => parameters
-                .iter()
-                .map(|parameter| match parameter {
-                    ProtocolParameter::Fixed(ty) => Some(*ty),
-                    ProtocolParameter::Argument(index) => arguments.get(*index).copied(),
-                })
-                .collect::<Option<Vec<_>>>()?,
+            RepresentationPolicy::Newtype(template) => template.parameters.clone(),
         })
+    }
+
+    /// A transparent newtype's full declared storage result. Ordinary function
+    /// and legacy fixed-token policies obtain their result from the use type.
+    fn protocol_result(&self, constructor: TypeConstructor) -> Option<TypeId> {
+        match self.policies.get(&constructor)? {
+            RepresentationPolicy::Newtype(template) => Some(template.result),
+            _ => None,
+        }
     }
 }
 
@@ -189,6 +188,10 @@ impl<'a> BoundaryEvidence<'a> {
         self.registry.protocol_parameters(constructor, arguments)
     }
 
+    pub(crate) fn protocol_result(&self, constructor: TypeConstructor) -> Option<TypeId> {
+        self.registry.protocol_result(constructor)
+    }
+
     /// Bare polymorphic function slots use one erased argument at a time.
     /// Multi-argument functions are curried on entry and flattened on recovery.
     pub(crate) fn function_slot_signature(&self) -> Option<SignatureId> {
@@ -224,7 +227,8 @@ fn scheme_quantifiers(module: &CoreModule, mut ty: TypeId) -> Vec<TypeVariableId
 pub(crate) fn payload_erased_protocols(
     representations: &mut crate::cc::RepresentationTable,
     function_types: &HashMap<TypeId, SignatureId>,
-) -> HashMap<SignatureId, SignatureId> {
+    span: psrs_span::TextRange,
+) -> Result<HashMap<SignatureId, SignatureId>, Vec<crate::BackendError>> {
     let mut protocols = HashMap::new();
     let mut interned = HashMap::<Signature, SignatureId>::new();
     let mut ids = function_types.values().copied().collect::<Vec<_>>();
@@ -234,18 +238,45 @@ pub(crate) fn payload_erased_protocols(
         if protocols.contains_key(&concrete) {
             continue;
         }
-        let Some(parameters) = representations
+        let signature = representations
             .signature(concrete)
-            .map(|signature| signature.parameters.clone())
-        else {
-            continue;
+            .cloned()
+            .ok_or_else(|| {
+                vec![crate::BackendError::invalid_ir(
+                    "P8 callable protocol",
+                    span,
+                    "callable owner has no registered signature",
+                )]
+            })?;
+        let error = |message: &'static str| {
+            vec![crate::BackendError::invalid_ir(
+                "P8 callable protocol",
+                span,
+                message,
+            )]
         };
-        let protocol = Signature {
-            parameters,
-            result: ValueShape::Reference(Reference {
+        let result = if let Some(state) =
+            crate::cc::state::StateCallProjection::checked(&signature, representations)
+                .map_err(error)?
+        {
+            let slot = state
+                .payload_slot_signature(&signature, representations)
+                .map_err(error)?;
+            representations
+                .signature(slot)
+                .ok_or_else(|| {
+                    error("State callable protocol has no registered payload signature")
+                })?
+                .result
+        } else {
+            ValueShape::Reference(Reference {
                 nullable: false,
                 heap: RefShape::Erased,
-            }),
+            })
+        };
+        let protocol = Signature {
+            parameters: signature.parameters,
+            result,
         };
         let protocol_id = if let Some(existing) = interned.get(&protocol) {
             *existing
@@ -256,7 +287,7 @@ pub(crate) fn payload_erased_protocols(
         };
         protocols.insert(concrete, protocol_id);
     }
-    protocols
+    Ok(protocols)
 }
 
 /// The representation owner for a function hidden by a bare type variable.

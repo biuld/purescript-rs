@@ -7,6 +7,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub(super) fn prune_unreachable(module: &mut Module) -> bool {
     let mut changed = false;
     for function in &mut module.functions {
+        if function.state.is_some() {
+            // CFG edits require a corresponding checked dependency transfer.
+            continue;
+        }
         let reachable = reachable_blocks(function.entry, &function.blocks);
         let original_len = function.blocks.len();
         function
@@ -20,6 +24,9 @@ pub(super) fn prune_unreachable(module: &mut Module) -> bool {
 pub(super) fn simplify_terminators(module: &mut Module) -> bool {
     let mut changed = false;
     for function in &mut module.functions {
+        if function.state.is_some() {
+            continue;
+        }
         let rewrites = function
             .blocks
             .iter()
@@ -54,7 +61,8 @@ pub(super) fn simplify_terminators(module: &mut Module) -> bool {
                             .unwrap_or(*default);
                         (target, *span)
                     }
-                    Terminator::Return { .. }
+                    Terminator::Trap { .. }
+                    | Terminator::Return { .. }
                     | Terminator::Jump { .. }
                     | Terminator::ReturnCall { .. }
                     | Terminator::ReturnCallRef { .. } => return None,
@@ -100,19 +108,5 @@ pub(super) fn reachable_blocks(entry: BlockId, blocks: &[BasicBlock]) -> HashSet
 }
 
 pub(super) fn successors(terminator: &Terminator) -> Vec<BlockId> {
-    match terminator {
-        Terminator::Return { .. } => Vec::new(),
-        Terminator::Jump { target, .. } => vec![*target],
-        Terminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
-        Terminator::Switch { cases, default, .. } => cases
-            .iter()
-            .map(|(_, target)| *target)
-            .chain(std::iter::once(*default))
-            .collect(),
-        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
-    }
+    crate::mir::cfg::successors(terminator)
 }

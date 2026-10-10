@@ -1,3 +1,5 @@
+mod arrays;
+
 use super::*;
 use crate::cc::{RefShape, Reference};
 use psrs_core::{
@@ -66,49 +68,6 @@ fn root_types(module: &mut Module, roots: impl IntoIterator<Item = TypeId>) {
 }
 
 #[test]
-fn canonical_arrays_key_by_element_shape() {
-    let mut module = empty_module(vec![
-        Type::Variable(TypeVariableId(0)),
-        Type::Constructor(TypeConstructor::Array),
-        Type::Application(TypeId(1), TypeId(0)),
-        Type::Constructor(psrs_core::TypeConstructor::Int),
-        Type::Application(TypeId(1), TypeId(3)),
-        Type::Application(TypeId(1), TypeId(2)),
-    ]);
-    // `Array Int` and `Array (Array a)` reach every element shape under test.
-    root_types(&mut module, [TypeId(4), TypeId(5)]);
-    let layout = layout_for(&module);
-    let generic = layout.array_types[&TypeId(2)];
-    let concrete = layout.array_types[&TypeId(4)];
-    let nested = layout.array_types[&TypeId(5)];
-    assert_ne!(generic, concrete, "Array a and Array Int must differ");
-    assert_eq!(
-        layout.representations.representation(generic),
-        Some(&Representation::Array {
-            element: ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Erased,
-            }),
-        })
-    );
-    assert_eq!(
-        layout.representations.representation(concrete),
-        Some(&Representation::Array {
-            element: ValueShape::Integer,
-        })
-    );
-    assert_eq!(
-        layout.representations.representation(nested),
-        Some(&Representation::Array {
-            element: ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Repr(generic),
-            }),
-        })
-    );
-}
-
-#[test]
 fn recursive_aggregate_normalization_terminates() {
     let mut module = empty_module(vec![
         Type::Application(TypeId(2), TypeId(1)),
@@ -128,9 +87,9 @@ fn recursive_aggregate_normalization_terminates() {
         layout.representations.representation(second),
         Some(Representation::Array { .. })
     ));
-    assert_ne!(
+    assert_eq!(
         first, second,
-        "mutually recursive arrays keep distinct canonical handles"
+        "recursive source arrays share canonical erased storage"
     );
 }
 
@@ -280,9 +239,9 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
     let layout = type_layout(&module, &enums, &aggregates, &newtypes)
         .expect("distinct function types should normalize and intern");
 
-    assert_ne!(
+    assert_eq!(
         layout.array_types[&array_int], layout.array_types[&array_string],
-        "Array Int and Array String are distinct semantic shapes with distinct canonical arrays"
+        "distinct source element types share physical array storage"
     );
     assert_eq!(
         layout.array_types[&array_int], layout.array_types[&array_int_b],
@@ -294,9 +253,9 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
         first, second,
         "function types that are equal after normalization must share one SignatureId"
     );
-    assert_ne!(
+    assert_eq!(
         layout.function_types[&f_int], layout.function_types[&f_string],
-        "arrays with different semantic element shapes keep distinct signatures"
+        "array function signatures share a physical storage convention"
     );
     let signature = layout
         .representations
@@ -492,7 +451,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
             .representations
             .representation(layout.array_types[&array_handle]),
         Some(&Representation::Array {
-            element: ValueShape::Integer,
+            element: crate::cc::payload::erased_shape(),
         })
     );
     let _ = handle;

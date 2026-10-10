@@ -7,6 +7,7 @@ use psrs_hir::{ModuleId, SymbolId};
 fn rejects_a_switch_with_a_non_i32_selector() {
     let selector = ValueId(0);
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "non_i32_switch_selector".into(),
@@ -60,6 +61,7 @@ fn rejects_a_projection_that_is_not_dominated_by_its_tag_test() {
     let projected = ValueId(1);
     let result = ValueId(2);
     let function = Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "nondominating_projection".into(),

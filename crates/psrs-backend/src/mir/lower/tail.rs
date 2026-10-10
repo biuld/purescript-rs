@@ -22,6 +22,10 @@ pub(super) fn mark_tail(
     function: &mut Function,
     target: TargetCapabilities,
 ) -> Result<(), Vec<BackendError>> {
+    if function.state.is_some() {
+        // Tail transfer must project the logical successor before rewriting it.
+        return Ok(());
+    }
     let returned = return_forwarded_values(function);
     let uses = use_counts(function);
     let symbol = function.symbol;
@@ -381,6 +385,7 @@ fn use_counts(function: &Function) -> HashMap<ValueId, usize> {
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
+        Terminator::Trap { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],

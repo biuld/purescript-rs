@@ -8,6 +8,10 @@ use crate::types::{DefinedTypeId, ValueId, ValueType};
 use psrs_span::TextRange;
 
 pub(crate) trait WitCallLowerer {
+    /// The physical type of a checked concrete result before payload erasure.
+    fn wit_value_type(&self, _shape: ValueShape) -> Option<ValueType> {
+        None
+    }
     fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId;
     fn append_wit_instruction(
         &mut self,
@@ -123,6 +127,10 @@ pub(crate) trait WitCallLowerer {
     /// or the shape names an unknown representation.
     fn wit_guest_layout(&self, _shape: ValueShape) -> Option<GuestLayout> {
         None
+    }
+
+    fn wit_stored_guest_layout(&self, field: &crate::cc::Field) -> Option<GuestLayout> {
+        self.wit_guest_layout(field.stored)
     }
 
     /// Converts an aggregate into or out of its bare-slot storage protocol.

@@ -8,6 +8,45 @@ use super::{
 use crate::BackendError;
 use psrs_span::TextRange;
 
+/// Project a checked field through the same owner protocol as payload erasure.
+/// Retain semantic aggregate structure when its physical slot is only eqref.
+pub(crate) fn stored_guest_layout(
+    field: &super::Field,
+    table: &RepresentationTable,
+) -> Option<super::GuestLayout> {
+    use super::{Field, GuestLayout};
+    if field.stored != erased_shape() {
+        return super::guest_layout(field.stored, table);
+    }
+    Some(match &field.value {
+        GuestLayout::Scalar { .. } | GuestLayout::Boxed { .. } => GuestLayout::Scalar {
+            shape: erased_shape(),
+        },
+        GuestLayout::Product { labels, fields, .. } => GuestLayout::Product {
+            repr: super::layout::protocols::record(table, labels)?,
+            labels: labels.clone(),
+            fields: fields
+                .iter()
+                .map(|field| Field {
+                    value: field.value.clone(),
+                    stored: erased_shape(),
+                })
+                .collect(),
+        },
+        GuestLayout::Array { repr, element } => {
+            if !matches!(table.representation(*repr), Some(super::Representation::Array { element }) if *element == erased_shape())
+            {
+                return None;
+            }
+            GuestLayout::Array {
+                repr: *repr,
+                element: element.clone(),
+            }
+        }
+        GuestLayout::Variant { .. } => field.value.clone(),
+    })
+}
+
 pub(crate) trait PayloadPlanner {
     fn payload_table(&self) -> &RepresentationTable;
     fn payload_box(&self, kind: BoxKind) -> Option<ReprId>;
@@ -42,6 +81,12 @@ pub(crate) trait PayloadPlanner {
             return Ok(sequence(vec![adapter, ValueConversion::EraseReference]));
         }
         let boxed = match shape {
+            ValueShape::State => {
+                return Err(self.payload_error(
+                    span,
+                    "state dependencies require checked logical transport, not payload boxing",
+                ));
+            }
             ValueShape::Integer | ValueShape::Boolean => {
                 self.box_plan(BoxKind::Integer, self.payload_box(BoxKind::Integer), span)?
             }
@@ -77,6 +122,10 @@ pub(crate) trait PayloadPlanner {
             return self.payload_callable(signature, false, span);
         }
         match shape {
+            ValueShape::State => Err(self.payload_error(
+                span,
+                "state dependencies cannot be recovered from a physical payload",
+            )),
             ValueShape::Integer | ValueShape::Boolean => self.unbox_plan(
                 BoxKind::Integer,
                 self.payload_box(BoxKind::Integer),
@@ -270,7 +319,7 @@ pub(crate) trait PayloadPlanner {
     }
 }
 
-fn erased_shape() -> ValueShape {
+pub(crate) fn erased_shape() -> ValueShape {
     ValueShape::Reference(Reference {
         nullable: false,
         heap: RefShape::Erased,

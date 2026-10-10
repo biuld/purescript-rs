@@ -21,20 +21,24 @@ fn number_format_module() -> Module {
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: Vec::new(),
         strings: Vec::new(),
+        dependencies: Default::default(),
         layout: None,
         imports: vec![
             Import {
+                runtime: None,
                 symbol: crate::abi::REALLOC_SYMBOL,
                 parameters: vec![ValueType::I32; 4],
                 result: Some(ValueType::I32),
             },
             Import {
+                runtime: None,
                 symbol: crate::abi::NUMBER_TO_STRING_SYMBOL,
                 parameters: vec![ValueType::F64, ValueType::I32, ValueType::I32],
                 result: Some(ValueType::I32),
             },
         ],
         functions: vec![Function {
+            state: None,
             id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),

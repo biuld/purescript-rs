@@ -157,6 +157,7 @@ pub(crate) fn for_symbol(symbol: SymbolId) -> Option<&'static ArtifactImplementa
 impl ArtifactImplementation {
     pub fn import(&self) -> crate::mir::Import {
         crate::mir::Import {
+            runtime: None,
             symbol: self.symbol,
             parameters: self
                 .abi

@@ -31,6 +31,7 @@ pub(crate) fn signature(symbol: SymbolId, string: Option<DefinedTypeId>) -> Opti
         _ => return None,
     };
     Some(mir::Import {
+        runtime: None,
         symbol,
         parameters,
         result: Some(result),

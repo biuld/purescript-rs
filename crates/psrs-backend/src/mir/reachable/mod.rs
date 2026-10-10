@@ -14,19 +14,20 @@ use assignments::add_assignments;
 
 use projection::add_projection;
 
-pub(super) struct ReachableHandles {
-    pub(super) representations: Vec<ReprId>,
-    pub(super) signatures: Vec<SignatureId>,
+pub(in crate::mir) struct ReachableHandles {
+    pub(in crate::mir) direct_calls: HashSet<psrs_hir::SymbolId>,
+    pub(in crate::mir) representations: Vec<ReprId>,
+    pub(in crate::mir) signatures: Vec<SignatureId>,
     /// Whether any reachable value, field, element, capture, signature
     /// parameter/result, or constant is a `String`, so the planner reserves the
     /// GC `$string` type.
-    pub(super) needs_string: bool,
+    pub(in crate::mir) needs_string: bool,
 }
 
 impl ReachableHandles {
     /// Computes reachability for the GC planner, whose closure environments box
     /// integer and number captures for the `eqref` capture array.
-    pub(super) fn from_module(module: &CcModule) -> Result<Self, LayoutError> {
+    pub(in crate::mir) fn from_module(module: &CcModule) -> Result<Self, LayoutError> {
         let mut representations = HashSet::new();
         let mut signatures = HashSet::new();
         let mut representation_work = Vec::new();
@@ -183,7 +184,16 @@ impl ReachableHandles {
         representations.sort_by_key(|id| id.0);
         let mut signatures = signatures.into_iter().collect::<Vec<_>>();
         signatures.sort_by_key(|id| id.0);
-        let needs_string = module.functions.iter().any(|function| {
+        let needs_string = module.externals.iter().any(|external| {
+            direct_calls.contains(&external.symbol)
+                && external.projection.as_ref().is_some_and(|layout| {
+                    layout
+                        .parameters
+                        .iter()
+                        .chain(layout.result.iter())
+                        .any(projection::has_string)
+                })
+        }) || module.functions.iter().any(|function| {
             function
                 .values
                 .iter()
@@ -199,6 +209,7 @@ impl ReachableHandles {
                     .is_some_and(signature_has_string)
             });
         Ok(Self {
+            direct_calls,
             representations,
             signatures,
             needs_string,
@@ -286,7 +297,7 @@ fn add_value(
     }
 }
 
-pub(super) fn add_reference(
+pub(in crate::mir) fn add_reference(
     reference: &Reference,
     representations: &mut HashSet<ReprId>,
     signatures: &mut HashSet<SignatureId>,
@@ -300,7 +311,7 @@ pub(super) fn add_reference(
     }
 }
 
-pub(super) fn add_representation(
+pub(in crate::mir) fn add_representation(
     id: ReprId,
     representations: &mut HashSet<ReprId>,
     work: &mut Vec<ReprId>,
@@ -310,7 +321,7 @@ pub(super) fn add_representation(
     }
 }
 
-pub(super) fn add_signature(
+pub(in crate::mir) fn add_signature(
     id: SignatureId,
     signatures: &mut HashSet<SignatureId>,
     work: &mut Vec<SignatureId>,

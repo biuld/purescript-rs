@@ -269,7 +269,7 @@ fn element_guest<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<GuestLayout, Vec<BackendError>> {
     if let Some(GuestLayout::Array { element: field, .. }) = list
-        && let Some(layout) = lowerer.wit_guest_layout(field.stored)
+        && let Some(layout) = lowerer.wit_stored_guest_layout(field)
     {
         return Ok(layout);
     }

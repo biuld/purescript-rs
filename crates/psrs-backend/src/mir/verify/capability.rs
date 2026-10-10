@@ -201,6 +201,7 @@ mod tests {
                 composite: CompositeType::Struct(Vec::new()),
             }])],
             strings: Vec::new(),
+            dependencies: Default::default(),
             layout: None,
             imports: Vec::new(),
             functions: Vec::new(),
@@ -322,6 +323,7 @@ mod tests {
         let mut module = module_with_function_type(Vec::new(), Vec::new());
         module.types.clear();
         module.imports.push(mir::Import {
+            runtime: None,
             symbol: SymbolId::new(ModuleId(4), 9),
             parameters: vec![ValueType::Ref(RefType {
                 nullable: true,
@@ -359,6 +361,7 @@ mod tests {
                 },
             }])],
             strings: Vec::new(),
+            dependencies: Default::default(),
             layout: None,
             imports: Vec::new(),
             functions: Vec::new(),
@@ -373,9 +376,11 @@ mod tests {
             name: "capability-instruction-test".into(),
             types: Vec::new(),
             strings: Vec::new(),
+            dependencies: Default::default(),
             layout: None,
             imports: Vec::new(),
             functions: vec![mir::Function {
+                state: None,
                 id: crate::types::FunctionId(0),
                 symbol: SymbolId::new(ModuleId(4), 0),
                 name: "capability".into(),
@@ -454,9 +459,11 @@ mod tests {
             name: "capability-tail-test".into(),
             types: Vec::new(),
             strings: Vec::new(),
+            dependencies: Default::default(),
             layout: None,
             imports: Vec::new(),
             functions: vec![mir::Function {
+                state: None,
                 id: crate::types::FunctionId(0),
                 symbol: SymbolId::new(ModuleId(4), 0),
                 name: "tail".into(),

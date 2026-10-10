@@ -40,18 +40,7 @@ impl FunctionLowerer<'_> {
                 "partial application has an incomplete declaration signature",
             )]);
         }
-        let declaration = self
-            .module
-            .declarations
-            .iter()
-            .find(|item| item.symbol == function);
-        let evidence = declaration.and_then(|declaration| {
-            self.boundary.checked_instantiation(
-                declaration.ty,
-                &declaration.quantified,
-                callable_type,
-            )
-        });
+        let evidence = callable_instantiation(self.module, self.boundary, function, callable_type);
         let (use_parameters, _) = function_arrow_parameters(self.module, callable_type);
         let remaining_count = source_signature.parameters.len() - arguments.len();
         if target_signature.parameters.len() < remaining_count {

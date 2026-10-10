@@ -5,6 +5,7 @@ use super::*;
 
 fn simple_function(values: Vec<ValueDecl>, blocks: Vec<BasicBlock>) -> Function {
     Function {
+        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "structure".into(),
@@ -129,5 +130,49 @@ fn rejects_a_value_defined_by_two_instructions() {
             .iter()
             .any(|error| error.message.contains("defined more than once")),
         "{errors:?}"
+    );
+}
+
+#[test]
+fn recursive_references_are_scoped_to_their_declared_group() {
+    use crate::types::{
+        CompositeType, DefinedType, DefinedTypeId, FieldType, HeapType, RecGroup, RefType,
+        StorageType,
+    };
+    let definition = |target| DefinedType {
+        final_type: true,
+        supertype: None,
+        composite: CompositeType::Struct(vec![FieldType {
+            storage: StorageType::Ref(RefType {
+                nullable: true,
+                heap: HeapType::Index(DefinedTypeId(target)),
+            }),
+            mutable: false,
+        }]),
+    };
+    let mut source = Module {
+        name: "recursive_group_scope".into(),
+        types: vec![RecGroup(vec![definition(1), definition(0)])],
+        strings: Vec::new(),
+        dependencies: Default::default(),
+        layout: None,
+        imports: Vec::new(),
+        functions: Vec::new(),
+        entry: None,
+        span: span(),
+    };
+    verify_module(&source).unwrap();
+    source.types = vec![RecGroup(vec![definition(1)]), RecGroup(vec![definition(0)])];
+    assert!(verify_module(&source).unwrap_err().iter().any(|error| {
+        error
+            .message
+            .contains("defined type reference is out of range")
+    }));
+    source.types = vec![RecGroup(Vec::new())];
+    assert!(
+        verify_module(&source)
+            .unwrap_err()
+            .iter()
+            .any(|error| error.message.contains("recursion group is empty"))
     );
 }

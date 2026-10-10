@@ -31,6 +31,21 @@ impl GlobalLowering for FunctionLowerer<'_> {
             ));
         };
         if !signature.parameters.is_empty() && is_function_type(self.module, expression.ty) {
+            if self
+                .module
+                .external_types
+                .iter()
+                .any(|external| external.symbol == function)
+            {
+                let signature = signature.clone();
+                return self.lower_external_function_value(
+                    expression,
+                    function,
+                    &signature,
+                    result_type,
+                    assignments,
+                );
+            }
             let Some(source_type) = self
                 .module
                 .declarations

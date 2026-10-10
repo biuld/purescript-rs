@@ -15,6 +15,8 @@ mod numeric;
 pub mod opt;
 mod planner;
 mod reachable;
+mod runtime;
+pub mod state;
 mod verify;
 mod wit;
 
@@ -24,6 +26,7 @@ use planner::{GcPlanner, RepresentationPlanner};
 
 pub use instruction::{Instruction, ListDirection};
 pub use numeric::{NumericOp, UnaryOp};
+pub use runtime::RuntimeImport;
 pub use verify::{verify_module, verify_module_with_capabilities};
 
 #[cfg(test)]
@@ -49,8 +52,7 @@ pub struct Module {
     pub types: Vec<RecGroup>,
     /// Static string literals referenced by `ArrayNewData` data indices.
     pub strings: Vec<String>,
-    /// Runtime ABI imports the module may call. Their canonical signatures come
-    /// from the WIT runtime ABI; see `docs/decision/DEC-06`.
+    /// Checked physical ABI imports, selected from WIT or raw runtime contracts.
     pub imports: Vec<Import>,
     pub functions: Vec<Function>,
     /// The program entry declaration, if selected by the driver.
@@ -60,14 +62,19 @@ pub struct Module {
     /// here to resolve a list element's guest layout. `None` for a hand-built
     /// test module with no representation table.
     pub(crate) layout: Option<layout::PlannedLayout>,
+    /// Immutable source requirements, independent of mutable function evidence.
+    pub(crate) dependencies: state::Inventory,
     pub span: TextRange,
 }
 
-/// A runtime ABI import, lowered to its canonical ABI signature.
+/// An external call target with its checked physical ABI signature.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Import {
-    /// The canonical ABI symbol the call references. The interface, function,
-    /// and return-pointer details live in the ABI registry, not here.
+    /// Explicit runtime provider identity; ordinary source bindings retain this
+    /// through MIR instead of being assigned a reserved intrinsic symbol.
+    pub runtime: Option<RuntimeImport>,
+    /// The call identity. WIT interface and return-pointer details live in the
+    /// ABI registry; raw runtime provider identity is retained above.
     pub symbol: SymbolId,
     pub parameters: Vec<ValueType>,
     pub result: Option<ValueType>,
@@ -86,6 +93,9 @@ pub(crate) struct BoundWasiImport {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
+    /// Logical dependencies and their checked correspondence to instructions.
+    /// They have no target value type and survive physical State projection.
+    pub state: Option<state::DependencyFlow>,
     /// Stable module-local MIR identity. P10 maps this identity to a final
     /// Wasm function index after imports are ordered.
     pub id: FunctionId,
@@ -110,6 +120,10 @@ pub struct BasicBlock {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Terminator {
+    /// Ends execution without a result operand or normal successor.
+    Trap {
+        span: TextRange,
+    },
     Return {
         value: ValueId,
         span: TextRange,
@@ -215,6 +229,10 @@ fn lower_module_after_binding_validation(
     target: TargetCapabilities,
     mut wasi: WasiRegistry,
 ) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
+    // P8 owns ordinary CC typing. Recheck actual dependency bodies at the
+    // physical boundary, including callers supplying CC directly.
+    let projected = state::project(module, &bindings.runtime)?;
+    let module = projected.physical;
     // Resolve every source-declared WIT binding and pair it with the CC
     // abstract signature. Conformance was already checked at the linking
     // boundary; a declaration the backend cannot lower is rejected here.
@@ -282,6 +300,12 @@ fn lower_module_after_binding_validation(
             module.entry.map(|entry| entry.module),
         )
     })?;
+    let runtime = runtime::RuntimeContext::checked(
+        &bindings.runtime,
+        projected.logical.clone(),
+        &module,
+        &layout,
+    )?;
     let mut conversion_helpers = lower::ConversionHelpers::new(&module);
     let mut literals = StringLiterals::default();
     let mut functions = Vec::with_capacity(module.functions.len());
@@ -290,9 +314,14 @@ fn lower_module_after_binding_validation(
             function,
             FunctionId(id as u32),
             &wit_imports,
+            &runtime,
             &layout,
             Some(&mut conversion_helpers),
             Some(&mut literals),
+            projected
+                .inventory
+                .requires(function.symbol)
+                .then(|| projected.logical.clone()),
             target,
         )
         .map_err(|errors| {
@@ -309,9 +338,11 @@ fn lower_module_after_binding_validation(
             helper,
             FunctionId(first_helper_id + offset as u32),
             &wit_imports,
+            &runtime,
             &layout,
             None,
             Some(&mut literals),
+            None,
             target,
         )?;
         functions.push(lowered);
@@ -324,11 +355,18 @@ fn lower_module_after_binding_validation(
         .iter()
         .filter(|import| used.contains(&import.symbol))
         .map(|import| Import {
+            runtime: None,
             symbol: import.symbol,
             parameters: import.parameters.clone(),
             result: import.result,
         })
         .collect();
+    imports.extend(
+        runtime
+            .imports
+            .into_values()
+            .filter(|import| used.contains(&import.symbol)),
+    );
     if used.contains(&crate::abi::REALLOC_SYMBOL)
         || wasi
             .imports()
@@ -387,6 +425,9 @@ fn lower_module_after_binding_validation(
         }
     }
     let strings = literals.into_strings();
+    let dependencies = projected
+        .inventory
+        .with_helpers(&functions[first_helper_id as usize..])?;
     let mir = Module {
         name: module.name,
         types: layout.types.clone(),
@@ -394,6 +435,7 @@ fn lower_module_after_binding_validation(
         imports,
         functions,
         entry: module.entry,
+        dependencies,
         layout: Some(layout),
         span: module.span,
     };

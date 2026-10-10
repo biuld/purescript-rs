@@ -188,35 +188,34 @@ impl Builder<'_> {
         if !self.active.insert(id) {
             return Ok(handle);
         }
-        let (key, representation, labels) =
-            if let Some(element) = array_element_type(self.module, id) {
-                let shape = self.value_shape(element, span)?;
-                (
-                    AggregateKey::Array(shape),
-                    Representation::Array { element: shape },
-                    None,
-                )
-            } else {
-                let Some(fields) = self.module.record_fields(id) else {
-                    self.active.remove(&id);
-                    return Err(layout_error(
-                        span,
-                        "aggregate type has no array or record layout",
-                    ));
-                };
-                let mut fields = fields
-                    .iter()
-                    .map(|(label, ty)| Ok((label.clone(), self.value_shape(*ty, span)?)))
-                    .collect::<Result<Vec<_>, Vec<BackendError>>>()?;
-                fields.sort_by(|left, right| left.0.cmp(&right.0));
-                let labels = fields.iter().map(|(label, _)| label.clone()).collect();
-                let shapes = fields.iter().map(|(_, shape)| *shape).collect();
-                (
-                    AggregateKey::Record(fields),
-                    Representation::Product { fields: shapes },
-                    Some(labels),
-                )
+        let (key, representation, labels) = if array_element_type(self.module, id).is_some() {
+            let shape = crate::cc::payload::erased_shape();
+            (
+                AggregateKey::Array(shape),
+                Representation::Array { element: shape },
+                None,
+            )
+        } else {
+            let Some(fields) = self.module.record_fields(id) else {
+                self.active.remove(&id);
+                return Err(layout_error(
+                    span,
+                    "aggregate type has no array or record layout",
+                ));
             };
+            let mut fields = fields
+                .iter()
+                .map(|(label, ty)| Ok((label.clone(), self.value_shape(*ty, span)?)))
+                .collect::<Result<Vec<_>, Vec<BackendError>>>()?;
+            fields.sort_by(|left, right| left.0.cmp(&right.0));
+            let labels = fields.iter().map(|(label, _)| label.clone()).collect();
+            let shapes = fields.iter().map(|(_, shape)| *shape).collect();
+            (
+                AggregateKey::Record(fields),
+                Representation::Product { fields: shapes },
+                Some(labels),
+            )
+        };
         let canonical = if let Some(canonical) = self.canonical.get(&key).copied() {
             canonical
         } else {

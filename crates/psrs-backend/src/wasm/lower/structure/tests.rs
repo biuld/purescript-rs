@@ -20,6 +20,7 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
         name: source.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),
+        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![source.clone()],
@@ -111,6 +112,7 @@ pub(super) fn function(
     result: ValueId,
 ) -> MirFunction {
     MirFunction {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: name.into(),

@@ -1,5 +1,12 @@
 # Primitive Foreign Imports and Standard-Library Wrappers
 
+> **Selected extension:** [library-owned effects and state dependencies](../fp/library-owned-effects.md)
+> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
+> and checked zero-width projection. GC storage/termination use runtime-owned
+> providers with a checked reference ABI, separate from scalar artifact calls.
+> Integrated implementation and acceptance evidence
+> have not migrated; the existing contracts below remain the implementation baseline.
+
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
 **Status:** Draft  
 **Prerequisites:** the Canonical ABI's flat signature (`Resolve::wasm_signature`: scalars, `string` as `(pointer, length)`, `option`/`result` as a discriminant plus a payload), and the difference between a PureScript foreign import and the host glue behind it. Read [DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md), [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md), [canonical ABI and WIT](canonical-abi-and-wit.md), and [WASI platform library](wasi-platform-library.md) first.  

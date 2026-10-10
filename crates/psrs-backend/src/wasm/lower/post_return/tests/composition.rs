@@ -24,7 +24,7 @@ pub(super) fn componentize(
                     .collect(),
             },
             requirements,
-            units: psrs_linker::runtime::package_offers(&psrs_runtime::PSRS_RUNTIME),
+            units: psrs_linker::runtime::package_offers(&psrs_runtime::PSRS_RUNTIME).unwrap(),
             memory: MemoryDemand {
                 canonical_scratch: (0, crate::abi::SCRATCH_SIZE),
                 allocator_state: (crate::abi::HEAP_START, crate::abi::HEAP_START),

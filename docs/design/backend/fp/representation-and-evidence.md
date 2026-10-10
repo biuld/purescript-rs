@@ -1,5 +1,10 @@
 # Runtime Representation and Checked Boundaries
 
+> **Selected revision:** [library-owned effects and state dependencies](library-owned-effects.md)
+> replaces the Effect-specific token contract with a library newtype and generic
+> state dependencies. Implementation and acceptance evidence have not migrated;
+> this document retains the existing contract pending that migration.
+
 **Feature:** F-02  
 **Status:** Stable (design)  
 **Prerequisites:** [functional core](../../frontend/semantics/functional-core.md),
@@ -167,18 +172,18 @@ storage constructor is unknown.
 | --- | --- |
 | `a` | `Erased` |
 | `f a` (head a variable) | `Erased` |
-| concrete `Array Int` | the specialized `Aggregate([Integer])` |
+| concrete `Array Int` | `Aggregate([Erased])`, the canonical source array |
 | `Array a` | `Aggregate([Erased])`, the canonical generic array |
-| `Array (Array a)` | an aggregate whose element references the canonical `Array a` |
+| `Array (Array a)` | `Aggregate([Erased])`; its elements hold canonical source array references |
 | concrete `{ x :: Int }` | the specialized `Aggregate` product |
 | `{ x :: a }` | a canonical product with an `Erased` field |
 | a parameterized data type | one nominal variant, each field in its declared template's normalized shape |
 
 Normalization is structural and cycle-safe, and distinguishes a declaration
 **template** (its bound variables abstract) from an **actual** type (the
-boundary substitution applied). A closed actual type is specialized; a variable
+boundary substitution applied). A closed actual record type is specialized; a variable
 the substitution does not resolve stays abstract and uses the template rule.
-Canonical keys are: arrays by normalized element shape, closed records by sorted
+Canonical keys are: source arrays by their erased-element protocol, closed records by sorted
 `(label, normalized field shape)` pairs, and variants by declaration identity.
 Equal keys intern to one representation; P9 assigns one `DefinedTypeId` per
 reachable representation and does not merge by physical shape. This preserves
@@ -188,19 +193,22 @@ product and remain unsupported.
 
 ### Aggregates in bare polymorphic slots
 
-The Array owner normalizes an array entering a bare variable or abstract Array
-constructor slot to an array of non-null erased elements. The closed-record
+The Array owner uses erased-element storage from initial construction. Entering
+a bare variable or abstract Array constructor slot retains that same array.
+The closed-record
 owner normalizes a record to a product with the same ordered logical labels
 and one non-null erased field per label. These protocols apply recursively to
 nested arrays, records, and callable fields. Recovery first reads the owner's
-canonical storage, then converts each element or field to the checked use
-representation. A direct cast to the consumer's specialized aggregate layout
-cannot establish this contract.
+canonical storage. Array element reads recover the checked use representation;
+record recovery converts its fields. Array transport itself does not reconstruct
+storage. A cast between distinct private buffer or record layouts cannot
+establish their conversion contract.
 
 Canonical protocols are registered by the layout owner for the aggregate
 layouts a module contains before conversion planning; a module with no array or
-record layout gains no protocol representation. Arrays and ordinary records have
-no observable identity, so these conversions may construct new aggregates.
+record layout gains no protocol representation. Source arrays retain identity
+across transport because checked mutable storage operations expose aliasing.
+Ordinary immutable record conversions may construct new aggregates.
 Mutable cells and other nominal references keep their owner's identity protocol;
 they are not reconstructed as records. Checked storage primitives consume their
 checked use representations before ABI erasure, preserving writes to the owning
@@ -512,14 +520,13 @@ cast is needed.
 `unwrap :: forall a. Wrap a -> Array a`, with
 `main = arrayIndex (unwrap (wrap [40, 42])) 1`. The concrete literal is
 `Array Int`; the declared field template `Array a` has the canonical
-`Array(Erased)` RuntimeRep. Construction plans an `ArrayMap` with an
-`Integer -> Erased` element conversion, boxes each element into the canonical
-array, and stores that reference in the variant's canonical field. `unwrap`
-reads the canonical layout directly, and the outer boundary maps it back to
-`Array Int`. No runtime tag and no nominal array cast is used. A bare-variable
+`Array(Erased)` RuntimeRep. The literal boxes its elements into this canonical
+storage once. Construction stores the same array reference in the variant's
+canonical field. `unwrap` returns that same array, and indexing recovers Int
+from the stored element. No runtime tag or reconstruction is used. A bare-variable
 field such as `data Hold a = Hold a` also uses the Array owner's erased-element
-protocol when its checked value is an array. It maps specialized arrays before
-storing them and maps them back on recovery.
+protocol when its checked value is an array. Erasure and recovery cast the
+existing array reference without copying its elements.
 
 ## Boundaries and interfaces
 

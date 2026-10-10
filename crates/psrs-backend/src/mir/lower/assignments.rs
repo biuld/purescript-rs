@@ -219,17 +219,18 @@ impl FunctionLowerer<'_> {
                     function,
                     arguments,
                 } => {
-                    if let Some(import) = self.wit_imports.get(function).cloned() {
-                        current = wit::lower(
-                            self,
-                            &import.import,
-                            &import.signature,
-                            import.projection.as_ref(),
-                            assignment.destination,
-                            arguments,
-                            assignment.span,
-                            current,
-                        )?;
+                    if let Some(binding) = self
+                        .runtime
+                        .and_then(|context| context.binding(*function))
+                        .cloned()
+                    {
+                        if self.lower_storage_call(&binding, assignment, current)? {
+                            // The checked raw contract discharges this path;
+                            // the enclosing construct supplies a Trap terminator.
+                            return Ok(current);
+                        }
+                    } else if let Some(import) = self.wit_imports.get(function).cloned() {
+                        current = self.lower_wit_call(&import, assignment, current)?;
                     } else {
                         self.append_instruction(
                             current,
@@ -270,6 +271,13 @@ impl FunctionLowerer<'_> {
                         },
                         assignment.span,
                     )?
+                }
+                AssignmentKind::StateExecution { .. } => {
+                    return Err(vec![BackendError::invalid_ir(
+                        "P9 MIR lowering",
+                        assignment.span,
+                        "state execution requires checked logical projection",
+                    )]);
                 }
                 AssignmentKind::IndirectCall {
                     function,

@@ -7,6 +7,9 @@ use crate::types::{DefinedTypeId, ValueId, ValueType};
 use psrs_span::TextRange;
 
 impl WitCallLowerer for FunctionLowerer<'_> {
+    fn wit_value_type(&self, shape: crate::cc::ValueShape) -> Option<ValueType> {
+        self.resolved_value_type(&shape)
+    }
     fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId {
         self.fresh(ty)
     }
@@ -167,6 +170,10 @@ impl WitCallLowerer for FunctionLowerer<'_> {
 
     fn wit_guest_layout(&self, shape: crate::cc::ValueShape) -> Option<crate::cc::GuestLayout> {
         self.resolved_guest_layout(shape)
+    }
+
+    fn wit_stored_guest_layout(&self, field: &crate::cc::Field) -> Option<crate::cc::GuestLayout> {
+        crate::cc::payload::stored_guest_layout(field, self.layout.representation_table())
     }
 
     fn wit_payload_conversion(

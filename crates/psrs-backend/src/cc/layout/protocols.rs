@@ -21,6 +21,13 @@ pub(super) fn append(table: &mut RepresentationTable) {
         let id = table.reserve();
         table.set(id, Representation::Array { element: erased });
     }
+    // Text codecs use a private integer buffer. Source arrays use erased slots;
+    // codec conversion explicitly crosses this value-producing boundary.
+    if has_array && !table.representations.iter().any(|representation|
+        matches!(representation, Representation::Array { element } if *element == ValueShape::Integer)) {
+        let id = table.reserve();
+        table.set(id, Representation::Array { element: ValueShape::Integer });
+    }
     let labels = table
         .product_labels
         .values()

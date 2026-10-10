@@ -90,13 +90,16 @@ mod tests {
             name: "ImportProjectionTest".into(),
             types: Vec::new(),
             strings: Vec::new(),
+            dependencies: Default::default(),
             layout: None,
             imports: vec![Import {
+                runtime: None,
                 symbol: imported,
                 parameters: Vec::new(),
                 result: None,
             }],
             functions: vec![Function {
+                state: None,
                 id: FunctionId(0),
                 symbol: entry,
                 name: "main".into(),
@@ -162,6 +165,7 @@ mod tests {
         *function = dead_import;
         module.functions.insert(0, dead);
         module.imports.push(Import {
+            runtime: None,
             symbol: dead_import,
             parameters: Vec::new(),
             result: None,

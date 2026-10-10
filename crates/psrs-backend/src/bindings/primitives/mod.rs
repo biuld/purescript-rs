@@ -80,6 +80,7 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
                 | IntrinsicCategory::ArrayWrite
                 | IntrinsicCategory::StringToBytes
                 | IntrinsicCategory::BytesToString
+                | IntrinsicCategory::State
         ) && intrinsic != Intrinsic::UnsafeCoerce
             && !matches!(intrinsic, Intrinsic::NumberNaN | Intrinsic::NumberInfinity)
         {

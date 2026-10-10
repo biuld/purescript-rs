@@ -16,11 +16,13 @@ mod projection;
 mod representation;
 mod scalar;
 mod source_abi;
+pub mod state;
 mod verify;
 
 pub(crate) use source_abi::abstract_signature;
 
 use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
+pub(crate) use layout::{checked_function_arrow_parameters, is_callable_type};
 use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
 
 pub use crate::types::ValueId;
@@ -106,6 +108,12 @@ pub enum AssignmentKind {
         function: ValueId,
         signature: SignatureId,
         arguments: Vec<ValueId>,
+    },
+    /// A checked source runner supplies and discharges one logical root.
+    StateExecution {
+        operation: psrs_hir::StateOperation,
+        function: ValueId,
+        signature: SignatureId,
     },
     ClosureGetCapture {
         closure: ValueId,
@@ -359,6 +367,59 @@ pub(crate) fn lower_module_with_relations(
             symbol: binding.symbol,
             signature,
             projection,
+        });
+    }
+    for binding in &bindings.runtime {
+        let type_id = binding.type_id.ok_or_else(|| {
+            vec![
+                BackendError::invalid_ir(
+                    "P8 closure conversion",
+                    binding.span,
+                    "runtime binding has no checked source scheme",
+                )
+                .with_module(binding.source_module),
+            ]
+        })?;
+        let signature = layout::function_signature(
+            &module,
+            type_id,
+            &enum_types,
+            &aggregate_types,
+            &newtype_ids,
+            &layout.array_types,
+            &layout.record_types,
+            &layout.function_types,
+        )
+        .map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(binding.source_module))
+                .collect::<Vec<_>>()
+        })?;
+        state::StateCallProjection::checked(&signature, &layout.representations)
+            .map_err(|message| {
+                vec![
+                    BackendError::invalid_ir("P8 closure conversion", binding.span, message)
+                        .with_module(binding.source_module),
+                ]
+            })?
+            .ok_or_else(|| {
+                vec![
+                    BackendError::invalid_ir(
+                        "P8 closure conversion",
+                        binding.span,
+                        "runtime binding lost its logical State contract",
+                    )
+                    .with_module(binding.source_module),
+                ]
+            })?;
+        let signature =
+            crate::bindings::runtime_cc_signature(binding, &signature, &layout.representations)?;
+        signatures.insert(binding.symbol, signature.clone());
+        externals.push(External {
+            symbol: binding.symbol,
+            signature: Some(signature),
+            projection: None,
         });
     }
     let mut functions = Vec::with_capacity(module.declarations.len());

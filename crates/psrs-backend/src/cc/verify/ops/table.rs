@@ -11,6 +11,12 @@ pub(crate) fn verify_table(
     for (index, representation) in table.representations.iter().enumerate() {
         match representation {
             Representation::Box { value } | Representation::Array { element: value } => {
+                if *value == crate::cc::ValueShape::State {
+                    return Err(table_error(
+                        span,
+                        "state dependencies have no box or array payload storage",
+                    ));
+                }
                 verify_value_shape(value, table, span)?;
             }
             Representation::Product { fields } => {

@@ -273,6 +273,24 @@ impl Structurer<'_> {
             .ok_or_else(|| wasm_error(span, "canonical list element has no guest layout"))
     }
 
+    pub(super) fn resolve_field(
+        &self,
+        field: &crate::cc::Field,
+        span: TextRange,
+    ) -> Result<GuestLayout, Vec<BackendError>> {
+        let layout = self
+            .layout
+            .ok_or_else(|| wasm_error(span, "canonical list copy has no layout table"))?;
+        crate::cc::payload::stored_guest_layout(field, layout.representation_table()).ok_or_else(
+            || {
+                wasm_error(
+                    span,
+                    "canonical list field has no checked storage projection",
+                )
+            },
+        )
+    }
+
     /// The concrete defined type of a representation handle.
     pub(super) fn repr_index(
         &self,

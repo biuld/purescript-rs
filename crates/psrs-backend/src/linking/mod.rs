@@ -63,6 +63,50 @@ pub(crate) fn plan_for_module(
     for import in &module.imports {
         let id = RequirementId(next);
         next += 1;
+        if let Some(provider) = &import.runtime {
+            crate::bindings::verify_runtime_import(import, &module.types).map_err(|message| {
+                vec![BackendError::invalid_ir(
+                    "P9 target linking",
+                    module.span,
+                    message,
+                )]
+            })?;
+            let operation = (psrs_runtime::STORAGE_UNIT.operations)()
+                .into_iter()
+                .find(|operation| operation.export == provider.function)
+                .ok_or_else(|| {
+                    vec![BackendError::invalid_ir(
+                        "P9 target linking",
+                        module.span,
+                        "runtime import has no catalog operation",
+                    )]
+                })?;
+            let expected =
+                crate::wasm::raw_signature(import, &module.types).map_err(|message| {
+                    vec![BackendError::invalid_ir(
+                        "P9 target linking",
+                        module.span,
+                        message,
+                    )]
+                })?;
+            let requirement = BindingRequirement {
+                id,
+                origin: operation.name.clone(),
+                boundary: Boundary::RawCore {
+                    module: provider.module.clone(),
+                    field: provider.function.clone(),
+                },
+                expected: Some(expected),
+                provider: Provider::RuntimeOperation {
+                    name: operation.name,
+                    version: operation.version.into(),
+                },
+            };
+            spans.insert(requirement.origin.clone(), (module.span, owner));
+            requirements.push(requirement);
+            symbols.push((import.symbol, id));
+            continue;
+        }
         if import.symbol == abi::REALLOC_SYMBOL {
             crate::target_intrinsics::generated::verify(module, import).map_err(|message| {
                 vec![BackendError::invalid_ir(
@@ -187,7 +231,8 @@ pub(crate) fn plan_for_module(
 
     let input = TargetLinkInput {
         requirements,
-        units: psrs_linker::runtime::package_offers(&psrs_runtime::PSRS_RUNTIME),
+        units: psrs_linker::runtime::package_offers(&psrs_runtime::PSRS_RUNTIME)
+            .map_err(|errors| map_link_errors(&errors, &spans))?,
         policy: TargetPolicy {
             permitted_host_interfaces: permitted_host_interfaces(context, target),
         },
@@ -332,5 +377,7 @@ fn attach(error: BackendError, owner: Option<ModuleId>) -> BackendError {
     }
 }
 
+#[cfg(test)]
+mod runtime_tests;
 #[cfg(test)]
 mod tests;

@@ -123,6 +123,7 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -347,6 +348,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

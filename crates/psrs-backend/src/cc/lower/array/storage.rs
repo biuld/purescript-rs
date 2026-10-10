@@ -5,6 +5,23 @@ use crate::cc::{Assignment, AssignmentKind, ValueId, ValueShape};
 use psrs_core::Expr;
 
 impl FunctionLowerer<'_> {
+    pub(in crate::cc::lower) fn lower_array_element(
+        &mut self,
+        value: &Expr,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let shape = self.value_shape(value.ty, value.span)?;
+        let lowered = self.lower_value(value, assignments)?;
+        let plan = self.erase_payload(shape, value.span)?;
+        Ok(self.emit_conversion(
+            lowered,
+            shape,
+            crate::cc::payload::erased_shape(),
+            plan,
+            value.span,
+            assignments,
+        ))
+    }
     pub(in crate::cc::lower) fn lower_array_fill(
         &mut self,
         expression: &Expr,
@@ -21,7 +38,7 @@ impl FunctionLowerer<'_> {
             )]
         })?;
         let length = self.lower_value(length, assignments)?;
-        let value = self.lower_value(value, assignments)?;
+        let value = self.lower_array_element(value, assignments)?;
         let destination = self.fresh(ty);
         assignments.push(Assignment {
             destination,
@@ -52,7 +69,7 @@ impl FunctionLowerer<'_> {
         })?;
         let value = self.lower_value(array, assignments)?;
         let index = self.lower_value(index, assignments)?;
-        let new_value = self.lower_value(new_value, assignments)?;
+        let new_value = self.lower_array_element(new_value, assignments)?;
         assignments.push(Assignment {
             destination: value,
             span: expression.span,

@@ -96,6 +96,7 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

@@ -7,7 +7,7 @@ use crate::{
 use psrs_span::TextRange;
 
 impl FunctionLowerer<'_> {
-    pub(super) fn erase_payload(
+    pub(in crate::cc) fn erase_payload(
         &mut self,
         shape: ValueShape,
         span: TextRange,
@@ -15,7 +15,7 @@ impl FunctionLowerer<'_> {
         crate::cc::payload::PayloadPlanner::erase_payload(self, shape, span)
     }
 
-    pub(super) fn recover_payload(
+    pub(in crate::cc) fn recover_payload(
         &mut self,
         shape: ValueShape,
         span: TextRange,

@@ -18,16 +18,30 @@ impl Structurer<'_> {
     /// Stores one `list<u8>` element: a source `Array Int` value is
     /// range-checked to `0..255` before it is narrowed to one canonical byte
     /// ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_byte_store(
         &self,
         body: &mut Body,
         context: &ListLoop,
         offset: u32,
+        guest: &GuestLayout,
         path: &[Projection],
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
         self.element_address(body, context, offset, span)?;
         self.emit_project(body, context, path, span)?;
+        if let GuestLayout::Scalar { shape } = guest
+            && is_erased(*shape)
+        {
+            self.emit_unbox(
+                body,
+                &CanonicalType::Int {
+                    width: 8,
+                    signed: false,
+                },
+                span,
+            )?;
+        }
         let scratch = self.node_locals(context.depth).scratch_local;
         body.push(Op::Leaf(Instruction::LocalSet(scratch)));
         // Trap unless the value is a canonical byte.

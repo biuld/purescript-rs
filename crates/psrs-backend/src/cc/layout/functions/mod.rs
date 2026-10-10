@@ -1,12 +1,15 @@
-use super::{Signature, function_arrow_parameters, is_callable_type, scalar_type};
+use super::{Signature, is_callable_type, scalar_type};
 use crate::BackendError;
 use crate::cc::{RefShape, ReprId, Representation, RepresentationTable, SignatureId, ValueShape};
 use psrs_core::{Module as CoreModule, TypeId};
 use psrs_hir::TypeId as HirTypeId;
 use std::collections::{HashMap, HashSet};
 
+pub(crate) mod parts;
+mod projection;
 mod reachable;
 
+use projection::CallProjection;
 use reachable::referenced_types;
 
 pub(super) fn live_type_ids(module: &CoreModule) -> HashSet<TypeId> {
@@ -109,35 +112,35 @@ pub(crate) fn function_signature(
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<Signature, Vec<BackendError>> {
-    let (parameter_ids, result_id) = function_arrow_parameters(module, id);
-    let parameters = parameter_ids
-        .into_iter()
-        .map(|parameter| {
-            scalar_type(
-                module,
-                parameter,
-                module.span,
-                enum_types,
-                aggregate_types,
-                newtype_ids,
-                array_types,
-                record_types,
-                function_types,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let result = scalar_type(
-        module,
-        result_id,
-        module.span,
-        enum_types,
-        aggregate_types,
-        newtype_ids,
-        array_types,
-        record_types,
-        function_types,
-    )?;
-    Ok(Signature { parameters, result })
+    let projection = CallProjection::checked(module, id)?;
+    let mut signature = projection.physical_signature(|source, ty| {
+        scalar_type(
+            source,
+            ty,
+            module.span,
+            enum_types,
+            aggregate_types,
+            newtype_ids,
+            array_types,
+            record_types,
+            function_types,
+        )
+    })?;
+    if projection.state_contract().is_some() {
+        signature.parameters.push(ValueShape::State);
+        signature.result = scalar_type(
+            module,
+            projection.logical_result(),
+            module.span,
+            enum_types,
+            aggregate_types,
+            newtype_ids,
+            array_types,
+            record_types,
+            function_types,
+        )?;
+    }
+    Ok(signature)
 }
 
 /// Re-interns the signature table after aggregate normalization has rewritten

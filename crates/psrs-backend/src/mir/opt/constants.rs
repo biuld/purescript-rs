@@ -45,7 +45,10 @@ pub(super) fn integer_constant(function: &Function, value: ValueId) -> Option<i3
 
 fn propagate_function(function: &mut Function) -> bool {
     let facts = analyze(function);
-    let mut changed = materialize_block_parameters(function, &facts);
+    // Join parameters and their incoming payloads are source anchors in a
+    // dependency projection. Removing them requires an explicit evidence
+    // transfer, even when their scalar value is known.
+    let mut changed = function.state.is_none() && materialize_block_parameters(function, &facts);
     for block in &mut function.blocks {
         for instruction in &mut block.instructions {
             let Some(destination) = instruction.destination() else {
@@ -164,7 +167,7 @@ fn incoming_values(function: &Function, reachable: &HashSet<crate::mir::BlockId>
             Terminator::Switch { .. }
             | Terminator::ReturnCall { .. }
             | Terminator::ReturnCallRef { .. } => {}
-            Terminator::Return { .. } => {}
+            Terminator::Return { .. } | Terminator::Trap { .. } => {}
         }
     }
     incoming

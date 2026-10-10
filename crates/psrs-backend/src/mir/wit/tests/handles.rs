@@ -117,6 +117,7 @@ fn an_owned_result_is_not_dropped_by_the_compiler() {
 
 fn function_calling(instructions: Vec<Instruction>) -> Function {
     Function {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "use-handle".into(),

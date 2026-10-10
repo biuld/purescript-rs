@@ -28,6 +28,9 @@ pub(crate) enum Implementation {
     Generated(GeneratedOperation),
     Artifact(&'static ArtifactImplementation),
     Elaborated,
+    /// Source contracts are checked, but dependency/signature projection is
+    /// required before a boundary or a GC runtime call can be emitted.
+    StateExecutionBoundary,
     Unsupported,
 }
 
@@ -117,6 +120,7 @@ pub(crate) fn implementation(intrinsic: Intrinsic) -> Implementation {
         Intrinsic::BoolTrue | Intrinsic::BoolFalse | Intrinsic::Unit | Intrinsic::Coerce => {
             Elaborated
         }
+        Intrinsic::RunWorld | Intrinsic::RunRegion => StateExecutionBoundary,
         Intrinsic::Undefined => Unsupported,
     }
 }

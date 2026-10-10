@@ -20,10 +20,10 @@ impl FunctionLowerer<'_> {
                 "array expression has no representation requirement",
             )]);
         };
-        let values = elements
-            .iter()
-            .map(|element| self.lower_value(element, assignments))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut values = Vec::with_capacity(elements.len());
+        for element in elements {
+            values.push(self.lower_array_element(element, assignments)?);
+        }
         let destination = self.fresh(ty);
         assignments.push(Assignment {
             destination,
@@ -67,7 +67,7 @@ impl FunctionLowerer<'_> {
             span: expression.span,
         });
         let index = self.lower_value(index, assignments)?;
-        let new_value = self.lower_value(new_value, assignments)?;
+        let new_value = self.lower_array_element(new_value, assignments)?;
         assignments.push(Assignment {
             destination,
             kind: AssignmentKind::ArraySet {

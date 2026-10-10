@@ -22,9 +22,20 @@ pub(crate) fn validate_import_signature(
     module: &CoreModule,
     type_id: CoreTypeId,
 ) -> Result<(), String> {
+    // A declaration that threads its own `State` returns a `Step`, not the
+    // canonical result directly. The canonical function neither takes nor
+    // returns the state, so it is compared against the step's payload and the
+    // ordinary arguments that precede the state parameter.
     let Some((parameters, result)) = function_parts(module, type_id) else {
         return Err(incompatible(import));
     };
+    if parameters
+        .iter()
+        .any(|ty| psrs_core::state::region(module, *ty).is_some())
+    {
+        let step = psrs_core::state::signature(module, type_id).map_err(str::to_owned)?;
+        return validate_state_stepping(import, module, &step);
+    }
     let all_primitive =
         parameters.iter().all(|id| is_primitive(module, *id)) && is_primitive(module, result);
     if all_primitive && parameters.len() != import.params.len() {
@@ -117,6 +128,36 @@ fn validate_zipped_parameters(
         }
     }
     Ok(())
+}
+
+/// Validates a state-stepping foreign declaration: the canonical signature
+/// describes the call the host actually performs, so the `State` parameter and
+/// the step's successor field belong to the caller's dependency chain and are
+/// not part of it.
+fn validate_state_stepping(
+    import: &WasiImport,
+    module: &CoreModule,
+    step: &psrs_core::state::StateSignature,
+) -> Result<(), String> {
+    if step.parameters.len() != import.params.len() {
+        return Err(mismatch(import));
+    }
+    for (id, ty) in step.parameters.iter().zip(&import.params) {
+        if !core_matches_kind(module, *id, ty) {
+            return Err(format!(
+                "WIT import `{}` has a source parameter with an incompatible type",
+                import.name
+            ));
+        }
+    }
+    if core_matches_result(module, step.payload, import) {
+        Ok(())
+    } else {
+        Err(format!(
+            "WIT import `{}` has a source result type incompatible with its canonical result",
+            import.name
+        ))
+    }
 }
 
 fn core_matches_result(module: &CoreModule, result: CoreTypeId, import: &WasiImport) -> bool {

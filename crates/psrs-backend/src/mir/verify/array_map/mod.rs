@@ -412,19 +412,5 @@ fn verify_loop_increment(
 }
 
 fn successors(terminator: &Terminator) -> Vec<BlockId> {
-    match terminator {
-        Terminator::Return { .. } => Vec::new(),
-        Terminator::Jump { target, .. } => vec![*target],
-        Terminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
-        Terminator::Switch { cases, default, .. } => cases
-            .iter()
-            .map(|(_, target)| *target)
-            .chain(std::iter::once(*default))
-            .collect(),
-        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
-    }
+    crate::mir::cfg::successors(terminator)
 }

@@ -6,8 +6,9 @@ use super::super::super::{
 use super::super::lambda::LambdaLowering;
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
-    callable_parameter_types, callable_result_type, closure_value_type, closure_value_type_for,
-    conversion_reconstructs_aggregate, function_result_type, persist_reference, restore_reference,
+    callable_instantiation, callable_parameter_types, callable_result_type, closure_value_type,
+    closure_value_type_for, conversion_reconstructs_aggregate, function_result_type,
+    persist_reference, restore_reference,
 };
 use crate::BackendError;
 use psrs_core::Expr;

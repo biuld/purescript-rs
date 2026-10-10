@@ -33,6 +33,9 @@ pub struct Reference {
 /// handles, or another target representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ValueShape {
+    /// A logical sequencing dependency with no physical payload. Checked Core
+    /// owns nominal region agreement; CC must retain producer/use provenance.
+    State,
     Integer,
     Boolean,
     Number,

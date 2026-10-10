@@ -110,6 +110,10 @@ impl Structurer<'_> {
             .ok_or_else(|| wasm_error(self.function.span, "MIR block has no terminator"))?;
         let span = terminator_span(terminator);
         match terminator {
+            Terminator::Trap { .. } => {
+                body.push(Op::Leaf(Instruction::Unreachable));
+                return Ok(());
+            }
             Terminator::Return { value, .. } => {
                 self.emit_load(*value, span, body)?;
                 body.push(Op::Leaf(Instruction::Return));
@@ -240,7 +244,8 @@ fn block_span(block: Option<&BasicBlock>, fallback: TextRange) -> TextRange {
 
 fn terminator_span(terminator: &Terminator) -> TextRange {
     match terminator {
-        Terminator::Return { span, .. }
+        Terminator::Trap { span }
+        | Terminator::Return { span, .. }
         | Terminator::Jump { span, .. }
         | Terminator::Branch { span, .. }
         | Terminator::Switch { span, .. }

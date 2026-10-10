@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// The successor blocks named by a terminator.
 pub(crate) fn successors(terminator: &Terminator) -> Vec<BlockId> {
     match terminator {
-        Terminator::Return { .. } => Vec::new(),
+        Terminator::Return { .. } | Terminator::Trap { .. } => Vec::new(),
         Terminator::Jump { target, .. } => vec![*target],
         Terminator::Branch {
             then_block,
@@ -87,7 +87,8 @@ pub(crate) fn join_blocks(function: &Function) -> HashSet<BlockId> {
                 .map(|(_, target)| *target)
                 .chain(std::iter::once(*default))
                 .collect(),
-            Terminator::Return { .. }
+            Terminator::Trap { .. }
+            | Terminator::Return { .. }
             | Terminator::Jump { .. }
             | Terminator::ReturnCall { .. }
             | Terminator::ReturnCallRef { .. } => continue,

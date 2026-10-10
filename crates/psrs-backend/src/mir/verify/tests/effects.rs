@@ -76,6 +76,7 @@ fn effect_closure_call(
     values: Vec<ValueDecl>,
 ) -> Function {
     Function {
+        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "effect_closure_call".into(),

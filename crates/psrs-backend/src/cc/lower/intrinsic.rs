@@ -50,7 +50,8 @@ impl FunctionLowerer<'_> {
                 };
                 let array = self.lower_value(array, assignments)?;
                 let index = self.lower_value(&arguments[1], assignments)?;
-                let destination = self.fresh(ty);
+                let stored_shape = crate::cc::payload::erased_shape();
+                let destination = self.fresh(stored_shape);
                 assignments.push(Assignment {
                     destination,
                     kind: AssignmentKind::ArrayGet {
@@ -61,7 +62,15 @@ impl FunctionLowerer<'_> {
                     },
                     span: expression.span,
                 });
-                Ok(destination)
+                let plan = self.recover_payload(ty, expression.span)?;
+                Ok(self.emit_conversion(
+                    destination,
+                    stored_shape,
+                    ty,
+                    plan,
+                    expression.span,
+                    assignments,
+                ))
             }
             Implementation::Generated(G::ArrayUpdate) => self.lower_array_update(
                 expression,
@@ -146,6 +155,44 @@ impl FunctionLowerer<'_> {
                     expression.span,
                     "intrinsic requires elaboration or has no runtime implementation",
                 )])
+            }
+            Implementation::StateExecutionBoundary => {
+                psrs_core::state::primitive::verify(
+                    self.module,
+                    intrinsic,
+                    &arguments.iter().map(|value| value.ty).collect::<Vec<_>>(),
+                    expression.ty,
+                )
+                .map_err(|message| {
+                    vec![BackendError::invalid_ir(
+                        "P8 closure conversion",
+                        expression.span,
+                        message,
+                    )]
+                })?;
+                let function = self.lower_value(&arguments[0], assignments)?;
+                let signature = self
+                    .function_types
+                    .get(&arguments[0].ty)
+                    .copied()
+                    .ok_or_else(|| {
+                        vec![BackendError::invalid_ir(
+                            "P8 closure conversion",
+                            expression.span,
+                            "state execution has no checked callable signature",
+                        )]
+                    })?;
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::StateExecution {
+                        operation: intrinsic.state_operation().unwrap(),
+                        function,
+                        signature,
+                    },
+                    span: expression.span,
+                });
+                Ok(destination)
             }
         }
     }

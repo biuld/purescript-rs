@@ -124,6 +124,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 .collect::<Vec<_>>()
         })?;
     }
+    super::state::derive_all(module)?;
     Ok(())
 }
 

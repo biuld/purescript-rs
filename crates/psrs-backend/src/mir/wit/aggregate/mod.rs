@@ -339,6 +339,7 @@ pub(super) fn recover_payload<L: WitCallLowerer>(
     }
     let recovered = match &concrete {
         crate::cc::GuestLayout::Scalar { shape } => match shape {
+            ValueShape::State => return Err(unsupported(span)),
             ValueShape::Integer => unbox_scalar(lowerer, value, false, block, span)?,
             ValueShape::Boolean => unbox_scalar(lowerer, value, true, block, span)?,
             ValueShape::Number => unbox_number(lowerer, value, block, span)?,

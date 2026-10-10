@@ -5,6 +5,7 @@ fn folds_branch_merges_prunes_blocks_and_projects_imports() {
     let entry = SymbolId::new(ModuleId(0), 0);
     let import = SymbolId::new(ModuleId(1), 0);
     let function = Function {
+        state: None,
         id: FunctionId(0),
         symbol: entry,
         name: "main".into(),
@@ -82,6 +83,7 @@ fn folds_branch_merges_prunes_blocks_and_projects_imports() {
         span: span(),
     };
     let imports = vec![Import {
+        runtime: None,
         symbol: import,
         parameters: Vec::new(),
         result: None,
@@ -115,6 +117,7 @@ fn folds_branch_merges_prunes_blocks_and_projects_imports() {
 fn preserves_switch_selectors_and_all_successors_through_p10() {
     let entry = SymbolId::new(ModuleId(0), 0);
     let function = Function {
+        state: None,
         id: FunctionId(0),
         symbol: entry,
         name: "switch_main".into(),

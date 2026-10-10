@@ -6,6 +6,20 @@ use crate::cc::{
 };
 use psrs_span::TextRange;
 
+pub(super) fn has_string(layout: &GuestLayout) -> bool {
+    match layout {
+        GuestLayout::Scalar { shape } | GuestLayout::Boxed { shape } => {
+            *shape == ValueShape::String
+        }
+        GuestLayout::Product { fields, .. } => fields.iter().any(|field| has_string(&field.value)),
+        GuestLayout::Variant { cases, .. } => cases
+            .iter()
+            .flat_map(|case| &case.fields)
+            .any(|field| has_string(&field.value)),
+        GuestLayout::Array { element, .. } => has_string(&element.value),
+    }
+}
+
 /// Adds every representation the instance-aware projection names. The concrete
 /// `value` node of an erased parameter field references a nested representation
 /// the abstract signature does not reach, so the projection is what keeps a

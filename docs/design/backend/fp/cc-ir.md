@@ -1,5 +1,10 @@
 # CC IR: ANF and Closure Conversion
 
+> **Selected extension:** [library-owned effects and state dependencies](library-owned-effects.md)
+> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
+> and checked zero-width projection. Implementation and acceptance evidence
+> have not migrated; the existing contracts below remain the implementation baseline.
+
 **Feature:** F-02  
 **Status:** Stable (design)  
 **Prerequisites:** the [functional core](../../frontend/semantics/functional-core.md) calculus,
@@ -108,7 +113,7 @@ RepresentationTable = { representations: [Representation], signatures: [Signatur
 ReprId      -> Representation
 SignatureId -> Signature
 
-ValueShape  = Integer | Boolean | Number | String | Reference(Reference)
+ValueShape  = State | Integer | Boolean | Number | String | Reference(Reference)
 Reference   = { nullable: bool, heap: RefShape }
 RefShape    = Repr(ReprId) | Aggregate | Erased | Closure(SignatureId)
 
@@ -120,6 +125,31 @@ Representation = Box(ValueShape)
 Signature    = { parameters: [ValueShape], result: ValueShape }
 VariantCase  = { tag: u32, fields: [ValueShape] }
 ```
+
+`State` is a logical dependency shape with no physical payload. It remains in
+CC parameters, products and instruction operands until checked MIR projection
+discharges it. It is not an integer, boxed value, array element or WIT field.
+The CC state verifier derives transitions from actual calls and tracks their
+successor fields and control-flow joins. Nominal source-region agreement is
+checked by Core before this representation boundary; CC checks the dependency
+provenance expressed by its own instructions. Physical layout must reject an
+undischarged State rather than choose a storage fallback.
+Binary and multiway choices share dependency fork and join construction.
+Every case and default edge transfers the current dependency to its arm; only
+normally completing arms feed the join. The shared dependency graph records
+all edges, while CC retains switch predicates and labels for the physical
+correspondence check. Nested choices preserve these same rules.
+
+Explicit `runWorld` and `runRegion` bindings lower to `StateExecution` with a
+checked closure signature and stable operation identity. Core owns RealWorld,
+rank-N region introduction and non-escape checks; CC trusts those source facts
+and checks the complete State-to-Step callable shape and payload result. Each
+instruction owns a closed dependency graph: the boundary supplies its root,
+invokes the action once and discharges its successor. Graph-local identities
+are separate namespaces, including repeated executions of the same action.
+Functions without an incoming State parameter can therefore carry an empty
+ambient region graph plus closed executions. No State literal is introduced.
+Nested runners remain ordinary calls in the enclosing instruction sequence.
 
 `String` is a semantic CC shape, distinct from numeric `Integer`; P9 alone maps
 it to the target's GC string representation. This distinction lets the CC
@@ -644,6 +674,15 @@ canonical generic arrays and closed records. The
 [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
 documents the source and verified Typed Core paths, including cases for which
 source lowering does not yet provide the corresponding backend input.
+
+Foreign function values consume their checked Core declaration schemes just as
+partial foreign applications do. A bare callable foreign value is the
+zero-supplied-argument case of that common closure construction path. Its
+generated closure retains the declared operand/result conversion contract and
+calls the original external identity. Missing checked foreign types reject;
+they must not be reconstructed from a local declaration or a target ABI shape.
+This rule also applies to State-stepping foreign values passed to library
+newtype adapters, without consulting library type names.
 
 ## References
 

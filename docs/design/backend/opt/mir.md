@@ -1,5 +1,10 @@
 # MIR Optimization
 
+> **Selected extension:** [library-owned effects and state dependencies](../fp/library-owned-effects.md)
+> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
+> and checked zero-width projection. Implementation and acceptance evidence
+> have not migrated; the existing contracts below remain the implementation baseline.
+
 **Feature:** F-02
 
 **Status:** Draft
@@ -14,6 +19,13 @@ It owns local CFG and instruction improvements with explicit effect, trap, and
 memory rules. Each pass returns valid MIR and remains optional for correctness.
 
 ## Scope
+
+Functions carrying logical dependency evidence are checked after each pass.
+The current inliner does not rewrite these callers or use them as candidates;
+tail-call marking similarly awaits checked dependency transfer. This is an
+implementation restriction while dependency remapping is completed, not a
+semantic prohibition on inlining or tail calls. Calls remain observable even
+when their physical payload is unused.
 
 This document owns MIR-preserving optimization and its pass-manager contract.
 It does not choose layouts, specialize source types, create canonical ABI
@@ -153,6 +165,14 @@ Dead-code elimination treats `Function.result` as a use because the structurer
 loads that value for the Wasm function result, independently of the return
 terminator. Calls, memory operations, allocation, checked projections, casts,
 and explicit trap instructions remain live even when their result is unused.
+
+State dependency correspondence currently retains source predicate and block
+identities. CFG pruning and terminator simplification leave functions carrying
+that evidence intact; copy forwarding also leaves their bodies intact because
+callable and adapter operand identities remain source anchors. Inlining and tail-call marking remain disabled for those functions
+until they can transfer the evidence. Dead pure instruction elimination still
+runs and preserves observable calls and traps. `Trap` is a terminal CFG node
+with no successor or operand; all successor consumers use shared MIR analysis.
 
 ## Worked example
 

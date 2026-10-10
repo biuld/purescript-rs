@@ -2,7 +2,7 @@ use super::super::super::layout::{function_signature, function_type_signature};
 use super::super::super::{Assignment, AssignmentKind, ValueId};
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
-    callable_parameter_types, callable_result_type, collect_application,
+    callable_instantiation, callable_parameter_types, callable_result_type, collect_application,
     conversion_reconstructs_aggregate, function_value_types, persist_reference, restore_reference,
 };
 use super::partial::{IndirectPartialApplication, PartialApplication};
@@ -54,18 +54,7 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                     assignments,
                 );
             }
-            let declaration = self
-                .module
-                .declarations
-                .iter()
-                .find(|declaration| declaration.symbol == function);
-            let evidence = declaration.and_then(|declaration| {
-                self.boundary.checked_instantiation(
-                    declaration.ty,
-                    &declaration.quantified,
-                    head.ty,
-                )
-            });
+            let evidence = callable_instantiation(self.module, self.boundary, function, head.ty);
             self.check_call_shape(
                 &signature,
                 arguments.len(),

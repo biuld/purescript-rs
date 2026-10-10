@@ -13,7 +13,7 @@ pub mod trace;
 pub mod types;
 pub mod wasm;
 
-pub use bindings::{BackendInput, ExternalBinding, ExternalBindings};
+pub use bindings::{BackendInput, ExternalBinding, ExternalBindings, RuntimeBinding};
 
 pub use capability::TargetCapabilities;
 pub use trace::*;

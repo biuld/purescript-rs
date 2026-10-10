@@ -132,6 +132,9 @@ impl Structurer<'_> {
             ));
         };
         match terminator {
+            Terminator::Trap { .. } => {
+                body.push(Op::Leaf(Instruction::Unreachable));
+            }
             Terminator::Return { value, span } => {
                 self.emit_load(*value, *span, body)?;
                 body.push(Op::Leaf(Instruction::Return));

@@ -14,11 +14,13 @@ mod function_lowerer;
 mod handles;
 mod lists;
 mod parameters;
+mod plan;
 
 pub(super) use bind::BoundFn;
 pub(super) use call_lowerer::WitCallLowerer;
 pub(super) use handles::verify_function;
 pub(super) use parameters::lower_string;
+pub(in crate::mir) use plan::CallPlan;
 
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
@@ -71,6 +73,88 @@ pub(super) struct ElementFree {
 /// canonical result does not fit in one value.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn lower<L: WitCallLowerer>(
+    lowerer: &mut L,
+    import: &WasiImport,
+    signature: &crate::cc::Signature,
+    projection: Option<&crate::cc::ExternalProjection>,
+    destination: ValueId,
+    arguments: &[ValueId],
+    span: TextRange,
+    entry: BlockId,
+) -> Result<BlockId, Vec<BackendError>> {
+    // Canonical construction produces a concrete guest value. An erased
+    // source slot is filled only after the shared payload protocol discharges
+    // its concrete representation, including block parameter types.
+    let concrete = projection
+        .and_then(|projection| projection.result.as_ref())
+        .map(GuestLayout::shape)
+        .filter(|shape| {
+            matches!(
+                signature.result,
+                crate::cc::ValueShape::Reference(crate::cc::Reference {
+                    heap: crate::cc::RefShape::Erased | crate::cc::RefShape::Aggregate,
+                    ..
+                })
+            ) && *shape != signature.result
+        });
+    let Some(shape) = concrete else {
+        return lower_concrete(
+            lowerer,
+            import,
+            signature,
+            projection,
+            destination,
+            arguments,
+            span,
+            entry,
+        );
+    };
+    let ty = lowerer.wit_value_type(shape).ok_or_else(|| {
+        vec![BackendError::invalid_ir(
+            "P9 canonical call planning",
+            span,
+            "canonical result has no checked concrete value type",
+        )]
+    })?;
+    let value = lowerer.fresh_wit_value(ty);
+    let current = lower_concrete(
+        lowerer, import, signature, projection, value, arguments, span, entry,
+    )?;
+    if signature.result == crate::cc::payload::erased_shape() {
+        let (current, value) = lowerer.wit_payload_conversion(current, value, shape, true, span)?;
+        lowerer.append_wit_instruction(
+            current,
+            Instruction::Copy {
+                destination,
+                value,
+                span,
+            },
+            span,
+        )?;
+        return Ok(current);
+    }
+    let Some(ValueType::Ref(reference)) = lowerer.wit_value_type(signature.result) else {
+        return Err(vec![BackendError::invalid_ir(
+            "P9 canonical call planning",
+            span,
+            "canonical aggregate result has no checked reference slot",
+        )]);
+    };
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::RefCast {
+            destination,
+            value,
+            reference,
+            span,
+        },
+        span,
+    )?;
+    Ok(current)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_concrete<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     signature: &crate::cc::Signature,

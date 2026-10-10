@@ -50,6 +50,9 @@ pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<Valu
 /// The primitive shape of a Core type when its head is a primitive constructor.
 pub(super) fn primitive_shape_of(module: &CoreModule, id: TypeId) -> Option<ValueShape> {
     let id = unquantified_type(module, id);
+    if psrs_core::state::region(module, id).is_some() {
+        return Some(ValueShape::State);
+    }
     match module.types.get(id.0 as usize)? {
         Type::Constructor(constructor) => primitive_value_shape(*constructor),
         _ => None,
@@ -188,6 +191,11 @@ pub(super) fn type_layout(
             .any(|declaration| depends_on_type_variable(module, declaration.ty))
         || module_has_integer_capture(module)
         || module
+            .types
+            .iter()
+            .enumerate()
+            .any(|(index, _)| array_element_type(module, TypeId(index as u32)).is_some())
+        || module
             .constructors
             .iter()
             .flat_map(|constructor| &constructor.field_types)
@@ -292,9 +300,15 @@ pub(super) fn type_layout(
 
     protocols::append(&mut representations);
     let function_slot = crate::boundary::function_slot_protocol(&mut representations);
+    crate::cc::state::register_payload_slots(&mut representations);
+    let protocols = crate::boundary::payload_erased_protocols(
+        &mut representations,
+        &function_types,
+        module.span,
+    )?;
     Ok(TypeLayout {
         function_slot,
-        protocols: crate::boundary::payload_erased_protocols(&mut representations, &function_types),
+        protocols,
         representations,
         array_types,
         record_types,
@@ -345,38 +359,13 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
 
 /// Whether a Core type is a callable closure value: an ordinary function arrow
 /// or a closure born with a fixed parameter list.
-pub(super) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
+pub(crate) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
     let id = unquantified_type(module, id);
     psrs_core::arrow_parts(&module.types, id).is_some()
         || psrs_core::closure_parts(&module.types, id).is_some()
 }
 
-/// Derives the calling convention of a value.
-///
-/// A closure contributes exactly the parameter list it was born with. Its
-/// result stays a value, even when that value is a function or another
-/// closure. An ordinary function flattens every arrow: the parameters are the
-/// arrow domains and the result is the codomain. A quantifier in a codomain
-/// stops the walk so that polymorphic result stays a separate closure.
-pub(crate) fn function_arrow_parameters(module: &CoreModule, id: TypeId) -> (Vec<TypeId>, TypeId) {
-    let id = unquantified_type(module, id);
-    if let Some((parameters, result)) = psrs_core::closure_parts(&module.types, id) {
-        return (parameters.to_vec(), result);
-    }
-    let mut parameters = Vec::new();
-    let mut current = id;
-    while let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, current) {
-        parameters.push(parameter);
-        current = result;
-        // A quantifier in the codomain starts a new polymorphic closure
-        // boundary. Keep that type intact as the result value; unwrapping it
-        // there would merge its arrows into the current closure's arity.
-        if psrs_core::forall_parts(&module.types, current).is_some() {
-            break;
-        }
-    }
-    (parameters, current)
-}
+pub(crate) use functions::parts::{checked_function_arrow_parameters, function_arrow_parameters};
 
 /// Returns the runtime-facing body of a type after removing quantifiers that
 /// wrap the value itself. A quantifier reached in an arrow's codomain is kept
