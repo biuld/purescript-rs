@@ -68,7 +68,7 @@ There is no stdlib compile-acceptance improvement at this checkpoint.
 | State-aware host and mutable storage execution | Partial | Checked runtime provider calls execute source storage alias-write fixtures. Canonical host adapter plans retain source anchors, physical calls, result adaptation and internal control evidence. Mandatory Wasmtime source-newtype cases execute resource get/drop, widened scalar parameters, record results, list results and variant results. Cyclic storage, general source CFG and complete host/library conformance remain incomplete. |
 | Core/CC/MIR dependency production and preservation | Partial | Immutable Core bodies supply checked flow; Core optimizers recheck each pass. CC verifies actual single-root instruction flow. P9 publishes straight-line, binary and multiway MIR correspondence against immutable CC; MIR optimization and final lowering recheck it. Total Core-to-CC correspondence, general CFG/scoped/loop projection and dependency-aware inlining remain required. |
 | Final encoding erasure | Partial for checked straight-line, binary and multiway source bodies | Source callbacks, Task pure/bind and checked canonical host adapter subgraphs encode after MIR verification. Public recursive loops compose through checked source calls; arbitrary CFG backedges and general scoped transport remain incomplete. Explicit source world/region runners execute through the normal pipeline. |
-| Effect/ST library and command runner migration | Partial; development package wrappers migrated | Generic resolved-runner Core normalization, focused source execution and production manifest selection exist. The independent package has the unpushed State-newtype migration at `7852625` plus an uncommitted migration of 92 target WASI foreign wrappers. Public host/storage fixtures, ten pinned ST JS comparisons and ten public Effect-loop JS comparisons pass; complete API/host conformance and legacy deletion remain. The compiler library lock is unchanged. |
+| Effect/ST library and command runner migration | Partial; development package wrappers migrated | Generic resolved-runner Core normalization, focused source execution and production manifest selection exist. The independent package has the unpushed State-newtype migration at `7852625` plus an uncommitted migration of 92 target WASI foreign wrappers and the `Effect.Ref` reference adapters. Public host/storage fixtures, ten pinned ST JS comparisons, ten public Effect-loop JS comparisons and ten public Effect.Ref JS comparisons pass; complete API/host conformance and legacy deletion remain. The compiler library lock is unchanged. |
 | Integrated source and runtime conformance | Partial | Library-owned pinned ST and public Effect-loop JS comparisons agree with mandatory Wasmtime. Full official composition/API/host acceptance remains required. |
 
 ## Continuation order
@@ -1792,17 +1792,37 @@ pass 12/12 with zero skips; syntax and both working-tree diff checks pass.
 No official library implementation or inventory
 was changed in this slice.
 
-A separate public MonadRec Effect baseline rejects at P8 library linking:
-Effect.Ref._new, Effect.Ref.read and Effect.Ref.write have no target
-implementation. The retained source is /private/tmp/psrs-effect-tailrecm.purs;
-its failed runner report is /private/tmp/psrs-effect-tailrecm-before/run.json.
-The official foreign contracts remain intact. Reference adapter migration is
-the next library integration obligation; a tailRecM-specific intrinsic or fake
-reference implementation would not satisfy it.
+A separate public MonadRec Effect baseline at
+/private/tmp/psrs-effect-tailrecm.purs now compiles and executes to 42. Its
+previous report, /private/tmp/psrs-effect-tailrecm-before/run.json, recorded the
+P8 library-linking rejection; the accepted report is
+/private/tmp/psrs-effect-tailrecm-after/run.json.
 
-The current requirement map above is refreshed to reflect verified multiway,
-monomorphic payload and focused official-loop evidence. Full API/host conformance,
+### Public reference adapters (2026-10-11)
+
+Official `Effect.Ref` now has library-owned target implementations. The opaque
+`foreign import data Ref` becomes `newtype Ref a = Ref (PSRS.Ref.Cell a)`, and
+`_new`, `newWithSelf`, `read`, `modifyImpl` and `write` are ordinary source over
+the target-only `PSRS.Ref` module. `PSRS.Ref` stores one `Maybe a` per cell:
+`newWithSelf` publishes `f self` over a `Nothing` slot, and a read before
+publication traps through the checked `psrs:runtime-storage#trap` primitive
+instead of fabricating an element. Public exports, signatures and the
+representational role are preserved; no Effect.Ref-specific compiler intrinsic
+or recursive placeholder was added.
+
+The independent package validates this with `conformance/effect-ref.mjs`, ten
+public observations against the clean pinned `purescript-refs` JavaScript, and
+the maintained fixtures `conformance/effects/Reference.purs` (exit 42) and
+`conformance/effects/ReferenceUninitialized.purs` (terminal `unreachable` trap).
+The source audit reports 169 identical, 37 modified and 27 platform additions
+over 233 vendored modules; `Effect/Ref.purs` is modified and `PSRS/Ref.purs` is a
+target addition. Package tool tests pass 12/12 and the oracle, storage and loop
+cases remain accepted.
+
+This closes the public reference adapters. The requirement map above is
+refreshed to reflect verified multiway, monomorphic payload, focused
+official-loop and public reference-adapter evidence. Full API/host conformance,
 arbitrary CFG backedges, scoped transport, optimizer graph rewriting, legacy
-deletion and coherent package pin acceptance remain open. No Rust source was
-changed, no workspace or scoreboard was rerun, and the 259-path index and old
-compiler library lock remain unchanged.
+deletion and coherent package pin acceptance remain open. This
+reference-adapter slice changed no Rust source; no workspace or official
+scoreboard was rerun, and the compiler library lock remains at `1e01310`.
