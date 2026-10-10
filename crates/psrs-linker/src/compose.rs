@@ -36,41 +36,56 @@ pub fn compose(
         )
     })?;
     crate::application::verify(plan, application)?;
-    let mut bytes = application.to_vec();
-    embed_component_metadata(&mut bytes, context.resolve(), world, StringEncoding::UTF8).map_err(
-        |error| {
-            LinkErrors::plain(
-                stage,
-                format!("failed to embed component metadata: {error}"),
-            )
-        },
-    )?;
-    let mut encoder = ComponentEncoder::default()
-        .module(&bytes)
-        .map_err(|error| {
-            LinkErrors::plain(stage, format!("failed to read the core module: {error}"))
-        })?;
-    for artifact in plan.artifacts() {
-        encoder = encoder
-            .library(
-                &artifact.module_name,
-                &artifact.bytes,
-                LibraryInfo {
-                    instantiate_after_shims: artifact.instantiate_after_shims,
-                    arguments: Vec::new(),
-                },
-            )
+    let references = |signature: &crate::CoreSignature| {
+        signature
+            .parameters
+            .iter()
+            .chain(signature.result.iter())
+            .any(|ty| matches!(ty, crate::CoreType::Ref(_)))
+    };
+    let direct = plan
+        .bindings()
+        .iter()
+        .any(|binding| references(&binding.signature))
+        || crate::core_assembly::canonical_libraries(plan).len() != plan.artifacts().len();
+    let output = if direct {
+        crate::world_boundary::encode(context, plan, application)?
+    } else {
+        let mut bytes = application.to_vec();
+        embed_component_metadata(&mut bytes, context.resolve(), world, StringEncoding::UTF8)
             .map_err(|error| {
-                LinkErrors::one(
+                LinkErrors::plain(
                     stage,
-                    &artifact.id,
-                    format!("failed to attach artifact: {error:#}"),
+                    format!("failed to embed component metadata: {error}"),
                 )
             })?;
-    }
-    let output = encoder.validate(true).encode().map_err(|error| {
-        LinkErrors::plain(stage, format!("failed to encode the component: {error:#}"))
-    })?;
+        let mut encoder = ComponentEncoder::default()
+            .module(&bytes)
+            .map_err(|error| {
+                LinkErrors::plain(stage, format!("failed to read the core module: {error:#}"))
+            })?;
+        for artifact in plan.artifacts() {
+            encoder = encoder
+                .library(
+                    &artifact.module_name,
+                    &artifact.bytes,
+                    LibraryInfo {
+                        instantiate_after_shims: artifact.instantiate_after_shims,
+                        arguments: Vec::new(),
+                    },
+                )
+                .map_err(|error| {
+                    LinkErrors::one(
+                        stage,
+                        &artifact.id,
+                        format!("failed to attach artifact: {error:#}"),
+                    )
+                })?;
+        }
+        encoder.validate(true).encode().map_err(|error| {
+            LinkErrors::plain(stage, format!("failed to encode the component: {error:#}"))
+        })?
+    };
     wasmparser::Validator::new()
         .validate_all(&output)
         .map_err(|error| {

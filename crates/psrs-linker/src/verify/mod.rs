@@ -21,6 +21,9 @@ pub struct VerifiedArtifact {
     pub module_name: String,
     pub sha256: String,
     pub bytes: Vec<u8>,
+    /// Complete raw interfaces retained after executable contract verification.
+    pub imports: Vec<crate::DeclaredImport>,
+    pub exports: Vec<crate::DeclaredExport>,
     pub instantiate_after_shims: bool,
     /// The measured static stack bound, when the artifact declares storage.
     pub stack_bound_bytes: Option<u32>,
@@ -106,6 +109,8 @@ pub fn verify_artifact(
         module_name: contract.module_name.clone(),
         sha256: digest,
         bytes: bytes.to_vec(),
+        imports: contract.imports.clone(),
+        exports: contract.exports.clone(),
         instantiate_after_shims: contract.instantiate_after_shims,
         stack_bound_bytes,
     })

@@ -9,13 +9,15 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RequirementId(pub u32);
 
-/// The scalar subset of the core-Wasm value model a target signature uses.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The checked core-Wasm value contract, independent of module-local indices.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CoreType {
     I32,
     I64,
     F32,
     F64,
+    V128,
+    Ref(crate::core_types::CoreReference),
 }
 
 /// A core-Wasm function signature.

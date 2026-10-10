@@ -9,7 +9,7 @@ name = "guest"
 path = "tests/guest/mod.rs"
 
 [dependencies]
-psrs-runtime = { workspace = true, default-features = false, features = ["catalog"] }
+psrs-runtime = { workspace = true, default-features = false, features = ["catalog", "gc-storage"] }
 sha2 = "=0.10.9"
 wasm-encoder.workspace = true
 wasmparser.workspace = true

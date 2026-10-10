@@ -16,6 +16,10 @@
 mod application;
 mod closure;
 mod compose;
+mod core_assembly;
+pub use core_assembly::{CoreAssembly, assemble_core};
+mod core_types;
+pub use core_types::{CoreReference, CoreTypes};
 mod definitions;
 mod digest;
 mod error;
@@ -26,6 +30,7 @@ pub mod runtime;
 mod stack;
 mod target;
 mod verify;
+mod world_boundary;
 
 pub use compose::{LinkedArtifact, compose};
 pub use definitions::{ResolvedWorldContext, resolve_default_definitions, resolve_definitions};

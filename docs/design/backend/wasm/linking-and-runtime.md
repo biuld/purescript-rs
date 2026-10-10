@@ -205,6 +205,30 @@ storage contracts. The backend consumes this data rather than using cross-crate
 `include_str!`/`include_bytes!` paths or maintaining a second embedded copy.
 The same catalog supplies ABI resolution and component-world construction.
 
+Host-encoded runtime units declare operation signatures against a separate,
+types-only Wasm schema. The linker resolves that schema into closed raw types
+before checking executable export signatures; it must not infer the expected
+contract from those exports. Raw GC references retain nullability, field
+mutability, finality, supertypes, and the complete recursion group with bound
+intra-group references. Module-local type indices are resolved at the owning
+boundary and are not identities across independent artifacts. GC references
+remain raw Core-Wasm contracts; scalar WIT projection rejects them explicitly.
+
+Private provider calls connect original Core modules through typed Core instance
+arguments. Canonical WIT lift/lower belongs at world boundaries, not between
+those raw providers. A raw instance assembly output is provisional until its
+completed component validates and agrees with the checked target-world closure.
+The current direct assembler handles closed acyclic graphs. Their canonical
+world boundaries use a declaration-only application projection: imported
+functions become local declarations at the same indices, public signatures and
+storage declarations remain intact, and implementation bodies are omitted from
+WIT inspection. The projection is removed from the output; boundary aliases
+connect to the original application instance. No foreign implementation or
+program body is replaced in the executable artifact. Component module/instance
+indices are rebased explicitly, including nested outer-module aliases. Final
+validation and exact external-world closure remain required before publication.
+Shared-memory cycles and host provisioning remain incomplete for this path.
+
 The independent `psrs-linker` owns WIT catalog loading, resolved world identities,
 provider contracts, and target composition. The backend owns source-signature
 checks, canonical call planning, representation recovery, and language-to-target
@@ -613,3 +637,41 @@ checks it against both the provider contract and the actual artifact export.
 Generated allocator/codec imports MUST likewise match the shared generated-body
 signature and concrete GC byte-array representation. Internally consistent MIR
 call typing alone does not establish either provider boundary.
+
+Distinct source declarations may import the same provider/export. Every encoded
+occurrence must independently match the planned complete Core type; matching
+aliases satisfy one provider requirement without losing source call identities.
+Before embedding the application in a component, the linker merges these checked
+function import aliases and remaps every function reference, including calls,
+exports and element initializers. Components require unique Core import names.
+The original application instructions and storage are retained; conflicting
+alias types are rejected before normalization.
+
+### Reference providers with canonical host imports
+
+Private GC-reference imports connect original Core modules directly through
+checked instance arguments. WIT host functions cross the Canonical ABI through
+`canon lower`; their resulting Core instances and selected private provider
+instances must be available before instantiating the original application.
+Provider identity, type/recursion-group agreement and residual host closure
+remain linker obligations. No Effect-aware runtime dispatcher participates.
+
+An interface-only module may describe public exports to the WIT tooling while
+retaining permitted host and registered canonical library imports. It must not
+replace executable application instructions. Raw provider imports become
+non-executable local declarations; when
+this changes imported-function indices, every function reference in exports,
+globals and element segments must follow the explicit permutation. The final
+component removes the interface-only module and instantiates the original
+application with canonical host instances and raw provider instances. Canonical
+aliases must still refer to the original public exports, memory and resources.
+Validate the completed component and compare its host imports with the checked
+plan before publishing it. Providers with reference-valued import or export
+interfaces, and their transitive consumers, remain in the raw Core graph.
+Remaining scalar-interface providers use canonical library provisioning with
+their checked `instantiate_after_shims` flags. This lets the allocator obtain
+the original application's memory and heap boundary through the canonical
+encoder's existing shim schedule even when a GC provider is also selected.
+An acyclic raw provider graph independent of application storage can be prepared
+before host adaptation. Cross-partition dependencies or shared-memory cycles
+without a checked provisioning schedule must still fail explicitly.

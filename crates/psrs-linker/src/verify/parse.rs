@@ -1,10 +1,8 @@
 //! Parsing a core module and comparing it with a declared contract.
 
 use crate::error::{LinkErrors, LinkStage};
-use crate::target::{
-    ArtifactContract, CoreSignature, CoreType, DeclaredExport, ExportKind, ImportKind,
-};
-use wasmparser::{CompositeInnerType, ExternalKind, Operator, Parser, Payload, TypeRef, ValType};
+use crate::target::{ArtifactContract, CoreSignature, DeclaredExport, ExportKind, ImportKind};
+use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType};
 
 pub(super) fn check_contract(
     contract: &ArtifactContract,
@@ -186,7 +184,7 @@ fn globals_differ(parsed: &ParsedCore, contract: &ArtifactContract) -> bool {
 }
 
 pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
-    let mut types = Vec::new();
+    let mut types = crate::CoreTypes::default();
     let mut imported_functions = Vec::new();
     let mut defined_functions = Vec::new();
     let mut imports = Vec::new();
@@ -203,13 +201,7 @@ pub(super) fn parse_core_module(bytes: &[u8]) -> Result<ParsedCore, String> {
         match payload.map_err(|error| error.to_string())? {
             Payload::TypeSection(reader) => {
                 for group in reader {
-                    for ty in group.map_err(|error| error.to_string())?.into_types() {
-                        if let CompositeInnerType::Func(func) = ty.composite_type.inner {
-                            types.push(func);
-                        } else {
-                            return Err("artifact defines a non-function composite type".into());
-                        }
-                    }
+                    types.push(group.map_err(|error| error.to_string())?)?;
                 }
             }
             Payload::ImportSection(reader) => {
@@ -403,7 +395,7 @@ fn function_signature(
     index: u32,
     imported_functions: &[u32],
     defined_functions: &[u32],
-    types: &[wasmparser::FuncType],
+    types: &crate::CoreTypes,
 ) -> Result<CoreSignature, String> {
     let type_index = if (index as usize) < imported_functions.len() {
         imported_functions[index as usize]
@@ -413,24 +405,5 @@ fn function_signature(
             .get(defined)
             .ok_or("artifact export refers to an unknown function")?
     };
-    let ty = types
-        .get(type_index as usize)
-        .ok_or("artifact function has no type")?;
-    let convert = |ty: ValType| match ty {
-        ValType::I32 => Some(CoreType::I32),
-        ValType::I64 => Some(CoreType::I64),
-        ValType::F32 => Some(CoreType::F32),
-        ValType::F64 => Some(CoreType::F64),
-        _ => None,
-    };
-    let mut parameters = Vec::with_capacity(ty.params().len());
-    for param in ty.params() {
-        parameters.push(convert(*param).ok_or("artifact parameter is not a scalar")?);
-    }
-    let result = match ty.results() {
-        [] => None,
-        [single] => Some(convert(*single).ok_or("artifact result is not a scalar")?),
-        _ => return Err("artifact function has multiple results".into()),
-    };
-    Ok(CoreSignature { parameters, result })
+    types.signature(type_index)
 }

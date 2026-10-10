@@ -1,6 +1,6 @@
 //! Verify encoded application contracts before executing a checked link plan.
-use crate::{CheckedLinkPlan, CoreSignature, CoreType, LinkErrors, LinkStage};
-use wasmparser::{CompositeInnerType, Operator, Parser, Payload, TypeRef, ValType};
+use crate::{CheckedLinkPlan, CoreType, LinkErrors, LinkStage};
+use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 pub(crate) fn verify(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), LinkErrors> {
     check(plan, bytes).map_err(|message| LinkErrors::plain(LinkStage::Compose, message))
@@ -10,7 +10,7 @@ fn check(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), String> {
     wasmparser::Validator::new()
         .validate_all(bytes)
         .map_err(|error| error.to_string())?;
-    let mut types = Vec::new();
+    let mut types = crate::CoreTypes::default();
     let mut seen = std::collections::BTreeSet::new();
     let mut memory = None;
     let mut data = Vec::new();
@@ -22,12 +22,7 @@ fn check(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), String> {
         match payload.map_err(|error| error.to_string())? {
             Payload::TypeSection(reader) => {
                 for group in reader {
-                    for ty in group.map_err(|error| error.to_string())?.into_types() {
-                        types.push(match ty.composite_type.inner {
-                            CompositeInnerType::Func(ty) => Some(ty),
-                            _ => None,
-                        });
-                    }
+                    types.push(group.map_err(|error| error.to_string())?)?;
                 }
             }
             Payload::ImportSection(reader) => {
@@ -49,35 +44,15 @@ fn check(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), String> {
                                 import.module, import.name
                             )
                         })?;
-                    let ty = types
-                        .get(index as usize)
-                        .and_then(Option::as_ref)
-                        .ok_or("application import has no function signature")?;
-                    let signature = CoreSignature {
-                        parameters: ty
-                            .params()
-                            .iter()
-                            .copied()
-                            .map(scalar)
-                            .collect::<Result<_, _>>()?,
-                        result: match ty.results() {
-                            [] => None,
-                            [ty] => Some(scalar(*ty)?),
-                            _ => {
-                                return Err(
-                                    "application import has unsupported multiple results".into()
-                                );
-                            }
-                        },
-                    };
+                    let signature = types.signature(index)?;
                     if signature != binding.signature {
                         return Err(
                             "application import signature disagrees with the checked plan".into(),
                         );
                     }
-                    if !seen.insert((binding.module.clone(), binding.field.clone())) {
-                        return Err("application duplicates a planned import".into());
-                    }
+                    // Distinct source declarations may alias one checked ABI
+                    // export. Every occurrence must match its complete type.
+                    seen.insert((binding.module.clone(), binding.field.clone()));
                 }
             }
             Payload::MemorySection(reader) => {
@@ -143,12 +118,11 @@ fn check(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), String> {
             .checked_sub(imported_functions)
             .ok_or("application heap getter must be defined locally")?
             as usize;
-        let ty = function_types
+        let type_index = *function_types
             .get(defined)
-            .and_then(|index| types.get(*index as usize))
-            .and_then(Option::as_ref)
             .ok_or("application heap getter has no signature")?;
-        if !ty.params().is_empty() || ty.results() != [ValType::I32] {
+        let ty = types.signature(type_index)?;
+        if !ty.parameters.is_empty() || ty.result != Some(CoreType::I32) {
             return Err("application heap getter must have signature () -> i32".into());
         }
         let body = function_bodies
@@ -211,12 +185,6 @@ fn check(plan: &CheckedLinkPlan, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn scalar(ty: ValType) -> Result<CoreType, String> {
-    match ty {
-        ValType::I32 => Ok(CoreType::I32),
-        ValType::I64 => Ok(CoreType::I64),
-        ValType::F32 => Ok(CoreType::F32),
-        ValType::F64 => Ok(CoreType::F64),
-        _ => Err("a target import has an unchecked reference representation".into()),
-    }
-}
+pub(crate) mod imports;
+#[cfg(test)]
+mod tests;

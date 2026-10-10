@@ -37,8 +37,13 @@ pub(crate) fn host_imports(
             continue;
         }
         types.ty().function(
-            binding.signature.parameters.iter().copied().map(scalar),
-            binding.signature.result.map(scalar),
+            binding
+                .signature
+                .parameters
+                .iter()
+                .map(scalar)
+                .collect::<Result<Vec<_>, _>>()?,
+            binding.signature.result.as_ref().map(scalar).transpose()?,
         );
         imports.import(&binding.module, &binding.field, EntityType::Function(count));
         count += 1;
@@ -89,13 +94,18 @@ pub(crate) fn host_imports(
     crate::compose::component_imports(&component)
 }
 
-fn scalar(ty: CoreType) -> ValType {
-    match ty {
+fn scalar(ty: &CoreType) -> Result<ValType, LinkErrors> {
+    Ok(match ty {
         CoreType::I32 => ValType::I32,
         CoreType::I64 => ValType::I64,
         CoreType::F32 => ValType::F32,
         CoreType::F64 => ValType::F64,
-    }
+        CoreType::V128 | CoreType::Ref(_) => {
+            return Err(error(
+                "a raw GC or SIMD contract cannot cross a WIT scalar boundary",
+            ));
+        }
+    })
 }
 fn error(error: impl std::fmt::Display) -> LinkErrors {
     LinkErrors::plain(

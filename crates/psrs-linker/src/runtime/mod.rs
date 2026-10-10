@@ -3,6 +3,8 @@
 //! The runtime package owns the raw declaration; the linker owns the typed
 //! contract it verifies and plans against.
 
+mod encoded;
+
 use crate::target::{
     ArtifactContract, ArtifactKind, ArtifactReference, CoreSignature, CoreType, DeclaredElement,
     DeclaredExport, DeclaredGlobal, DeclaredImport, DeclaredTable, ExportKind, ImportKind,
@@ -153,8 +155,14 @@ pub fn offer(unit: &RuntimeUnit) -> RuntimeUnitOffer {
 }
 
 /// Maps every unit of a catalog package. Unused units stay unselected.
-pub fn package_offers(package: &RuntimePackage) -> Vec<RuntimeUnitOffer> {
-    package.units.iter().copied().map(offer).collect()
+pub fn package_offers(
+    package: &RuntimePackage,
+) -> Result<Vec<RuntimeUnitOffer>, crate::LinkErrors> {
+    let mut units = package.units.iter().copied().map(offer).collect::<Vec<_>>();
+    for unit in package.encoded_units {
+        units.push(encoded::offer(unit)?);
+    }
+    Ok(units)
 }
 
 fn signature(parameters: &[RawType], result: Option<RawType>) -> CoreSignature {
