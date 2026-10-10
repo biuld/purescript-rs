@@ -22,7 +22,11 @@ pub fn record_row(types: &[Type], id: TypeId) -> Option<TypeId> {
 /// reaches a node that is neither a row constructor nor a row variable.
 pub fn row_fields(types: &[Type], mut row: TypeId) -> Option<RowFields> {
     let mut fields = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     loop {
+        if !seen.insert(row) {
+            return None;
+        }
         match types.get(row.0 as usize)? {
             Type::RowEmpty => return Some((fields, None)),
             Type::RowExtend { label, ty, tail } => {

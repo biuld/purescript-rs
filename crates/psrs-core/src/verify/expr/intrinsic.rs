@@ -18,6 +18,24 @@ impl Context<'_> {
         intrinsic: Intrinsic,
         arguments: &[Expr],
     ) {
+        if intrinsic.state_operation().is_some() {
+            for argument in arguments {
+                self.expr(argument, None);
+            }
+            if let Err(message) = crate::state::primitive::verify(
+                self.module,
+                intrinsic,
+                &arguments
+                    .iter()
+                    .map(|argument| argument.ty)
+                    .collect::<Vec<_>>(),
+                expression.ty,
+            ) {
+                self.errors
+                    .push(error(self.owner, expression.span, message));
+            }
+            return;
+        }
         match intrinsic {
             Intrinsic::ArrayLength => self.verify_array_length(expression, &arguments[0]),
             Intrinsic::ArrayIndex => {

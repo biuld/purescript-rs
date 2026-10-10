@@ -153,6 +153,11 @@ pub(crate) fn module(module: &Module, source: Option<&Module>) -> Result<(), Vec
             &mut errors,
         );
     }
+    if errors.is_empty()
+        && let Err(state_errors) = crate::state::flow::check(module)
+    {
+        errors.extend(state_errors);
+    }
     if errors.is_empty() {
         Ok(())
     } else {

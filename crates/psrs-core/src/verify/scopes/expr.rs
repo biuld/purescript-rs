@@ -54,13 +54,24 @@ fn scoped_expr_inner(
             }
         }
         ExprKind::Array { elements } => {
+            let binders = leading_foralls(module, expression.ty);
             for element in elements {
-                scoped_expr(element, module, scope, errors);
+                let mut element_scope = scope.clone();
+                open_child_binders(element, &binders, module, &mut element_scope, errors);
+                scoped_expr(element, module, &mut element_scope, errors);
             }
         }
         ExprKind::Record { fields } => {
-            for (_, value) in fields {
-                scoped_expr(value, module, scope, errors);
+            let field_types = module.record_fields(expression.ty).unwrap_or_default();
+            for (label, value) in fields {
+                let binders = field_types
+                    .iter()
+                    .find(|(field_label, _)| field_label == label)
+                    .map(|(_, ty)| leading_foralls(module, *ty))
+                    .unwrap_or_default();
+                let mut field_scope = scope.clone();
+                open_child_binders(value, &binders, module, &mut field_scope, errors);
+                scoped_expr(value, module, &mut field_scope, errors);
             }
         }
         ExprKind::RecordUpdate { record, fields } => {
@@ -69,7 +80,12 @@ fn scoped_expr_inner(
                 scoped_expr(value, module, scope, errors);
             }
         }
-        ExprKind::FieldAccess { record, .. } => scoped_expr(record, module, scope, errors),
+        ExprKind::FieldAccess { record, .. } => {
+            let binders = leading_foralls(module, expression.ty);
+            let mut record_scope = scope.clone();
+            open_child_binders(record, &binders, module, &mut record_scope, errors);
+            scoped_expr(record, module, &mut record_scope, errors);
+        }
         ExprKind::RepresentationCast {
             value,
             source_type,

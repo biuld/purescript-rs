@@ -1,3 +1,4 @@
+pub mod command;
 pub mod dictionary;
 pub mod effect;
 mod instantiation;
@@ -8,6 +9,7 @@ pub mod opt;
 mod pattern;
 pub mod primitive;
 mod records;
+pub mod state;
 pub use instantiation::{Instantiation, RowInstantiation, instantiate_local_rows};
 mod types;
 mod verify;
@@ -16,7 +18,8 @@ pub use link::{link, prune_unreachable};
 pub use pattern::{Literal, Pattern, PatternKind};
 pub use records::{record_row, row_fields};
 pub use types::{
-    Type, TypeConstructor, TypeId, arrow_parts, closure_parts, forall_parts, scheme_parts,
+    Type, TypeConstructor, TypeId, arrow_parts, call_parts, closure_parts, forall_parts,
+    scheme_parts,
 };
 
 use psrs_hir::{
@@ -309,7 +312,9 @@ impl Module {
     /// applied to it, in order. A non-constructor head yields `None`.
     pub fn applied_constructor(&self, mut id: TypeId) -> Option<(TypeConstructor, Vec<TypeId>)> {
         let mut arguments = Vec::new();
+        let mut remaining = self.types.len();
         while let Some(Type::Application(function, argument)) = self.types.get(id.0 as usize) {
+            remaining = remaining.checked_sub(1)?;
             arguments.push(*argument);
             id = *function;
         }

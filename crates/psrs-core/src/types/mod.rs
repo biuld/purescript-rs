@@ -8,6 +8,9 @@
 
 use psrs_hir::{TypeId as HirTypeId, TypeVariableId};
 
+mod call;
+pub use call::call_parts;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
 

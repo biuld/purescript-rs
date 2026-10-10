@@ -136,7 +136,8 @@ impl Context<'_> {
                 arguments,
             } => self.verify_intrinsic(expression, *intrinsic, arguments),
             ExprKind::Array { elements } => {
-                let Some(element_type) = array_element(expression.ty, self.module) else {
+                let body_type = strip_leading_foralls(self.module, expression.ty);
+                let Some(element_type) = array_element(body_type, self.module) else {
                     self.errors.push(error(
                         self.owner,
                         expression.span,

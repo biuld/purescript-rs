@@ -8,6 +8,7 @@ mod instantiation;
 mod link;
 mod patterns;
 mod rank_n;
+mod record_scope;
 mod rows;
 
 /// Appends an arrow `parameter -> result` as the application spine and returns
