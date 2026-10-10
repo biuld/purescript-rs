@@ -8,6 +8,10 @@ pub const PSRS_RUNTIME: RuntimePackage = RuntimePackage {
     version: VERSION,
     provenance: "compiler-owned catalog; each unit pins its own variant bytes and recipe",
     units: &[&NUMBER_UNIT, &ALLOCATOR_UNIT],
+    #[cfg(feature = "gc-storage")]
+    encoded_units: &[&super::STORAGE_UNIT],
+    #[cfg(not(feature = "gc-storage"))]
+    encoded_units: &[],
 };
 
 #[cfg(test)]

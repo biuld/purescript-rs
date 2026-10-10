@@ -5,6 +5,8 @@
 //! consumers. Feature `formatter` builds the numeric implementation in `number`;
 //! feature `allocator` builds the canonical allocator. Each Wasm artifact enables
 //! exactly one executable feature and embeds no catalog assets.
+//! Feature `gc-storage` exposes a host encoder for an independent GC storage
+//! module; its target operations allocate no Rust or linear-memory heap.
 
 #![cfg_attr(
     all(
@@ -16,6 +18,9 @@
 
 pub mod abi;
 pub use abi::*;
+
+#[cfg(feature = "gc-storage")]
+pub mod storage;
 
 #[cfg(feature = "catalog")]
 pub mod catalog;

@@ -3,9 +3,11 @@
 
 mod allocator;
 mod number;
+mod storage;
 
 pub use allocator::*;
 pub use number::*;
+pub use storage::*;
 
 /// The runtime imports the application's canonical memory.
 pub const MEMORY_MODULE: &str = "env";

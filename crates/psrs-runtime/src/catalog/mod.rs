@@ -3,6 +3,8 @@
 //! together, while WIT sources and the package aggregate have separate owners.
 
 mod allocator;
+mod encoded;
+pub use encoded::*;
 mod model;
 mod number;
 mod package;

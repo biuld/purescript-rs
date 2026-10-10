@@ -149,4 +149,5 @@ pub struct RuntimePackage {
     pub version: &'static str,
     pub provenance: &'static str,
     pub units: &'static [&'static RuntimeUnit],
+    pub encoded_units: &'static [&'static super::EncodedRuntimeUnit],
 }
