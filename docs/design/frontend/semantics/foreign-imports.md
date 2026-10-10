@@ -1,5 +1,10 @@
 # Foreign Imports
 
+> **Selected revision:** [library-owned effects and state dependencies](../../backend/fp/library-owned-effects.md)
+> replaces the Effect-specific token contract with a library newtype and generic
+> state dependencies. Implementation and acceptance evidence have not migrated;
+> this document retains the existing contract pending that migration.
+
 **Feature:** F-02
 
 **Status:** Draft

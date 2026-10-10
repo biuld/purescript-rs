@@ -1,5 +1,10 @@
 # Primitive Interfaces and Relations
 
+> **Selected extension:** [library-owned effects and state dependencies](../../backend/fp/library-owned-effects.md)
+> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
+> and checked zero-width projection. Implementation and acceptance evidence
+> have not migrated; the existing contracts below remain the implementation baseline.
+
 **Feature:** F-02
 
 **Status:** Draft

@@ -106,16 +106,18 @@ impl TypeId {
     pub const PRIM_TYPE_ERROR_QUOTE_LABEL: Self = Self::new(ModuleId::INTRINSICS, 28);
     pub const PRIM_TYPE_ERROR_BESIDE: Self = Self::new(ModuleId::INTRINSICS, 29);
     pub const PRIM_TYPE_ERROR_ABOVE: Self = Self::new(ModuleId::INTRINSICS, 30);
-    /// The compiler-owned opaque state token an `Effect` closure takes. It has
-    /// no source spelling and one uninspectable value; it is the `State#
-    /// RealWorld` analogue of [effects](../design/backend/fp/effects.md), not a
-    /// source type. Its runtime shape is a scalar, but no source or later pass
-    /// may treat it as an `Int`.
+    /// Legacy compiler-owned Effect invocation trigger. It has no source
+    /// spelling and lowers to a scalar constant; it does not carry the generic
+    /// dependency semantics of PRIM_STATE. Retire after Effect/ST migration.
     pub const STATE_TOKEN: Self = Self::new(ModuleId::INTRINSICS, 31);
+    /// Generic state dependency carrier. Its region parameter has a nominal role.
+    pub const PRIM_STATE: Self = Self::new(ModuleId::INTRINSICS, 32);
+    /// Region marker for state operations on the external world.
+    pub const PRIM_REAL_WORLD: Self = Self::new(ModuleId::INTRINSICS, 33);
 }
 
 mod intrinsic;
-pub use intrinsic::{Intrinsic, IntrinsicCategory, IntrinsicDescriptor};
+pub use intrinsic::{Intrinsic, IntrinsicCategory, IntrinsicDescriptor, StateOperation};
 
 /// Symbol index base for source-declared `foreign import`s, which live in the
 /// reserved intrinsic module but above the intrinsic and WASI import ranges.
@@ -138,6 +140,9 @@ pub enum ExternalKind {
     /// A source value explicitly bound to a compiler primitive. Its checked
     /// declaration type remains authoritative until target linking verifies it.
     Primitive(Intrinsic),
+    /// An explicitly named runtime provider/export. Source resolution records
+    /// identity only; target linking owns the checked ABI and implementation.
+    Runtime { module: String, function: String },
 }
 
 impl ExternalKind {

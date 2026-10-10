@@ -130,6 +130,11 @@ pub(crate) fn resolve_ast_module(
                         continue;
                     };
                     ExternalKind::Primitive(intrinsic)
+                } else if interface.starts_with("psrs:runtime-") {
+                    ExternalKind::Runtime {
+                        module: interface.into(),
+                        function: function.into(),
+                    }
                 } else {
                     ExternalKind::Wit {
                         interface: interface.into(),

@@ -55,6 +55,7 @@ fn declared(owner: &str, name: &str) -> TypeDeclaration {
 fn every_official_primitive_member_is_declared_exactly_once() {
     let mut declared = primitive_type_declarations()
         .into_iter()
+        .filter(|(owner, _)| *owner != "Prim.State")
         .map(|(owner, declaration)| (owner.to_owned(), declaration.name.clone()))
         .collect::<Vec<_>>();
     declared.sort();
@@ -67,6 +68,31 @@ fn every_official_primitive_member_is_declared_exactly_once() {
         declared, official,
         "the registry must declare exactly the official `Prim` members"
     );
+}
+
+#[test]
+fn target_state_is_opaque_and_its_region_is_nominal() {
+    let state = declared("Prim.State", "State");
+    assert_eq!(roles(&state), vec![Role::Nominal]);
+    assert_eq!(state.id, TypeId::PRIM_STATE);
+    assert_eq!(state.kind, TypeDeclarationKind::Foreign);
+    assert!(state.constructors.is_empty());
+    let TypeKind::Forall { variables, body } = &state.declared_kind.as_ref().unwrap().kind else {
+        panic!("State must quantify its region kind");
+    };
+    assert_eq!(variables.len(), 1);
+    let TypeKind::Function { parameter, result } = &body.kind else {
+        panic!("State must take exactly one nominal region");
+    };
+    assert_eq!(
+        parameter.kind,
+        TypeKind::Variable(variables[0].name.clone())
+    );
+    assert_eq!(result.kind, TypeKind::Constructor(BuiltinType::Type));
+    let world = declared("Prim.State", "RealWorld");
+    assert_eq!(world.id, TypeId::PRIM_REAL_WORLD);
+    assert!(roles(&world).is_empty());
+    assert!(world.constructors.is_empty());
 }
 
 #[test]

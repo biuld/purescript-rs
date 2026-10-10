@@ -1,5 +1,11 @@
 # Effects
 
+> **Selected revision:** [library-owned effects and state dependencies](library-owned-effects.md)
+> replaces the Effect-specific token contract with a library newtype and generic
+> state dependencies, with executable storage and termination owned by
+> `psrs-runtime` and combinators owned by stdlib. Integrated acceptance has not migrated;
+> this document retains the existing contract pending that migration.
+
 **Feature:** F-02  
 **Status:** Draft (design)  
 **Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md), and

@@ -154,6 +154,7 @@ impl Checker {
                         Some(
                             ExternalKind::Wit { .. }
                             | ExternalKind::Library { .. }
+                            | ExternalKind::Runtime { .. }
                             | ExternalKind::Primitive(_),
                         ) => {
                             let Some(signature) = self.env.external_signatures.get(symbol).cloned()

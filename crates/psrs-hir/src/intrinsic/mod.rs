@@ -8,9 +8,11 @@
 
 mod effects;
 mod registry;
+mod state;
 
 pub use effects::IntrinsicEffects;
 pub use registry::{IntrinsicCategory, IntrinsicDescriptor};
+pub use state::StateOperation;
 
 use crate::{ModuleId, SymbolId};
 
@@ -164,9 +166,23 @@ pub enum Intrinsic {
     NumberNaN = 85,
     /// Positive infinity.
     NumberInfinity = 86,
+    RunWorld = 87,
+    RunRegion = 88,
 }
 
 impl Intrinsic {
+    /// State operations are available only through explicit checked bindings.
+    pub fn state_operation(self) -> Option<StateOperation> {
+        Some(match self {
+            Self::RunWorld => StateOperation::RunWorld,
+            Self::RunRegion => StateOperation::RunRegion,
+            _ => return None,
+        })
+    }
+
+    pub fn is_bootstrap(self) -> bool {
+        self.state_operation().is_none()
+    }
     pub const fn symbol(self) -> SymbolId {
         SymbolId::new(ModuleId::INTRINSICS, self as u32)
     }
@@ -184,12 +200,13 @@ impl Intrinsic {
             .find(|value| value.descriptor().name == name)
     }
 
-    /// Retired floor-division identities; these slots must never be reused.
-    pub const RESERVED_IDS: [u32; 2] = [26, 27];
+    /// Retired floor division and experimental storage intrinsic identities.
+    /// Storage now uses ordinary runtime bindings; slots must never be reused.
+    pub const RESERVED_IDS: [u32; 5] = [26, 27, 89, 90, 91];
 
-    /// Every active variant, in discriminant order. `bootstrap_externals` builds the
-    /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 85] = [
+    /// Every active variant, in discriminant order. Binding resolution uses the
+    /// complete list; bootstrap resolution selects only exposed operations.
+    pub const ALL: [Intrinsic; 87] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::IntAdd,
@@ -275,6 +292,8 @@ impl Intrinsic {
         Intrinsic::NumberIsNaN,
         Intrinsic::NumberNaN,
         Intrinsic::NumberInfinity,
+        Intrinsic::RunWorld,
+        Intrinsic::RunRegion,
     ];
 }
 
@@ -283,13 +302,21 @@ impl Intrinsic {
 // cannot be added and silently left out of the bootstrap name table.
 const _: () = {
     assert!(
-        Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len()
-            == Intrinsic::NumberInfinity as u32 as usize + 1,
+        Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len() == 92,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
-    let mut seen: u128 =
-        (1u128 << Intrinsic::RESERVED_IDS[0]) | (1u128 << Intrinsic::RESERVED_IDS[1]);
+    let mut seen: u128 = 0;
     let mut index = 0;
+    while index < Intrinsic::RESERVED_IDS.len() {
+        let bit = 1u128 << Intrinsic::RESERVED_IDS[index];
+        assert!(
+            seen & bit == 0,
+            "Intrinsic::RESERVED_IDS repeats an identity"
+        );
+        seen |= bit;
+        index += 1;
+    }
+    index = 0;
     while index < Intrinsic::ALL.len() {
         let bit = 1u128 << (Intrinsic::ALL[index] as u32);
         assert!(seen & bit == 0, "Intrinsic::ALL repeats a variant");
