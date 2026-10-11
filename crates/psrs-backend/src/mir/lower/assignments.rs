@@ -334,7 +334,7 @@ impl FunctionLowerer<'_> {
                 } => {
                     let then_block = self.new_block(Vec::new());
                     let else_block = self.new_block(Vec::new());
-                    let merge = self.new_block(vec![assignment.destination]);
+                    let merge = self.new_block(self.control_values(assignment.destination));
                     self.set_terminator(
                         current,
                         Terminator::Branch {
@@ -350,7 +350,7 @@ impl FunctionLowerer<'_> {
                         then_end,
                         Terminator::Jump {
                             target: merge,
-                            arguments: vec![*then_value],
+                            arguments: self.control_values(*then_value),
                             span: assignment.span,
                         },
                         assignment.span,
@@ -360,7 +360,7 @@ impl FunctionLowerer<'_> {
                         else_end,
                         Terminator::Jump {
                             target: merge,
-                            arguments: vec![*else_value],
+                            arguments: self.control_values(*else_value),
                             span: assignment.span,
                         },
                         assignment.span,
@@ -378,7 +378,7 @@ impl FunctionLowerer<'_> {
                         .map(|_| self.new_block(Vec::new()))
                         .collect::<Vec<_>>();
                     let default_block = self.new_block(Vec::new());
-                    let merge = self.new_block(vec![assignment.destination]);
+                    let merge = self.new_block(self.control_values(assignment.destination));
                     self.set_terminator(
                         current,
                         Terminator::Switch {
@@ -399,7 +399,7 @@ impl FunctionLowerer<'_> {
                             end,
                             Terminator::Jump {
                                 target: merge,
-                                arguments: vec![case.value],
+                                arguments: self.control_values(case.value),
                                 span: assignment.span,
                             },
                             assignment.span,
@@ -410,7 +410,7 @@ impl FunctionLowerer<'_> {
                         end,
                         Terminator::Jump {
                             target: merge,
-                            arguments: vec![*default_value],
+                            arguments: self.control_values(*default_value),
                             span: assignment.span,
                         },
                         assignment.span,

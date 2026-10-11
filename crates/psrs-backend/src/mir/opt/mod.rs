@@ -1,7 +1,7 @@
 //! Representation-preserving P10 optimization over verified MIR.
 
 mod cfg;
-mod constants;
+pub(in crate::mir) mod constants;
 mod effects;
 mod imports;
 mod inline;

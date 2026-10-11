@@ -318,10 +318,7 @@ fn lower_module_after_binding_validation(
             &layout,
             Some(&mut conversion_helpers),
             Some(&mut literals),
-            projected
-                .inventory
-                .requires(function.symbol)
-                .then(|| projected.logical.clone()),
+            projected.inventory.source_for(function.symbol),
             target,
         )
         .map_err(|errors| {

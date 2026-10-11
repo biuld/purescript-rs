@@ -1,9 +1,10 @@
 # MIR Optimization
 
-> **Selected extension:** [library-owned effects and state dependencies](../fp/library-owned-effects.md)
-> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
-> and checked zero-width projection. Implementation and acceptance evidence
-> have not migrated; the existing contracts below remain the implementation baseline.
+> **Selected extension:** [State primitives and dependency lowering](../fp/state-primitives-and-dependency-lowering.md)
+> owns primitive State contracts, preserved dependencies and checked zero-width
+> projection. [Library-owned effects](../fp/library-owned-effects.md) owns the
+> library adaptation. Coverage remains partial; see the
+> [implementation checklist](../../../implementation/backend/library-owned-effects.md).
 
 **Feature:** F-02
 
@@ -169,8 +170,13 @@ and explicit trap instructions remain live even when their result is unused.
 State dependency correspondence currently retains source predicate and block
 identities. CFG pruning and terminator simplification leave functions carrying
 that evidence intact; copy forwarding also leaves their bodies intact because
-callable and adapter operand identities remain source anchors. Inlining and tail-call marking remain disabled for those functions
-until they can transfer the evidence. Dead pure instruction elimination still
+callable and adapter operand identities remain source anchors. Inlining remains
+disabled until it can transfer the evidence. P9 tail-call marking uses the
+checked conversion described in
+[State dependency lowering](../fp/state-primitives-and-dependency-lowering.md):
+it retains the physical predecessor and validates the actual transformed body
+against the shared tail rewrite before checking source correspondence. Dead
+pure instruction elimination still
 runs and preserves observable calls and traps. `Trap` is a terminal CFG node
 with no successor or operand; all successor consumers use shared MIR analysis.
 

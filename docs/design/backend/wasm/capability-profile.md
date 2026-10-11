@@ -117,7 +117,8 @@ for the default target and is also `Default::default()`. Its policy is:
 | Reference types, typed function references, GC | Enabled and required when used | Closures, aggregates, casts, and `call_ref` depend on them. |
 | Component Model and WASI 0.2 (`wasi_cli`, `wasi_io`, `wasi_clocks`, `wasi_random`, `wasi_filesystem`, `wasi_sockets`) | Enabled and required | The artifact boundary; canonical ABI and WIT metadata are emitted. Filesystem and sockets have `WASI.FileSystem` and `WASI.Network` wrappers over the vendored WIT and the pinned host. |
 | SIMD, relaxed SIMD | Disabled | Optimization track only. |
-| Tail calls, exceptions, multi-memory, wide arithmetic, threads | Disabled | Tail-call lowering and execution tests now exist but are gated on `tail_call`; enabling it in the stable profile still requires a profile revision ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)). Other proposals have no lowering. |
+| Tail calls | Enabled | Stack-safe direct and closure calls use `return_call`/`return_call_ref`; self recursion can also become a CFG loop. State calls require checked dependency transfer ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)). |
+| Exceptions, multi-memory, wide arithmetic, threads | Disabled | No lowering. |
 | Memory64 | Disabled | Deferred; see below. |
 | WASI Preview 1, WASI 0.3 | Disabled | Separate compatibility tracks; neither is the artifact ABI. |
 | Component async/map/implements | Disabled | Not a stable compiler dependency. |
@@ -300,8 +301,8 @@ consults the same profile through `wasi_interface_enabled(target, interface)` in
 ## Invariants and verification
 
 - `wasmtime_wasi_0_2()` enables GC, function references, reference types,
-  multi-value, and the Component Model/WASI 0.2 families, and disables SIMD,
-  tail calls, exceptions, memory64, threads, and Component async. A unit test
+  multi-value, tail calls, and the Component Model/WASI 0.2 families, and disables
+  SIMD, exceptions, memory64, threads, and Component async. A unit test
   asserts this against `wasm_features`.
 - Lowering is rejected with a source-associated diagnostic whenever a required
   capability is disabled. The check runs in `verify_module_with_capabilities`,
@@ -345,9 +346,9 @@ pinned host does not link it.
 
 ## Open questions and future work
 
-- **Tail calls.** [Control flow and tail calls](../fp/control-flow-and-tail-calls.md)
-  proposes enabling `tail_call` in the stable profile once its lowering and
-  execution evidence exist.
+- **Tail-call optimization.** The stable profile enables `tail_call`.
+  Additional inlining and CFG transformations must preserve the checked State
+  transfer contract; proposal adoption does not establish those optimizations.
 - **Memory64.** Revisited only when `wit-component` lifts 64-bit-memory modules
   and the WASI host supports them.
 - **New WASI services.** Filesystem and sockets are enabled as service packages

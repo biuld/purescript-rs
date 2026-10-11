@@ -5,6 +5,7 @@ use crate::mir::{BlockId, Terminator};
 struct Block<'a> {
     parameters: Vec<cc::ValueId>,
     calls: Vec<Call<'a>>,
+    captures: Vec<&'a cc::Assignment>,
     end: Option<End>,
 }
 struct Call<'a> {
@@ -80,6 +81,7 @@ pub(super) fn verify(
     let mut blocks = vec![Block {
         parameters: Vec::new(),
         calls: Vec::new(),
+        captures: Vec::new(),
         end: None,
     }];
     let end = sequence(&source.assignments, 0, &mut blocks, table, &never)?;
@@ -105,7 +107,7 @@ pub(super) fn verify(
             .iter()
             .find(|block| block.id == source_blocks[id])
             .ok_or_else(|| error(function, "MIR dependency projection loses a control block"))?;
-        if actual.parameters != expected.parameters {
+        if actual.parameters != projected_arguments(&expected.parameters) {
             return Err(error(
                 function,
                 "MIR dependency projection changes block parameters",
@@ -114,6 +116,7 @@ pub(super) fn verify(
         // Collapse only complete, independently checked canonical adapters.
         // Their internal calls and edges remain verified by the owning plan.
         let mut calls = Vec::new();
+        let mut captures = Vec::new();
         let mut cursor = 0;
         loop {
             if let Some(invocation) = host_by_entry.get(&(actual.id, cursor)) {
@@ -146,8 +149,15 @@ pub(super) fn verify(
             ) {
                 calls.push((actual.id, cursor, instruction, None));
             }
+            if matches!(
+                instruction,
+                Instruction::ClosureNew { .. } | Instruction::ClosureGetCapture { .. }
+            ) {
+                captures.push(instruction);
+            }
             cursor += 1;
         }
+        super::captures::verify(source, function, &expected.captures, &captures)?;
         let valid = match (&expected.end, &actual.terminator) {
             (
                 Some(End::Branch(condition, left, right)),
@@ -187,7 +197,10 @@ pub(super) fn verify(
                     arguments,
                     ..
                 }),
-            ) => Some(actual) == source_blocks.get(*target) && arguments.as_slice() == [*value],
+            ) => {
+                Some(actual) == source_blocks.get(*target)
+                    && *arguments == projected_arguments(&[*value])
+            }
             (Some(End::Return(value)), Some(Terminator::Return { value: actual, .. })) => {
                 value == actual
             }
@@ -319,6 +332,10 @@ fn sequence<'a>(
 ) -> Result<usize, Vec<BackendError>> {
     for assignment in assignments {
         match &assignment.kind {
+            cc::AssignmentKind::FunctionRef { .. }
+            | cc::AssignmentKind::ClosureGetCapture { .. } => {
+                blocks[current].captures.push(assignment);
+            }
             cc::AssignmentKind::DirectCall { .. }
             | cc::AssignmentKind::IndirectCall { .. }
             | cc::AssignmentKind::StateExecution { .. } => {
@@ -346,6 +363,7 @@ fn sequence<'a>(
                         Vec::new()
                     },
                     calls: Vec::new(),
+                    captures: Vec::new(),
                     end: None,
                 }));
                 let right = left + 1;
@@ -394,6 +412,7 @@ fn sequence<'a>(
                         Vec::new()
                     },
                     calls: Vec::new(),
+                    captures: Vec::new(),
                     end: None,
                 }));
                 blocks[current].end = Some(End::Switch(

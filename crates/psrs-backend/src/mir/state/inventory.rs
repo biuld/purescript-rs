@@ -7,21 +7,17 @@ use std::collections::HashSet;
 /// Production P9 modules retain their checked logical source even when pure.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Inventory {
-    source: Option<Arc<cc::Module>>,
+    source: Option<Arc<CheckedSource>>,
     required: HashSet<SymbolId>,
     declared: HashSet<SymbolId>,
 }
 
 impl Inventory {
     pub(in crate::mir) fn checked(source: Arc<cc::Module>) -> Result<Self, Vec<BackendError>> {
-        let flows = cc::state::derive_all(&source)?;
-        if !flows.is_empty() {
-            // Dependency projection requires ordinary CC typing as well.
-            // An empty inventory does not publish additional typing claims.
-            cc::state::check(&source)?;
-        }
-        let required = flows.iter().map(|flow| flow.function.symbol).collect();
+        let source = CheckedSource::checked(source)?;
+        let required = source.required().collect();
         let declared = source
+            .module
             .functions
             .iter()
             .map(|function| function.symbol)
@@ -47,6 +43,11 @@ impl Inventory {
             }
         }
         Ok(self)
+    }
+
+    pub(in crate::mir) fn source_for(&self, symbol: SymbolId) -> Option<Arc<CheckedSource>> {
+        self.requires(symbol)
+            .then(|| self.source.as_ref().unwrap().clone())
     }
 
     pub(in crate::mir) fn requires(&self, symbol: SymbolId) -> bool {
@@ -84,7 +85,12 @@ impl Inventory {
                     function,
                     "MIR dependency evidence has no module source requirement",
                 )),
-                (true, Some(flow)) if self.source.as_deref() != Some(flow.source.as_ref()) => {
+                (true, Some(flow))
+                    if !self
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| Arc::ptr_eq(&source.module, &flow.source.module)) =>
+                {
                     errors.extend(error(
                         function,
                         "MIR dependency evidence belongs to a different source inventory",

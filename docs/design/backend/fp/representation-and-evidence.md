@@ -1,9 +1,10 @@
 # Runtime Representation and Checked Boundaries
 
-> **Selected revision:** [library-owned effects and state dependencies](library-owned-effects.md)
-> replaces the Effect-specific token contract with a library newtype and generic
-> state dependencies. Implementation and acceptance evidence have not migrated;
-> this document retains the existing contract pending that migration.
+> **Selected revision:** [Library-owned effects](library-owned-effects.md)
+> replaces the Effect-specific token contract with ordinary library newtypes.
+> [State primitives and dependency lowering](state-primitives-and-dependency-lowering.md)
+> owns the logical dependency and zero-width projection contracts. Coverage
+> remains partial; see the [implementation checklist](../../../implementation/backend/library-owned-effects.md).
 
 **Feature:** F-02  
 **Status:** Stable (design)  

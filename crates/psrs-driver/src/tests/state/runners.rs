@@ -188,11 +188,21 @@ fn runner_projection_rejects_removed_calls_and_changed_action_operands() {
                 psrs_backend::mir::Instruction::ClosureCall { .. }
             )
         });
+    if matches!(
+        missing.functions[index].blocks[0].terminator,
+        Some(psrs_backend::mir::Terminator::ReturnCallRef { .. })
+    ) {
+        missing.functions[index].blocks[0].terminator = Some(psrs_backend::mir::Terminator::Trap {
+            span: missing.functions[index].span,
+        });
+    }
     assert!(
         psrs_backend::mir::verify_module(&missing)
             .unwrap_err()
             .iter()
-            .any(|error| error.message.contains("loses an invocation"))
+            .any(|error| error.pass == "P9 MIR dependency verification"
+                && (error.message.contains("loses an invocation")
+                    || error.message.contains("tail conversion")))
     );
     let mut changed = mir;
     let function = &mut changed.functions[index];
@@ -209,11 +219,19 @@ fn runner_projection_rejects_removed_calls_and_changed_action_operands() {
     {
         *function = replacement;
     }
+    if let Some(psrs_backend::mir::Terminator::ReturnCallRef {
+        function: callee, ..
+    }) = &mut function.blocks[0].terminator
+    {
+        *callee = replacement;
+    }
     assert!(
         psrs_backend::mir::verify_module(&changed)
             .unwrap_err()
             .iter()
-            .any(|error| error.message.contains("invocation producer"))
+            .any(|error| error.pass == "P9 MIR dependency verification"
+                && (error.message.contains("invocation producer")
+                    || error.message.contains("tail conversion")))
     );
 }
 

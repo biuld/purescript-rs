@@ -1,9 +1,10 @@
 # Typed Core Optimization
 
-> **Selected extension:** [library-owned effects and state dependencies](../fp/library-owned-effects.md)
-> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
-> and checked zero-width projection. Implementation and acceptance evidence
-> have not migrated; the existing contracts below remain the implementation baseline.
+> **Selected extension:** [State primitives and dependency lowering](../fp/state-primitives-and-dependency-lowering.md)
+> owns primitive State contracts, preserved dependencies and checked zero-width
+> projection. [Library-owned effects](../fp/library-owned-effects.md) owns the
+> library adaptation. Coverage remains partial; see the
+> [implementation checklist](../../../implementation/backend/library-owned-effects.md).
 
 **Feature:** F-02
 

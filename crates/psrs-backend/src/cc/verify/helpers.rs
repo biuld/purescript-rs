@@ -68,7 +68,7 @@ pub(super) fn verify_capture_layout(function: &Function) -> Result<(), Vec<Backe
     capture_shapes(function).map(|_| ())
 }
 
-fn capture_shapes(function: &Function) -> Result<Vec<ValueShape>, Vec<BackendError>> {
+pub(crate) fn capture_shapes(function: &Function) -> Result<Vec<ValueShape>, Vec<BackendError>> {
     let declared = function
         .values
         .iter()

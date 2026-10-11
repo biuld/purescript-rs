@@ -3,17 +3,22 @@ use super::{Function, Instruction};
 use crate::{BackendError, cc};
 use psrs_core::state::dependency::Graph;
 use std::sync::Arc;
+mod captures;
 mod control;
 mod inventory;
 pub(crate) use inventory::Inventory;
 mod projection;
 mod runtime;
+mod source;
+pub(in crate::mir) use source::CheckedSource;
+mod tail;
 pub(super) use projection::project;
 pub(in crate::mir) use runtime::RuntimeInvocation;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DependencyFlow {
-    source: Arc<cc::Module>,
+    source: Arc<CheckedSource>,
+    tail: Option<tail::TailTransfer>,
     graph: Graph,
     executions: Vec<Graph>,
     runtime: Vec<RuntimeInvocation>,
@@ -28,28 +33,28 @@ impl DependencyFlow {
         source: Arc<cc::Module>,
         function: &Function,
     ) -> Result<Self, Vec<BackendError>> {
-        Self::checked_with_runtime(source, function, Vec::new(), Vec::new())
+        Self::checked_with_runtime(
+            CheckedSource::checked(source)?,
+            function,
+            Vec::new(),
+            Vec::new(),
+        )
     }
 
     pub(in crate::mir) fn checked_with_runtime(
-        source: Arc<cc::Module>,
+        source: Arc<CheckedSource>,
         function: &Function,
         runtime: Vec<RuntimeInvocation>,
         host: Vec<super::wit::CallPlan>,
     ) -> Result<Self, Vec<BackendError>> {
-        let flows = cc::state::check(&source)?;
-        let flow = flows
-            .iter()
-            .find(|flow| flow.function.symbol == function.symbol)
+        let flow = source
+            .flow(function.symbol)
             .ok_or_else(|| error(function, "MIR dependency projection has no checked CC body"))?;
         let graph = flow.graph.clone();
-        let executions = flow
-            .executions
-            .iter()
-            .map(|execution| execution.graph.clone())
-            .collect();
+        let executions = flow.executions.clone();
         let projection = Self {
             source,
+            tail: None,
             graph,
             executions,
             runtime,
@@ -68,24 +73,19 @@ impl DependencyFlow {
     }
 
     pub(crate) fn verify(&self, function: &Function) -> Result<(), Vec<BackendError>> {
-        let flows = cc::state::derive_all(&self.source)?;
-        let expected = flows
-            .iter()
-            .find(|flow| flow.function.symbol == function.symbol)
-            .ok_or_else(|| {
-                error(
-                    function,
-                    "MIR dependency projection has no owning CC function",
-                )
-            })?;
-        if self.executions
-            != expected
-                .executions
-                .iter()
-                .map(|execution| execution.graph.clone())
-                .collect::<Vec<_>>()
-            || self.graph != expected.graph
-        {
+        let function = if let Some(transfer) = &self.tail {
+            transfer.verify(function)?;
+            transfer.source()
+        } else {
+            function
+        };
+        let expected = self.source.flow(function.symbol).ok_or_else(|| {
+            error(
+                function,
+                "MIR dependency projection has no owning CC function",
+            )
+        })?;
+        if self.executions != expected.executions || self.graph != expected.graph {
             return Err(error(
                 function,
                 "MIR dependency projection changes checked control flow",
@@ -94,7 +94,12 @@ impl DependencyFlow {
         self.graph
             .verify()
             .map_err(|failure| error(function, failure.message))?;
-        let source_function = expected.function;
+        let source_function = self.source.function(function.symbol).ok_or_else(|| {
+            error(
+                function,
+                "MIR dependency projection has no owning CC function",
+            )
+        })?;
         let states = source_function
             .values
             .iter()
@@ -121,7 +126,7 @@ impl DependencyFlow {
         control::verify(
             source_function,
             function,
-            &self.source.representations,
+            &self.source.module.representations,
             &self.runtime,
             &self.host,
         )?;

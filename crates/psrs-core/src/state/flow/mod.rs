@@ -9,6 +9,9 @@ use psrs_span::TextRange;
 use std::collections::HashMap;
 
 mod branches;
+#[cfg(test)]
+mod closure_tests;
+mod closures;
 mod eval;
 mod scan;
 mod summary;
@@ -66,10 +69,24 @@ enum Value {
     State(DependencyId),
     Record(HashMap<String, Value>),
     Constructor(Vec<Value>),
+    Closure {
+        index: usize,
+        captures: HashMap<LocalId, Value>,
+    },
     Terminated,
 }
 
 impl Value {
+    fn carries_state(&self) -> bool {
+        match self {
+            Self::State(_) => true,
+            Self::Record(fields) => fields.values().any(Self::carries_state),
+            Self::Constructor(fields) => fields.iter().any(Self::carries_state),
+            Self::Closure { captures, .. } => captures.values().any(Self::carries_state),
+            Self::Opaque | Self::Terminated => false,
+        }
+    }
+
     fn state(&self) -> Option<DependencyId> {
         if let Self::State(id) = self {
             Some(*id)
@@ -91,6 +108,11 @@ impl Value {
                     field.remap(old, new);
                 }
             }
+            Self::Closure { captures, .. } => {
+                for value in captures.values_mut() {
+                    value.remap(old, new);
+                }
+            }
             _ => {}
         }
     }
@@ -106,6 +128,11 @@ impl Value {
             Self::Constructor(fields) => {
                 for field in fields {
                     field.resolve(path);
+                }
+            }
+            Self::Closure { captures, .. } => {
+                for value in captures.values_mut() {
+                    value.resolve(path);
                 }
             }
             _ => {}
@@ -141,6 +168,8 @@ struct Builder<'a> {
     next: u32,
     blocks: Vec<Block>,
     operations: Vec<Operation<'a>>,
+    closures: Vec<&'a Expr>,
+    active_closures: Vec<usize>,
 }
 
 impl<'a> Builder<'a> {
@@ -263,6 +292,8 @@ fn derive<'a>(
             span: lambda.span,
         }],
         operations: Vec::new(),
+        closures: Vec::new(),
+        active_closures: Vec::new(),
     };
     let mut path = Path {
         block: 0,

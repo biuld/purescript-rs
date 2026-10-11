@@ -22,6 +22,7 @@ fn gc_wit_record_projection_uses_the_planned_product_type() {
     });
     let lowerer_span = TextRange::new(0, 1);
     let mut lowerer = FunctionLowerer {
+        erased_states: Default::default(),
         owner: psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), 0),
         runtime: None,
         runtime_calls: Vec::new(),

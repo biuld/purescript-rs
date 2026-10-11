@@ -102,7 +102,7 @@ fn indirect_calls_preserve_ordinary_operands_after_state_erasure() {
             arguments: arguments.clone(),
         };
     }
-    let (mut module, _) = crate::mir::lower_module(source).unwrap();
+    let (mut module, _) = super::tests::lower_without_tail_calls(source).unwrap();
     crate::mir::verify_module(&module).unwrap();
     let function = &mut module.functions[0];
     let certificate = function.state.clone().unwrap();

@@ -2,17 +2,17 @@ use super::*;
 use crate::{Binder, Binding, CaseBranch, Declaration, Pattern, PatternKind};
 use psrs_hir::{CaseBranchCoverage, LocalId, SymbolId};
 
-fn value(kind: ExprKind, ty: u32) -> Expr {
+pub(super) fn value(kind: ExprKind, ty: u32) -> Expr {
     Expr {
         kind,
         ty: TypeId(ty),
         span: TextRange::new(10, 20),
     }
 }
-fn local(id: u32, ty: u32) -> Expr {
+pub(super) fn local(id: u32, ty: u32) -> Expr {
     value(ExprKind::Local(LocalId(id)), ty)
 }
-fn step(state: Expr) -> Expr {
+pub(super) fn step(state: Expr) -> Expr {
     value(
         ExprKind::Record {
             fields: vec![
@@ -23,7 +23,7 @@ fn step(state: Expr) -> Expr {
         8,
     )
 }
-fn binder(id: u32, ty: u32) -> Binder {
+pub(super) fn binder(id: u32, ty: u32) -> Binder {
     Binder {
         id: LocalId(id),
         name: format!("v{id}"),
@@ -40,13 +40,13 @@ fn action(body: Expr) -> Expr {
         11,
     )
 }
-fn invocation(input: Expr) -> Expr {
+pub(super) fn invocation(input: Expr) -> Expr {
     value(
         ExprKind::Application(Box::new(local(1, 11)), Box::new(input)),
         8,
     )
 }
-fn field(id: u32) -> Expr {
+pub(super) fn field(id: u32) -> Expr {
     value(
         ExprKind::FieldAccess {
             record: Box::new(local(id, 8)),
@@ -55,7 +55,7 @@ fn field(id: u32) -> Expr {
         2,
     )
 }
-fn let_value(id: u32, expression: Expr, body: Expr) -> Expr {
+pub(super) fn let_value(id: u32, expression: Expr, body: Expr) -> Expr {
     let ty = expression.ty.0;
     let result = body.ty.0;
     value(
@@ -71,7 +71,7 @@ fn let_value(id: u32, expression: Expr, body: Expr) -> Expr {
         result,
     )
 }
-fn fixture(body: Expr) -> Module {
+pub(super) fn fixture(body: Expr) -> Module {
     let mut module = crate::state::tests::fixture();
     module
         .types

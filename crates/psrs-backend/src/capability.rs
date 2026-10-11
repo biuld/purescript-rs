@@ -52,9 +52,9 @@ pub struct TargetCapabilities {
 impl TargetCapabilities {
     /// The stable target used by `compile`.
     ///
-    /// GC and typed function references are required by the current runtime
-    /// representation.  Other Tier 1 Wasmtime proposals remain opt-in until
-    /// a lowering and an execution test actually use them.
+    /// GC, typed function references and tail calls are required by the current
+    /// runtime representation and stack-safe callable execution. Other proposals
+    /// remain opt-in until a lowering and an execution test actually use them.
     pub const fn wasmtime_wasi_0_2() -> Self {
         Self {
             mutable_globals: true,
@@ -67,7 +67,7 @@ impl TargetCapabilities {
             gc: true,
             simd: false,
             relaxed_simd: false,
-            tail_call: false,
+            tail_call: true,
             multi_memory: false,
             memory64: false,
             exceptions: false,
@@ -175,7 +175,7 @@ mod tests {
             gc: true,
             simd: false,
             relaxed_simd: false,
-            tail_call: false,
+            tail_call: true,
             multi_memory: false,
             memory64: false,
             exceptions: false,

@@ -353,7 +353,11 @@ fn ordinary_state_calls_lower_and_execute_with_only_physical_payloads() {
             .instructions
             .iter()
             .filter(|instruction| matches!(instruction, Instruction::Call { .. }))
-            .count(),
+            .count()
+            + usize::from(matches!(
+                mir.functions[0].blocks[0].terminator,
+                Some(Terminator::ReturnCall { .. })
+            )),
         2
     );
     assert!(
@@ -398,4 +402,18 @@ fn ordinary_state_calls_lower_and_execute_with_only_physical_payloads() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+// These projection fixtures exercise the pre-tail correspondence contract.
+// Tail conversion and mutation rejection have separate coverage in tail.rs.
+pub(super) fn lower_without_tail_calls(
+    source: cc::Module,
+) -> Result<(crate::mir::Module, crate::abi::WasiRegistry), Vec<BackendError>> {
+    crate::mir::lower_module_with_capabilities(
+        source,
+        crate::TargetCapabilities {
+            tail_call: false,
+            ..Default::default()
+        },
+    )
 }

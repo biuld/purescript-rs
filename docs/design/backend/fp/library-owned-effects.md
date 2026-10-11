@@ -1,10 +1,11 @@
-# Library-Owned Effects and State Dependencies
+# Library-Owned Effects
 
 **Feature:** [F-02](../../../feature/F-02-portable-programs.md)  
 **Status:** Draft design; newtype and state-dependency direction selected,
 implementation migration in progress. Coverage is recorded in the
 [implementation checklist](../../../implementation/backend/library-owned-effects.md).  
-**Prerequisites:** [effects](effects.md), [representation and evidence](representation-and-evidence.md),
+**Prerequisites:** [State primitives and dependency lowering](state-primitives-and-dependency-lowering.md),
+[effects](effects.md), [representation and evidence](representation-and-evidence.md),
 [primitive types](../../frontend/type-system/prim.md),
 [foreign imports](../../frontend/semantics/foreign-imports.md),
 [primitive bindings](../wasm/primitive-ffi-and-stdlib.md),
@@ -172,53 +173,13 @@ unchecked library coercions and unsafe execution remain explicit trust boundarie
 returns a second action after one action. Neither payload becomes extra
 parameters of the outer state-transforming callable.
 
-### General primitive contracts
+### Primitive execution boundary
 
-Proposed registry operations are named here by responsibility; exact Rust and
-binding names must follow the single intrinsic catalog. Do not add implicit
-bootstrap exports of unsafe operations.
-
-```text
-runWorld  :: forall a.
-  (State RealWorld -> Step RealWorld a) -> a
-runRegion :: forall a.
-  (forall s. State s -> Step s a) -> a
-```
-
-runWorld starts one dynamic execution, supplies its root dependency, invokes
-the supplied function once and discharges its returned state before yielding
-the payload. It is an unsafe execution boundary used by the library unsafe
-runner and command adapter, not a purity proof. runRegion introduces a fresh
-scoped region, invokes the rank-N body once and checks that the region does
-not escape in the result. No arbitrary initial State literal is exposed.
-Nested and repeated executions retain distinct dynamic invocation boundaries.
-
-Mutation and reads of mutable storage use state-aware checked primitives, for
-example a private cell operation has the schematic shape:
-
-```text
-readCell  :: forall s a. Cell s a -> State s -> Step s a
-writeCell :: forall s a. Cell s a -> a -> State s -> Step s Unit
-```
-
-Cell is library owned. Actual storage bindings use their existing checked
-storage operands; a primitive scheme may not presume the identity or layout of
-Cell. New storage allocation, mutable reads, writes and unsafe freezing all
-participate in the dependency protocol. Pure array operations retain their
-existing pure contracts; reading mutable backing storage must not be classified
-as pure merely because immutable array indexing is pure.
-
-Generic execution primitive descriptors and checked target binding contracts
-own dependency inputs/results, observable effects and trap behavior. Source
-schemes, kind/role checks, Core elaboration and verifiers consume these contracts.
-Backend binding metadata keeps runtime provider/export identity, source module,
-span and the checked Core scheme identity beside target-neutral CC. Extraction
-must retain every runtime binding; boundary validation rejects missing,
-duplicated or substituted records. Keeping a raw binding record does not mean
-its call has been projected or checked against a physical instruction sequence.
-Returning an ordinary record containing
-the same input State is not enough to implement an observable primitive: its
-checked operation must establish a successor dependency.
+[State primitives and dependency lowering](state-primitives-and-dependency-lowering.md)
+owns runWorld/runRegion signatures, root/region rules and checked operation
+successors. Effect.Unsafe executes through runWorld; PSRS.ST uses runRegion.
+Storage operations remain ordinary checked runtime bindings, not additional
+Effect or storage-specific HIR intrinsics.
 
 ## Design
 
@@ -390,99 +351,20 @@ at this audited boundary and calls runWorld. It does not cast State to Int,
 fabricate a token or bypass dependency verification. Common unsafe callable
 transport must preserve the logical signature and execute correctly.
 
-### Checked dependencies across representations
+### Dependency lowering and optimization
 
-Typed Core preserves source State applications, roles and primitive contracts.
-Its state-operation verifier checks input/output shapes, region identity,
-producer provenance, normal-return state and dependency scope. Ordinary functions
-are checked from their bodies; an external or abstract callable needs a checked
-state signature contract. MIR retains checked source requirements in an immutable
-module inventory independent of mutable per-function evidence. Every retained
-function must satisfy its source requirement; deleting an optional witness must
-not disable verification. Unused whole functions may be pruned without changing
-the requirements of surviving functions. Missing required evidence is an error, not a fresh
-state or assumed-pure operation.
+The [State topic](state-primitives-and-dependency-lowering.md) is authoritative
+for source producer identity, strict evaluation, closure/call transport, joins,
+loops, zero-width projection, optimization transfers and final erasure. This
+library design consumes those contracts; it does not define another dependency
+model. General raw-State extensions are not automatic migration prerequisites:
+select required slices using concrete public API/host reproducers and preserve
+the full State model's invariants for every admitted shape.
 
-Core body evidence is tied to its immutable source arena. It derives transitions
-from actual invocation nodes and tracks their argument and returned-field
-provenance through ordinary aliases, record patterns and control-flow joins.
-Verification checks invocation coverage and order, region/payload contracts and
-branch placement in addition to standalone graph validity. A proven pure body
-may pass its incoming dependency through unchanged; an unknown invocation stays
-conservatively observable. Pure joins preserve aliases already evaluated before
-the join. Core transformations invalidate old body evidence and recheck the
-resulting source representation before later projection can consume it.
-
-CC makes the dependency chain explicit alongside ordinary evaluation order.
-Each observable state operation defines an output dependency referring to its
-input. Calls retain checked state inputs/results through dictionaries, erased
-closures and higher-kinded instantiation. Conditional joins select the dependency
-from the executed branch; loops carry it as a loop parameter. The returned
-state must be downstream of the observable operations executed on that path.
-Unknown calls and unsafe execution remain conservatively observable.
-
-Verification does not claim a general linear source type system. It rejects
-malformed chains, region mixing and an unsupported fork that would discard or
-replay a predecessor around observable operations. Branch-exclusive uses and
-pure state pass-through are valid. A library closure may execute repeatedly;
-each invocation threads the state supplied for that invocation. Support for a
-raw-state transport shape must be checked across its actual fields, captures,
-products and calls; unsupported shapes fail explicitly rather than materializing
-a placeholder token or erasing the dependency.
-
-MIR fixes physical representation and keeps a checked dependency projection
-for instructions, calls, block joins and loop edges. Dependency identities are
-not Wasm value types or integer locals. Their definitions/uses are explicit MIR
-structure, not a name-based side table reconstructed by the encoder. MIR
-verification establishes dominance, region agreement, call contract consistency,
-and control-flow preservation of the dependency chain.
-
-The existing representation planner owns the source/logical-to-physical mapping.
-State maps to zero payload slots; Step's state field contributes no storage.
-At a known state-call boundary, the result projects to the payload and requires
-no Step record allocation. Common aggregate and erased transport may use an
-ordinary payload container when required; it must not lose logical dependency
-evidence or silently change callable conventions. No full GHC unboxed-tuple
-syntax or global allocation-free claim is introduced.
-
-Physical parameter removal occurs only through checked signature projection,
-shared by producers, consumers, partial applications and adapters. State
-parameters are zero-width while their logical invocation and dependency remain.
-Core owns call-boundary extraction for arrows, fixed-arity closures and quantified
-results. The representation planner consumes that boundary and the checked State
-signature, retaining its source arena and region while projecting only payload
-types into physical slots. A signature plan alone cannot discharge invocation dependencies.
-For ordinary direct and indirect calls, MIR correspondence preserves every
-non-State operand identity, order and occurrence from immutable CC. It removes
-only operands whose checked CC declarations have State shape. Changing an
-operand to another value of the same physical type still invalidates the
-certificate. ABI conversions require their own checked correspondence rather
-than relaxing this ordinary-call invariant.
-A nullary physical host call stays a call inside the action body, not a global
-initializer. Immutable checked source Core is not mutated into a physical type
-model; the lowering carries its explicit relation to CC/MIR.
-
-### Optimization and final erasure
-
-Core and MIR transformations preserve dependency edges, dynamic multiplicity,
-branch/loop placement and observable call/trap behavior. Unused payloads do not
-permit removal of their operation. State pass-through for a pure action is
-simplifiable; a state-producing host/mutation operation is never replaced by
-its input State. Inlining preserves argument order and reconnects dependencies
-using fresh local identities. CSE, code motion, dead-code elimination and loop
-optimizations require evidence covering both dependencies and observable effects.
-
-Zero-width representation does not make a state operation pure. Observable-effect
-metadata remains necessary after physical projection and for calls outside the
-state protocol. Dependencies do not promise rollback, thread synchronization or
-replay prevention for arbitrary unsafe source code.
-
-After the last MIR optimizer, verify the full dependency graph and the ordered
-instruction/CFG projection. The encoder may erase logical state edges only when
-that projection discharges them. It preserves instruction/control order and
-performs no subsequent effect-moving optimization. No State constant zero,
-state counter, token object, dedicated world heap or runtime version comparison
-is emitted. Verified state ordering survives as executable calls and control flow.
+Library acceptance must execute callbacks, ignored results, repeated actions,
+normal returns and traps. Public recursive loops must also retain the official
+stack-safe behavior; short-loop order evidence is insufficient. Temporary
+optimizer exclusions are implementation gaps, not accepted library semantics.
 
 ### WIT boundary and generic command entry
 

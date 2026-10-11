@@ -6,7 +6,9 @@ mod command;
 mod host;
 mod runners;
 mod runtime_cc;
+mod scoped_callbacks;
 mod storage_protocol;
+mod zero_width_choices;
 
 fn state_flow_source(body: &str) -> String {
     format!(

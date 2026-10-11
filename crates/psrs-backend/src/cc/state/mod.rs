@@ -10,12 +10,15 @@ use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
 
 mod branches;
+mod captures;
+pub(crate) use super::verify::capture_shapes;
+pub use captures::CapturedCallProjection;
 mod execution;
 pub use execution::{ClosedExecution, execution_projection};
 mod eval;
 mod projection;
-pub use projection::StateCallProjection;
 pub(crate) use projection::register_payload_slots;
+pub use projection::{StateCallProjection, StateResultProjection};
 #[cfg(test)]
 mod tests;
 
@@ -30,10 +33,17 @@ pub struct Operation<'a> {
 pub struct FunctionFlow<'a> {
     source: &'a Module,
     pub function: &'a Function,
+    pub input: Option<DependencySource>,
     pub graph: Graph,
     pub operations: Vec<Operation<'a>>,
     pub executions: Vec<ClosedExecution<'a>>,
     passthrough_safe: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DependencySource {
+    Parameter(ValueId),
+    Capture { closure: ValueId, index: u32 },
 }
 
 /// Ordinary CC typing and scope verification precede dependency publication.
@@ -55,7 +65,8 @@ impl FunctionFlow<'_> {
             .iter()
             .find(|flow| std::ptr::eq(flow.function, self.function))
             .ok_or_else(|| error(self.function, "CC state flow has no owning function"))?;
-        if self.executions != expected.executions
+        if self.input != expected.input
+            || self.executions != expected.executions
             || self.graph != expected.graph
             || self.operations.len() != expected.operations.len()
             || self
@@ -119,12 +130,20 @@ pub(crate) fn derive_all(module: &Module) -> Result<Vec<FunctionFlow<'_>>, Vec<B
     // Least fixed point: unknown and recursive calls stay observable. Only
     // checked bodies returning the incoming dependency authorize aliases. This
     // is a State summary, not a general purity or allocation-effect summary.
+    let captured = module
+        .functions
+        .iter()
+        .map(|function| {
+            CapturedCallProjection::checked(module, function, &signatures[&function.symbol])
+                .map(|plan| (function.symbol, plan))
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
     let mut passthrough = HashSet::new();
     loop {
         let mut flows = Vec::new();
         let mut errors = Vec::new();
         for function in &module.functions {
-            match eval::function(module, function, &signatures, &passthrough) {
+            match eval::function(module, function, &signatures, &passthrough, &captured) {
                 Ok(Some(flow)) => flows.push(flow),
                 Ok(None) => {}
                 Err(error) => errors.extend(error),
@@ -158,16 +177,34 @@ enum Value {
     Opaque,
     State(DependencyId),
     Product(Vec<Value>),
-    Closure(SymbolId),
+    Closure {
+        symbol: SymbolId,
+        captures: Vec<Value>,
+    },
 }
 
 impl Value {
+    fn carries_state(&self) -> bool {
+        match self {
+            Self::State(_) => true,
+            Self::Product(fields)
+            | Self::Closure {
+                captures: fields, ..
+            } => fields.iter().any(Self::carries_state),
+            Self::Opaque => false,
+        }
+    }
     fn remap(&mut self, from: DependencyId, to: DependencyId) {
         match self {
             Self::State(id) if *id == from => *id = to,
             Self::Product(fields) => {
                 for field in fields {
                     field.remap(from, to);
+                }
+            }
+            Self::Closure { captures, .. } => {
+                for value in captures {
+                    value.remap(from, to);
                 }
             }
             _ => {}
@@ -200,6 +237,8 @@ struct Builder<'a, 'b> {
     function: &'a Function,
     signatures: &'b HashMap<SymbolId, Signature>,
     passthrough: &'b HashSet<SymbolId>,
+    captured: &'b HashMap<SymbolId, Option<CapturedCallProjection>>,
+    capture_root: Option<usize>,
     shapes: HashMap<ValueId, ValueShape>,
     state_root: bool,
     executions: Vec<ClosedExecution<'a>>,

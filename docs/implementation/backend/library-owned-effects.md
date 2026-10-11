@@ -1,6 +1,13 @@
 # Library-Owned Effects: Implementation Evidence
 
-Governing design: [library-owned effects and state dependencies](../../design/backend/fp/library-owned-effects.md).
+Governing designs: [library-owned effects](../../design/backend/fp/library-owned-effects.md)
+and [State primitives and dependency lowering](../../design/backend/fp/state-primitives-and-dependency-lowering.md).
+The State topic owns compiler semantics and pass contracts; this record tracks
+implementation evidence. General raw-State transport is not by itself a package
+migration prerequisite. Select required slices using public API/host reproducers.
+The [2026-10-11 audit](library-owned-effects-audit-2026-10-11.md) records the public
+loop stack-exhaustion baseline and outstanding scope/projection concerns.
+The tail-call follow-up below records the repaired loop case.
 
 Status: **Partial**. The state vocabulary, checked primitive type contracts and
 generic dependency graph verifier exist. Core verification now produces checked
@@ -9,8 +16,13 @@ derives checked flow from actual single-root function instructions. P9 now
 automatically projects State/Step calls through straight-line bodies and nested
 binary and multiway choices and publishes MIR dependency evidence. Public
 recursive Effect loops execute through these checked calls and choices; arbitrary
-CFG backedges, raw-State choice results and general scoped transport remain
-incomplete.
+CFG backedges and general scoped transport remain incomplete. Structured
+raw-State choice results now retain control with zero-width joins.
+Core now checks lexical callback dependency scopes, including captured producers
+and nested local callback invocation. CC checks one direct captured State input
+and its actual closure invocation. Direct captured callbacks now execute after
+checked zero-width capture and signature projection. General nested and
+higher-order capture transport remains incomplete.
 Explicit world/region runners now publish closed execution evidence and run
 source-selected Int entries.
 Ordinary source runtime bindings now reach checked CC with their logical
@@ -27,7 +39,8 @@ projections and array elements is repaired, so the candidate ST reference
 program compiles and executes to 42 instead of being rejected at P7.
 Effect and ST still use the previous locked
 library and compiler mechanism. Runtime GC storage primitives execute independently and through the focused
-source fixtures; this record does not assert official Effect runtime acceptance.
+source fixtures; this record does not assert complete official Effect runtime
+acceptance.
 
 ## Starting point
 
@@ -73,23 +86,35 @@ There is no stdlib compile-acceptance improvement at this checkpoint.
 
 ## Continuation order
 
-1. Extend checked body evidence to general scoped state transport beyond the
-   implemented explicit world/region boundaries; retain immutable source
-   correspondence during call projection.
-2. Carry explicit dependencies through CC and MIR, including higher-order
-   calls, branches, loops, captures and signature adapters. Connect the graph
-   verifier to actual checked operation identities.
-3. Implement general zero-width projection and checked GC runtime provider
-   linking/calls, then state-aware host bindings. Runtime owns storage execution;
-   stdlib owns combinators. Preserve checked types before erasure and in-place
-   alias identity. Do not route GC storage through the scalar artifact ABI.
-4. Migrate Effect and ST together in the independent package, preserving official
-   public source contracts and recording the selected newtype adaptation. The
-   quantifier-evidence blocker that previously stopped this step is repaired.
-5. Delete the legacy Effect mechanism, validate optimizer/final erasure and
-   execute complete conformance evidence.
-6. Update the normal lock only after a coherent package is validated. Keep
+The State topic defines the complete compiler contract. Package migration and
+additional general raw-State support have distinct acceptance boundaries.
+Prioritize migration work by actual public API/host failures rather than making
+all general transport extensions prerequisites.
+
+1. Freeze public Effect/ST/Ref/host reproducers and compare pinned upstream
+   observations with mandatory Wasmtime. Validate stack safety for public loops
+   and MonadRec; the audited forE failure is repaired by the tail-call follow-up
+   below, while short loop traces alone do not prove general stack safety.
+2. Repair the shared call, dependency and projection contracts required by those
+   reproducers, preserving immutable source correspondence, checked use types,
+   mutable alias identity and non-returning behavior. Validate runtime provider
+   and state-aware host adaptation through their actual invocation subgraphs.
+3. Implement optimizer graph transfers required by the package, including
+   tail/loop conversion. Replace blanket State-function exclusions with checked
+   transformation contracts; verify observable traces and final erasure.
+4. Complete coherent Effect/ST library, reference and host conformance in the
+   independent package, preserving public source contracts and documenting the
+   selected newtype and unsafe-adapter boundaries.
+5. Delete the legacy Effect discovery/synthesis/token/entry mechanism only with
+   integrated package and ordinary-runner evidence.
+6. Update the normal lock only after that coherent package is validated. Keep
    partial development packages explicit and outside normal locked consumption.
+
+General scoped State transport, arbitrary higher-order calls, nested captures,
+CFG backedges and complete source-to-CC correspondence remain tracked compiler
+obligations. Their full invariants are unchanged. A new extension must name its
+use case and cross-stage evidence; unsupported shapes must fail honestly rather
+than blocking unrelated package acceptance or gaining permissive fallbacks.
 
 Do not describe utility-level tests as integrated state ordering, change the
 normative design to match this partial checkpoint, or close Effect's migration
@@ -1826,3 +1851,424 @@ arbitrary CFG backedges, scoped transport, optimizer graph rewriting, legacy
 deletion and coherent package pin acceptance remain open. This
 reference-adapter slice changed no Rust source; no workspace or official
 scoreboard was rerun, and the compiler library lock remains at `1e01310`.
+
+
+## Zero-width structured State choice results (2026-10-11)
+
+A dynamic binary source choice writes through one selected arm, returns only
+its successor State, and then reads the shared array. Core and CC accept the
+checked dependency chain; the previous P9 rejects with raw State choice requires
+zero-width control result projection. The retained source and comparable log are
+/private/tmp/psrs-effect-raw-state-choice.purs and
+/private/tmp/psrs-effect-raw-state-choice-dynamic-before.log. The selector comes
+from an observable runtime read, so constant folding cannot remove this choice
+before the affected boundary.
+
+P9 now retains structured If/TagSwitch assignments with raw-State results while
+recursively projecting their arms. Removed State value identities stay reserved
+in the immutable logical source. MIR lowering uses those checked declarations
+for empty join parameters and empty jump payloads, without a fabricated physical
+value. Source correspondence independently requires the same empty slots, exact
+selector/labels/edges and original invocation placement. A zero-width result
+therefore cannot erase a selected call or discard its control. This does not
+add arbitrary State-returning function ABIs or scoped State captures.
+
+The driver regression executes both binary selections and all three integer
+case selections through actual mutable writes, then reads 42/43/44. Replaying
+the predecessor after either choice rejects at Core. Selected non-returning
+arms must still trap, and unselected non-returning arms must leave the normal
+selected value. The direct CC multiway regression checks empty physical joins
+and jumps, retains immutable dependency evidence and rejects a type-consistent
+added scalar join parameter and matching arm
+arguments specifically through dependency verification, rather than an arity
+or ordinary MIR typing failure.
+
+Focused mandatory-Wasmtime verification: backend library 489/489; driver State
+63/63, including seven selected-path runtime observations and stale-predecessor
+rejections; final strengthened mutation regression 1/1. Backend/driver all-target
+Clippy and formatting/working-tree diff checks pass. The actual development
+package executes the zero-width choice through ordinary Effect Bind and returns
+42 with empty output: /private/tmp/psrs-effect-zero-choice-library-runtime/run.json,
+package fingerprint fnv1a64-v1:6c93c7e357fcc3e3. Logs use the prefix
+/private/tmp/psrs-effect-zero-choice- and suffixes final-backend.log,
+final-driver.log, mutation-final.log and clippy.log.
+
+General scoped transport, arbitrary CFG backedges, optimizer graph rewriting,
+complete API/host conformance, legacy deletion and coherent package pin
+acceptance remain open. The normal compiler lock is unchanged; the development
+package remains explicit. No full workspace or official scoreboard is rerun.
+
+## Core lexical callback dependency scopes (2026-10-11)
+
+The source reproducer /private/tmp/psrs-effect-scoped-state-capture.purs creates
+a callback capturing the incoming State and invokes it with an ordinary Unit
+argument. Before this slice, P7 reports that the state function result has no
+checked state field. Core now retains free-local producers at construction,
+executes known lexical callbacks against the caller's current dependency and
+restores the caller's local environment on return. Strict argument evaluation
+precedes the callback body. No independent root is created for the capture.
+The source evaluator also supplies the executing invocation identities used by
+the immutable-source correspondence verifier, replacing the separate syntactic
+walk that could not follow ordinary callback calls.
+
+Seven Core tests cover construction, captured invocation, repeated stale use,
+argument order, pure-join aliases, unsupported consumers and removal of an
+executing operation from an otherwise valid graph. Seven source/Core tests
+cover direct and nested lexical invocation, inert construction, stale replay,
+global callback consumers, distinct callback choices and opaque array transport.
+State-carrying values cannot silently become opaque at unsupported branch,
+container or cast boundaries. Removing the branch transport rejection makes the
+distinct-callback regression fail because the invalid program is accepted;
+the mutation log is /private/tmp/psrs-effect-callback-choice-mutation.log.
+
+The reproducer is still rejected at P8: CC reports that the state return loses
+or replays an executed dependency and that the lifted callback lacks a checked
+dependency parameter. The before/after logs are
+/private/tmp/psrs-effect-scoped-state-capture-before.log and
+/private/tmp/psrs-effect-scoped-state-capture-after.log. This is Core evidence
+only, not Wasm execution of scoped raw-State captures. CC currently retains
+only a symbol for a closure value; its captured dependency producers and actual
+invocation relation need a shared checked contract before MIR can project the
+capture and result to zero width. Multiple captures, general global helper
+instantiation, recursive captured scopes and arbitrary CFG backedges remain
+required. The normal package lock and legacy mechanisms are unchanged.
+
+Focused review validation passes: Core library 141/141; driver State 70/70 with
+mandatory Wasmtime and the explicit development package; Core/backend/driver
+all-target Clippy, formatting and diff checks. The seven new source cases assert
+Core behavior only; the runtime cohort covers previously supported paths. Logs
+are /private/tmp/psrs-effect-scoped-{core,driver,clippy}-review.log. No full
+workspace or official scoreboard is rerun.
+
+## CC captured dependency inputs (2026-10-11)
+
+The same scoped capture reproducer now passes P8. Ordinary CC capture-layout
+verification supplies the capture shapes; dependency checking consumes that
+shared result instead of defining a separate capture layout. A checked function
+input explicitly identifies either a State parameter or an owning closure
+parameter and capture index. The captured root is a formal dependency input,
+supplied by the caller's retained capture producer. Reading the capture from a
+different closure is rejected. Constructing a closure preserves its captured
+values without advancing the chain; invoking it checks freshness and supplies
+the Step successor from normal completion. Pure-body summaries and branch
+rebasing use the same dependency operations as explicit-parameter calls.
+
+StateResultProjection owns the common Step result contract for both input forms.
+The captured contract adds no synthetic State parameter to the actual function
+signature. Source verification independently rederives the function input and
+instruction graph, so replacing capture input evidence by parameter evidence
+is rejected. Incompatible captured branch producers cannot degrade to opaque
+values. Unknown consumers and nested captured transport fail explicitly.
+
+Four source/CC regressions check the captured producer and operation, reject
+an inserted second call replaying the same capture, reject changed input
+evidence and verify exclusive branch transitions. A direct join regression
+rejects incompatible capture producers, including a product/opaque join.
+The final source replay reports P9 MIR lowering: invalid representation table:
+UnprojectedState, in /private/tmp/psrs-effect-captured-cc-build.log. No Wasm or
+scoped-capture runtime success is claimed.
+
+The next projection must remove State capture fields with coherent index
+remapping, project the captured callback's Step-returning signature and preserve
+actual capture/call source correspondence. Nested captured closures, multiple
+dependency sources and general higher-order transport remain required. The
+normal stdlib lock and independent package sources are unchanged by this slice.
+
+Final focused checks pass: CC State 17/17; driver State 74/74 with mandatory
+Wasmtime and the explicit development package; backend/driver all-target Clippy,
+formatting and diff checks. New capture regressions prove Core/CC behavior only;
+the runtime cohort covers already supported paths. Logs use
+/private/tmp/psrs-effect-captured-cc- with state-final.log, driver-final.log and
+clippy.log. No full workspace or official scoreboard is rerun.
+
+## Zero-width direct State captures (2026-10-11)
+
+The same source reproducer now passes physical planning and executes to 42.
+Previously its direct captured callback stopped at P9 UnprojectedState
+(/private/tmp/psrs-effect-captured-cc-build.log). Projection now removes logical
+State capture operands, drops their slot reads, remaps surviving capture indices
+by counting ordinary slots before each logical index, and projects the callback
+signature's checked Step result to its payload. The ordinary parameter
+convention stays intact. The shared StateResultProjection also supplies the
+Step layout split without inventing an explicit State parameter.
+
+The rebuilt CLI accepts the frozen reproducer with the explicit development
+package and emits /private/tmp/psrs-effect-capture-projected-final.wasm
+(SHA-256 415f639a4935b52ed4ba4dcca2e08c40f82d5b0511f75ba9365c7e68d1602d49).
+Wasmtime 49.0.2 exits 42 with empty output. The logs are
+/private/tmp/psrs-effect-capture-projected-final-build.log and
+/private/tmp/psrs-effect-capture-projected-final-runtime.log.
+
+MIR correspondence independently derives expected capture constructors and
+surviving reads from immutable logical CC. The existing source CFG projection
+assigns these to their actual scopes and orders; canonical host adapter regions
+remain checked separately. Target, destination, ordinary capture operands and
+projected getter index must all agree. Reordering two same-type array captures
+or replacing a getter index by another valid physical slot rejects specifically
+through P9 dependency verification, without relying on ordinary typing errors.
+
+Four mandatory-Wasmtime observations return 42 for State-only captures, an
+ordinary array before State, an array after State, and an array/scalar pair after
+State. A dynamic runtime selector executes both callback branches (42/43),
+traps for the selected non-returning branch and returns 43 when that branch is
+unselected. Constructing an unused callback whose body traps returns 42 without
+executing it. Existing source/Core and CC stale-predecessor rejections remain.
+
+Focused checks pass: backend library 490/490 with mandatory Wasmtime; driver
+State 77/77; final scoped-callback cohort 15/15 after adding the inert trap
+observation. Backend/driver all-target Clippy, formatting and diff checks pass.
+The driver cohort exercises the normal optimization and encoding pipeline.
+Logs use /private/tmp/psrs-effect-capture-projection- with backend.log,
+driver.log, source-final.log and clippy.log. No full workspace or official
+scoreboard is rerun.
+
+This completes direct single-State captures, not general scoped transport.
+Nested captured closures, global helper instantiation, multiple dependency
+sources, arbitrary CFG backedges, dependency-aware optimizer graph transfers,
+complete Effect/host conformance and legacy deletion remain required. The normal
+compiler package lock and independent package sources are unchanged.
+
+
+## Default tail calls and checked State transfer (2026-10-11)
+
+The stable Wasmtime/WASI 0.2 target now enables tail calls. Self recursion still
+supports CFG loopification with the proposal explicitly disabled. Ordinary direct
+and closure calls use return_call/return_call_ref when enabled. Library loops
+remain unchanged ordinary source; no Effect-loop intrinsic was added.
+
+State functions no longer bypass the shared tail pass. Their evidence retains
+immutable pre-tail physical MIR, already verified against logical CC. Verification
+replays the same tail conversion and checks actual output instructions/control;
+it then checks the predecessor's source correspondence. Proven scalar folding
+uses the common optimizer operation, and module-position compaction preserves
+stable SymbolId ownership. This bounded exact-conversion relation does not
+close general inlining or CFG graph transfers. Mutation tests reject a changed
+terminal call target and deletion of a preceding observable invocation.
+
+Self-loop backedge arguments are remapped to the new header parameters through
+the same parameter substitution used by the loop body, preserving reused
+ordinary arguments instead of referring to their initial function input.
+
+Focused mandatory-Wasmtime evidence:
+
+- `PSRS_STDLIB_ROOT=/Users/biu/Projects/psrs-stdlib PSRS_REQUIRE_WASMTIME=1
+  cargo test -p psrs-driver --lib tests::tail_calls`: 6 passed, 1 ignored.
+  Accepted cases execute 100,000 iterations for ordinary self/mutual/indirect
+  recursion, State self-recursion and forwarded/swapped loop arguments. The
+  disabled-profile call fallback is also retained.
+- `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend --lib state::`:
+  46 passed, including transfer mutation rejection and pre-tail correspondence.
+- `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend --lib capability`:
+  13 passed, including disabled-proposal rejection and independent flag mapping.
+- `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend --lib mir::opt`:
+  8 passed, covering shared scalar folding and adjacent optimizer behavior.
+- Explicit development-package mandatory runtime State cohort: 78 passed.
+- Public `Effect.forE` at 10,000 and 100,000 iterations compiles and exits 42
+  under Wasmtime 49.0.2; accepted reports are
+  `/private/tmp/psrs-state-tail-loop-verified/run.json` and
+  `/private/tmp/psrs-state-tail-loop-100000/run.json`. The compiler SHA256 is
+  `441ea7636663fe495acfc2536254694b9dc8316c982d30110d8cd15f4a45fe1a`;
+  the package remains `fnv1a64-v1:6c93c7e357fcc3e3` during both runs.
+
+The package-owned Effect loop oracle was regenerated from the clean pinned
+Effect v4.0.0 checkout and its ten observations were executed through the new
+compiler. The accepted report is
+`/private/tmp/psrs-tail-effect-loop-oracle-runtime/run.json`; source order, counts,
+skipped callbacks and normal return still agree with the official JS. This
+short-case oracle checks behavior separately from the deep forE stack test.
+
+One additional generic Task bind-loop fixture was actually executed and still
+traps with call stack exhaustion: polymorphic payload boxing/recovery leaves
+work after recursive calls, preventing their physical tail conversion. The
+regression `ordinary_state_newtype_bind_loops_run_in_constant_stack` is explicitly
+ignored with that reason and is **not** accepted runtime evidence. Its source
+and WAT are retained at `/private/tmp/psrs-state-tail-bind-loop.{purs,wat}`.
+Reproduce with the same explicit package and mandatory Wasmtime environment:
+`cargo test -p psrs-driver --lib ordinary_state_newtype_bind_loops_run_in_constant_stack -- --ignored`.
+It remains a callable-representation/specialization obligation; enabling tail
+instructions does not prove stack safety for every polymorphic newtype.
+
+### Adapter stack-safety ownership follow-up (2026-10-11)
+
+The current compiler was traced on the same State Task fixture with
+`PSRS_STDLIB_ROOT=/Users/biu/Projects/psrs-stdlib target/debug/psrs diagnose
+/private/tmp/psrs-state-tail-bind-loop.purs --trace
+--out /private/tmp/psrs-state-tail-bind-owner-before.json --timeout 45`.
+Compilation and the recorded validators pass. The retained CC contains
+`erased_adapter_*` bodies calling a producer and then projecting/converting and
+rebuilding its result. Those calls have physical work remaining after them.
+The trace has no node-lineage or canonical-summary coverage; it is not a
+node-by-node source derivation proof.
+
+A control replaces State/Step with the ordinary newtype
+`Task a = Task (Unit -> a)` and keeps the polymorphic pure/bind recursion.
+There are no State imports, runtime primitives or world runners in this
+control. `PureShallow.purs` at 100 iterations compiles and exits 42;
+`PureDeep.purs` at 100,000 compiles but exits 134 with
+`wasm trap: call stack exhausted`. Its retained MIR `erased_adapter_223`
+contains `ClosureCall`, followed by `StructNew` and `RefCast`, then an ordinary
+`Return`. This establishes a general erased/concrete adapter limitation;
+changing State admission or adding an Effect intrinsic cannot close it.
+The common callable representation/optimization owners must preserve payload
+semantics and observable work when removing redundant adaptation. Simply
+discarding these result operations to force a physical tail call is invalid.
+
+Both control runs use compiler SHA256
+`850ce3e3c1262dcd551c5d4c30f2882d2b25712a50107186b7d687688801b8b1`,
+Wasmtime 49.0.2 and unchanged development package
+`fnv1a64-v1:6c93c7e357fcc3e3`. Sources, runtime reports and the pure trace bundle
+are retained under `/private/tmp/psrs-bind-protocol-control/`.
+Reproduce either control using the package-owned runner:
+
+```sh
+node /Users/biu/Projects/psrs-stdlib/tools/conformance.mjs run \
+  --compiler /Users/biu/Projects/purescript-rs/target/debug/psrs \
+  --stdlib-root /Users/biu/Projects/psrs-stdlib \
+  --input /private/tmp/psrs-bind-protocol-control/PureDeep.purs \
+  --out /private/tmp/psrs-bind-protocol-control/PureDeep-runtime --timeout 45
+```
+
+The deep report remains failed; neither an increased host stack nor a smaller
+input counts as closing constant-stack execution. No compiler implementation
+change is claimed for the adapter limitation.
+
+A bounded Core inlining experiment then allowed only single-branch irrefutable
+cases: variable/wildcard bindings, record bindings and registered newtype
+constructors with one irrefutable field. Existing recursion, rank-N and size/site
+guards remained. This tested whether the blanket case-body exclusion alone
+accounted for the adapter recursion. Both the State and pure 100,000-step
+fixtures compiled but still trapped with stack exhaustion. Reports are
+`/private/tmp/psrs-case-inline-experiment/{StateDeep,PureDeep}/run.json`; both
+retain unchanged package/input fingerprints. The experiment was removed,
+the original optimizer files were compared byte-for-byte with their saved
+preimages, and the ordinary CLI was rebuilt successfully. No relaxation of
+case inlining is part of the resulting worktree.
+
+This rejects that particular fix hypothesis, not every possible inlining or
+specialization strategy. The next representation question is how a known
+closure can be produced directly at the declared callable field convention,
+including its tail result, without an erased/concrete round trip. Merely moving
+the same post-call conversion into a lifted lambda does not make it a tail
+call. Such work must use checked field instantiation and the common argument,
+result and capture contracts; it must retain the generic fallback and preserve
+effects/traps. No consumer-specific Unit/Effect exception is justified by this
+experiment.
+
+The new mandatory-Wasmtime regression
+`state_mutual_tail_recursion_preserves_every_storage_update` executes 100,000
+transitions between two State functions, adding 1 and 2 alternately to an
+aliased storage cell. It returns 42 only when the final cell is 150,000. Both
+functions retain dependency witnesses and direct tail-call terminators. This
+checks executed read/write multiplicity across checked mutual tail transfer,
+separately from the generic adapter limitation above.
+
+The focused tail-call cohort now reports 7 passed, 0 failed and 1 ignored under
+`PSRS_STDLIB_ROOT=/Users/biu/Projects/psrs-stdlib PSRS_REQUIRE_WASMTIME=1
+cargo test -p psrs-driver --lib tests::tail_calls`. Strict driver all-target
+Clippy passes. Full workspace tests and suite scoreboards were not run for this
+follow-up; the ignored generic adapter case remains explicitly unverified for
+constant-stack behavior.
+
+### Current development-package host execution (2026-10-11)
+
+The existing package-owned Console, Clock, Arguments and Resource fixtures were
+compiled and executed with the current CLI. All four reports are accepted at
+`/private/tmp/psrs-effect-host-current/{Console,Clock,Arguments,Resource}/run.json`.
+Console uses expected exit 0 and the package's exact `Console.stdout` golden;
+the other three use expected exit 42. Each report records unchanged source
+inputs and the unchanged development package
+`fnv1a64-v1:6c93c7e357fcc3e3`, compiler SHA256
+`850ce3e3c1262dcd551c5d4c30f2882d2b25712a50107186b7d687688801b8b1`
+and Wasmtime 49.0.2.
+
+Console observes `first`, then two executions of the same suspended `later`
+action, against the exact stdout golden. Clock observes a wall-clock result's
+nanosecond range and creates/drops a zero-duration pollable. Arguments observes
+a nonempty host argument array. Resource obtains and drops stdout's stream
+handle. These are real host executions through the migrated library State
+wrappers, rather than unused-import acceptance. They establish these particular
+host paths, not complete Console/Clock/Process/IO API conformance or resource
+lifetime correctness for every operation.
+
+Each was run with the library-owned command:
+
+```sh
+node /Users/biu/Projects/psrs-stdlib/tools/conformance.mjs run \
+  --compiler /Users/biu/Projects/purescript-rs/target/debug/psrs \
+  --stdlib-root /Users/biu/Projects/psrs-stdlib \
+  --input /Users/biu/Projects/psrs-stdlib/conformance/effects/Resource.purs \
+  --out /private/tmp/psrs-effect-host-current/Resource --timeout 45
+```
+
+Use the corresponding fixture/output name for Clock and Arguments. Console
+also supplies `--expected-exit 0 --expected-stdout
+/Users/biu/Projects/psrs-stdlib/conformance/effects/Console.stdout`.
+No independent package files or normal compiler lock were changed. The verified
+Effect.Uncurried candidate remains outside the package pending explicit
+cross-repository installation approval.
+
+Formatting, working-tree diff checks and strict backend/driver all-target Clippy
+pass. Full workspace tests, full workspace Clippy and suite scoreboards were not
+run for this focused change. No package source or normal stdlib lock was changed.
+
+
+## Shared frozen State authority and uncurried candidate (2026-10-11)
+
+The public Effect depth probes now accept tailRecM at 100,000 steps and foreachE
+at 10,000 elements with an observed Ref write count. Reports are
+`/private/tmp/psrs-effect-depth-probes/{tailrecm,foreach}/run.json`, each executing
+to 42 against the explicit development package. The generic polymorphic Task
+adapter failure remains; these public successes do not close that gap.
+
+Actual Effect.Uncurried use was rejected at P8 because mkEffectFn1/runEffectFn1
+had no target implementation. The candidate package at
+`/private/tmp/psrs-effect-uncurried-candidate` implements all twenty mk/run slots
+and ten constructor-hidden EffectFn newtypes in ordinary source over the same
+State protocol. It adds no intrinsic. Twenty public signatures, ten roles and
+all pure Semigroup/Monoid instance bodies are unchanged; the explicit exports
+hide the new constructors and private representation helper.
+
+The package-owned oracle evaluates 34 observations using pinned Effect v4.0.0
+JS: all arities, argument order, retained Semigroup/Monoid composition, factory
+suspension, strict ordinary arguments, repeated execution, function payloads and
+nested actions. Candidate deferred-factory execution returns 42; a selected
+10-argument trap callback produces unreachable. The source audit reports
+168 identical / 38 modified / 27 platform additions over 233 modules and 41
+packages; the removed-foreign-value count stays at 3. The new adapter's twenty
+foreign slots are nonrecursive replacements. Candidate Node tools pass 12/12.
+
+The combined oracle originally exceeded its 180-second compilation bound.
+A fixed-content rerun confirmed a 20-second timeout with unchanged inputs and
+package. Inspection found per-function/per-checkpoint derivation of the entire
+immutable CC State module. MIR now freezes one checked source authority and
+shares its expected graphs and original function bodies with the inventory and
+function witnesses. Current physical calls, operands, captures, edges, graphs,
+imports and tail conversions are still verified. A new negative test proves
+that changing a source copy's call producer cannot borrow the frozen authority.
+Source inventory matching now uses the immutable CC arena identity.
+
+The same fixed oracle/package accepts after this change: compilation takes
+18.58 seconds and Wasmtime exits 42. The matching before/after package fingerprint
+is `fnv1a64-v1:9fb6b99e1eb78a0b`; reports are
+`/private/tmp/psrs-effect-uncurried-oracle-stable-{before,after}/run.json`.
+The earlier 180-second run also saw a candidate fixture inventory change and is
+not a fingerprint-compatible comparison. After installing the candidate's
+versioned fixtures, its separate report
+`/private/tmp/psrs-effect-uncurried-versioned/run.json` accepts all 34 checks with
+fingerprint `fnv1a64-v1:d34b98eb86cba0de`; compilation takes 17.79 seconds.
+
+Focused mandatory runtime checks after the shared-authority change:
+backend State 47/47; development-package driver State 78/78. Strict backend/driver
+all-target Clippy passes. Full workspace tests, workspace Clippy and scoreboards
+were not run, and the normal stdlib lock is unchanged.
+
+Package installation is pending explicit approval. Automatic review rejected
+the guarded write to the independent psrs-stdlib repository twice, first citing
+a retained paused/audit-only scope and then declining to treat the active goal
+status as authorization for this exact slice. No independent-package files were
+written. The install script is `/private/tmp/install-effect-uncurried.py`; it
+checks the untouched Uncurried preimage and absent new paths, changes only that
+module's inventory hash, appends its adaptation section, and installs the oracle
+and four fixtures. It does not stage, commit, push, change the compiler lock or
+overwrite unrelated package work. Candidate acceptance is not installed-package
+acceptance or completion of Effect's migration.

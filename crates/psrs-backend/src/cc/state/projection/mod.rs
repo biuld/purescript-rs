@@ -13,6 +13,13 @@ pub struct StateCallProjection {
     pub payload: ValueShape,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StateResultProjection {
+    pub state_field: usize,
+    pub payload_field: usize,
+    pub payload: ValueShape,
+}
+
 impl StateCallProjection {
     /// This describes slots only. Removing them still requires checked body,
     /// invocation and CFG correspondence; a signature does not prove ordering.
@@ -32,10 +39,45 @@ impl StateCallProjection {
         if states != [signature.parameters.len() - 1] {
             return Err("CC state invocation requires exactly one final dependency parameter");
         }
+        let result = StateResultProjection::checked(signature.result, table)?;
+        Ok(Some(Self {
+            state_parameter: states[0],
+            state_field: result.state_field,
+            payload_field: result.payload_field,
+            payload: result.payload,
+        }))
+    }
+
+    pub fn result_projection(self) -> StateResultProjection {
+        StateResultProjection {
+            state_field: self.state_field,
+            payload_field: self.payload_field,
+            payload: self.payload,
+        }
+    }
+
+    pub fn physical_signature(
+        signature: &Signature,
+        table: &RepresentationTable,
+    ) -> Result<Signature, &'static str> {
+        let Some(plan) = Self::checked(signature, table)? else {
+            return Ok(signature.clone());
+        };
+        Ok(Signature {
+            parameters: signature.parameters[..plan.state_parameter].to_vec(),
+            result: plan.payload,
+        })
+    }
+}
+
+impl StateResultProjection {
+    /// The shared Step result contract is independent of whether its incoming
+    /// dependency belongs to an explicit parameter or a lexical capture.
+    pub fn checked(result: ValueShape, table: &RepresentationTable) -> Result<Self, &'static str> {
         let ValueShape::Reference(Reference {
             nullable: false,
             heap: RefShape::Repr(id),
-        }) = signature.result
+        }) = result
         else {
             return Err("CC state invocation requires a non-null Step product");
         };
@@ -56,24 +98,10 @@ impl StateCallProjection {
             .position(|shape| *shape == ValueShape::State)
             .unwrap();
         let payload_field = 1 - state_field;
-        Ok(Some(Self {
-            state_parameter: states[0],
+        Ok(Self {
             state_field,
             payload_field,
             payload: fields[payload_field],
-        }))
-    }
-
-    pub fn physical_signature(
-        signature: &Signature,
-        table: &RepresentationTable,
-    ) -> Result<Signature, &'static str> {
-        let Some(plan) = Self::checked(signature, table)? else {
-            return Ok(signature.clone());
-        };
-        Ok(Signature {
-            parameters: signature.parameters[..plan.state_parameter].to_vec(),
-            result: plan.payload,
         })
     }
 }

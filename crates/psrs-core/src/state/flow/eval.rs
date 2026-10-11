@@ -49,7 +49,8 @@ impl<'a> Builder<'a> {
                 Value::Record(values)
             }
             ExprKind::Application(function, argument) => {
-                if matches!(self.eval(function, path)?, Value::Terminated) {
+                let callable = self.eval(function, path)?;
+                if matches!(callable, Value::Terminated) {
                     return Ok(Value::Terminated);
                 }
                 let argument_value = self.eval(argument, path)?;
@@ -81,7 +82,7 @@ impl<'a> Builder<'a> {
                         ("value".into(), Value::Opaque),
                     ]))
                 } else {
-                    Value::Opaque
+                    self.invoke_closure(callable, argument_value, path, expression.span)?
                 }
             }
             ExprKind::Let { bindings, body } => {
@@ -145,6 +146,11 @@ impl<'a> Builder<'a> {
                     || self.module.types_equivalent(value.ty, expression.ty)
                 {
                     evaluated
+                } else if evaluated.carries_state() {
+                    return Err(self.error(
+                        expression.span,
+                        "state-carrying cast requires checked producer transport",
+                    ));
                 } else {
                     Value::Opaque
                 }
@@ -154,15 +160,22 @@ impl<'a> Builder<'a> {
                 elements: arguments,
             } => {
                 for argument in arguments {
-                    if matches!(self.eval(argument, path)?, Value::Terminated) {
+                    let evaluated = self.eval(argument, path)?;
+                    if matches!(evaluated, Value::Terminated) {
                         return Ok(Value::Terminated);
+                    }
+                    if evaluated.carries_state() {
+                        return Err(self.error(
+                            argument.span,
+                            "state-carrying operand requires checked producer transport",
+                        ));
                     }
                 }
                 Value::Opaque
             }
             ExprKind::Trap => Value::Terminated,
-            // A lambda is inert here. Its own execution scope is checked by
-            // scan, independently of the enclosing invocation's parameter.
+            // Construction retains lexical producers but executes nothing.
+            ExprKind::Lambda { .. } => self.closure(expression, path),
             _ => Value::Opaque,
         };
         if crate::state::region(self.module, expression.ty).is_some()

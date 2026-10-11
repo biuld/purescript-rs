@@ -1,4 +1,5 @@
 mod calls;
+mod callable_fields;
 mod types;
 
 use super::{Budget, util::count_nodes};
@@ -63,6 +64,9 @@ impl State {
         call_type: crate::TypeId,
         pending: &mut Vec<Declaration>,
     ) -> Option<SymbolId> {
+        if callable_fields::crosses_callable_field(module, declaration) {
+            return None;
+        }
         let (replacements, arguments) = match_instantiation(module, declaration, call_type)?;
         let key = Key {
             declaration: declaration.symbol,

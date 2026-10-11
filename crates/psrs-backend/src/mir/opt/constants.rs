@@ -48,7 +48,14 @@ fn propagate_function(function: &mut Function) -> bool {
     // Join parameters and their incoming payloads are source anchors in a
     // dependency projection. Removing them requires an explicit evidence
     // transfer, even when their scalar value is known.
-    let mut changed = function.state.is_none() && materialize_block_parameters(function, &facts);
+    let changed = function.state.is_none() && materialize_block_parameters(function, &facts);
+    changed | fold_scalar_instructions(function)
+}
+
+/// Canonicalize proven scalar operations without changing calls, identities or CFG.
+pub(in crate::mir) fn fold_scalar_instructions(function: &mut Function) -> bool {
+    let facts = analyze(function);
+    let mut changed = false;
     for block in &mut function.blocks {
         for instruction in &mut block.instructions {
             let Some(destination) = instruction.destination() else {

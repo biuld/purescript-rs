@@ -6,6 +6,7 @@ pub(super) fn function<'a>(
     function: &'a Function,
     signatures: &HashMap<SymbolId, Signature>,
     passthrough: &HashSet<SymbolId>,
+    captured: &HashMap<SymbolId, Option<CapturedCallProjection>>,
 ) -> Result<Option<FunctionFlow<'a>>, Vec<BackendError>> {
     let shapes = function
         .values
@@ -18,18 +19,19 @@ pub(super) fn function<'a>(
         .filter(|id| shapes[id] == ValueShape::State)
         .copied()
         .collect::<Vec<_>>();
-    let state_root = !roots.is_empty();
+    let capture_root = captured[&function.symbol].map(|plan| plan.capture_index);
+    let state_root = !roots.is_empty() || capture_root.is_some();
     let has_state = shapes.values().any(|shape| *shape == ValueShape::State);
     if !has_state && !execution::contains(&function.assignments) {
         return Ok(None);
     }
-    if (has_state && roots.len() != 1) || roots.len() > 1 {
+    if (has_state && roots.len() + usize::from(capture_root.is_some()) != 1) || roots.len() > 1 {
         return Err(error(
             function,
             "CC state body requires one checked dependency parameter",
         ));
     }
-    if state_root {
+    if !roots.is_empty() {
         StateCallProjection::checked(&signatures[&function.symbol], &module.representations)
             .map_err(|message| error(function, message))?;
     }
@@ -39,6 +41,8 @@ pub(super) fn function<'a>(
         function,
         signatures,
         passthrough,
+        captured,
+        capture_root,
         shapes,
         state_root,
         executions: Vec::new(),
@@ -70,6 +74,23 @@ pub(super) fn function<'a>(
             .unwrap_or_default(),
         terminated: false,
     };
+    if let Some(index) = capture_root {
+        let closure = function.parameters.first().ok_or_else(|| {
+            error(
+                function,
+                "captured dependency has no owning closure parameter",
+            )
+        })?;
+        let mut captures = vec![Value::Opaque; index + 1];
+        captures[index] = Value::State(input);
+        path.values.insert(
+            *closure,
+            Value::Closure {
+                symbol: function.symbol,
+                captures,
+            },
+        );
+    }
     builder.assignments(&function.assignments, &mut path)?;
     if !path.terminated {
         let mut returned = Vec::new();
@@ -105,6 +126,12 @@ pub(super) fn function<'a>(
     Ok(Some(FunctionFlow {
         source: module,
         function,
+        input: capture_root
+            .map(|index| DependencySource::Capture {
+                closure: function.parameters[0],
+                index: index as u32,
+            })
+            .or_else(|| roots.first().copied().map(DependencySource::Parameter)),
         graph,
         operations: builder.operations,
         executions: builder.executions,
@@ -136,7 +163,22 @@ impl<'a> Builder<'a, '_> {
                         .unwrap_or(Value::Opaque),
                     _ => Value::Opaque,
                 },
-                AssignmentKind::FunctionRef { function, .. } => Value::Closure(*function),
+                AssignmentKind::FunctionRef { function, captures, .. } => Value::Closure {
+                    symbol: *function,
+                    captures: captures.iter().map(|id| self.value(path, *id)).collect(),
+                },
+                AssignmentKind::ClosureGetCapture { closure, index }
+                    if self.capture_root == Some(*index as usize) => {
+                    if self.function.parameters.first() != Some(closure) {
+                        return Err(error(self.function,
+                            "captured dependency must come from the owning closure parameter"));
+                    }
+                    let Value::Closure { captures, .. } = self.value(path, *closure) else {
+                        return Err(error(self.function,
+                            "captured dependency has no checked closure producer"));
+                    };
+                    captures[*index as usize].clone()
+                }
                 AssignmentKind::DirectCall {
                     function,
                     arguments,
@@ -170,9 +212,24 @@ impl<'a> Builder<'a, '_> {
                                 "CC state invocation has no checked closure signature",
                             )
                         })?;
-                    let pure = matches!(self.value(path, *function), Value::Closure(symbol)
-                        if self.passthrough.contains(&symbol));
-                    self.call(assignment, arguments, signature, pure, path)?
+                    let callable = self.value(path, *function);
+                    if let Value::Closure { symbol, captures } = &callable
+                        && let Some(Some(plan)) = self.captured.get(symbol) {
+                        let Some(Value::State(input)) = captures.get(plan.capture_index) else {
+                            return Err(error(self.function,
+                                "CC captured invocation has no checked operand provenance"));
+                        };
+                        self.call_dependency(assignment, *input, plan.step,
+                            self.passthrough.contains(symbol), path)?
+                    } else {
+                        if callable.carries_state() {
+                            return Err(error(self.function,
+                                "CC captured invocation requires checked dependency transport"));
+                        }
+                        let pure = matches!(callable, Value::Closure { symbol, .. }
+                            if self.passthrough.contains(&symbol));
+                        self.call(assignment, arguments, signature, pure, path)?
+                    }
                 }
                 AssignmentKind::If {
                     then_assignments,
@@ -244,6 +301,15 @@ impl<'a> Builder<'a, '_> {
             StateCallProjection::checked(signature, &self.module.representations)
                 .map_err(|message| error(self.function, message))?
         else {
+            if arguments
+                .iter()
+                .any(|id| self.value(path, *id).carries_state())
+            {
+                return Err(error(
+                    self.function,
+                    "CC state-carrying argument requires checked invocation transport",
+                ));
+            }
             self.passthrough_safe = false;
             return Ok(Value::Opaque);
         };
@@ -259,6 +325,23 @@ impl<'a> Builder<'a, '_> {
                 "CC state invocation has no checked operand provenance",
             ));
         };
+        self.call_dependency(
+            assignment,
+            input,
+            projection.result_projection(),
+            pure,
+            path,
+        )
+    }
+
+    fn call_dependency(
+        &mut self,
+        assignment: &'a Assignment,
+        input: DependencyId,
+        projection: StateResultProjection,
+        pure: bool,
+        path: &mut Path,
+    ) -> Result<Value, Vec<BackendError>> {
         if input != path.current {
             return Err(error(
                 self.function,

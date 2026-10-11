@@ -34,16 +34,12 @@ pub(in crate::mir) fn project(
                 return None;
             }
             let id = cc::ReprId(id as u32);
-            let signature = cc::Signature {
-                parameters: vec![ValueShape::State],
-                result: ValueShape::Reference(cc::Reference {
-                    nullable: false,
-                    heap: RefShape::Repr(id),
-                }),
-            };
-            cc::state::StateCallProjection::checked(&signature, &logical.representations)
+            let result = ValueShape::Reference(cc::Reference {
+                nullable: false,
+                heap: RefShape::Repr(id),
+            });
+            cc::state::StateResultProjection::checked(result, &logical.representations)
                 .ok()
-                .flatten()
                 .map(|plan| (id, plan))
         })
         .collect::<HashMap<_, _>>();
@@ -95,6 +91,12 @@ pub(in crate::mir) fn project(
                         message,
                     )]
                 })?;
+    }
+    // A checked captured callback retains ordinary parameters and returns the
+    // same Step payload as an explicit-parameter action. Inventory checks on
+    // its actual producer/body still precede physical layout planning.
+    for signature in &mut physical.representations.signatures {
+        signature.result = shape(signature.result);
     }
     // Only checked state-stepping declarations may enter private physical
     // planning. A signature that projects to a checked Step call carries its
@@ -193,22 +195,39 @@ fn project_assignments(
     input: &mut Vec<cc::Assignment>,
     original: &cc::Function,
     states: &HashSet<cc::ValueId>,
-    steps: &HashMap<cc::ReprId, cc::state::StateCallProjection>,
+    steps: &HashMap<cc::ReprId, cc::state::StateResultProjection>,
     shape: &impl Fn(ValueShape) -> ValueShape,
     table: &cc::RepresentationTable,
 ) -> Result<(), Vec<BackendError>> {
+    let capture_shapes = cc::state::capture_shapes(original)?;
     let mut assignments = Vec::new();
     for mut assignment in std::mem::take(input) {
-        if states.contains(&assignment.destination) {
-            if matches!(assignment.kind, A::If { .. } | A::TagSwitch { .. }) {
-                return Err(error(
-                    original,
-                    "raw State choice requires zero-width control result projection",
-                ));
-            }
+        // A zero-width result does not make the control or its calls erasable.
+        // Keep choices for CFG lowering, while removing their physical slots.
+        if states.contains(&assignment.destination)
+            && !matches!(assignment.kind, A::If { .. } | A::TagSwitch { .. })
+        {
             continue;
         }
         let copy = match &mut assignment.kind {
+            A::FunctionRef { captures, .. } => {
+                captures.retain(|id| !states.contains(id));
+                None
+            }
+            A::ClosureGetCapture { index, .. } => {
+                let slot = *index as usize;
+                if slot >= capture_shapes.len() {
+                    return Err(error(
+                        original,
+                        "capture projection has no checked logical slot",
+                    ));
+                }
+                *index = capture_shapes[..slot]
+                    .iter()
+                    .filter(|shape| **shape != ValueShape::State)
+                    .count() as u32;
+                None
+            }
             A::ProductNew {
                 representation,
                 arguments,

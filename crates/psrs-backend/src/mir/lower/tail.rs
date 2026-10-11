@@ -22,10 +22,19 @@ pub(super) fn mark_tail(
     function: &mut Function,
     target: TargetCapabilities,
 ) -> Result<(), Vec<BackendError>> {
-    if function.state.is_some() {
-        // Tail transfer must project the logical successor before rewriting it.
+    if let Some(flow) = function.state.clone() {
+        let (transformed, checked) = flow.project_tail(function, target)?;
+        *function = transformed;
+        function.state = Some(checked);
         return Ok(());
     }
+    rewrite(function, target)
+}
+
+pub(in crate::mir) fn rewrite(
+    function: &mut Function,
+    target: TargetCapabilities,
+) -> Result<(), Vec<BackendError>> {
     let returned = return_forwarded_values(function);
     let uses = use_counts(function);
     let symbol = function.symbol;
@@ -315,7 +324,10 @@ fn loopify_self_calls(
         block.instructions.pop();
         block.terminator = Some(Terminator::Jump {
             target: header_id,
-            arguments: arguments.clone(),
+            arguments: arguments
+                .iter()
+                .map(|id| mapping.get(id).copied().unwrap_or(*id))
+                .collect(),
             span: *span,
         });
     }

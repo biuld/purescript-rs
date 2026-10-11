@@ -3,7 +3,7 @@
 //! Self tail recursion is loopified on every profile, so a deep self-recursive
 //! program runs in constant stack. Non-self tail calls become `return_call` /
 //! `return_call_ref` only when the target enables the tail-call proposal; the
-//! stable profile keeps them as ordinary calls plus return.
+//! stable profile enables both instructions.
 
 use psrs_backend::TargetCapabilities;
 use psrs_backend::mir::Terminator;
@@ -67,9 +67,15 @@ fn has_return_call_ref(mir: &psrs_backend::mir::Module) -> bool {
 #[test]
 fn self_tail_recursion_runs_in_constant_stack() {
     // 100000 frames would exhaust the default Wasmtime stack; loopification
-    // must make this a `loop` on the tail-call-disabled stable profile.
+    // must make this a `loop` even on a profile with tail calls disabled.
     let source = "module Main where\nimport Prelude\ncount :: Int -> Int\ncount n = if n == 0 then 42 else count (n - 1)\nmain = count 100000\n";
-    let stages = compile_with(source, TargetCapabilities::default());
+    let stages = compile_with(
+        source,
+        TargetCapabilities {
+            tail_call: false,
+            ..TargetCapabilities::default()
+        },
+    );
     assert!(
         !has_tail_call(&stages.mir),
         "self-recursion must become a loop, not a return_call"
@@ -84,10 +90,7 @@ fn self_tail_recursion_runs_in_constant_stack() {
 #[test]
 fn non_self_tail_calls_use_return_call_when_enabled() {
     let source = "module Main where\nimport Prelude\neven :: Int -> Int\neven n = if n == 0 then 42 else odd (n - 1)\nodd :: Int -> Int\nodd n = if n == 0 then 7 else even (n - 1)\nmain = even 100000\n";
-    let target = TargetCapabilities {
-        tail_call: true,
-        ..TargetCapabilities::default()
-    };
+    let target = TargetCapabilities::default();
     let stages = compile_with(source, target);
     assert!(
         has_tail_call(&stages.mir),
@@ -110,10 +113,7 @@ fn indirect_tail_recursion_uses_return_call_ref() {
     // With 100000 iterations this only succeeds if the reference tail call
     // reuses the frame.
     let source = "module Main where\nimport Prelude\nrun :: (Int -> Int) -> Int -> Int\nrun step n = if n == 0 then 42 else step (n - 1)\ntick :: Int -> Int\ntick n = run tick n\nmain = tick 100000\n";
-    let target = TargetCapabilities {
-        tail_call: true,
-        ..TargetCapabilities::default()
-    };
+    let target = TargetCapabilities::default();
     let stages = compile_with(source, target);
     assert!(
         has_return_call_ref(&stages.mir),
@@ -133,7 +133,13 @@ fn indirect_tail_recursion_uses_return_call_ref() {
 #[test]
 fn disabled_profile_keeps_an_ordinary_call() {
     let source = "module Main where\nimport Prelude\nf :: Int -> Int\nf x = g x\ng :: Int -> Int\ng x = x + 1\nmain = f 41\n";
-    let stages = compile_with(source, TargetCapabilities::default());
+    let stages = compile_with(
+        source,
+        TargetCapabilities {
+            tail_call: false,
+            ..TargetCapabilities::default()
+        },
+    );
     assert!(
         !has_tail_call(&stages.mir),
         "a disabled profile must not emit a tail-call terminator"
@@ -143,6 +149,156 @@ fn disabled_profile_keeps_an_ordinary_call() {
         "a disabled profile must not encode a return_call opcode"
     );
     match execute_component("ordinary_call", &stages.artifact.wasm) {
+        Ok(Some(output)) => assert_eq!(output.status.code(), Some(42), "{output:?}"),
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
+    }
+}
+
+#[test]
+fn state_self_tail_recursion_preserves_zero_width_dependencies() {
+    let source = r#"module Main where
+import Prelude
+import Prim.State (State, RealWorld)
+type Step s a = { state :: State s, value :: a }
+foreign import "psrs:intrinsic#runWorld" run :: forall a. (State RealWorld -> Step RealWorld a) -> a
+foreign import "psrs:runtime-storage#array_read" read :: forall s a. Array a -> Int -> State s -> Step s a
+count :: Int -> State RealWorld -> Step RealWorld Int
+count n state = if n == 0 then read [42] 0 state else count (n - 1) state
+main :: Int
+main = run (count 100000)
+"#;
+    let stages = compile_with(source, TargetCapabilities::default());
+    assert!(
+        stages
+            .mir
+            .functions
+            .iter()
+            .any(|function| function.state.is_some())
+    );
+    match execute_component("state_self_tail_loop", &stages.artifact.wasm) {
+        Ok(Some(output)) => assert_eq!(output.status.code(), Some(42), "{output:?}"),
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
+    }
+}
+
+// This uses an unrelated ordinary newtype to cover the specialization
+// regression independently of the public Effect.forE case.
+#[test]
+fn ordinary_state_newtype_bind_loops_run_in_constant_stack() {
+    let source = r#"module Main where
+import Prelude
+import Prim.State (State, RealWorld)
+type Step s a = { state :: State s, value :: a }
+newtype Task a = Task (State RealWorld -> Step RealWorld a)
+foreign import "psrs:intrinsic#runWorld" run :: forall a. (State RealWorld -> Step RealWorld a) -> a
+pureTask :: forall a. a -> Task a
+pureTask value = Task \state -> { state: state, value: value }
+bindTask :: forall a b. Task a -> (a -> Task b) -> Task b
+bindTask (Task action) next = Task \state0 ->
+  case action state0 of
+    { state: state1, value: value } -> case next value of
+      Task continuation -> continuation state1
+loopTask :: Int -> Task Unit
+loopTask n = if n == 0 then pureTask unit
+  else bindTask (pureTask unit) (\_ -> loopTask (n - 1))
+execute :: forall a. Task a -> a
+execute (Task action) = run action
+main :: Int
+main = execute (bindTask (loopTask 100000) (\_ -> pureTask 42))
+"#;
+    let stages = compile_with(source, TargetCapabilities::default());
+    assert!(has_return_call_ref(&stages.mir));
+    match execute_component("state_newtype_bind_loop", &stages.artifact.wasm) {
+        Ok(Some(output)) => assert_eq!(output.status.code(), Some(42), "{output:?}"),
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
+    }
+}
+
+#[test]
+fn ordinary_pure_newtype_bind_loops_run_in_constant_stack() {
+    let source = r#"module Main where
+import Prelude
+newtype Task a = Task (Unit -> a)
+pureTask :: forall a. a -> Task a
+pureTask value = Task \_ -> value
+bindTask :: forall a b. Task a -> (a -> Task b) -> Task b
+bindTask (Task action) next = Task \token ->
+  case next (action token) of
+    Task continuation -> continuation token
+loopTask :: Int -> Task Unit
+loopTask n = if n == 0 then pureTask unit
+  else bindTask (pureTask unit) (\_ -> loopTask (n - 1))
+execute :: forall a. Task a -> a
+execute (Task action) = action unit
+main :: Int
+main = execute (bindTask (loopTask 100000) (\_ -> pureTask 42))
+"#;
+    let stages = compile_with(source, TargetCapabilities::default());
+    assert!(has_return_call_ref(&stages.mir));
+    match execute_component("pure_newtype_bind_loop", &stages.artifact.wasm) {
+        Ok(Some(output)) => assert_eq!(output.status.code(), Some(42), "{output:?}"),
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
+    }
+}
+
+#[test]
+fn self_tail_recursion_remaps_forwarded_arguments() {
+    let source = "module Main where\nimport Prelude\nrotate :: Int -> Int -> Int -> Int\nrotate n a b = if n == 0 then a else rotate (n - 1) b a\nmain = rotate 100000 42 7\n";
+    let stages = compile_with(source, TargetCapabilities::default());
+    match execute_component("tail_loop_forwarded_arguments", &stages.artifact.wasm) {
+        Ok(Some(output)) => assert_eq!(output.status.code(), Some(42), "{output:?}"),
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
+    }
+}
+
+#[test]
+fn state_mutual_tail_recursion_preserves_every_storage_update() {
+    let source = r#"module Main where
+import Prelude
+import Prim.State (State, RealWorld)
+type Step s a = { state :: State s, value :: a }
+foreign import "psrs:intrinsic#runWorld" run :: forall a. (State RealWorld -> Step RealWorld a) -> a
+foreign import "psrs:runtime-storage#array_read" read :: forall s a. Array a -> Int -> State s -> Step s a
+foreign import "psrs:runtime-storage#array_write" write :: forall s a. Array a -> Int -> a -> State s -> Step s Unit
+even :: Int -> Array Int -> State RealWorld -> Step RealWorld Int
+even n cell state = if n == 0 then
+  case read cell 0 state of
+    { state: finalState, value: value } ->
+      { state: finalState, value: if value == 150000 then 42 else 0 }
+  else case read cell 0 state of
+    { state: readState, value: value } ->
+      case write cell 0 (value + 1) readState of
+        { state: writeState } -> odd (n - 1) cell writeState
+odd :: Int -> Array Int -> State RealWorld -> Step RealWorld Int
+odd n cell state = case read cell 0 state of
+  { state: readState, value: value } ->
+    case write cell 0 (value + 2) readState of
+      { state: writeState } -> even (n - 1) cell writeState
+main :: Int
+main = run (\state -> even 100000 [0] state)
+"#;
+    let stages = compile_with(source, TargetCapabilities::default());
+    for name in ["even", "odd"] {
+        let function = stages
+            .mir
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .expect("mutual State functions must remain reachable");
+        assert!(function.state.is_some());
+        assert!(
+            function
+                .blocks
+                .iter()
+                .any(|block| { matches!(block.terminator, Some(Terminator::ReturnCall { .. })) })
+        );
+    }
+    match execute_component("state_mutual_updates", &stages.artifact.wasm) {
         Ok(Some(output)) => assert_eq!(output.status.code(), Some(42), "{output:?}"),
         Ok(None) => {}
         Err(error) => panic!("{error}"),

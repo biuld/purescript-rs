@@ -19,7 +19,7 @@ mod assignments;
 mod conversion_helpers;
 mod runtime_call;
 mod storage_call;
-mod tail;
+pub(in crate::mir) mod tail;
 mod variant;
 mod wit_call;
 pub(super) use conversion_helpers::ConversionHelpers;
@@ -51,7 +51,7 @@ pub(super) fn lower_function(
     layout: &PlannedLayout,
     conversion_helpers: Option<&mut ConversionHelpers>,
     literals: Option<&mut StringLiterals>,
-    logical_state_source: Option<std::sync::Arc<cc::Module>>,
+    logical_state_source: Option<std::sync::Arc<super::state::CheckedSource>>,
     target: crate::capability::TargetCapabilities,
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
@@ -61,12 +61,19 @@ pub(super) fn lower_function(
         .as_ref()
         .and_then(|module| {
             module
+                .module
                 .functions
                 .iter()
                 .find(|function| function.symbol == source.symbol)
         })
         .unwrap_or(source);
     let mut lowerer = FunctionLowerer {
+        erased_states: logical_values
+            .values
+            .iter()
+            .filter(|value| value.ty == cc::ValueShape::State)
+            .map(|value| value.id)
+            .collect(),
         owner: source.symbol,
         runtime: Some(runtime),
         runtime_calls: Vec::new(),
@@ -147,6 +154,8 @@ pub(super) fn lower_function(
     Ok(function)
 }
 pub(super) struct FunctionLowerer<'a> {
+    // Logical IDs remain reserved, but have no physical declaration or slot.
+    erased_states: std::collections::HashSet<ValueId>,
     owner: SymbolId,
     runtime: Option<&'a super::runtime::RuntimeContext>,
     runtime_calls: Vec<super::state::RuntimeInvocation>,
@@ -162,6 +171,13 @@ pub(super) struct FunctionLowerer<'a> {
 }
 
 impl FunctionLowerer<'_> {
+    fn control_values(&self, value: ValueId) -> Vec<ValueId> {
+        if self.erased_states.contains(&value) {
+            Vec::new()
+        } else {
+            vec![value]
+        }
+    }
     pub(super) fn value_type(&self, id: ValueId) -> Option<ValueType> {
         self.values
             .iter()

@@ -168,7 +168,35 @@ impl<'a> Builder<'a> {
                         .collect::<Result<_, _>>()?,
                 )
             }
+            (
+                Value::Closure {
+                    index,
+                    captures: left,
+                },
+                Value::Closure {
+                    index: other,
+                    mut captures,
+                },
+            ) if index == other && left.len() == captures.len() => {
+                let mut merged = std::collections::HashMap::new();
+                for (local, value) in left {
+                    let other = captures.remove(&local).ok_or_else(|| {
+                        self.error(span, "callback branch changes its lexical captures")
+                    })?;
+                    merged.insert(local, self.merge(value, other, span)?);
+                }
+                Value::Closure {
+                    index,
+                    captures: merged,
+                }
+            }
             (Value::State(_), _) | (_, Value::State(_)) => {
+                return Err(self.error(
+                    span,
+                    "state branch result has incompatible producer provenance",
+                ));
+            }
+            (left, right) if left.carries_state() || right.carries_state() => {
                 return Err(self.error(
                     span,
                     "state branch result has incompatible producer provenance",

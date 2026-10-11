@@ -130,23 +130,46 @@ impl<'a> Builder<'a, '_> {
         }
         let mut value = values.remove(0);
         for other in values {
-            value = merge(value, other);
+            value = merge(value, other).map_err(|()| {
+                error(
+                    self.function,
+                    "CC state branch loses captured producer provenance",
+                )
+            })?;
         }
         Ok(value)
     }
 }
 
-fn merge(left: Value, right: Value) -> Value {
-    match (left, right) {
+fn merge(left: Value, right: Value) -> Result<Value, ()> {
+    Ok(match (left, right) {
         (Value::Product(left), Value::Product(right)) if left.len() == right.len() => {
             Value::Product(
                 left.into_iter()
                     .zip(right)
                     .map(|(left, right)| merge(left, right))
-                    .collect(),
+                    .collect::<Result<_, _>>()?,
             )
         }
         (left, right) if left == right => left,
+        (left, right) if left.carries_state() || right.carries_state() => return Err(()),
         _ => Value::Opaque,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use psrs_hir::ModuleId;
+
+    #[test]
+    fn incompatible_captured_producers_cannot_become_an_opaque_join() {
+        let closure = |dependency| Value::Closure {
+            symbol: SymbolId::new(ModuleId(0), 1),
+            captures: vec![Value::State(DependencyId(dependency))],
+        };
+        assert_eq!(merge(closure(0), closure(0)).unwrap(), closure(0));
+        assert!(merge(closure(0), closure(1)).is_err());
+        assert!(merge(Value::Product(vec![closure(0)]), Value::Opaque).is_err());
     }
 }

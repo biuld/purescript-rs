@@ -55,6 +55,8 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [control-flow-and-tail-calls.md](fp/control-flow-and-tail-calls.md) | CFG structuring, `Switch`, tail calls | mir |
 | [type-classes-and-dictionaries.md](fp/type-classes-and-dictionaries.md) | Dictionary passing and instance evidence | functional-core |
 | [effects.md](fp/effects.md) | Effect representation and the platform boundary | functional-core |
+| [state-primitives-and-dependency-lowering.md](fp/state-primitives-and-dependency-lowering.md) | Primitive State semantics, cross-pass dependencies, optimizer transfers and checked zero-width erasure (Draft) | primitive types, functional-core, CC, MIR |
+| [library-owned-effects.md](fp/library-owned-effects.md) | Ordinary Effect/ST newtypes, runtime adapters, command runner and migration acceptance (Draft) | State primitives and dependency lowering, source fidelity |
 
 ### Wasm/WASI (`wasm/`)
 

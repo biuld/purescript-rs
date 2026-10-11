@@ -51,7 +51,7 @@ fn source(tag: i32) -> cc::Module {
 
 #[test]
 fn multiway_state_projection_checks_labels_default_edges_and_invocation_placement() {
-    let (module, _) = crate::mir::lower_module(source(7)).unwrap();
+    let (module, _) = super::tests::lower_without_tail_calls(source(7)).unwrap();
     crate::mir::verify_module(&module).unwrap();
     assert_eq!(module.functions[0].blocks.len(), 5);
     for mutation in 0..6 {
@@ -141,7 +141,7 @@ fn nested_binary_choice_in_a_state_switch_preserves_both_join_payloads() {
             span,
         },
     ];
-    let (module, _) = crate::mir::lower_module(source).unwrap();
+    let (module, _) = super::tests::lower_without_tail_calls(source).unwrap();
     assert_eq!(module.functions[0].blocks.len(), 8);
     crate::mir::verify_module(&module).unwrap();
     let mut changed = module;
@@ -182,7 +182,7 @@ fn state_switch_executes_case_default_and_selected_trap_after_optimization() {
                 };
                 cases[0].assignments[0].kind = A::Unreachable;
             }
-            let (module, mut wasi) = crate::mir::lower_module(source).unwrap();
+            let (module, mut wasi) = super::tests::lower_without_tail_calls(source).unwrap();
             let module = crate::mir::opt::optimize(module, target).unwrap();
             let context = crate::linking::default_context().unwrap();
             let link =
@@ -252,7 +252,7 @@ fn constant_payload_joins_keep_their_source_parameters_during_optimization() {
     cases[0].assignments = arms(1, 10);
     cases[1].assignments = arms(5, 11);
     *default_assignments = arms(7, 12);
-    let (module, _) = crate::mir::lower_module(source).unwrap();
+    let (module, _) = super::tests::lower_without_tail_calls(source).unwrap();
     let optimized =
         crate::mir::opt::optimize(module, crate::TargetCapabilities::default()).unwrap();
     assert_eq!(optimized.functions[0].blocks[4].parameters, [ValueId(3)]);
@@ -260,20 +260,8 @@ fn constant_payload_joins_keep_their_source_parameters_during_optimization() {
 }
 
 #[test]
-fn raw_state_switch_results_reject_before_their_effectful_arms_can_be_erased() {
+fn raw_state_switch_results_keep_control_and_erase_only_join_slots() {
     let mut source = source(7);
-    source.functions.truncate(1);
-    source.externals = [1, 6, 8]
-        .into_iter()
-        .map(|symbol| cc::External {
-            symbol: SymbolId::new(ModuleId(0), symbol),
-            signature: Some(cc::Signature {
-                parameters: vec![ValueShape::State],
-                result: source.functions[0].result_type,
-            }),
-            projection: None,
-        })
-        .collect();
     let function = &mut source.functions[0];
     let span = function.span;
     function.values.extend((10..=13).map(|id| ValueDecl {
@@ -317,14 +305,35 @@ fn raw_state_switch_results_reject_before_their_effectful_arms_can_be_erased() {
         span,
     });
     cc::state::check(&source).unwrap();
-    let Err(errors) = super::project(source, &[]) else {
-        panic!("raw State choice must reject");
-    };
+    let (module, _) = super::tests::lower_without_tail_calls(source).unwrap();
+    let function = &module.functions[0];
+    assert!(function.blocks[4].parameters.is_empty());
+    for id in [1, 2, 3] {
+        let Some(Terminator::Jump { arguments, .. }) = &function.blocks[id].terminator else {
+            panic!("choice arm lost its jump");
+        };
+        assert!(arguments.is_empty());
+    }
+    crate::mir::verify_module(&module).unwrap();
+    let mut changed = module.clone();
+    changed.functions[0].values.push(crate::types::ValueDecl {
+        id: ValueId(14),
+        ty: crate::types::ValueType::I32,
+    });
+    changed.functions[0].blocks[4].parameters.push(ValueId(14));
+    for (block, value) in [(1, 1), (2, 5), (3, 7)] {
+        let Some(Terminator::Jump { arguments, .. }) =
+            &mut changed.functions[0].blocks[block].terminator
+        else {
+            panic!();
+        };
+        arguments.push(ValueId(value));
+    }
+    let errors = crate::mir::verify_module(&changed).unwrap_err();
     assert!(
         errors
             .iter()
-            .any(|error| error.pass == "P9 State projection"
-                && error.message.contains("raw State choice")),
+            .all(|error| error.pass == "P9 MIR dependency verification"),
         "{errors:?}"
     );
 }

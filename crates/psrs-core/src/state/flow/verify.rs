@@ -20,7 +20,7 @@ impl FunctionFlow<'_> {
         self.graph
             .verify()
             .map_err(|error| fail(error.span, error.message))?;
-        let ExprKind::Lambda { binder, body } = &self.lambda.kind else {
+        let ExprKind::Lambda { binder, .. } = &self.lambda.kind else {
             return Err(fail(self.lambda.span, "state flow has no source lambda"));
         };
         let region = crate::state::region(module, binder.ty)
@@ -34,9 +34,16 @@ impl FunctionFlow<'_> {
                 "state graph changes its checked source region mapping",
             ));
         }
-        let mut expressions = HashSet::new();
-        let mut invocations = Vec::new();
-        executed(module, body, &mut expressions, &mut invocations);
+        // The source evaluator owns callback execution scopes and order.
+        // Re-derive before checking a witness; a syntax walk cannot distinguish
+        // closure construction from invocation through a lexical alias.
+        let expected = super::derive(module, self.owner, self.lambda)?;
+        let invocations = expected
+            .operations
+            .iter()
+            .map(|operation| operation.expression as *const Expr)
+            .collect::<Vec<_>>();
+        let expressions = invocations.iter().copied().collect::<HashSet<_>>();
         let mut seen = HashSet::new();
         for block in &self.graph.blocks {
             for transition in &block.transitions {
@@ -80,7 +87,6 @@ impl FunctionFlow<'_> {
         // cannot authorize different argument provenance or branch placement.
         // A transformed IR needs its own correspondence verifier; it cannot
         // mutate this source certificate and retain a checked claim.
-        let expected = super::derive(module, self.owner, self.lambda)?;
         if self.graph != expected.graph {
             return Err(fail(
                 self.lambda.span,
@@ -127,72 +133,4 @@ impl FunctionFlow<'_> {
         }
         Ok(())
     }
-}
-
-fn executed(
-    module: &Module,
-    value: &Expr,
-    expressions: &mut HashSet<*const Expr>,
-    invocations: &mut Vec<*const Expr>,
-) -> bool {
-    psrs_span::with_sufficient_stack(|| {
-        expressions.insert(value as *const Expr);
-        let mut visit = |value| executed(module, value, expressions, invocations);
-        match &value.kind {
-            ExprKind::Constructor { arguments, .. }
-            | ExprKind::IntrinsicCall { arguments, .. }
-            | ExprKind::Array {
-                elements: arguments,
-            } => arguments.iter().all(visit),
-            ExprKind::Record { fields } => fields.iter().all(|(_, value)| visit(value)),
-            ExprKind::RecordUpdate { record, fields } => {
-                visit(record) && fields.iter().all(|(_, value)| visit(value))
-            }
-            ExprKind::FieldAccess { record, .. }
-            | ExprKind::RepresentationCast { value: record, .. } => visit(record),
-            ExprKind::Application(function, argument) => {
-                if !visit(function) || !visit(argument) {
-                    return false;
-                }
-                if crate::state::region(module, argument.ty).is_some()
-                    && !super::summary::passthrough(module, function)
-                {
-                    invocations.push(value as *const Expr);
-                }
-                true
-            }
-            ExprKind::Let { bindings, body } => {
-                bindings.iter().all(|binding| visit(&binding.value)) && visit(body)
-            }
-            ExprKind::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                if !visit(condition) {
-                    return false;
-                }
-                let left = visit(then_branch);
-                let right = visit(else_branch);
-                left || right
-            }
-            ExprKind::Case {
-                scrutinee,
-                branches,
-            } => {
-                if !visit(scrutinee) {
-                    return false;
-                }
-                let mut returns = false;
-                for branch in branches {
-                    returns |= visit(&branch.value);
-                }
-                returns
-            }
-            // Closure creation is inert, so nested execution bodies do not
-            // supply transitions to this function's dependency graph.
-            ExprKind::Trap => false,
-            _ => true,
-        }
-    })
 }

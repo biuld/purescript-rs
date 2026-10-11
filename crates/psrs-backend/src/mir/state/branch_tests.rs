@@ -106,7 +106,7 @@ pub(super) fn source(flag: bool) -> cc::Module {
 
 #[test]
 fn state_branches_lower_with_logical_joins_and_payload_only_block_parameters() {
-    let (mir, _) = crate::mir::lower_module(source(true)).unwrap();
+    let (mir, _) = super::tests::lower_without_tail_calls(source(true)).unwrap();
     let function = &mir.functions[0];
     assert_eq!(function.state.as_ref().unwrap().graph().blocks.len(), 4);
     assert_eq!(function.blocks.len(), 4);
@@ -117,7 +117,7 @@ fn state_branches_lower_with_logical_joins_and_payload_only_block_parameters() {
 
 #[test]
 fn state_branch_projection_rejects_changed_edges_and_calls_moved_across_choices() {
-    let (mut mir, _) = crate::mir::lower_module(source(true)).unwrap();
+    let (mut mir, _) = super::tests::lower_without_tail_calls(source(true)).unwrap();
     if let Some(Terminator::Branch {
         then_block,
         else_block,
@@ -132,7 +132,7 @@ fn state_branch_projection_rejects_changed_edges_and_calls_moved_across_choices(
             .iter()
             .any(|failure| failure.message.contains("branch or successor"))
     );
-    let (mut mir, _) = crate::mir::lower_module(source(true)).unwrap();
+    let (mut mir, _) = super::tests::lower_without_tail_calls(source(true)).unwrap();
     let instruction = mir.functions[0].blocks[1].instructions.remove(0);
     mir.functions[0].blocks[2]
         .instructions
@@ -143,7 +143,7 @@ fn state_branch_projection_rejects_changed_edges_and_calls_moved_across_choices(
             .iter()
             .any(|failure| failure.message.contains("adds or loses an invocation"))
     );
-    let (mut mir, _) = crate::mir::lower_module(source(true)).unwrap();
+    let (mut mir, _) = super::tests::lower_without_tail_calls(source(true)).unwrap();
     if let Some(Terminator::Jump { target, .. }) = &mut mir.functions[0].blocks[1].terminator {
         *target = BlockId(2);
     }
@@ -200,7 +200,7 @@ fn nested_choices_project_source_and_mir_block_orders_explicitly() {
             },
         ];
     }
-    let (mir, _) = crate::mir::lower_module(source).unwrap();
+    let (mir, _) = super::tests::lower_without_tail_calls(source).unwrap();
     assert_eq!(
         mir.functions[0]
             .state
@@ -232,7 +232,7 @@ fn a_trapping_state_arm_has_no_normal_edge_to_the_payload_join() {
     {
         then_assignments[0].kind = A::Unreachable;
     }
-    let (mut mir, _) = crate::mir::lower_module(source).unwrap();
+    let (mut mir, _) = super::tests::lower_without_tail_calls(source).unwrap();
     assert!(matches!(
         mir.functions[0].blocks[1].terminator,
         Some(Terminator::Trap { .. })
@@ -263,7 +263,7 @@ fn state_branch_components_execute_both_selected_payloads_after_optimization() {
         {
             then_assignments[0].kind = A::Unreachable;
         }
-        let (mir, mut wasi) = crate::mir::lower_module(source).unwrap();
+        let (mir, mut wasi) = super::tests::lower_without_tail_calls(source).unwrap();
         let mir = crate::mir::opt::optimize(mir, target).unwrap();
         assert_eq!(mir.functions[0].blocks.len(), 4);
         let context = crate::linking::default_context().unwrap();
