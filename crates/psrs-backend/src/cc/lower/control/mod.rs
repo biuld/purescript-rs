@@ -4,7 +4,7 @@ use super::{FunctionLowerer, LambdaLowering};
 use crate::BackendError;
 use crate::cc::layout::control::ControlLayout;
 use crate::cc::payload::erased_shape;
-use crate::cc::{Assignment, AssignmentKind, ValueId, ValueShape};
+use crate::cc::{Assignment, AssignmentKind, SignatureId, ValueId, ValueShape};
 use psrs_core::Expr;
 use psrs_hir::{Intrinsic, SymbolId};
 use psrs_span::TextRange;
@@ -29,6 +29,29 @@ pub(in crate::cc) struct ControlFunctions {
     close: SymbolId,
     once: SymbolId,
     cancel: SymbolId,
+}
+
+impl ControlFunctions {
+    fn signatures(self, layout: ControlLayout) -> [(SymbolId, SignatureId); 8] {
+        [
+            (self.executor, layout.executor),
+            (self.clone_sequence, layout.clone_sequence),
+            (self.rebuild_sequence, layout.rebuild_sequence),
+            (self.start, layout.start),
+            (self.check, layout.boundary_check),
+            (self.close, layout.boundary_check),
+            (self.once, layout.once),
+            (self.cancel, layout.cancel),
+        ]
+    }
+
+    fn signature(self, layout: ControlLayout, function: SymbolId) -> SignatureId {
+        self.signatures(layout)
+            .into_iter()
+            .find(|(symbol, _)| *symbol == function)
+            .map(|(_, signature)| signature)
+            .expect("predeclared control function")
+    }
 }
 
 impl FunctionLowerer<'_> {
@@ -57,15 +80,13 @@ impl FunctionLowerer<'_> {
             } else {
                 functions.cancel
             };
-            let result = self.fresh(erased_shape());
-            assignments.push(Assignment {
-                destination: result,
-                kind: AssignmentKind::DirectCall {
-                    function,
-                    arguments: fields,
-                },
-                span: expression.span,
-            });
+            let result = self.control_call(
+                function,
+                functions.signature(layout, function),
+                fields,
+                expression.span,
+                assignments,
+            )?;
             if intrinsic == Intrinsic::ControlCancel {
                 let unit = self.fresh(ty);
                 assignments.push(Assignment {
@@ -76,11 +97,15 @@ impl FunctionLowerer<'_> {
                 return Ok(unit);
             }
             let conversion = self.recover_payload(ty, expression.span)?;
+            let source = builder::repr(layout.owner);
             return Ok(self.emit_conversion(
                 result,
-                erased_shape(),
+                source,
                 ty,
-                conversion,
+                crate::cc::ValueConversion::Sequence(vec![
+                    crate::cc::ValueConversion::EraseReference,
+                    conversion,
+                ]),
                 expression.span,
                 assignments,
             ));
@@ -88,15 +113,13 @@ impl FunctionLowerer<'_> {
         if intrinsic == Intrinsic::ControlRun {
             let functions = self.ensure_control_functions(layout, expression.span)?;
             let empty = self.control_empty_sequence(layout, expression.span, assignments);
-            let boundary = self.fresh(erased_shape());
-            assignments.push(Assignment {
-                destination: boundary,
-                kind: AssignmentKind::DirectCall {
-                    function: functions.start,
-                    arguments: vec![],
-                },
-                span: expression.span,
-            });
+            let boundary = self.control_call(
+                functions.start,
+                layout.start,
+                vec![],
+                expression.span,
+                assignments,
+            )?;
             let shape = builder::repr(layout.context);
             let context = self.fresh(shape);
             let context_fields = self.control_fields(
@@ -116,32 +139,20 @@ impl FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
-            let context = self.emit_conversion(
-                context,
-                shape,
-                erased_shape(),
-                crate::cc::ValueConversion::EraseReference,
+            let result = self.control_call(
+                functions.executor,
+                layout.executor,
+                vec![fields[0], fields[1], fields[2], empty, boundary, context],
                 expression.span,
                 assignments,
-            );
-            let result = self.fresh(erased_shape());
-            assignments.push(Assignment {
-                destination: result,
-                kind: AssignmentKind::DirectCall {
-                    function: functions.executor,
-                    arguments: vec![fields[0], fields[1], fields[2], empty, boundary, context],
-                },
-                span: expression.span,
-            });
-            let closed = self.fresh(erased_shape());
-            assignments.push(Assignment {
-                destination: closed,
-                kind: AssignmentKind::DirectCall {
-                    function: functions.close,
-                    arguments: vec![boundary],
-                },
-                span: expression.span,
-            });
+            )?;
+            self.control_call(
+                functions.close,
+                layout.boundary_check,
+                vec![boundary],
+                expression.span,
+                assignments,
+            )?;
             let conversion = self.recover_payload(ty, expression.span)?;
             return Ok(self.emit_conversion(
                 result,
@@ -199,14 +210,7 @@ impl FunctionLowerer<'_> {
             },
             span,
         });
-        self.emit_conversion(
-            value,
-            shape,
-            erased_shape(),
-            crate::cc::ValueConversion::EraseReference,
-            span,
-            assignments,
-        )
+        value
     }
 
     fn ensure_control_functions(
@@ -231,23 +235,7 @@ impl FunctionLowerer<'_> {
                 cancel: symbols.fresh(self.owner),
             }
         };
-        let signature = self
-            .representations
-            .signature(layout.executor)
-            .ok_or_else(|| control_error(span, "control executor has no predeclared signature"))?
-            .clone();
-        self.generated_signatures
-            .borrow_mut()
-            .insert(functions.executor, signature);
-        for (symbol, id) in [
-            (functions.clone_sequence, layout.clone_sequence),
-            (functions.rebuild_sequence, layout.rebuild_sequence),
-            (functions.start, layout.start),
-            (functions.check, layout.boundary_check),
-            (functions.close, layout.boundary_check),
-            (functions.once, layout.boundary_check),
-            (functions.cancel, layout.boundary_check),
-        ] {
+        for (symbol, id) in functions.signatures(layout) {
             let signature = self
                 .representations
                 .signature(id)
@@ -266,8 +254,18 @@ impl FunctionLowerer<'_> {
         let receiver = resume.lower.fresh(super::lambda::closure_value_type());
         let value = resume.lower.fresh(erased_shape());
         let mut assignments = Vec::new();
-        let saved = resume.capture(receiver, 0, &mut assignments);
-        let boundary = resume.capture(receiver, 1, &mut assignments);
+        let saved = resume.capture(
+            receiver,
+            0,
+            builder::repr(layout.sequence),
+            &mut assignments,
+        );
+        let boundary = resume.capture(
+            receiver,
+            1,
+            builder::repr(layout.boundary),
+            &mut assignments,
+        );
         resume.check_boundary(boundary, &mut assignments);
         let result = resume.node(
             layout.computation,

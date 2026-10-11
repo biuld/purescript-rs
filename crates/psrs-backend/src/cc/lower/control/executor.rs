@@ -1,17 +1,22 @@
 //! A flat driver; only the driver traverses saved continuation sequences.
 
-use super::builder::Machine;
+use super::builder::{Machine, repr};
 use crate::cc::payload::erased_shape;
 use crate::cc::{Assignment, Function, TagCase, ValueId};
 
 impl Machine<'_> {
     pub(super) fn executor(mut self) -> Function {
         let state = self.lower.fresh(erased_shape());
-        let handler = self.lower.fresh(erased_shape());
-        let computation = self.lower.fresh(erased_shape());
-        let sequence = self.lower.fresh(erased_shape());
-        let boundary = self.lower.fresh(erased_shape());
-        let context = self.lower.fresh(erased_shape());
+        let signature = self
+            .lower
+            .representations
+            .signature(self.layout.executor)
+            .unwrap();
+        let handler = self.lower.fresh(signature.parameters[1]);
+        let computation = self.lower.fresh(repr(self.layout.computation));
+        let sequence = self.lower.fresh(repr(self.layout.sequence));
+        let boundary = self.lower.fresh(repr(self.layout.boundary));
+        let context = self.lower.fresh(repr(self.layout.context));
         self.boundary = Some(boundary);
         self.context = Some(context);
         let parameters = vec![state, handler, computation, sequence, boundary, context];
@@ -47,14 +52,13 @@ impl Machine<'_> {
         let function = self.functions.clone_sequence;
         let boundary = self.boundary.unwrap();
         let parent = self.dispatch_boundary(&mut body);
-        let cloned = self.emit(erased_shape(), &mut body, |_| {
-            crate::cc::AssignmentKind::DirectCall {
-                function,
-                arguments: vec![saved, empty, empty, boundary, parent],
-            }
-        });
-        let saved = self.pair_field(cloned, 0, &mut body);
-        let active = self.pair_field(cloned, 1, &mut body);
+        let cloned = self.call(
+            function,
+            vec![saved, empty, empty, boundary, parent],
+            &mut body,
+        );
+        let saved = self.replay_field(cloned, 0, &mut body);
+        let active = self.replay_field(cloned, 1, &mut body);
         let pending = self.node(self.layout.sequence, 2, vec![saved, sequence], &mut body);
         self.boundary = Some(active);
         let next = self.node(self.layout.computation, 0, vec![value], &mut body);

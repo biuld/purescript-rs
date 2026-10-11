@@ -19,6 +19,10 @@ preserve prior checkpoints; the five-argument API belongs to those checkpoints.
 The continuation from compiler `bdaf0cfc` makes machine frame storage fields
 nominal and adds malformed CC/MIR construction/projection checks; detailed
 validation is recorded in the acceptance checklist's machine storage section.
+The 2026-10-12 continuation starts from `5c78fa78` and retains these nominal
+types across executor/lifetime/replay calls and raw resumption captures. Replay
+returns a dedicated typed queue/activation product. Details and remaining
+semantic identity obligations are in the checklist's typed helper section.
 Full frame/context identity verification, allocation/depth measurements, foreign
 resources and caught-trap cleanup remain outstanding.
 

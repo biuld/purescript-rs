@@ -3,7 +3,10 @@
 use super::{FunctionLowerer, control_error};
 use crate::BackendError;
 use crate::cc::payload::erased_shape;
-use crate::cc::{Assignment, AssignmentKind, ReprId, Representation, ValueId, ValueShape};
+use crate::cc::{
+    Assignment, AssignmentKind, ReprId, Representation, SignatureId, ValueId, ValueShape,
+};
+use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 
 impl FunctionLowerer<'_> {
@@ -47,18 +50,28 @@ impl FunctionLowerer<'_> {
             .find(|candidate| candidate.tag == case)
             .map(|case| case.fields.clone())
             .ok_or_else(|| control_error(span, "control frame has an unknown case"))?;
+        self.control_values(fields, shapes, span, assignments)
+    }
+
+    pub(super) fn control_values(
+        &mut self,
+        fields: Vec<ValueId>,
+        shapes: Vec<ValueShape>,
+        span: TextRange,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<Vec<ValueId>, Vec<BackendError>> {
         if shapes.len() != fields.len() {
             return Err(control_error(
                 span,
-                "control frame has an incompatible field count",
+                "control values have an incompatible count",
             ));
         }
         fields
             .into_iter()
             .zip(shapes)
             .map(|(value, shape)| {
-                // Source payloads and generated helpers use the erased protocol.
-                // Storage is nominal; recovery is explicit and checked at runtime.
+                // Source payloads and user callbacks use the erased protocol.
+                // Machine helpers keep their predeclared nominal shapes.
                 let source = self
                     .values
                     .iter()
@@ -68,7 +81,9 @@ impl FunctionLowerer<'_> {
                 if source == shape {
                     return Ok(value);
                 }
-                if source != erased_shape() {
+                if !matches!(source, ValueShape::Reference(_))
+                    || (source != erased_shape() && shape != erased_shape())
+                {
                     return Err(control_error(
                         span,
                         "control field has an incompatible representation",
@@ -96,5 +111,31 @@ impl FunctionLowerer<'_> {
                 Ok(destination)
             })
             .collect()
+    }
+
+    pub(super) fn control_call(
+        &mut self,
+        function: SymbolId,
+        signature: SignatureId,
+        arguments: Vec<ValueId>,
+        span: TextRange,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let signature = self
+            .representations
+            .signature(signature)
+            .ok_or_else(|| control_error(span, "control call has no predeclared signature"))?
+            .clone();
+        let arguments = self.control_values(arguments, signature.parameters, span, assignments)?;
+        let destination = self.fresh(signature.result);
+        assignments.push(Assignment {
+            destination,
+            kind: AssignmentKind::DirectCall {
+                function,
+                arguments,
+            },
+            span,
+        });
+        Ok(destination)
     }
 }

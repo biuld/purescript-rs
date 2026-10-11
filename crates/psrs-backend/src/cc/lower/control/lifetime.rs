@@ -2,7 +2,6 @@
 
 use super::builder::{Machine, repr};
 use super::executor::arm;
-use crate::cc::payload::erased_shape;
 use crate::cc::{Assignment, AssignmentKind, Function, TagCase, ValueId, ValueShape};
 
 impl Machine<'_> {
@@ -16,14 +15,13 @@ impl Machine<'_> {
         value: ValueId,
         body: &mut Vec<Assignment>,
     ) -> ValueId {
-        let cell = self.emit(repr(representation), body, |destination| {
+        self.emit(repr(representation), body, |destination| {
             AssignmentKind::ArrayNew {
                 destination,
                 representation,
                 elements: vec![value],
             }
-        });
-        self.cast(cell, erased_shape(), body)
+        })
     }
 
     pub(super) fn read_cell(
@@ -51,6 +49,15 @@ impl Machine<'_> {
         body: &mut Vec<Assignment>,
     ) {
         let cell = self.cast(cell, repr(representation), body);
+        let Some(crate::cc::Representation::Array { element }) =
+            self.lower.representations.representation(representation)
+        else {
+            unreachable!("machine cell is an array");
+        };
+        let new_value = self
+            .lower
+            .control_values(vec![new_value], vec![*element], self.span, body)
+            .expect("machine write must preserve its cell representation")[0];
         let index = self.integer(0, body);
         body.push(Assignment {
             destination: cell,
@@ -90,13 +97,14 @@ impl Machine<'_> {
         cases: Vec<TagCase>,
         body: &mut Vec<Assignment>,
     ) -> ValueId {
-        let trap = self.lower.fresh(erased_shape());
+        let shape = self.value_shape(cases.first().expect("machine select has cases").value);
+        let trap = self.lower.fresh(shape);
         let default_assignments = vec![Assignment {
             destination: trap,
             kind: AssignmentKind::Unreachable,
             span: self.span,
         }];
-        self.emit(erased_shape(), body, |_| AssignmentKind::TagSwitch {
+        self.emit(shape, body, |_| AssignmentKind::TagSwitch {
             value,
             cases,
             default_assignments,
@@ -123,10 +131,7 @@ impl Machine<'_> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         let function = self.functions.check;
-        self.emit(erased_shape(), body, |_| AssignmentKind::DirectCall {
-            function,
-            arguments: vec![boundary],
-        })
+        self.call(function, vec![boundary], body)
     }
 
     pub(super) fn close_boundary(
@@ -135,10 +140,7 @@ impl Machine<'_> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         let function = self.functions.close;
-        self.emit(erased_shape(), body, |_| AssignmentKind::DirectCall {
-            function,
-            arguments: vec![boundary],
-        })
+        self.call(function, vec![boundary], body)
     }
 
     pub(super) fn start_boundary(mut self) -> Function {
@@ -149,7 +151,7 @@ impl Machine<'_> {
     }
 
     pub(super) fn boundary_check(mut self) -> Function {
-        let boundary = self.lower.fresh(erased_shape());
+        let boundary = self.lower.fresh(repr(self.layout.boundary));
         let mut cases = Vec::new();
         for case in 0..2 {
             let mut branch = Vec::new();
@@ -176,7 +178,7 @@ impl Machine<'_> {
     }
 
     pub(super) fn boundary_close(mut self) -> Function {
-        let boundary = self.lower.fresh(erased_shape());
+        let boundary = self.lower.fresh(repr(self.layout.boundary));
         let mut cases = Vec::new();
         for case in 0..2 {
             let mut branch = Vec::new();

@@ -42,8 +42,9 @@ them:
 | AC-04 | Captured values remain valid | GC during suspension, polymorphic capture recovery, foreign buffer/resource lifetime tests, and unsupported capture rejection | Unverified |
 | AC-05 | Native execution preserves selected handler semantics | Deep/shallow boundary tests; distinguish one-shot rejection from permitted multi-shot behavior; suspension is not optimized away | Unverified |
 
-The evidence sections below record focused runtime validation. No official
-PureScript differential validation has been run for the control surface. Record
+The evidence sections below record focused runtime validation. Official `purs`
+type comparisons are recorded in the v2 section; complete pinned upstream-library
+differential acceptance remains unverified. Record
 further evidence with compiler/package identities, commands, actual outputs, and any
 skips. Do not infer topic completion from existing generic compiler tests.
 
@@ -698,3 +699,71 @@ Logs: `/private/tmp/psrs-control-typed-frames-workspace.log`,
 `/private/tmp/psrs-control-typed-frames-doctests.log`. No official scoreboard or
 upstream type comparison is rerun for this internal storage change; the prior
 package type/source evidence is retained rather than remeasured here.
+
+## Typed machine helpers and captures (2026-10-12)
+
+Starting point: compiler `5c78fa78`, a clean worktree and unchanged default locked
+stdlib. The lifetime, nested replay and primitive-value targets pass at this
+checkpoint and after migration. Baseline:
+`/private/tmp/psrs-control-typed-calls-before.log`; focused result:
+`/private/tmp/psrs-control-typed-calls-focused.log`.
+
+Previously, stored fields were nominal but synthesized helpers immediately
+erased projections and passed every argument/result as erased data. The raw
+resume closure also declared its queue and checkpoint captures as erased. This
+continuation removes those unnecessary erasures. Layout predeclares the complete
+helper signatures; registration, call construction and function result checking
+consume them, without allocating late SignatureIds or duplicating the registry.
+
+| Helper | Parameters | Result |
+| --- | --- | --- |
+| Executor | Erased state, unary handler, computation, queue, active extent, dispatch context | Erased user state/answer pair |
+| Clone sequence | Queue, traversal stack, reversed queue, active extent, parent extent | Replay result |
+| Rebuild sequence | Reversed queue, result queue, active extent, parent extent | Replay result |
+| Start boundary | None | Boundary |
+| Check/close boundary | Boundary | Boundary |
+| Once | Unary callback | Owner |
+| Cancel | Owner | Owner |
+
+Replay result is a dedicated product with nominal queue and active-extent
+fields; it cannot be recovered as an ordinary user state/answer pair. Machine
+constructors, projections, status cells and raw resume captures retain their
+nominal shapes. User callback application alone adapts its arguments and result
+through the existing erased curry protocol. Clearing a spent owner's callback
+uses an explicit reference erasure, retaining the shared status-cell identity.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Reject erased and wrong helper arguments | `control_helper_calls_reject_erased_and_cross_wired_machine_arguments`: executor, clone/rebuild, lifetime and once/cancel | Focused Verified |
+| Distinguish replay result from user pair | `control_replay_result_cannot_be_declared_as_an_erased_user_pair` rejects an erased call-result declaration | Focused Verified |
+| Preserve queue/checkpoint capture roles | `raw_resumption_capture_preserves_queue_and_checkpoint_shapes` accepts typed capture and rejects swapped/duplicate capture slots through common closure verification | Focused Verified |
+| Preserve helper roles into target calls | `mir_rejects_machine_call_arguments_with_swapped_queue_and_extent` lowers valid CC calls into MIR tail calls, then rejects wrong argument types | Focused Verified |
+| Require production lowering to retain these contracts | `control_machine_preserves_nominal_capture_and_replay_contracts` lowers checked source to CC and inspects actual executor parameters, raw captures, replay products and lifetime helpers | Focused Verified |
+| Prove source/target domain relation and exact checkpoint owner | Different checkpoints still share `Boundary`; the source/target request and answer relation is checked in Core and not retained as a semantic domain contract in CC/MIR | Unverified |
+
+No source control scheme, package revision, intrinsic identity, effect inference
+or scoreboard measurement changes. This supplies nominal call/capture contracts,
+not the complete semantic provenance proof. The remaining verifier must retain
+the source/target contract identities and distinguish captured checkpoint owners,
+replay activations and completion boundaries even when their physical shapes
+match. Complete AE/AC requirements stay Unverified.
+
+The four new backend malformed-IR tests pass, and the source-to-CC test passes.
+Logs: `/private/tmp/psrs-control-typed-calls-ir.log` and
+`/private/tmp/psrs-control-typed-calls-source-ir.log`.
+
+Final validation uses default locked package selection and Wasmtime 49.0.2
+(`3c8a3e79a`), with no development package override. Formatting, diff checking
+and `cargo clippy --workspace --all-targets -- -D warnings` pass.
+`PSRS_REQUIRE_WASMTIME=1 cargo test --workspace --no-fail-fast` executes all
+431 backend tests, all 80 control tests and the new source-to-CC test successfully.
+The full run still fails at the same nine non-doc targets and 175 test names;
+failure-name comparison with the previous storage checkpoint adds or recovers
+no names. Doctests complete without the prior dependency-artifact errors.
+The final workspace run is serial with respect to other Cargo commands.
+
+Logs: `/private/tmp/psrs-control-typed-calls-workspace.log`,
+`/private/tmp/psrs-control-typed-calls-comparison.json`, and
+`/private/tmp/psrs-control-typed-calls-clippy.log`. Upstream type comparison,
+package conformance and official scoreboards are not rerun for this internal
+machine change; their previous evidence is retained. No gate count is updated.

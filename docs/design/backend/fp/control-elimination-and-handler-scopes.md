@@ -173,20 +173,28 @@ predeclared unary callable shape. Only user requests, answers and the mutable
 callback-cell contents use erased storage. A spent owner clears its callback
 slot with another erased reference while its integer status cell stays shared.
 
-The erased carrier/helper protocol uses explicit reference casts to recover
-these existing machine objects before construction. This is not source payload
-recovery: adapting array contents here would copy a status cell and invalidate
+The source carrier and user callback protocol use explicit reference casts to
+recover these existing machine objects before construction. This is not source
+payload recovery: adapting array contents here would copy a status cell and invalidate
 ownership/lifetime sharing. Projections produce their declared stored shape;
-erasure for a helper call is a separate conversion. CC verifies construction
+erasure for a user callback is a separate conversion. CC verifies construction
 and projection shapes, and the target planner retains them as MIR struct field
 types, including recursive queue/context/extent references.
 
-These storage contracts reject a queue supplied as a finish extent and an
-erased field projection declared without an explicit conversion. They do not
+Machine helper signatures preserve the callable, computation, queue, extent,
+context and owner shapes. A raw resumption captures a typed queue and typed
+checkpoint extent; closure capture verification checks those same shapes.
+Replay returns a dedicated product of `(queue, activeExtent)`, distinct from
+the erased user `(state, answer)` protocol. Ordinary helpers and self tail-call
+loop parameters retain those types; crossing the user callback protocol erases
+only the callback arguments/results that require it.
+
+These contracts reject a queue supplied as a finish extent or helper argument,
+and an erased field projection declared without an explicit conversion. They do not
 prove which particular extent owns a checkpoint or that two same-shaped fields
 have compatible source/target domains. Full semantic provenance verification
-must additionally retain those identities through helper calls and casts; a
-well-shaped reference cast alone is not that proof.
+must additionally retain those semantic identities through helper calls and
+casts; a well-shaped reference cast alone is not that proof.
 
 ### Alternatives
 

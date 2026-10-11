@@ -1,19 +1,18 @@
 //! Instantiate lifecycle frames when replaying a persistent source checkpoint.
 //! Ordinary callbacks and one-shot owner objects are shared, never cloned.
 
-use super::builder::Machine;
+use super::builder::{Machine, repr};
 use super::executor::arm;
-use crate::cc::payload::erased_shape;
 use crate::cc::{Assignment, AssignmentKind, Function, ValueId};
 
 impl Machine<'_> {
     /// Flatten into a reversed heap sequence with an explicit traversal stack.
     pub(super) fn clone_sequence(mut self) -> Function {
-        let queue = self.lower.fresh(erased_shape());
-        let todo = self.lower.fresh(erased_shape());
-        let reversed = self.lower.fresh(erased_shape());
-        let active = self.lower.fresh(erased_shape());
-        let parent = self.lower.fresh(erased_shape());
+        let queue = self.lower.fresh(repr(self.layout.sequence));
+        let todo = self.lower.fresh(repr(self.layout.sequence));
+        let reversed = self.lower.fresh(repr(self.layout.sequence));
+        let active = self.lower.fresh(repr(self.layout.boundary));
+        let parent = self.lower.fresh(repr(self.layout.boundary));
         let mut cases = Vec::new();
         let mut body = Vec::new();
         let mut empty_cases = Vec::new();
@@ -36,7 +35,9 @@ impl Machine<'_> {
                         &mut branch,
                     )
                 } else {
-                    self.emit(erased_shape(), &mut branch, |_| AssignmentKind::Unreachable)
+                    self.emit(repr(self.layout.replay_result), &mut branch, |_| {
+                        AssignmentKind::Unreachable
+                    })
                 }
             };
             empty_cases.push(arm(tag, branch, result));
@@ -83,13 +84,13 @@ impl Machine<'_> {
 
     /// Rebuild from the outside inward, giving each finish a fresh child extent.
     pub(super) fn rebuild_sequence(mut self) -> Function {
-        let reversed = self.lower.fresh(erased_shape());
-        let result_queue = self.lower.fresh(erased_shape());
-        let active = self.lower.fresh(erased_shape());
-        let parent = self.lower.fresh(erased_shape());
+        let reversed = self.lower.fresh(repr(self.layout.sequence));
+        let result_queue = self.lower.fresh(repr(self.layout.sequence));
+        let active = self.lower.fresh(repr(self.layout.boundary));
+        let parent = self.lower.fresh(repr(self.layout.boundary));
         let mut cases = Vec::new();
         let mut branch = Vec::new();
-        let result = self.pair(result_queue, active, &mut branch);
+        let result = self.replay_result(result_queue, active, &mut branch);
         cases.push(arm(0, branch, result));
         for tag in [1, 3] {
             let mut branch = Vec::new();
@@ -127,9 +128,45 @@ impl Machine<'_> {
         arguments: Vec<ValueId>,
         body: &mut Vec<Assignment>,
     ) -> ValueId {
-        self.emit(erased_shape(), body, |_| AssignmentKind::DirectCall {
-            function,
-            arguments,
+        self.call(function, arguments, body)
+    }
+
+    fn replay_result(
+        &mut self,
+        queue: ValueId,
+        active: ValueId,
+        body: &mut Vec<Assignment>,
+    ) -> ValueId {
+        let representation = self.layout.replay_result;
+        self.emit(repr(representation), body, |destination| {
+            AssignmentKind::ProductNew {
+                destination,
+                representation,
+                arguments: vec![queue, active],
+            }
+        })
+    }
+
+    pub(super) fn replay_field(
+        &mut self,
+        value: ValueId,
+        field: u32,
+        body: &mut Vec<Assignment>,
+    ) -> ValueId {
+        let representation = self.layout.replay_result;
+        let Some(crate::cc::Representation::Product { fields }) =
+            self.lower.representations.representation(representation)
+        else {
+            unreachable!("predeclared replay result product");
+        };
+        let shape = *fields
+            .get(field as usize)
+            .expect("predeclared replay result field");
+        self.emit(shape, body, |destination| AssignmentKind::ProductGet {
+            destination,
+            representation,
+            field,
+            value,
         })
     }
 }

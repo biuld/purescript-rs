@@ -22,6 +22,9 @@ pub(in crate::cc) struct ControlLayout {
     pub status: ReprId,
     pub start: SignatureId,
     pub boundary_check: SignatureId,
+    pub once: SignatureId,
+    pub cancel: SignatureId,
+    pub replay_result: ReprId,
 }
 
 pub(in crate::cc) fn append(
@@ -94,6 +97,14 @@ pub(in crate::cc) fn append(
             vec![reference(RefShape::Repr(status)), extent],
         ],
     );
+    let replay_result = table.reserve();
+    table.set(
+        replay_result,
+        Representation::Product {
+            fields: vec![queue, extent],
+        },
+    );
+    let replay = reference(RefShape::Repr(replay_result));
     let labels = vec!["_1".to_owned(), "_2".to_owned()];
     let pair = super::protocols::record(table, &labels).unwrap_or_else(|| {
         let pair = table.reserve();
@@ -107,24 +118,40 @@ pub(in crate::cc) fn append(
         pair
     });
     let executor = table.add_signature(Signature {
-        parameters: vec![erased; 6],
+        parameters: vec![
+            erased,
+            callable,
+            frame,
+            queue,
+            extent,
+            reference(RefShape::Repr(context)),
+        ],
         result: erased,
     });
     let clone_sequence = table.add_signature(Signature {
-        parameters: vec![erased; 5],
-        result: erased,
+        parameters: vec![queue, queue, queue, extent, extent],
+        result: replay,
     });
     let rebuild_sequence = table.add_signature(Signature {
-        parameters: vec![erased; 4],
-        result: erased,
+        parameters: vec![queue, queue, extent, extent],
+        result: replay,
     });
     let start = table.add_signature(Signature {
         parameters: vec![],
-        result: erased,
+        result: extent,
     });
     let boundary_check = table.add_signature(Signature {
-        parameters: vec![erased],
-        result: erased,
+        parameters: vec![extent],
+        result: extent,
+    });
+    let owner_shape = reference(RefShape::Repr(owner));
+    let once = table.add_signature(Signature {
+        parameters: vec![callable],
+        result: owner_shape,
+    });
+    let cancel = table.add_signature(Signature {
+        parameters: vec![owner_shape],
+        result: owner_shape,
     });
     ControlLayout {
         computation,
@@ -141,6 +168,9 @@ pub(in crate::cc) fn append(
         status,
         start,
         boundary_check,
+        once,
+        cancel,
+        replay_result,
     }
 }
 

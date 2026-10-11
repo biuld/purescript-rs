@@ -1,14 +1,20 @@
 //! One-shot ownership is consumed at interpretation, before invoking user code.
 
-use super::builder::Machine;
+use super::builder::{Machine, repr};
 use crate::cc::payload::erased_shape;
 use crate::cc::{Assignment, Function, ValueId};
 
 impl Machine<'_> {
     pub(super) fn owned(mut self) -> Function {
-        let continuation = self.lower.fresh(erased_shape());
+        let signature = self
+            .lower
+            .representations
+            .signature(self.layout.once)
+            .unwrap();
+        let continuation = self.lower.fresh(signature.parameters[0]);
         let mut body = Vec::new();
-        let callback = self.new_cell(self.layout.callback, continuation, &mut body);
+        let erased = self.cast(continuation, erased_shape(), &mut body);
+        let callback = self.new_cell(self.layout.callback, erased, &mut body);
         let status = self.new_status(&mut body);
         let result = self.node(self.layout.owner, 0, vec![callback, status], &mut body);
         let symbol = self.functions.once;
@@ -16,7 +22,7 @@ impl Machine<'_> {
     }
 
     pub(super) fn cancel(mut self) -> Function {
-        let owner = self.lower.fresh(erased_shape());
+        let owner = self.lower.fresh(repr(self.layout.owner));
         let mut body = Vec::new();
         let status = self.field(owner, self.layout.owner, 0, 1, &mut body);
         self.guard_pending(status, &mut body);

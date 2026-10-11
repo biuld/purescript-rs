@@ -68,6 +68,9 @@ impl<'a> Machine<'a> {
         shape: ValueShape,
         body: &mut Vec<Assignment>,
     ) -> ValueId {
+        if self.value_shape(value) == shape {
+            return value;
+        }
         let ValueShape::Reference(reference) = shape else {
             unreachable!("machine casts only references");
         };
@@ -91,15 +94,14 @@ impl<'a> Machine<'a> {
             .lower
             .control_fields(representation, case, fields, self.span, body)
             .expect("machine construction must match its predeclared frame schema");
-        let value = self.emit(repr(representation), body, |destination| {
+        self.emit(repr(representation), body, |destination| {
             AssignmentKind::VariantNew {
                 destination,
                 representation,
                 case,
                 fields,
             }
-        });
-        self.cast(value, erased_shape(), body)
+        })
     }
 
     pub fn field(
@@ -112,21 +114,18 @@ impl<'a> Machine<'a> {
     ) -> ValueId {
         let value = self.cast(value, repr(representation), body);
         let shape = self.lower.control_field_shape(representation, case, field);
-        let result = self.emit(shape, body, |destination| AssignmentKind::VariantGet {
+        self.emit(shape, body, |destination| AssignmentKind::VariantGet {
             destination,
             representation,
             case,
             field,
             value,
-        });
-        if shape == erased_shape() {
-            result
-        } else {
-            self.cast(result, erased_shape(), body)
-        }
+        })
     }
 
     pub fn pair(&mut self, state: ValueId, value: ValueId, body: &mut Vec<Assignment>) -> ValueId {
+        let state = self.cast(state, erased_shape(), body);
+        let value = self.cast(value, erased_shape(), body);
         let representation = self.layout.pair;
         let value = self.emit(repr(representation), body, |destination| {
             AssignmentKind::ProductNew {
@@ -156,9 +155,16 @@ impl<'a> Machine<'a> {
         })
     }
 
-    pub fn capture(&mut self, closure: ValueId, index: u32, body: &mut Vec<Assignment>) -> ValueId {
-        self.emit(erased_shape(), body, |_| {
-            AssignmentKind::ClosureGetCapture { closure, index }
+    pub fn capture(
+        &mut self,
+        closure: ValueId,
+        index: u32,
+        shape: ValueShape,
+        body: &mut Vec<Assignment>,
+    ) -> ValueId {
+        self.emit(shape, body, |_| AssignmentKind::ClosureGetCapture {
+            closure,
+            index,
         })
     }
 
@@ -169,14 +175,13 @@ impl<'a> Machine<'a> {
         captures: Vec<ValueId>,
         body: &mut Vec<Assignment>,
     ) -> ValueId {
-        let value = self.emit(reference(RefShape::Closure(signature)), body, |_| {
+        self.emit(reference(RefShape::Closure(signature)), body, |_| {
             AssignmentKind::FunctionRef {
                 function,
                 signature,
                 captures,
             }
-        });
-        self.cast(value, erased_shape(), body)
+        })
     }
 
     /// Use the common curry protocol; every intermediate result is erased.
@@ -188,11 +193,12 @@ impl<'a> Machine<'a> {
     ) -> ValueId {
         let signature = self.layout.continuation;
         for argument in arguments {
+            let argument = self.cast(*argument, erased_shape(), body);
             let callable = self.cast(function, reference(RefShape::Closure(signature)), body);
             function = self.emit(erased_shape(), body, |_| AssignmentKind::IndirectCall {
                 function: callable,
                 signature,
-                arguments: vec![*argument],
+                arguments: vec![argument],
             });
         }
         function
@@ -215,10 +221,28 @@ impl<'a> Machine<'a> {
             self.boundary.unwrap(),
             self.context.unwrap(),
         ];
-        self.emit(erased_shape(), body, |_| AssignmentKind::DirectCall {
-            function,
-            arguments,
-        })
+        self.call(function, arguments, body)
+    }
+
+    pub fn call(
+        &mut self,
+        function: SymbolId,
+        arguments: Vec<ValueId>,
+        body: &mut Vec<Assignment>,
+    ) -> ValueId {
+        let signature = self.functions.signature(self.layout, function);
+        self.lower
+            .control_call(function, signature, arguments, self.span, body)
+            .expect("generated call must match its predeclared signature")
+    }
+
+    pub fn value_shape(&self, value: ValueId) -> ValueShape {
+        self.lower
+            .values
+            .iter()
+            .find(|declaration| declaration.id == value)
+            .map(|declaration| declaration.ty)
+            .expect("declared machine value")
     }
 
     pub fn switch(
@@ -236,13 +260,14 @@ impl<'a> Machine<'a> {
                 value,
             }
         });
-        let trap = self.lower.fresh(erased_shape());
+        let shape = self.value_shape(cases.first().expect("machine switch has cases").value);
+        let trap = self.lower.fresh(shape);
         let default_assignments = vec![Assignment {
             destination: trap,
             kind: AssignmentKind::Unreachable,
             span: self.span,
         }];
-        self.emit(erased_shape(), body, |_| AssignmentKind::TagSwitch {
+        self.emit(shape, body, |_| AssignmentKind::TagSwitch {
             value: tag,
             cases,
             default_assignments,
@@ -251,20 +276,33 @@ impl<'a> Machine<'a> {
     }
 
     pub fn finish(
-        self,
+        mut self,
         symbol: SymbolId,
         name: &str,
         parameters: Vec<ValueId>,
-        assignments: Vec<Assignment>,
+        mut assignments: Vec<Assignment>,
         result: ValueId,
     ) -> Function {
+        let result_type = if symbol == self.functions.resume {
+            erased_shape()
+        } else {
+            self.lower
+                .representations
+                .signature(self.functions.signature(self.layout, symbol))
+                .expect("predeclared machine signature")
+                .result
+        };
+        let result = self
+            .lower
+            .control_values(vec![result], vec![result_type], self.span, &mut assignments)
+            .expect("machine result must match its predeclared signature")[0];
         Function {
             symbol,
             name: name.into(),
             parameters,
             assignments,
             result,
-            result_type: erased_shape(),
+            result_type,
             values: self.lower.values,
             span: self.span,
         }
