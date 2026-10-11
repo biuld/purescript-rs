@@ -321,6 +321,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             newtype_ids: self.newtype_ids,
             boxed_integer_type: self.boxed_integer_type,
             boxed_number_type: self.boxed_number_type,
+            control_type: self.control_type,
             array_types: self.array_types,
             record_types: self.record_types,
             constructor_tags: self.constructor_tags,

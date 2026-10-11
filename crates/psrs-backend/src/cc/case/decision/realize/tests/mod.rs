@@ -144,6 +144,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         newtype_ids: &newtype_ids,
         boxed_integer_type: None,
         boxed_number_type: None,
+        control_type: None,
         array_types: &array_types,
         record_types: &record_types,
         constructor_tags: &constructor_tags,

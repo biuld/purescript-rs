@@ -18,19 +18,17 @@ fn every_active_identity_has_an_explicit_implementation() {
                     intrinsic.descriptor().arity as usize
                 );
             }
-            Implementation::Unsupported => assert!(
-                matches!(
+            Implementation::Unsupported => assert_eq!(intrinsic, Intrinsic::Undefined),
+            Implementation::Control => {
+                assert!(matches!(
                     intrinsic,
-                    Intrinsic::Undefined
-                        | Intrinsic::ControlReturn
+                    Intrinsic::ControlReturn
                         | Intrinsic::ControlBind
                         | Intrinsic::ControlPerform
                         | Intrinsic::ControlRun
                         | Intrinsic::ControlHandle
-                ),
-                "{} has no explicit implementation",
-                intrinsic.descriptor().name
-            ),
+                ));
+            }
             Implementation::Generated(_) | Implementation::Elaborated => {}
         }
     }

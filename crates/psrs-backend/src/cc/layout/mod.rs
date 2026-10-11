@@ -1,5 +1,8 @@
 use super::VariantCase;
-use super::{ReprId, Representation, RepresentationTable, Signature, SignatureId, ValueShape};
+use super::{
+    RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, SignatureId,
+    ValueShape,
+};
 use crate::BackendError;
 use psrs_core::{Module as CoreModule, Type, TypeConstructor, TypeId};
 use psrs_hir::{SymbolId, TypeId as HirTypeId, TypeVariableId};
@@ -178,6 +181,38 @@ pub(super) fn type_layout(
 ) -> Result<TypeLayout, Vec<BackendError>> {
     let mut representations = RepresentationTable::default();
 
+    // The frame representation shared by every `Control f a` instantiation: a
+    // tagged variant with `Return` (one erased value), `Perform` (an erased
+    // request and its erased continuation), and `Bind` (an inner computation
+    // and its erased continuation).
+    let control_type = {
+        let erased = ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Erased,
+        });
+        let id = representations.reserve();
+        representations.set(
+            id,
+            Representation::Variant {
+                cases: vec![
+                    VariantCase {
+                        tag: 0,
+                        fields: vec![erased],
+                    },
+                    VariantCase {
+                        tag: 1,
+                        fields: vec![erased],
+                    },
+                    VariantCase {
+                        tag: 2,
+                        fields: vec![erased, erased],
+                    },
+                ],
+            },
+        );
+        Some(id)
+    };
+
     let boxed_integer_type = if module
         .types
         .iter()
@@ -250,7 +285,11 @@ pub(super) fn type_layout(
     let record_types = aggregate_layouts.records;
 
     let mut constructor_types = HashMap::new();
-    let mut aggregate_ids = aggregate_types.iter().copied().collect::<Vec<_>>();
+    let mut aggregate_ids = aggregate_types
+        .iter()
+        .copied()
+        .filter(|id| *id != HirTypeId::CONTROL)
+        .collect::<Vec<_>>();
     aggregate_ids.sort_by_key(|id| (id.module.0, id.index));
     for type_id in aggregate_ids {
         let id = representations.reserve();
@@ -312,6 +351,7 @@ pub(super) fn type_layout(
         boxed_integer_type,
         boxed_number_type,
         function_types,
+        control_type,
     })
 }
 
@@ -328,6 +368,8 @@ pub(super) struct TypeLayout {
     pub(super) boxed_integer_type: Option<ReprId>,
     pub(super) boxed_number_type: Option<ReprId>,
     pub(super) function_types: HashMap<TypeId, SignatureId>,
+    /// The shared frame representation for `Control f a` values.
+    pub(super) control_type: Option<ReprId>,
 }
 
 pub(super) fn newtype_field_type(module: &CoreModule, type_id: HirTypeId) -> Option<TypeId> {

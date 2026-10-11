@@ -51,6 +51,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         newtype_ids: &ids,
         boxed_integer_type: None,
         boxed_number_type: None,
+        control_type: None,
         array_types: &reprs,
         record_types: &reprs,
         constructor_tags: &tags,

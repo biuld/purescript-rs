@@ -93,11 +93,67 @@ main :: Int
 main = 0
 "#;
 
+use std::process::Command;
+
+/// The `return`-only path lowers to a frame and executes: `main` reads the
+/// `(state, value)` result of the closed `run`.
+const RETURNS_AND_RUNS: &str = r#"module Main where
+
+import Prim.Control as C
+
+data Op next = Op (Int -> next)
+
+program :: C.Control Op Int
+program = C.return 42
+
+result :: { _1 :: Int, _2 :: Int }
+result = C.run 0 handler program
+  where
+  handler :: forall x. Int -> Op x -> (x -> C.Control Op Int) -> { _1 :: Int, _2 :: C.Control Op Int }
+  handler s (Op k) cont = { _1: s, _2: cont (k s) }
+
+main :: Int
+main = result._2
+"#;
+
 #[test]
 fn control_surface_typechecks() {
     if let Err(errors) = psrs_driver::check_source("Main.purs", ACCEPTS) {
         panic!("control surface rejected: {errors:?}");
     }
+}
+
+#[test]
+fn executes_a_returning_computation() {
+    let available = Command::new("wasmtime")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !available {
+        assert_ne!(
+            std::env::var("PSRS_REQUIRE_WASMTIME").as_deref(),
+            Ok("1"),
+            "control execution requires wasmtime"
+        );
+        eprintln!("skipping control execution: wasmtime is unavailable");
+        return;
+    }
+    let artifact = psrs_driver::compile_source("Main.purs", RETURNS_AND_RUNS)
+        .expect("compile the returning computation");
+    let path =
+        std::env::temp_dir().join(format!("psrs-control-return-{}.wasm", std::process::id()));
+    std::fs::write(&path, &artifact.wasm).expect("write component");
+    let output = Command::new("wasmtime")
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("run component");
+    let _ = std::fs::remove_file(path);
+    assert_eq!(
+        output.status.code(),
+        Some(42),
+        "expected the returning computation to exit 42, got {output:?}"
+    );
 }
 
 #[test]

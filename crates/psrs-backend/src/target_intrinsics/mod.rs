@@ -28,6 +28,9 @@ pub(crate) enum Implementation {
     Generated(GeneratedOperation),
     Artifact(&'static ArtifactImplementation),
     Elaborated,
+    /// A compiler-owned delimited-control primitive, lowered to frame
+    /// construction or the executor by CC.
+    Control,
     Unsupported,
 }
 
@@ -125,7 +128,7 @@ pub(crate) fn implementation(intrinsic: Intrinsic) -> Implementation {
         | Intrinsic::ControlBind
         | Intrinsic::ControlPerform
         | Intrinsic::ControlRun
-        | Intrinsic::ControlHandle => Unsupported,
+        | Intrinsic::ControlHandle => Control,
     }
 }
 
