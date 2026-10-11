@@ -1,0 +1,47 @@
+pub(super) const DEEP: &str = r"module Main where
+import Prim.Control as C
+data Op x = Op (Int -> x)
+deep :: Int -> C.Control Op Int -> C.Control Op { count :: Int, value :: Int }
+deep count body = C.handle
+  (\value -> C.return { count: count, value: value })
+  (\(Op k) raw -> deep (intAdd count 1) (raw (k 0)))
+  body
+root :: forall x. Int -> Op x -> (x -> C.Control Op { count :: Int, value :: Int }) -> { _1 :: Int, _2 :: C.Control Op { count :: Int, value :: Int } }
+root s (Op k) raw = { _1: s, _2: raw (k 0) }
+build :: Int -> C.Control Op Int
+build n = if intEq n 0 then C.return 42 else C.bind (C.perform (Op (\x -> x))) (\_ -> build (intSub n 1))
+result = (C.run 0 root (deep 0 (build STEPS)))._2
+main = if intEq result.count STEPS then result.value else 0
+";
+
+pub(super) const FORWARDED: &str = r"module Main where
+import Prim.Control as C
+data F x = F (Int -> x)
+data G x = G (Int -> x)
+data U x = UF (F x) | UG (G x)
+fold :: Int -> C.Control U Int -> C.Control G { count :: Int, value :: Int }
+fold count body = C.handle
+  (\value -> C.return { count: count, value: value })
+  (\request raw -> case request of
+    UF (F k) -> fold (intAdd count 1) (raw (k 0))
+    UG op -> C.bind (C.perform op) (\answer -> fold count (raw answer)))
+  body
+root :: forall x. Int -> G x -> (x -> C.Control G { count :: Int, value :: Int }) -> { _1 :: Int, _2 :: C.Control G { count :: Int, value :: Int } }
+root s (G k) raw = { _1: intAdd s 1, _2: raw (k 0) }
+build :: Int -> C.Control U Int
+build n = if intEq n 0 then C.return 42 else C.bind (C.perform (UF (F (\x -> x)))) (\_ -> C.bind (C.perform (UG (G (\x -> x)))) (\_ -> build (intSub n 1)))
+result = C.run 0 root (fold 0 (build STEPS))
+main = if intEq result._1 STEPS then if intEq result._2.count STEPS then result._2.value else 0 else 0
+";
+
+pub(super) const NESTED: &str = r"module Main where
+import Prim.Control as C
+data Op x = Op (Int -> x)
+clause :: forall x. Op x -> (x -> C.Control Op Int) -> C.Control Op Int
+clause (Op k) raw = raw (k 0)
+nest :: Int -> C.Control Op Int
+nest n = if intEq n 0 then C.return 42 else C.bind (C.handle C.return clause (nest (intSub n 1))) (\n -> C.return n)
+root :: forall x. Int -> Op x -> (x -> C.Control Op Int) -> { _1 :: Int, _2 :: C.Control Op Int }
+root s (Op k) raw = { _1: s, _2: raw (k 0) }
+main = (C.run 0 root (nest STEPS))._2
+";

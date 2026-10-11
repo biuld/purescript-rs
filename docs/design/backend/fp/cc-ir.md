@@ -621,6 +621,12 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
   `Module::verify` before lowering.
 - **Output.** A verified `cc::Module` carried in a `BackendInput` together with
   the bindings that P9 needs. CC is target-neutral: it names no layout.
+- **Explicit backend entry.** `compile_cc(BackendInput)` consumes this boundary
+  under the default target profile. It rechecks CC, then uses the ordinary MIR
+  lowering/optimization and checked target emission. It trusts source typing
+  and source binding conformance already discharged by P8; it does not recover
+  those contracts from erased CC. Inspection tools can add ordinary checked
+  assignments before this entry without bypassing downstream verification.
 - **To P9 (MIR).** CC supplies representation requirements, function
   signatures, aggregate conversion plans, and ordered assignments. P9 chooses
   the layout, builds the Wasm type table, lowers aggregate maps, and converts

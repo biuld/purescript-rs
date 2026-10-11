@@ -8,6 +8,7 @@ mod assertions;
 mod closure_protocol;
 mod coercion;
 mod control_contracts;
+mod control_costs;
 mod data_function;
 mod data_tuple;
 mod declaration_calls;

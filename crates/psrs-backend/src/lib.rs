@@ -131,6 +131,13 @@ pub fn compile(module: psrs_core::Module) -> Result<Artifact, Vec<BackendError>>
     Ok(compile_with_stages(module)?.artifact)
 }
 
+/// Emits an artifact from a P8 input using the default target profile. Source
+/// typing and binding conformance belong to P8; this entry rechecks CC and all
+/// subsequent representation contracts, including modified inspection inputs.
+pub fn compile_cc(input: BackendInput) -> Result<Artifact, Vec<BackendError>> {
+    pipeline::compile_cc(input)
+}
+
 /// The default-profile validator, retained for backend unit tests.
 #[allow(dead_code)]
 pub(crate) fn validator() -> wasmparser::Validator {

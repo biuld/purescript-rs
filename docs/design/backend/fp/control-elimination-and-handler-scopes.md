@@ -163,6 +163,10 @@ branch completes independently. Shared tail finish groups close at their common
 answer boundary; replay-local captures still expire at branch completion.
 Long request sequences require allocation and ancestor-depth evidence as well
 as stack evidence. Any optimization must preserve the observable expiry rules.
+The cost tests inspect actual parent chains at extent allocation using ordinary
+checked IR probes and record post-collection live heap and collection counts at
+fixed initial heap size. This distinguishes retained ancestry from allocation
+churn; collection counts are not a measurement of exact total allocated bytes.
 
 ### Machine storage contracts
 

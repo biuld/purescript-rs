@@ -12,7 +12,9 @@ mod variant;
 use helpers::{verify_capture_layout, verify_value_shape};
 use ops::{verify_assignments, verify_table};
 
-pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
+/// Checks target-neutral value, representation and callable contracts. Source
+/// typing and complete semantic control provenance remain producer obligations.
+pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     verify_table(&module.representations, module.span)?;
     let mut signatures = HashMap::new();
     let mut functions_by_symbol = HashMap::new();

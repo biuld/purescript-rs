@@ -17,6 +17,7 @@ mod representation;
 mod scalar;
 mod source_abi;
 mod verify;
+pub use verify::verify_module;
 
 pub(crate) use source_abi::abstract_signature;
 

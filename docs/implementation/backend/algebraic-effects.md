@@ -811,3 +811,102 @@ Logs: `/private/tmp/psrs-control-mir-captures-workspace.log`,
 `/private/tmp/psrs-control-mir-captures-clippy.log`. Pinned upstream-library
 conformance, explicit official type comparison and scoreboards are not rerun;
 no gate measurement or topic-completion status changes.
+
+## Tail-handler ancestry and GC cost evidence (2026-10-12)
+
+Starting point: clean compiler `148e706b`, with the same locked stdlib revision
+`5d523805c4e2096e68fab5a4f965f62b225ee2af`. The existing long-request tests only
+observed native stack safety. They did not inspect extent ancestry or retained
+heap. This slice supplies those measurements without adding a control intrinsic.
+
+`tests::control_costs` lowers checked source to CC and inserts an ordinary
+direct-call probe after every boundary allocation in the generated machine,
+including nested branches and replay helpers. The probe walks the actual parent
+chain and traps when its budget is exceeded. `compile_cc(BackendInput)` rechecks
+CC and runs the ordinary MIR, optimization, linking and Wasm emission. A malformed
+instrumented input is rejected before emission. The same layouts, source control
+schemes, capture slots and lifecycle transitions are used by production lowering.
+The instrumentation adds no heap objects to the machine.
+
+`control_tail_handlers_bound_extent_ancestry_and_post_gc_live_heap` executes
+deep reinstatement and mixed handled/forwarded loops at three scales. Each run
+asserts the final value 42 and the exact source/outer request counts. Every new
+extent has at most two parent edges. With a 65,536-byte initial GC heap and actual
+copying collections observed under Wasmtime 49.0.2 (`3c8a3e79a`), the results are:
+
+| Workload | Steps | Collections | Maximum post-GC live bytes | Component fingerprint (`fnv1a64-v1`) |
+| --- | ---: | ---: | ---: | --- |
+| Deep | 1,000 | 94 | 1,408 | `3dd8da22d97c8e7d` |
+| Deep | 10,000 | 941 | 1,408 | `88b822c5f0cf24ef` |
+| Deep | 100,000 | 9,411 | 1,472 | `9e9c3d60547570a9` |
+| Mixed forwarding | 1,000 | 393 | 1,440 | `3d7123bbbf850041` |
+| Mixed forwarding | 10,000 | 3,934 | 1,440 | `65b8375305188f41` |
+| Mixed forwarding | 100,000 | 39,344 | 1,440 | `d1bea8d6df3f2cd0` |
+
+These are measurements of instrumented workloads, not a general bound on all
+programs. Collections measure churn at a fixed initial heap size; they do not
+measure exact total allocated bytes or timing without the probe/logging overhead.
+Post-GC live bytes measure retained objects at collection points. Together with
+the ancestry guard, they reject unbounded inactive parent retention in these
+tail-handler loops. The test uses a 16,384-byte live-heap ceiling to allow ordinary
+layout and root-set variation while still detecting retained linear growth.
+
+`control_ancestry_probe_observes_independent_non_tail_extents` executes eight
+nested handles separated by user continuations. A budget of eight returns 42;
+a budget of seven produces a guest trap without a cast failure. This establishes
+that the probe observes actual ancestry and that the machine preserves distinct
+non-tail scopes. Existing non-tail multi-shot and branch-expiry execution remains
+separate semantic evidence.
+
+Reproduce the focused measurement with:
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib control_costs -- --nocapture
+```
+
+Source, component, GC trace and JSON reports are retained under the OS temporary
+directory as `psrs-control-cost-{deep,forwarded}-{steps}-2.{purs,wasm,gc.log,json}`;
+the nested controls use `psrs-control-cost-nested-8-{8,7}`. JSON records the
+component fingerprint, observed exit, configured heap, ancestry guard and GC
+observations. Focused log: `/private/tmp/psrs-control-costs-focused.log`.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Bound inactive ancestry for long tail deep/forwarded loops | Actual allocation-site parent walks at all three scales, budget two | Focused Verified |
+| Measure retained heap and churn separately from native stack | Required copying collections, live-byte ceiling and retained scale reports | Focused Verified |
+| Preserve independent non-tail scopes and prove probe execution | Eight-versus-seven ancestry-budget control | Focused Verified |
+| Keep instrumented execution inside stage contracts | `control_cost_pipeline_rejects_a_malformed_instrumented_input`; common CC/MIR verifiers and target pipeline | Focused Verified |
+| Complete semantic identities, foreign lifetime, caught traps and pinned library acceptance | This measurement does not discharge those obligations | Unverified |
+
+Final validation: `cargo fmt --all --check`, diff checking and
+`cargo clippy --workspace --all-targets -- -D warnings` pass.
+`PSRS_REQUIRE_WASMTIME=1 cargo test --workspace --no-fail-fast` passes all 435
+backend tests, all 80 control integration tests and the three new cost tests.
+It still fails at the same nine targets and 175 test names as the preceding
+checkpoint; failure-name comparison adds or recovers no names. Logs:
+`/private/tmp/psrs-control-costs-workspace.log`,
+`/private/tmp/psrs-control-costs-comparison.json`, and
+`/private/tmp/psrs-control-costs-clippy.log`. Explicit upstream type comparison,
+package conformance and scoreboards are not rerun for this internal cost slice.
+No gate measurement or complete AE/AC status changes.
+
+### Completion audit after the cost slice
+
+The objective remains complete delimited control, followed by native Effect/ST.
+The governing designs keep those owners separate. Before advancing to the native
+facades, remaining mechanism acceptance must cover:
+
+- Retained checked source/target domain relationships and exact checkpoint,
+  replay-activation and finish-boundary provenance, with malformed-IR rejection.
+- Foreign-buffer/resource capture validity and explicit unsupported-boundary
+  rejection; ordinary GC captures do not supply this evidence.
+- A defined caught-host-trap recovery/cleanup boundary and actual recovery
+  execution; terminal guest traps alone do not supply it.
+- Complete pinned upstream library/source and execution comparisons for the
+  generic handler model, including the remaining row/representation interactions.
+- Cost evidence for the remaining required control forms and an explicit account
+  of total allocation where the selected acceptance contract requires it.
+
+AE-11 native host interpretation and the official Effect/ST facades belong to the
+subsequent native topic. This dependency ordering does not change their required
+acceptance or narrow any AC requirement above.

@@ -9,7 +9,10 @@ use crate::{
 
 use crate::{cc, mir};
 
+mod cc_input;
 mod emission;
+
+pub(crate) use cc_input::compile as compile_cc;
 
 pub(crate) fn compile_with_context_inner(
     module: psrs_core::Module,

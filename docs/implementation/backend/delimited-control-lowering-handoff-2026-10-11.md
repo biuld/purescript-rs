@@ -27,8 +27,14 @@ The continuation from `d2125f5c` extends capture-role checking through MIR:
 local closure construction must supply the types read by its target's surviving
 receiver projections, including receiver copies/casts and sparse optimized
 slots. The checklist records malformed-IR evidence and validation separately.
-Full frame/context identity verification, allocation/depth measurements, foreign
-resources and caught-trap cleanup remain outstanding.
+The continuation from `148e706b` adds actual parent-chain guards and GC cost
+measurements for long deep and mixed-forwarding loops. New extent ancestry stays
+at most two edges for the measured workloads; independent non-tail scopes remain
+separate. The checklist records scale, artifacts and the distinction between
+live heap, collection churn and exact total allocation.
+Full frame/context identity verification, general allocation bounds, foreign
+resources and caught-trap cleanup remain outstanding. Complete delimited-control
+acceptance precedes the requested native Effect/ST implementation.
 
 ## Governing contracts
 
