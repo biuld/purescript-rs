@@ -1,7 +1,9 @@
 # Algebraic Effects: Proposed Acceptance Checklist
 
 **Status:** Design only; all requirements below are Unverified.  
-**Design:** [Library-owned algebraic effects and handlers](../../design/backend/fp/algebraic-effects-and-handlers.md).  
+**Design:** [Library-owned algebraic effects and handlers](../../design/backend/fp/algebraic-effects-and-handlers.md)
+(library model) and [Delimited control and resumable frames](../../design/backend/fp/delimited-control-and-resumable-frames.md)
+(compiler mechanism).  
 **Decision:** [DEC-19](../../decision/DEC-19-compiler-generated-resumable-frames.md)
 selects compiler-generated resumable frames as the generic handler/interruption
 mechanism.  
@@ -34,7 +36,7 @@ them:
 
 | ID | Requirement | Required evidence | Status |
 | --- | --- | --- | --- |
-| AC-01 | Typed control API is compatible with the language decision | Reviewed DEC-03 amendment (DEC-19) and complete suspension/delimiter/resumption contracts | Unverified |
+| AC-01 | Typed control API is compatible with the language decision | Reviewed DEC-03 amendment (DEC-19) and the complete `Control f a` carrier plus `return`/`bind`/`perform`/`run` contracts | Unverified |
 | AC-02 | The selected representation can capture and resume | Actual target execution of resumable frames at supported boundaries, stack safety, and capability gating; no silent fallback | Unverified |
 | AC-03 | Resumption multiplicity and lifetime are enforced | Double resume, re-entrant resume, cancellation, non-resuming clauses, and expired-boundary tests | Unverified |
 | AC-04 | Captured values remain valid | GC during suspension, polymorphic capture recovery, foreign buffer/resource lifetime tests, and unsupported capture rejection | Unverified |
@@ -43,3 +45,23 @@ them:
 No runtime or differential validation was run for this design. Record future
 evidence with compiler/package identities, commands, actual outputs, and any
 skips. Do not infer topic completion from existing generic compiler tests.
+
+## Prototype evidence (2026-10-11)
+
+`crates/psrs-driver/tests/effect_representation.rs` compiles and executes a
+self-contained prototype of the shared representation the design requires before
+the native lowering: a rank-N eliminator whose method is rank-1 polymorphic, two
+facades (`Effect`, `ST`) over the same computation field, an `unsafeCoerce` Global
+conversion, and a pure interpreter. Mandatory `wasmtime` execution returns 42. Run
+it with the locked standard library:
+
+```sh
+PSRS_STDLIB_ROOT=<locked stdlib> PSRS_REQUIRE_WASMTIME=1 \
+  cargo test -p psrs-driver --test effect_representation
+```
+
+This is representation and interpretation evidence only. It does not establish
+AE-04/AE-05/AE-06 (row-based handlers, deep/shallow, forwarding), AE-07 (captures,
+rank-N interpreter arguments, higher-order calls, signature adapters), or any
+`AC-*` obligation, because the compiler-generated resumable-frame mechanism is not
+implemented. No status above changes.

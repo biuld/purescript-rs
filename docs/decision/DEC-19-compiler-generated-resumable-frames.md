@@ -4,8 +4,9 @@
 **Date:** 2026-10-11  
 **Amends:** [DEC-03](DEC-03-purescript-faithful-type-system.md), the clause that
 keeps delimited continuations out of every IR.  
-**Governed by:** [F-02](../feature/F-02-portable-programs.md) and
-[algebraic effects and handlers](../design/backend/fp/algebraic-effects-and-handlers.md).
+**Governed by:** [F-02](../feature/F-02-portable-programs.md),
+[delimited control and resumable frames](../design/backend/fp/delimited-control-and-resumable-frames.md),
+and [library-owned algebraic effects](../design/backend/fp/algebraic-effects-and-handlers.md).
 
 ## Context and constraints
 
@@ -67,7 +68,10 @@ DEC-03's prohibition of delimited continuations in the IRs is narrowed: a
 the backend MIR), and a small abstract control surface may appear at the boundary
 that the library builds on. DEC-03's type-system decision is retained: there are
 no frontend effect rows, no compiler-known handlers, and no compiler-native effect
-system; effects remain a library encoding.
+system; effects remain a library encoding. No effect tracking or effect reasoning
+is added to the type system: the compiler does not infer, propagate, or solve
+effect requirements, and does not reason about which effects a function may
+perform.
 
 ## Alternatives considered
 
@@ -102,6 +106,6 @@ system; effects remain a library encoding.
   host/foreign frame, multi-shot replay of mutable state, and continuation
   lifetime are explicit contracts, not automatic guarantees.
 - The design document
-  [`algebraic-effects-and-handlers.md`](../design/backend/fp/algebraic-effects-and-handlers.md)
+  [`delimited-control-and-resumable-frames.md`](../design/backend/fp/delimited-control-and-resumable-frames.md)
   is the source of truth for the mechanism, its lowering, and the comparison with
   stack switching. Implementation follows it.
