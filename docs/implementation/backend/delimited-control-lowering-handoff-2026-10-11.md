@@ -23,6 +23,10 @@ The 2026-10-12 continuation starts from `5c78fa78` and retains these nominal
 types across executor/lifetime/replay calls and raw resumption captures. Replay
 returns a dedicated typed queue/activation product. Details and remaining
 semantic identity obligations are in the checklist's typed helper section.
+The continuation from `d2125f5c` extends capture-role checking through MIR:
+local closure construction must supply the types read by its target's surviving
+receiver projections, including receiver copies/casts and sparse optimized
+slots. The checklist records malformed-IR evidence and validation separately.
 Full frame/context identity verification, allocation/depth measurements, foreign
 resources and caught-trap cleanup remain outstanding.
 

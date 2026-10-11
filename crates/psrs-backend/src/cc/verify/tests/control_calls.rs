@@ -178,8 +178,7 @@ fn mir_rejects_machine_call_arguments_with_swapped_queue_and_extent() {
     }
 }
 
-#[test]
-fn raw_resumption_capture_preserves_queue_and_checkpoint_shapes() {
+fn raw_capture_module() -> Module {
     let mut table = RepresentationTable::default();
     let continuation = table.add_signature(Signature {
         parameters: vec![erased_shape()],
@@ -242,14 +241,19 @@ fn raw_resumption_capture_preserves_queue_and_checkpoint_shapes() {
         result_type: closure,
         span,
     };
-    let module = Module {
+    Module {
         name: "RawCapture".into(),
         functions: vec![caller, target],
         externals: vec![],
         representations: table,
         entry: None,
         span,
-    };
+    }
+}
+
+#[test]
+fn raw_resumption_capture_preserves_queue_and_checkpoint_shapes() {
+    let module = raw_capture_module();
     verify_module(&module).expect("typed checkpoint capture");
     for captures in [vec![ValueId(1), ValueId(0)], vec![ValueId(0), ValueId(0)]] {
         let mut invalid = module.clone();
@@ -261,6 +265,125 @@ fn raw_resumption_capture_preserves_queue_and_checkpoint_shapes() {
         };
         *actual = captures;
         let errors = verify_module(&invalid).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("captures do not match")),
+            "{errors:?}"
+        );
+    }
+}
+
+#[test]
+fn mir_raw_resumption_rejects_swapped_duplicate_and_missing_captures() {
+    let module = raw_capture_module();
+    let (mir, _) = crate::mir::lower_module(module).expect("typed raw captures lower");
+    crate::mir::verify_module(&mir).expect("typed MIR captures");
+    for slots in [vec![1, 0], vec![0, 0], vec![0]] {
+        let mut invalid = mir.clone();
+        let instruction = &mut invalid.functions[0].blocks[0].instructions[0];
+        let crate::mir::Instruction::ClosureNew { captures, .. } = instruction else {
+            panic!("expected raw closure construction");
+        };
+        *captures = slots.into_iter().map(crate::types::ValueId).collect();
+        let errors = crate::mir::verify_module(&invalid).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("captures do not match")),
+            "{errors:?}"
+        );
+    }
+}
+
+#[test]
+fn mir_capture_contract_survives_sparse_projections_after_optimization() {
+    let (mut mir, _) = crate::mir::lower_module(raw_capture_module()).unwrap();
+    // Dead projection elimination may leave slot 1 without slot 0. Stored
+    // captures are unchanged; MIR must check the surviving slot by its index.
+    mir.functions[1].blocks[0].instructions.remove(0);
+    crate::mir::verify_module(&mir).expect("sparse live projection contract");
+    let crate::mir::Instruction::ClosureNew { captures, .. } =
+        &mut mir.functions[0].blocks[0].instructions[0]
+    else {
+        unreachable!()
+    };
+    captures.swap(0, 1);
+    assert!(
+        crate::mir::verify_module(&mir)
+            .unwrap_err()
+            .iter()
+            .any(|error| error.message.contains("captures do not match"))
+    );
+}
+
+#[test]
+fn mir_capture_contract_rejects_inconsistent_reads_of_one_slot() {
+    let (mut mir, _) = crate::mir::lower_module(raw_capture_module()).unwrap();
+    let crate::mir::Instruction::ClosureGetCapture { index, .. } =
+        &mut mir.functions[1].blocks[0].instructions[1]
+    else {
+        unreachable!()
+    };
+    *index = 0;
+    let errors = crate::mir::verify_module(&mir).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("incompatible projection types")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn mir_capture_contract_tracks_receiver_copies_and_reference_casts() {
+    let (mir, _) = crate::mir::lower_module(raw_capture_module()).unwrap();
+    for cast in [false, true] {
+        let mut module = mir.clone();
+        let target = &mut module.functions[1];
+        let receiver = target.parameters[0];
+        let ty = target
+            .values
+            .iter()
+            .find(|value| value.id == receiver)
+            .unwrap()
+            .ty;
+        let alias = crate::types::ValueId(4);
+        target
+            .values
+            .push(crate::types::ValueDecl { id: alias, ty });
+        for instruction in &mut target.blocks[0].instructions {
+            if let crate::mir::Instruction::ClosureGetCapture { closure, .. } = instruction {
+                *closure = alias;
+            }
+        }
+        let span = target.span;
+        let copy = if cast {
+            let crate::types::ValueType::Ref(reference) = ty else {
+                unreachable!()
+            };
+            crate::mir::Instruction::RefCast {
+                destination: alias,
+                value: receiver,
+                reference,
+                span,
+            }
+        } else {
+            crate::mir::Instruction::Copy {
+                destination: alias,
+                value: receiver,
+                span,
+            }
+        };
+        target.blocks[0].instructions.insert(0, copy);
+        crate::mir::verify_module(&module).expect("receiver aliases retain the contract");
+        let crate::mir::Instruction::ClosureNew { captures, .. } =
+            &mut module.functions[0].blocks[0].instructions[0]
+        else {
+            unreachable!()
+        };
+        captures.swap(0, 1);
+        let errors = crate::mir::verify_module(&module).unwrap_err();
         assert!(
             errors
                 .iter()

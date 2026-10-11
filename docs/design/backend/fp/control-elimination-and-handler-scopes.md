@@ -184,6 +184,14 @@ types, including recursive queue/context/extent references.
 Machine helper signatures preserve the callable, computation, queue, extent,
 context and owner shapes. A raw resumption captures a typed queue and typed
 checkpoint extent; closure capture verification checks those same shapes.
+MIR checks each locally constructed closure against the surviving capture
+projections of its code target before nullable `eqref` storage erases slot types.
+Receiver copies and reference casts preserve this relation. The contract is
+sparse after dead projection elimination: unused stored slots may remain, but
+every surviving slot must exist and supply a compatible type. Repeated reads
+of one receiver slot must agree. Imported code and projections from unrelated
+closure values remain trusted boundaries; this check does not infer their
+capture contracts from a physical closure type.
 Replay returns a dedicated product of `(queue, activeExtent)`, distinct from
 the erased user `(state, answer)` protocol. Ordinary helpers and self tail-call
 loop parameters retain those types; crossing the user callback protocol erases

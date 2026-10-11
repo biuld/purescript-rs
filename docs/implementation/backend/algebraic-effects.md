@@ -767,3 +767,47 @@ Logs: `/private/tmp/psrs-control-typed-calls-workspace.log`,
 `/private/tmp/psrs-control-typed-calls-clippy.log`. Upstream type comparison,
 package conformance and official scoreboards are not rerun for this internal
 machine change; their previous evidence is retained. No gate count is updated.
+
+## MIR closure capture contracts (2026-10-12)
+
+Starting point: clean compiler `d2125f5c`, default locked package selection.
+Baseline: `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --test
+control_scoped_replay --test control_lifetime` passes all eight runtime tests
+(`/private/tmp/psrs-control-mir-captures-before.log`). The owning boundary is
+MIR closure construction: the previous verifier checked eqref representability
+without relating capture slots to the locally defined target's projections.
+
+Common MIR module verification now derives slot types from surviving projections
+of the target receiver, following receiver copies and reference casts. Every
+local `ClosureNew` must supply compatible values at those indices. Conflicting
+reads of one receiver slot are invalid. After optimization, projection contracts
+may be sparse; the verifier neither renumbers slots nor requires unused stored
+captures to disappear. Imported targets and projections from unrelated closure
+values retain their trusted boundary. No synthesized function name or control
+intrinsic is used to interpret the contract.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Preserve raw queue/checkpoint roles through MIR capture storage | `mir_raw_resumption_rejects_swapped_duplicate_and_missing_captures` lowers valid CC, then mutates MIR slots | Focused Verified |
+| Check surviving slots after dead projection elimination | `mir_capture_contract_survives_sparse_projections_after_optimization` accepts a live slot 1 without slot 0, then rejects the wrong stored value | Focused Verified |
+| Reject contradictory receiver reads | `mir_capture_contract_rejects_inconsistent_reads_of_one_slot` | Focused Verified |
+| Preserve receiver identity across ordinary aliases | `mir_capture_contract_tracks_receiver_copies_and_reference_casts` accepts both aliases and rejects wrong captures through each | Focused Verified |
+| Prove exact checkpoint owner and source/target domains | Nominally identical boundaries still have no semantic provenance proof | Unverified |
+
+This extends nominal capture-role verification to MIR; complete AE/AC identity,
+foreign-resource, cleanup and allocation obligations remain outstanding.
+
+Validation uses default locked package selection with mandatory Wasmtime 49.0.2
+(`3c8a3e79a`). `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace --no-fail-fast`
+passes all 435 backend tests and all 80 control tests. The workspace still fails
+at the same nine targets and 175 test names as `d2125f5c`; comparison adds or
+recovers no names. After preserving the owning module in the new diagnostics,
+the backend suite is rerun on the final source. Formatting, diff checking and
+`cargo clippy --workspace --all-targets -- -D warnings` pass.
+
+Logs: `/private/tmp/psrs-control-mir-captures-workspace.log`,
+`/private/tmp/psrs-control-mir-captures-comparison.json`,
+`/private/tmp/psrs-control-mir-captures-backend.log`, and
+`/private/tmp/psrs-control-mir-captures-clippy.log`. Pinned upstream-library
+conformance, explicit official type comparison and scoreboards are not rerun;
+no gate measurement or topic-completion status changes.

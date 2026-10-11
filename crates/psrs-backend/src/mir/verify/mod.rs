@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 mod array_map;
 mod call;
 mod capability;
+mod captures;
 mod function;
 mod instruction;
 mod subtype;
@@ -65,6 +66,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     }
     let defined_types = defined_type_count(module);
     let defined = defined_types_list(module);
+    captures::verify(module, &defined, &mut errors);
     let mut function_ids = HashSet::new();
     for (position, function) in module.functions.iter().enumerate() {
         if !function_ids.insert(function.id) || function.id != FunctionId(position as u32) {
