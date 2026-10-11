@@ -910,3 +910,80 @@ facades, remaining mechanism acceptance must cover:
 AE-11 native host interpretation and the official Effect/ST facades belong to the
 subsequent native topic. This dependency ordering does not change their required
 acceptance or narrow any AC requirement above.
+
+
+### Checked source contracts through physical lowering (2026-10-12)
+
+This continuation starts from compiler `2e88d656`. Core's existing control checks
+now have one shared API, `checked_control_contract`, returning a sealed proof.
+Core verification still traverses the operand expressions and supplies its scoped
+type view. P8 checks the same operation contract, quotes its complete result,
+arguments and source/target domains, and plans the factory representation/case or
+helper signature before the CC representation table becomes immutable.
+
+The quotations retain nested quantifiers, binder identities, stable constructors
+and open rows. Canonical type identities are allocated using Core's existing
+rigid equality; the backend does not infer effect rows or add a private relation.
+`ControlEvidence` is an explicit erasure-boundary witness. CC checks the actual
+factory's ordered operands, allowing the checked representation conversions, and
+requires inert frame results to be the proven construction. Known control
+producers in the same CC assignment sequence must supply the expected canonical source type. MIR retains the source
+proof, validates references/arity/result shape and checks known producer domains
+through copies/casts after optimization. The final encoder emits only a value
+copy. No new source intrinsic, heap frame or host import is added.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Share the authoritative checked source contract | Core `checked_control_proof_retains_both_domains_and_the_full_clause_type`; existing malformed carrier/callable tests | Focused Verified |
+| Retain distinct request/answer domains and rank-two clauses through P10 | `checked_domains_and_rank_two_clause_survive_physical_lowering`, actual checked F/Int to G/Boolean source | Focused Verified |
+| Reject missing contract references | `cc_rejects_a_dangling_control_contract`, `mir_rejects_a_dangling_control_contract_after_optimization` | Focused Verified |
+| Connect proven operands to actual frame construction | `cc_rejects_a_frame_that_does_not_save_the_proven_source_body`; legal cast shapes with wrong saved operand | Focused Verified |
+| Reject a known target-domain body as a source computation despite compatible physical storage | `cc_rejects_a_same_shape_body_from_the_target_domain`, `mir_rejects_an_operand_from_the_other_checked_domain` | Focused Verified |
+| Establish complete semantic provenance | Parameters, ordinary call results, imports, aggregate projections, CC parent-sequence values and joins without local witnesses remain trusted; exact checkpoint/replay/finish identity is absent | Unverified |
+
+MIR trusts P9's translation of the checked factory connection; this unit does not
+reconstruct that proof from physical struct instructions or establish helper
+implementation identity from a matching signature. The complete AE/AC rows stay
+Unverified. Foreign resource/buffer capture, caught-host-trap cleanup, full pinned
+library acceptance and the remaining cost obligations also remain open.
+
+Focused validation passes 435 backend and 95 Core tests, 21 surface/scoped tests,
+and 11 filtered driver tests (including the six new source/provenance tests and
+the existing three ancestry/GC cost tests). Logs:
+`/private/tmp/psrs-control-contracts-backend.log`,
+`/private/tmp/psrs-control-contracts-focused.log`, and
+`/private/tmp/psrs-control-contracts-driver.log`.
+
+The six long-loop cost measurements are rerun with the existing scales, 65,536-byte
+initial heap, ancestry bound two and live-heap ceiling 16,384 bytes. Collection
+counts and maximum post-GC live bytes remain exactly those measured in the prior
+cost slice. Component identities change because live witnesses encode value
+copies; this continuation's retained reports record:
+
+| Workload | Steps | Component fingerprint (`fnv1a64-v1`) |
+| --- | ---: | --- |
+| Deep | 1,000 | `5ed1de202d259abd` |
+| Deep | 10,000 | `4b2c2d30ffa39ce5` |
+| Deep | 100,000 | `c27e72b4855c6211` |
+| Mixed forwarding | 1,000 | `4cb540e330538aed` |
+| Mixed forwarding | 10,000 | `2df8c32f11ae2d73` |
+| Mixed forwarding | 100,000 | `c4a675dd4d73a60c` |
+
+Reports use the same OS temporary paths recorded in the cost slice. These
+measurements still do not supply a general allocation bound or exact total
+allocated bytes. The unchanged semantic and lifetime obligations must be
+completed before starting native Effect/ST.
+
+Final integrated validation: `cargo fmt --all --check`, `git diff --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` pass.
+`PSRS_REQUIRE_WASMTIME=1 cargo test --workspace --no-fail-fast` executes every
+workspace target. All 435 backend tests, 95 Core tests, 80 control integration
+tests, six new driver source/provenance tests and three existing cost tests pass.
+The nine failing targets and 175 failed test names are exactly the same as at
+`2e88d656`; the comparison adds or recovers no names. This is a failure-name
+comparison, not a new classification of each baseline cause. Logs and comparison:
+`/private/tmp/psrs-control-contracts-workspace.log`,
+`/private/tmp/psrs-control-contracts-comparison.json`, and
+`/private/tmp/psrs-control-contracts-clippy.log`. Explicit upstream type comparison,
+package conformance and suite scoreboards are not rerun for this internal stage
+contract unit; no measured gate number changes.

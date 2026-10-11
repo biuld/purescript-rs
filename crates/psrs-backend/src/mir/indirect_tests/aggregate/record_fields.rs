@@ -61,6 +61,7 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
         product_labels: [(ReprId(2), vec!["inner".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -189,6 +190,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
         product_labels: [(ReprId(2), vec!["inner".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

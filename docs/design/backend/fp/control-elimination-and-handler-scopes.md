@@ -201,12 +201,42 @@ the erased user `(state, answer)` protocol. Ordinary helpers and self tail-call
 loop parameters retain those types; crossing the user callback protocol erases
 only the callback arguments/results that require it.
 
-These contracts reject a queue supplied as a finish extent or helper argument,
-and an erased field projection declared without an explicit conversion. They do not
-prove which particular extent owns a checkpoint or that two same-shaped fields
-have compatible source/target domains. Full semantic provenance verification
-must additionally retain those semantic identities through helper calls and
-casts; a well-shaped reference cast alone is not that proof.
+These storage contracts reject a queue supplied as a finish extent or helper
+argument, and an erased projection declared without an explicit conversion.
+Source semantic contracts have a separate owner. Core exposes a sealed checked
+contract for each of the eight operations; both its verifier and P8 consume the
+same carrier, callable and quantified-answer checks. Planning quotes the complete
+result and operand types before freezing the representation table. The quotation
+retains stable constructors, free variables, lexical `forall` binders and open
+rows without retaining Core arena indices. Canonical source type identities use
+Core's rigid equality, including alpha-equivalence and its existing row relation.
+CC does not implement another effect type checker.
+
+At each source erasure boundary, `ControlEvidence` connects the immutable
+contract to the represented result, original erased operands and actual frame
+construction or helper call. CC checks the predeclared frame case/representation
+or helper signature and ordered operands through reference erasure/recovery
+aliases. Frame results must be the proven construction. When an operand comes
+from another control witness in the same CC assignment sequence, its canonical source type must match the
+consumer's checked operand type. Thus identical runtime shapes do not permit
+exchanging a known source computation with a target computation.
+
+P9 preserves the witness as an SSA instruction. MIR checks its contract and
+arity, verifies ordinary SSA use/definition and result type rules, and compares
+known producer domains through copies and reference casts. Optimizations remap
+all evidence operands with their ordinary value substitutions. Live witnesses
+survive P10; dead, pure witnesses may disappear with unused inert results. Wasm
+encoding finally erases the proof and emits only the represented value copy.
+There is no additional source intrinsic, runtime frame or host callback protocol.
+
+This is a partial semantic provenance contract. Parameter values, imported and
+ordinary higher-order call results, aggregate projections and control-flow joins
+without a local witness remain trusted Core/P8 producer boundaries. MIR trusts
+P9's translation of the checked factory relationship; it does not reconstruct
+that relationship from physical struct instructions. A matching helper signature
+does not prove a helper's implementation identity. Exact checkpoint ownership,
+replay activation and matched finish provenance must still be carried and
+verified; neither a well-shaped cast nor a quoted source type proves them.
 
 ### Alternatives
 

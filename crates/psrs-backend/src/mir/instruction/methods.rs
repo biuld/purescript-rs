@@ -7,6 +7,7 @@ impl Instruction {
     pub fn destination(&self) -> Option<ValueId> {
         match self {
             Self::Copy { destination, .. }
+            | Self::ControlEvidence { destination, .. }
             | Self::Constant { destination, .. }
             | Self::NumberConstant { destination, .. }
             | Self::ArrayNewData { destination, .. }
@@ -70,6 +71,16 @@ impl Instruction {
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
             Self::Copy { value, .. } => vec![*value],
+            Self::ControlEvidence {
+                value,
+                implementation,
+                arguments,
+                ..
+            } => {
+                let mut uses = arguments.clone();
+                uses.extend([*value, *implementation]);
+                uses
+            }
             Self::Constant { .. } | Self::NumberConstant { .. } | Self::ArrayNewData { .. } => {
                 Vec::new()
             }
@@ -161,6 +172,7 @@ impl Instruction {
     pub fn span(&self) -> TextRange {
         match self {
             Self::Copy { span, .. }
+            | Self::ControlEvidence { span, .. }
             | Self::Constant { span, .. }
             | Self::NumberConstant { span, .. }
             | Self::ArrayNewData { span, .. }

@@ -1,4 +1,10 @@
 pub mod command;
+mod control;
+pub use control::{CheckedControlContract, ControlDomain, checked_control_contract};
+/// The Core owner's rigid type relation, including lexical alpha-equivalence.
+pub fn equivalent_types(left: TypeId, right: TypeId, module: &Module) -> bool {
+    verify::equivalent_types(left, right, module)
+}
 pub mod dictionary;
 mod instantiation;
 mod link;

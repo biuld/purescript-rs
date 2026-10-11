@@ -8,6 +8,11 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 mod case;
+mod control_contract;
+pub use control_contract::{
+    ControlContract, ControlContractId, ControlDomain, SourceTypeIdentityId,
+    TypeConstructorIdentity, TypeIdentity,
+};
 mod convert;
 mod layout;
 mod lower;
@@ -83,6 +88,14 @@ pub struct Assignment {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssignmentKind {
+    /// Retains the checked source operation at its explicit P8 erasure boundary.
+    /// The runtime result is the existing value; Wasm encoding erases this witness.
+    ControlEvidence {
+        value: ValueId,
+        implementation: ValueId,
+        arguments: Vec<ValueId>,
+        contract: ControlContractId,
+    },
     Constant(i32),
     NumberConstant(String),
     StringConstant(String),

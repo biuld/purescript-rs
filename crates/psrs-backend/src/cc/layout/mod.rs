@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 mod aggregate;
 mod captures;
 pub(in crate::cc) mod control;
+pub(in crate::cc) mod control_contracts;
 mod declaration;
 mod functions;
 pub(crate) mod protocols;
@@ -310,6 +311,9 @@ pub(super) fn type_layout(
     let uses_control = module.types.iter().any(|ty| matches!(ty,
         Type::Constructor(TypeConstructor::User(id)) if *id == HirTypeId::CONTROL || *id == HirTypeId::RESUMPTION));
     let control_layout = uses_control.then(|| control::append(&mut representations, function_slot));
+    if let Some(control) = control_layout {
+        control_contracts::append(module, &mut representations, control)?;
+    }
     Ok(TypeLayout {
         function_slot,
         protocols,

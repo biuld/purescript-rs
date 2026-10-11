@@ -42,6 +42,7 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
         ],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

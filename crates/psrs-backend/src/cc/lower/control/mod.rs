@@ -63,16 +63,58 @@ impl FunctionLowerer<'_> {
         ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
+        let proof = psrs_core::checked_control_contract(
+            self.module,
+            intrinsic,
+            expression.ty,
+            &arguments
+                .iter()
+                .map(|argument| argument.ty)
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|message| control_error(expression.span, message))?;
+        let contract =
+            crate::cc::layout::control_contracts::lookup(self.module, self.representations, &proof)
+                .ok_or_else(|| {
+                    control_error(
+                        expression.span,
+                        "control use has no predeclared checked contract",
+                    )
+                })?;
+        let fields = arguments
+            .iter()
+            .map(|argument| self.lower_array_element(argument, assignments))
+            .collect::<Result<Vec<_>, _>>()?;
+        let (value, implementation) =
+            self.lower_control_frame(expression, intrinsic, fields.clone(), ty, assignments)?;
+        let destination = self.fresh(ty);
+        assignments.push(Assignment {
+            destination,
+            kind: AssignmentKind::ControlEvidence {
+                value,
+                implementation,
+                arguments: fields,
+                contract,
+            },
+            span: expression.span,
+        });
+        Ok(destination)
+    }
+
+    fn lower_control_frame(
+        &mut self,
+        expression: &Expr,
+        intrinsic: Intrinsic,
+        fields: Vec<ValueId>,
+        ty: ValueShape,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<(ValueId, ValueId), Vec<BackendError>> {
         let layout = self.control_layout.ok_or_else(|| {
             control_error(
                 expression.span,
                 "control primitive used without a frame representation",
             )
         })?;
-        let fields = arguments
-            .iter()
-            .map(|argument| self.lower_array_element(argument, assignments))
-            .collect::<Result<Vec<_>, _>>()?;
         if matches!(intrinsic, Intrinsic::ControlOnce | Intrinsic::ControlCancel) {
             let functions = self.ensure_control_functions(layout, expression.span)?;
             let function = if intrinsic == Intrinsic::ControlOnce {
@@ -94,20 +136,23 @@ impl FunctionLowerer<'_> {
                     kind: AssignmentKind::Constant(0),
                     span: expression.span,
                 });
-                return Ok(unit);
+                return Ok((unit, result));
             }
             let conversion = self.recover_payload(ty, expression.span)?;
             let source = builder::repr(layout.owner);
-            return Ok(self.emit_conversion(
+            return Ok((
+                self.emit_conversion(
+                    result,
+                    source,
+                    ty,
+                    crate::cc::ValueConversion::Sequence(vec![
+                        crate::cc::ValueConversion::EraseReference,
+                        conversion,
+                    ]),
+                    expression.span,
+                    assignments,
+                ),
                 result,
-                source,
-                ty,
-                crate::cc::ValueConversion::Sequence(vec![
-                    crate::cc::ValueConversion::EraseReference,
-                    conversion,
-                ]),
-                expression.span,
-                assignments,
             ));
         }
         if intrinsic == Intrinsic::ControlRun {
@@ -154,13 +199,16 @@ impl FunctionLowerer<'_> {
                 assignments,
             )?;
             let conversion = self.recover_payload(ty, expression.span)?;
-            return Ok(self.emit_conversion(
+            return Ok((
+                self.emit_conversion(
+                    result,
+                    erased_shape(),
+                    ty,
+                    conversion,
+                    expression.span,
+                    assignments,
+                ),
                 result,
-                erased_shape(),
-                ty,
-                conversion,
-                expression.span,
-                assignments,
             ));
         }
         let case = match intrinsic {
@@ -189,7 +237,7 @@ impl FunctionLowerer<'_> {
             },
             span: expression.span,
         });
-        Ok(destination)
+        Ok((destination, destination))
     }
 
     fn control_empty_sequence(

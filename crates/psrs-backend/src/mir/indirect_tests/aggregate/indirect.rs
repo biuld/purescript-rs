@@ -45,6 +45,7 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
         ],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

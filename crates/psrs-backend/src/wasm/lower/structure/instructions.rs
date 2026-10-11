@@ -12,6 +12,12 @@ impl Structurer<'_> {
                     destination,
                     value,
                     span,
+                }
+                | MirInstruction::ControlEvidence {
+                    destination,
+                    value,
+                    span,
+                    ..
                 } => {
                     self.load(body, *value, *span)?;
                     self.store(body, *destination, *span)?;

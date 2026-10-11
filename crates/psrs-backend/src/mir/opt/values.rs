@@ -123,6 +123,20 @@ pub(crate) fn remap_instruction(
         *value = mapping.get(value).copied().unwrap_or(*value);
     };
     match instruction {
+        I::ControlEvidence {
+            destination,
+            value,
+            implementation,
+            arguments,
+            ..
+        } => {
+            replace(destination);
+            replace(value);
+            replace(implementation);
+            for argument in arguments {
+                replace(argument);
+            }
+        }
         I::Copy {
             destination, value, ..
         } => {

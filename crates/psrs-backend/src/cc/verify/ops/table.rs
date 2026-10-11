@@ -8,6 +8,18 @@ pub(crate) fn verify_table(
     table: &RepresentationTable,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
+    for proof in &table.control_contracts {
+        if proof.argument_identities().len() != proof.arguments().len()
+            || std::iter::once(&proof.result_identity())
+                .chain(proof.argument_identities())
+                .any(|id| table.source_type_identities.get(id.0 as usize).is_none())
+        {
+            return Err(table_error(
+                span,
+                "control contract has no canonical source type identity",
+            ));
+        }
+    }
     for (index, representation) in table.representations.iter().enumerate() {
         match representation {
             Representation::Box { value } | Representation::Array { element: value } => {

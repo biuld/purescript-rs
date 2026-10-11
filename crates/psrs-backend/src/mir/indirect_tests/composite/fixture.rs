@@ -67,6 +67,7 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
         .into_iter()
         .map(|(id, labels)| (id, labels.into_iter().map(String::from).collect()))
         .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

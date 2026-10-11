@@ -32,6 +32,12 @@ measurements for long deep and mixed-forwarding loops. New extent ancestry stays
 at most two edges for the measured workloads; independent non-tail scopes remain
 separate. The checklist records scale, artifacts and the distinction between
 live heap, collection churn and exact total allocation.
+The continuation from `2e88d656` shares Core's checked control contract with
+P8, quotes complete source/target types into the immutable CC table and retains
+operation witnesses through optimized MIR. CC checks actual factory operands;
+CC/MIR reject a locally proven computation from an incompatible semantic domain.
+The checklist records focused structural and malformed-IR evidence and the
+remaining trusted producer boundaries.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

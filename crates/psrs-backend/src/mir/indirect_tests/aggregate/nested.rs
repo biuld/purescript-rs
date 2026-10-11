@@ -53,6 +53,7 @@ pub(super) fn nested_variant_fixture() -> (cc::Module, ExternalBindings, Resolve
         ],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -164,6 +165,7 @@ pub(super) fn nested_record_fixture() -> (cc::Module, ExternalBindings, Resolve)
         product_labels: [(ReprId(2), vec!["x".to_string(), "y".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -271,6 +273,7 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
         product_labels: [(ReprId(2), vec!["x".to_string(), "y".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

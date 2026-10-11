@@ -15,6 +15,7 @@ use tag_switch::verify_tag_switch;
 
 mod aggregate;
 mod arrays;
+mod control;
 mod string_bytes;
 mod table;
 mod tag_switch;
@@ -35,6 +36,9 @@ pub(super) fn verify_assignments(
     for assignment in assignments {
         let mut uses = Vec::new();
         match &assignment.kind {
+            AssignmentKind::ControlEvidence { .. } => {
+                uses = control::verify(assignment, declared, table, assignments, signatures)?;
+            }
             AssignmentKind::AggregateConvert {
                 destination,
                 value,

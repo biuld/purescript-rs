@@ -45,6 +45,7 @@ pub(super) fn wide_scalar_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         ],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -151,6 +152,7 @@ pub(super) fn wide_scalar_parameter_fixture() -> (cc::Module, ExternalBindings, 
         ],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

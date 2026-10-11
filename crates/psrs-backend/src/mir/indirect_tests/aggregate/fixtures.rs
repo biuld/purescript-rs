@@ -66,6 +66,7 @@ pub(super) fn fixture_with_representations(
         representations,
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -174,6 +175,7 @@ pub(super) fn parameter_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         ],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

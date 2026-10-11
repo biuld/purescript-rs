@@ -111,3 +111,44 @@ fn verifier_rejects_a_forged_source_payload_at_the_common_constructor() {
         "control primitive does not preserve its checked carrier and callable contracts"
     ));
 }
+
+#[test]
+fn checked_control_proof_retains_both_domains_and_the_full_clause_type() {
+    let module = fixture(false, false);
+    let expression = &module.declarations[0].value;
+    let ExprKind::IntrinsicCall {
+        intrinsic,
+        arguments,
+    } = &expression.kind
+    else {
+        unreachable!()
+    };
+    let arguments = arguments
+        .iter()
+        .map(|argument| argument.ty)
+        .collect::<Vec<_>>();
+    let proof =
+        crate::checked_control_contract(&module, *intrinsic, expression.ty, &arguments).unwrap();
+    assert_eq!(proof.operation(), Intrinsic::ControlHandle);
+    assert_eq!(proof.result(), expression.ty);
+    assert_eq!(proof.arguments(), arguments);
+    assert_eq!(
+        proof.source(),
+        Some(crate::ControlDomain {
+            request: TypeId(3),
+            answer: TypeId(0)
+        })
+    );
+    assert_eq!(
+        proof.target(),
+        Some(crate::ControlDomain {
+            request: TypeId(4),
+            answer: TypeId(1)
+        })
+    );
+    assert!(matches!(
+        module.types[proof.arguments()[1].0 as usize],
+        Type::ForAll { .. }
+    ));
+    assert!(crate::checked_control_contract(&module, *intrinsic, expression.ty, &[]).is_err());
+}

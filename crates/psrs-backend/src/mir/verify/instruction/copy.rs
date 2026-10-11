@@ -8,11 +8,17 @@ pub(super) fn verify_copy(
     instruction: &Instruction,
     definitions: &HashMap<ValueId, ValueType>,
 ) -> Result<(), Vec<BackendError>> {
-    let Instruction::Copy {
+    let (Instruction::Copy {
         destination,
         value,
         span,
-    } = instruction
+    }
+    | Instruction::ControlEvidence {
+        destination,
+        value,
+        span,
+        ..
+    }) = instruction
     else {
         unreachable!("copy verifier received another instruction")
     };

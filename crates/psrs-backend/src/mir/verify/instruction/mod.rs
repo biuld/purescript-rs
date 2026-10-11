@@ -29,7 +29,9 @@ pub(super) fn verify_instruction(
     defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
     match instruction {
-        Instruction::Copy { .. } => copy::verify_copy(function, instruction, definitions)?,
+        Instruction::Copy { .. } | Instruction::ControlEvidence { .. } => {
+            copy::verify_copy(function, instruction, definitions)?
+        }
         Instruction::Constant { .. } | Instruction::NumberConstant { .. } => {
             constant::verify_constant(function, instruction, definitions)?
         }

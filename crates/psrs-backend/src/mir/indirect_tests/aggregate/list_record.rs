@@ -43,6 +43,7 @@ fn finish(
             representations,
             signatures: Vec::new(),
             product_labels: product_labels.into_iter().collect(),
+            ..Default::default()
         },
         functions: vec![cc::Function {
             symbol: main_symbol,

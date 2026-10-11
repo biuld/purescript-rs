@@ -72,6 +72,7 @@ fn planner_rejects_a_dangling_closure_signature() {
         }],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
     assert!(matches!(
         PlannedLayout::plan(&table, TargetCapabilities::default()),
@@ -84,6 +85,7 @@ fn gc_planner_rejects_an_mvp_only_target() {
         representations: vec![Representation::Product { fields: Vec::new() }],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let mvp_only = TargetCapabilities {

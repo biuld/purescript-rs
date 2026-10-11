@@ -111,6 +111,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
             ..InstructionEffects::default()
         },
         I::Copy { .. }
+        | I::ControlEvidence { .. }
         | I::Constant { .. }
         | I::NumberConstant { .. }
         | I::Primitive { .. }

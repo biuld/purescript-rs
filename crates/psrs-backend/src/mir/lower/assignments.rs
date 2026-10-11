@@ -8,6 +8,44 @@ impl FunctionLowerer<'_> {
     ) -> Result<BlockId, Vec<BackendError>> {
         for assignment in assignments {
             match &assignment.kind {
+                AssignmentKind::ControlEvidence {
+                    value,
+                    implementation,
+                    contract,
+                    arguments,
+                } => {
+                    let proof = self
+                        .layout
+                        .representation_table()
+                        .control_contracts
+                        .get(contract.0 as usize)
+                        .ok_or_else(|| {
+                            vec![BackendError::invalid_ir(
+                                "P9 MIR lowering",
+                                assignment.span,
+                                "control evidence has no checked source contract",
+                            )]
+                        })?;
+                    if proof.arguments().len() != arguments.len() {
+                        return Err(vec![BackendError::invalid_ir(
+                            "P9 MIR lowering",
+                            assignment.span,
+                            "control evidence argument count disagrees with its checked source contract",
+                        )]);
+                    }
+                    self.append_instruction(
+                        current,
+                        Instruction::ControlEvidence {
+                            destination: assignment.destination,
+                            value: *value,
+                            implementation: *implementation,
+                            arguments: arguments.clone(),
+                            contract: *contract,
+                            span: assignment.span,
+                        },
+                        assignment.span,
+                    )?;
+                }
                 AssignmentKind::AggregateConvert {
                     value, conversion, ..
                 } => {

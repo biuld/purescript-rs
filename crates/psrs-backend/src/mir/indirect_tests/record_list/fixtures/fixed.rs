@@ -93,6 +93,7 @@ pub(crate) fn fixed_list_fixture() -> (cc::Module, ExternalBindings, Resolve) {
             }],
             signatures: Vec::new(),
             product_labels: Default::default(),
+            ..Default::default()
         },
         functions: vec![cc::Function {
             symbol: main_symbol,
@@ -148,6 +149,7 @@ pub(crate) fn fixed_list_result_fixture() -> (cc::Module, ExternalBindings, Reso
             }],
             signatures: Vec::new(),
             product_labels: Default::default(),
+            ..Default::default()
         },
         functions: vec![cc::Function {
             symbol: main_symbol,

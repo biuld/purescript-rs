@@ -53,6 +53,7 @@ pub(super) fn fixture() -> (cc::Module, ExternalBindings, Resolve) {
         product_labels: [(cc::ReprId(0), vec!["x".to_string(), "y".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -178,6 +179,7 @@ pub(super) fn result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         product_labels: [(cc::ReprId(0), vec!["x".to_string(), "y".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -268,6 +270,7 @@ pub(super) fn string_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         product_labels: [(cc::ReprId(0), vec!["code".to_string(), "text".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

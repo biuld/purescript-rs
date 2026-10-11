@@ -19,6 +19,15 @@ pub enum ListDirection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
+    /// Source proof retained beside an already represented runtime value.
+    ControlEvidence {
+        destination: ValueId,
+        value: ValueId,
+        implementation: ValueId,
+        arguments: Vec<ValueId>,
+        contract: crate::cc::ControlContractId,
+        span: TextRange,
+    },
     Copy {
         destination: ValueId,
         value: ValueId,

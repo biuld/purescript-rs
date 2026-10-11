@@ -130,6 +130,7 @@ pub(super) fn add_assignments(
                 }
             }
             AssignmentKind::Constant(_)
+            | AssignmentKind::ControlEvidence { .. }
             | AssignmentKind::NumberConstant(_)
             | AssignmentKind::StringConstant(_)
             | AssignmentKind::Primitive { .. }

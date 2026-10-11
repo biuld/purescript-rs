@@ -29,6 +29,7 @@ pub(crate) fn flags_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         product_labels: [(cc::ReprId(0), vec!["read".to_string(), "write".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -147,6 +148,7 @@ pub(crate) fn handle_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         }],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -251,6 +253,7 @@ pub(crate) fn tuple_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         product_labels: [(cc::ReprId(0), vec!["_1".to_string(), "_2".to_string()])]
             .into_iter()
             .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -377,6 +380,7 @@ fn handle_result(result: &str) -> (cc::Module, ExternalBindings, Resolve) {
         }],
         signatures: Vec::new(),
         product_labels: Default::default(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

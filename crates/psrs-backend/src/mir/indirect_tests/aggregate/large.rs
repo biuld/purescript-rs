@@ -50,6 +50,7 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
         )]
         .into_iter()
         .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
@@ -163,6 +164,7 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
         )]
         .into_iter()
         .collect(),
+        ..Default::default()
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

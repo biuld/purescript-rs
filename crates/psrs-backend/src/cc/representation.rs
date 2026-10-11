@@ -225,6 +225,12 @@ fn storage_case(
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct RepresentationTable {
+    /// Source control contracts are predeclared by layout, before lowering
+    /// emits any factory or executor bodies.
+    pub control_contracts: Vec<super::ControlContract>,
+    /// Rigid semantic identity is allocated using Core's relation before
+    /// arena indices are erased. The quoted types retain lexical structure.
+    pub source_type_identities: Vec<super::TypeIdentity>,
     pub representations: Vec<Representation>,
     pub signatures: Vec<Signature>,
     /// Canonical logical labels for record products; positional products do

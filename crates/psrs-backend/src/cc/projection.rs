@@ -439,6 +439,7 @@ mod tests {
             product_labels: [(ReprId(0), vec!["name".to_string()])]
                 .into_iter()
                 .collect(),
+            ..Default::default()
         };
         let record_types = [(record, ReprId(0))].into_iter().collect();
         let array_types = HashMap::new();

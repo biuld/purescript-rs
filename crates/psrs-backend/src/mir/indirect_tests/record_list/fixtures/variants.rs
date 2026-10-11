@@ -134,6 +134,7 @@ fn parameter_fixture(
             representations,
             signatures: Vec::new(),
             product_labels: Default::default(),
+            ..Default::default()
         },
         functions: vec![cc::Function {
             symbol: main_symbol,
@@ -282,6 +283,7 @@ pub(crate) fn option_string_list_result_fixture() -> (cc::Module, ExternalBindin
             ],
             signatures: Vec::new(),
             product_labels: Default::default(),
+            ..Default::default()
         },
         functions: vec![cc::Function {
             symbol: main_symbol,
@@ -456,6 +458,7 @@ pub(crate) fn option_list_list_fixture() -> (cc::Module, ExternalBindings, Resol
             ],
             signatures: Vec::new(),
             product_labels: Default::default(),
+            ..Default::default()
         },
         functions: vec![cc::Function {
             symbol: main_symbol,

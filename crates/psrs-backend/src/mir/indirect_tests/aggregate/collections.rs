@@ -85,6 +85,7 @@ fn base(
             ],
             signatures: Vec::new(),
             product_labels: Default::default(),
+            ..Default::default()
         },
         functions: vec![cc::Function {
             symbol: main_symbol,
