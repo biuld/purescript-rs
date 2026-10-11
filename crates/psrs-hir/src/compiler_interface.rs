@@ -39,6 +39,21 @@ pub const COMPILER_INTERFACES: &[CompilerInterface] = &[
         types: &[],
         classes: &[("IsSymbol", CompilerClass::IsSymbol)],
     },
+    // The effect-agnostic delimited-control surface. The carrier and the four
+    // primitives are compiler-owned; no pass recognizes a concrete operation.
+    CompilerInterface {
+        module: "Prim.Control",
+        implementation: InterfaceImplementation::Compiler,
+        values: &[
+            ("return", Intrinsic::ControlReturn),
+            ("bind", Intrinsic::ControlBind),
+            ("perform", Intrinsic::ControlPerform),
+            ("run", Intrinsic::ControlRun),
+            ("handle", Intrinsic::ControlHandle),
+        ],
+        types: &[("Control", TypeId::CONTROL)],
+        classes: &[],
+    },
 ];
 
 pub fn compiler_interface(module: &str) -> Option<&'static CompilerInterface> {

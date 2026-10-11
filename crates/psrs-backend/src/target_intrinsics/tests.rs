@@ -18,7 +18,19 @@ fn every_active_identity_has_an_explicit_implementation() {
                     intrinsic.descriptor().arity as usize
                 );
             }
-            Implementation::Unsupported => assert_eq!(intrinsic, Intrinsic::Undefined),
+            Implementation::Unsupported => assert!(
+                matches!(
+                    intrinsic,
+                    Intrinsic::Undefined
+                        | Intrinsic::ControlReturn
+                        | Intrinsic::ControlBind
+                        | Intrinsic::ControlPerform
+                        | Intrinsic::ControlRun
+                        | Intrinsic::ControlHandle
+                ),
+                "{} has no explicit implementation",
+                intrinsic.descriptor().name
+            ),
             Implementation::Generated(_) | Implementation::Elaborated => {}
         }
     }
@@ -45,6 +57,11 @@ fn language_renaming_preserves_stable_symbols_and_retired_slots() {
         (Intrinsic::NumberAtan2, 73),
         (Intrinsic::NumberSin, 74),
         (Intrinsic::NumberInfinity, 86),
+        (Intrinsic::ControlReturn, 92),
+        (Intrinsic::ControlBind, 93),
+        (Intrinsic::ControlPerform, 94),
+        (Intrinsic::ControlRun, 95),
+        (Intrinsic::ControlHandle, 96),
     ] {
         assert_eq!(intrinsic.symbol().index, id);
     }

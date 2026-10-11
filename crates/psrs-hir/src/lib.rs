@@ -106,6 +106,9 @@ impl TypeId {
     pub const PRIM_TYPE_ERROR_QUOTE_LABEL: Self = Self::new(ModuleId::INTRINSICS, 28);
     pub const PRIM_TYPE_ERROR_BESIDE: Self = Self::new(ModuleId::INTRINSICS, 29);
     pub const PRIM_TYPE_ERROR_ABOVE: Self = Self::new(ModuleId::INTRINSICS, 30);
+    /// Stable identity of the compiler-owned `Prim.Control.Control` carrier, the
+    /// effect-agnostic delimited-control computation type.
+    pub const CONTROL: Self = Self::new(ModuleId::INTRINSICS, 31);
 }
 
 mod intrinsic;

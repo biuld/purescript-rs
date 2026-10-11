@@ -21,6 +21,14 @@ impl IntrinsicEffects {
                 may_trap: true,
                 may_write: false,
             },
+            // Executing a delimiter runs the handler and the continuation, which
+            // can trap or mutate storage; the summary is deliberately
+            // conservative. `return`/`bind`/`perform` only build an inert
+            // computation, so they carry no effect of their own.
+            ControlRun | ControlHandle => Self {
+                may_trap: true,
+                may_write: true,
+            },
             BoolTrue | BoolFalse | IntAdd | IntSub | IntMul | IntEq | IntNe | IntLt | IntLe
             | IntGt | IntGe | ArrayLength | IntNeg | IntComplement | NumberNeg | BooleanNot
             | IntToNumber | NumberToInt | BooleanToInt | IntToBoolean | CharToInt | IntToChar
@@ -31,7 +39,9 @@ impl IntrinsicEffects {
             | NumberCeil | NumberAbs | NumberSqrt | NumberAcos | NumberAsin | NumberAtan
             | NumberAtan2 | NumberSin | NumberCos | NumberTan | NumberExp | NumberLog
             | NumberPow | NumberMin | NumberMax | NumberSign | NumberRemainder | NumberIsNaN
-            | NumberNaN | NumberInfinity => Self::default(),
+            | NumberNaN | NumberInfinity | ControlReturn | ControlBind | ControlPerform => {
+                Self::default()
+            }
         }
     }
 }

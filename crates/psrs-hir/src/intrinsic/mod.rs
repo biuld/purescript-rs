@@ -164,6 +164,21 @@ pub enum Intrinsic {
     NumberNaN = 85,
     /// Positive infinity.
     NumberInfinity = 86,
+    /// `Prim.Control.return`: lift a value into the control computation.
+    ControlReturn = 92,
+    /// `Prim.Control.bind`: sequence two control computations.
+    ControlBind = 93,
+    /// `Prim.Control.perform`: suspend at a request, delivering it to the
+    /// nearest `run` delimiter.
+    ControlPerform = 94,
+    /// `Prim.Control.run`: install a delimiter and interpret requests. The
+    /// handler is rank-2 in the request's answer type and threads a handler
+    /// state.
+    ControlRun = 95,
+    /// `Prim.Control.handle`: the open eliminator. It interprets the `f`
+    /// operations of a computation over a combined effect `u` and leaves the
+    /// rest as a residual `Control g (s, a)`.
+    ControlHandle = 96,
 }
 
 impl Intrinsic {
@@ -191,7 +206,7 @@ impl Intrinsic {
 
     /// Every active variant, in discriminant order. Binding resolution uses the
     /// complete list.
-    pub const ALL: [Intrinsic; 85] = [
+    pub const ALL: [Intrinsic; 90] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::IntAdd,
@@ -277,6 +292,11 @@ impl Intrinsic {
         Intrinsic::NumberIsNaN,
         Intrinsic::NumberNaN,
         Intrinsic::NumberInfinity,
+        Intrinsic::ControlReturn,
+        Intrinsic::ControlBind,
+        Intrinsic::ControlPerform,
+        Intrinsic::ControlRun,
+        Intrinsic::ControlHandle,
     ];
 }
 
@@ -285,7 +305,7 @@ impl Intrinsic {
 // cannot be added and silently left out of the bootstrap name table.
 const _: () = {
     assert!(
-        Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len() == 92,
+        Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len() == 97,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 = 0;

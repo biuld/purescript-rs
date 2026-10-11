@@ -43,6 +43,11 @@ const OFFICIAL_MEMBERS: &[(&str, &str)] = &[
     ("Prim.TypeError", "Text"),
 ];
 
+/// Compiler-owned members that extend the official `Prim.*` environment. They
+/// are not part of PureScript's `primModules`, so they are recorded separately
+/// and never folded into the official transcription above.
+const COMPILER_EXTENSIONS: &[(&str, &str)] = &[("Prim.Control", "Control")];
+
 fn declared(owner: &str, name: &str) -> TypeDeclaration {
     primitive_type_declarations()
         .into_iter()
@@ -60,12 +65,13 @@ fn every_official_primitive_member_is_declared_exactly_once() {
     declared.sort();
     let mut official = OFFICIAL_MEMBERS
         .iter()
+        .chain(COMPILER_EXTENSIONS.iter())
         .map(|(owner, name)| ((*owner).to_owned(), (*name).to_owned()))
         .collect::<Vec<_>>();
     official.sort();
     assert_eq!(
         declared, official,
-        "the registry must declare exactly the official `Prim` members"
+        "the registry must declare exactly the official `Prim` members plus the recorded compiler extensions"
     );
 }
 

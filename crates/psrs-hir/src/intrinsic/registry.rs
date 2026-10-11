@@ -9,7 +9,7 @@
 //! silently.
 
 use super::{Intrinsic, IntrinsicEffects};
-use crate::{BuiltinType, Type, TypeId, TypeKind, TypeParameter};
+use crate::{BuiltinType, Type, TypeField, TypeId, TypeKind, TypeParameter};
 use psrs_span::TextRange;
 
 /// A representation-independent classification of an intrinsic: what kind of
@@ -43,6 +43,9 @@ pub enum IntrinsicCategory {
     Coercion,
     /// `Prim.undefined`: a value with no runtime representation.
     PartialValue,
+    /// A compiler-owned delimited-control primitive: `Control`'s
+    /// `return`/`bind`/`perform`/`run`.
+    Control,
 }
 
 /// The metadata for one intrinsic.
@@ -172,6 +175,11 @@ descriptors! {
     ArrayWrite => "arrayWrite", 3, ArrayWrite, scheme::array_update;
     NumberToString => "numberToString", 1, Unary, scheme::number_string;
     NumberFromDecimal => "numberFromDecimal", 1, Unary, scheme::string_number;
+    ControlReturn => "controlReturn", 1, Control, scheme::control_return;
+    ControlBind => "controlBind", 2, Control, scheme::control_bind;
+    ControlPerform => "controlPerform", 1, Control, scheme::control_perform;
+    ControlRun => "controlRun", 3, Control, scheme::control_run;
+    ControlHandle => "controlHandle", 5, Control, scheme::control_handle;
 }
 
 /// The HIR type schemes. Each returns a fresh [`Type`], so a caller that
@@ -407,6 +415,166 @@ mod scheme {
     /// `Coercible` proof; the value crosses its erased representation unchanged.
     pub(super) fn unsafe_coerce() -> Type {
         forall(&["a", "b"], arrow(variable("a"), variable("b")))
+    }
+
+    /// `Control f a`: a computation over the opaque request functor `f` that
+    /// yields an `a`, possibly after suspending at `perform`.
+    fn control(of: Type, value: Type) -> Type {
+        apply(apply(named(TypeId::CONTROL), of), value)
+    }
+
+    /// `Prim.Control.return :: forall f a. a -> Control f a`.
+    pub(super) fn control_return() -> Type {
+        forall(
+            &["f", "a"],
+            arrow(variable("a"), control(variable("f"), variable("a"))),
+        )
+    }
+
+    /// `Prim.Control.bind :: forall f a b. Control f a -> (a -> Control f b) -> Control f b`.
+    pub(super) fn control_bind() -> Type {
+        forall(
+            &["f", "a", "b"],
+            arrow(
+                control(variable("f"), variable("a")),
+                arrow(
+                    arrow(variable("a"), control(variable("f"), variable("b"))),
+                    control(variable("f"), variable("b")),
+                ),
+            ),
+        )
+    }
+
+    /// `Prim.Control.perform :: forall f a. f a -> Control f a`.
+    pub(super) fn control_perform() -> Type {
+        forall(
+            &["f", "a"],
+            arrow(
+                apply(variable("f"), variable("a")),
+                control(variable("f"), variable("a")),
+            ),
+        )
+    }
+
+    /// A closed two-field record, used for the `(state, value)` result.
+    fn record(fields: &[(&str, Type)]) -> Type {
+        Type {
+            kind: TypeKind::Record {
+                fields: fields
+                    .iter()
+                    .map(|(label, ty)| TypeField {
+                        label: (*label).to_owned(),
+                        label_span: empty_span(),
+                        ty: ty.clone(),
+                        span: empty_span(),
+                    })
+                    .collect(),
+                tail: None,
+            },
+            span: empty_span(),
+        }
+    }
+
+    /// `Prim.Control.run`, the closed state-threading fold:
+    /// `forall f a s. s -> (forall x. s -> f x -> (x -> Control f a) ->
+    /// (s, Control f a)) -> Control f a -> (s, a)`.
+    pub(super) fn control_run() -> Type {
+        let handler = forall(
+            &["x"],
+            arrow(
+                variable("s"),
+                arrow(
+                    apply(variable("f"), variable("x")),
+                    arrow(
+                        arrow(variable("x"), control(variable("f"), variable("a"))),
+                        record(&[
+                            ("_1", variable("s")),
+                            ("_2", control(variable("f"), variable("a"))),
+                        ]),
+                    ),
+                ),
+            ),
+        );
+        forall(
+            &["f", "a", "s"],
+            arrow(
+                variable("s"),
+                arrow(
+                    handler,
+                    arrow(
+                        control(variable("f"), variable("a")),
+                        record(&[("_1", variable("s")), ("_2", variable("a"))]),
+                    ),
+                ),
+            ),
+        )
+    }
+
+    /// `Prim.Control.handle`, the open eliminator:
+    /// `forall f g u a s. s`
+    ///   `-> (forall x. s -> f x -> (x -> Control u a) -> (s, Control u a))`
+    ///   `-> (forall x r. u x -> (f x -> r) -> (g x -> r) -> r)`  (project)
+    ///   `-> (forall x. g x -> u x)`                              (inject)
+    ///   `-> Control u a -> Control g (s, a)`.
+    pub(super) fn control_handle() -> Type {
+        let handler = forall(
+            &["x"],
+            arrow(
+                variable("s"),
+                arrow(
+                    apply(variable("f"), variable("x")),
+                    arrow(
+                        arrow(variable("x"), control(variable("u"), variable("a"))),
+                        record(&[
+                            ("_1", variable("s")),
+                            ("_2", control(variable("u"), variable("a"))),
+                        ]),
+                    ),
+                ),
+            ),
+        );
+        let project = forall(
+            &["x", "r"],
+            arrow(
+                apply(variable("u"), variable("x")),
+                arrow(
+                    arrow(apply(variable("f"), variable("x")), variable("r")),
+                    arrow(
+                        arrow(apply(variable("g"), variable("x")), variable("r")),
+                        variable("r"),
+                    ),
+                ),
+            ),
+        );
+        let inject = forall(
+            &["x"],
+            arrow(
+                apply(variable("g"), variable("x")),
+                apply(variable("u"), variable("x")),
+            ),
+        );
+        forall(
+            &["f", "g", "u", "a", "s"],
+            arrow(
+                variable("s"),
+                arrow(
+                    handler,
+                    arrow(
+                        project,
+                        arrow(
+                            inject,
+                            arrow(
+                                control(variable("u"), variable("a")),
+                                control(
+                                    variable("g"),
+                                    record(&[("_1", variable("s")), ("_2", variable("a"))]),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
     }
 }
 
