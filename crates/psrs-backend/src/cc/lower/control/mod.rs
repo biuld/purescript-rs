@@ -12,18 +12,17 @@ use psrs_span::TextRange;
 mod builder;
 mod executor;
 mod lifetime;
-mod open;
 mod owned;
+mod replay;
+mod scope;
 use builder::Machine;
 
 #[derive(Clone, Copy)]
 pub(in crate::cc) struct ControlFunctions {
     executor: SymbolId,
     resume: SymbolId,
-    open_executor: SymbolId,
-    forward: SymbolId,
-    project_left: SymbolId,
-    project_right: SymbolId,
+    clone_sequence: SymbolId,
+    rebuild_sequence: SymbolId,
     start: SymbolId,
     check: SymbolId,
     close: SymbolId,
@@ -97,12 +96,32 @@ impl FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
+            let shape = builder::repr(layout.context);
+            let context = self.fresh(shape);
+            assignments.push(Assignment {
+                destination: context,
+                kind: AssignmentKind::VariantNew {
+                    destination: context,
+                    representation: layout.context,
+                    case: 0,
+                    fields: vec![boundary],
+                },
+                span: expression.span,
+            });
+            let context = self.emit_conversion(
+                context,
+                shape,
+                erased_shape(),
+                crate::cc::ValueConversion::EraseReference,
+                expression.span,
+                assignments,
+            );
             let result = self.fresh(erased_shape());
             assignments.push(Assignment {
                 destination: result,
                 kind: AssignmentKind::DirectCall {
                     function: functions.executor,
-                    arguments: vec![fields[0], fields[1], fields[2], empty, boundary],
+                    arguments: vec![fields[0], fields[1], fields[2], empty, boundary, context],
                 },
                 span: expression.span,
             });
@@ -188,10 +207,8 @@ impl FunctionLowerer<'_> {
             ControlFunctions {
                 executor: symbols.fresh(self.owner),
                 resume: symbols.fresh(self.owner),
-                open_executor: symbols.fresh(self.owner),
-                forward: symbols.fresh(self.owner),
-                project_left: symbols.fresh(self.owner),
-                project_right: symbols.fresh(self.owner),
+                clone_sequence: symbols.fresh(self.owner),
+                rebuild_sequence: symbols.fresh(self.owner),
                 start: symbols.fresh(self.owner),
                 check: symbols.fresh(self.owner),
                 close: symbols.fresh(self.owner),
@@ -207,17 +224,9 @@ impl FunctionLowerer<'_> {
         self.generated_signatures
             .borrow_mut()
             .insert(functions.executor, signature);
-        let open_signature = self
-            .representations
-            .signature(layout.open_executor)
-            .ok_or_else(|| {
-                control_error(span, "open control executor has no predeclared signature")
-            })?
-            .clone();
-        self.generated_signatures
-            .borrow_mut()
-            .insert(functions.open_executor, open_signature);
         for (symbol, id) in [
+            (functions.clone_sequence, layout.clone_sequence),
+            (functions.rebuild_sequence, layout.rebuild_sequence),
             (functions.start, layout.start),
             (functions.check, layout.boundary_check),
             (functions.close, layout.boundary_check),
@@ -260,22 +269,12 @@ impl FunctionLowerer<'_> {
         );
         self.verify_synthesized(&resume)?;
         self.generated.push(resume);
-        let executor = Machine::new(self.child_lowerer(), layout, functions, span).executor(false);
+        let executor = Machine::new(self.child_lowerer(), layout, functions, span).executor();
         self.verify_synthesized(&executor)?;
         self.generated.push(executor);
-        let open = Machine::new(self.child_lowerer(), layout, functions, span).executor(true);
-        self.verify_synthesized(&open)?;
-        self.generated.push(open);
-        let forward = Machine::new(self.child_lowerer(), layout, functions, span).forward();
-        self.verify_synthesized(&forward)?;
-        self.generated.push(forward);
-        for (case, symbol) in [(0, functions.project_left), (1, functions.project_right)] {
-            let selector =
-                Machine::new(self.child_lowerer(), layout, functions, span).selector(case, symbol);
-            self.verify_synthesized(&selector)?;
-            self.generated.push(selector);
-        }
         for function in [
+            Machine::new(self.child_lowerer(), layout, functions, span).clone_sequence(),
+            Machine::new(self.child_lowerer(), layout, functions, span).rebuild_sequence(),
             Machine::new(self.child_lowerer(), layout, functions, span).start_boundary(),
             Machine::new(self.child_lowerer(), layout, functions, span).boundary_check(),
             Machine::new(self.child_lowerer(), layout, functions, span).boundary_close(),

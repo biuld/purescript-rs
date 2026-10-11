@@ -15,7 +15,7 @@ pub(super) struct Machine<'a> {
     pub layout: ControlLayout,
     pub functions: ControlFunctions,
     pub span: TextRange,
-    pub open: Option<(ValueId, ValueId)>,
+    pub context: Option<ValueId>,
     pub boundary: Option<ValueId>,
 }
 
@@ -42,7 +42,7 @@ impl<'a> Machine<'a> {
             layout,
             functions,
             span,
-            open: None,
+            context: None,
             boundary: None,
         }
     }
@@ -198,31 +198,15 @@ impl<'a> Machine<'a> {
         sequence: ValueId,
         body: &mut Vec<Assignment>,
     ) -> ValueId {
-        let (function, arguments) = if let Some((project, inject)) = self.open {
-            (
-                self.functions.open_executor,
-                vec![
-                    state,
-                    handler,
-                    computation,
-                    sequence,
-                    project,
-                    inject,
-                    self.boundary.unwrap(),
-                ],
-            )
-        } else {
-            (
-                self.functions.executor,
-                vec![
-                    state,
-                    handler,
-                    computation,
-                    sequence,
-                    self.boundary.unwrap(),
-                ],
-            )
-        };
+        let function = self.functions.executor;
+        let arguments = vec![
+            state,
+            handler,
+            computation,
+            sequence,
+            self.boundary.unwrap(),
+            self.context.unwrap(),
+        ];
         self.emit(erased_shape(), body, |_| AssignmentKind::DirectCall {
             function,
             arguments,

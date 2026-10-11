@@ -18,7 +18,21 @@ impl Context<'_> {
         intrinsic: Intrinsic,
         arguments: &[Expr],
     ) {
+        if arguments.len() != intrinsic.descriptor().arity as usize {
+            self.errors.push(error(
+                self.owner,
+                expression.span,
+                "intrinsic call does not have its registered saturated arity",
+            ));
+            for argument in arguments {
+                self.expr(argument, None);
+            }
+            return;
+        }
         match intrinsic {
+            intrinsic if intrinsic.descriptor().category == IntrinsicCategory::Control => {
+                self.verify_control(expression, intrinsic, arguments)
+            }
             Intrinsic::ArrayLength => self.verify_array_length(expression, &arguments[0]),
             Intrinsic::ArrayIndex => {
                 self.verify_array_index(expression, &arguments[0], &arguments[1])

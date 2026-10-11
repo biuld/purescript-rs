@@ -93,68 +93,27 @@ pub(in crate::intrinsic::registry) fn control_run() -> Type {
     )
 }
 
-/// `Prim.Control.handle`, the open eliminator:
-/// `forall f g u a s. s`
-///   `-> (forall x. s -> f x -> (x -> Control u a) -> (s, Control u a))`
-///   `-> (forall x r. u x -> (f x -> r) -> (g x -> r) -> r)`  (project)
-///   `-> (forall x. g x -> u x)`                              (inject)
-///   `-> Control u a -> Control g (s, a)`.
+/// Eliminate a source computation into an independently typed target computation.
+/// Clauses execute outside source dispatch; the raw continuation retains `u`/`a`.
 pub(in crate::intrinsic::registry) fn control_handle() -> Type {
+    let target = control(variable("g"), variable("b"));
     let handler = forall(
         &["x"],
         arrow(
-            variable("s"),
-            arrow(
-                apply(variable("f"), variable("x")),
-                arrow(
-                    arrow(variable("x"), control(variable("u"), variable("a"))),
-                    record(&[
-                        ("_1", variable("s")),
-                        ("_2", control(variable("u"), variable("a"))),
-                    ]),
-                ),
-            ),
-        ),
-    );
-    let project = forall(
-        &["x", "r"],
-        arrow(
             apply(variable("u"), variable("x")),
             arrow(
-                arrow(apply(variable("f"), variable("x")), variable("r")),
-                arrow(
-                    arrow(apply(variable("g"), variable("x")), variable("r")),
-                    variable("r"),
-                ),
+                arrow(variable("x"), control(variable("u"), variable("a"))),
+                target.clone(),
             ),
-        ),
-    );
-    let inject = forall(
-        &["x"],
-        arrow(
-            apply(variable("g"), variable("x")),
-            apply(variable("u"), variable("x")),
         ),
     );
     forall(
-        &["f", "g", "u", "a", "s"],
+        &["u", "g", "a", "b"],
         arrow(
-            variable("s"),
+            arrow(variable("a"), target.clone()),
             arrow(
                 handler,
-                arrow(
-                    project,
-                    arrow(
-                        inject,
-                        arrow(
-                            control(variable("u"), variable("a")),
-                            control(
-                                variable("g"),
-                                record(&[("_1", variable("s")), ("_2", variable("a"))]),
-                            ),
-                        ),
-                    ),
-                ),
+                arrow(control(variable("u"), variable("a")), target),
             ),
         ),
     )

@@ -7,6 +7,7 @@ use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 
 mod arrays;
+mod control;
 mod entry;
 mod helpers;
 mod intrinsic;

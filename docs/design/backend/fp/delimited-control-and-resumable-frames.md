@@ -11,13 +11,14 @@
 [representation and evidence](representation-and-evidence.md),
 [capability profile](../wasm/capability-profile.md), and the
 [library-owned effects](algebraic-effects-and-handlers.md) this mechanism runs.  
-**Summary:** The compiler owns an effect-agnostic delimited-control surface —
-`Control f a` with `return`/`bind`/`perform`/`run` — lowered by a selective,
-defunctionalized continuation-passing transformation to explicit GC frame objects
-driven by a trampoline. It needs no new target capability and is distinct from
-WebAssembly stack switching. The selected activation is the frame/trampoline
-representation (row 3) with a state-threading fold eliminator and an open-union
-`handle` that removes one effect.
+**Summary:** The compiler owns an effect-agnostic monadic `Control` surface,
+lowered to persistent GC continuation frames driven by a guest loop. The existing
+`handle` is generalized to typed source-to-target elimination, with clauses outside
+source dispatch and deep/shallow policy in library code. The separate closed `run`
+remains a state fold. [DEC-20](../../../decision/DEC-20-typed-control-elimination.md)
+and [the scope contract](control-elimination-and-handler-scopes.md) specify this
+revision. Focused v2 implementation and execution evidence are recorded in the
+acceptance checklist; full verifier and foreign-boundary obligations remain open.
 
 ## Scope
 
@@ -153,77 +154,40 @@ separate decision.
 
 ### The computation carrier and primitives
 
-The compiler-owned surface is an **over-functor computation**: a freer computation
-over an opaque request functor `f`, with construction and interpretation primitives.
+The carrier is opaque and monadic over an arbitrary request functor. No `Functor`
+constraint or compiler effect-row reasoning is required.
 
 ```text
-Control f a                  -- computation over request functor f, yielding an a
-
 return  : a -> Control f a
 bind    : Control f a -> (a -> Control f b) -> Control f b
 perform : f a -> Control f a
 run     : s
         -> (forall x. s -> f x -> (x -> Control f a) -> (s, Control f a))
-        -> Control f a
-        -> (s, a)
-handle  : s
-        -> (forall x. s -> f x -> (x -> Control u a) -> (s, Control u a))
-        -> (forall x. u x -> Either (f x) (g x))
-        -> (forall x. g x -> u x)
-        -> Control u a
-        -> Control g (s, a)
+        -> Control f a -> (s, a)
+handle  : (a -> Control g b)
+        -> (forall x. u x -> (x -> Control u a) -> Control g b)
+        -> Control u a -> Control g b
 ```
 
-- `Control f a` is opaque; no pass inspects a request.
-- `perform` suspends: it captures the continuation up to the nearest `run`,
-  delivers the request value `f a` to that delimiter, and resumes with an `a`.
-- `run` is a **state-threading fold**. The driver threads a handler state `s`; the
-  handler is rank-2 in the request's answer `x`, receives the current state, the
-  request, and the continuation, and returns the next state together with the next
-  computation. A stateless handler uses `s = ()`.
-- `handle` is the open eliminator: it interprets the `f` operations of a computation
-  over a combined effect `u` and leaves the rest as a residual `Control g (s, a)`. The
-  library supplies the open union `u` and its split, `project : u x -> Either (f x)
-  (g x)` and `inject : g x -> u x`, so the compiler never reasons about rows or
-  labels. `run` is the closed case, with an empty residual.
-- `bind` composes continuations directly (freer style), so no `Functor f` constraint
-  is required and a library functor needs no mapping instance.
+`return`, `bind` and `perform` construct inert data; `perform` becomes observable
+only when interpreted. `bind` runs saved work before consumer work. `run` is a
+closed state-threading fold; its clause returns the next source computation.
+`handle` constructs an inert source-to-target delimiter. Its raw continuation
+constructs the original source remainder without reinstalling the handler. Its
+return and operation clauses produce target computations outside source dispatch.
+The [scope contract](control-elimination-and-handler-scopes.md) defines exact
+phase, lifetime, library derivation and compatibility obligations.
 
-The driver is a flat loop:
+A flat guest loop interprets this data, including nested delimiters. A target
+answer of inert `Control g b` needs no synchronous recursive interpreter call.
+An arbitrary synchronous answer `r` would require a different contract; this
+fact does not justify excluding typed target computations from a trampoline.
 
-```text
-run h s (Return a)        = (s, a)
-run h s (Perform op cont) = let (s', next) = h s op cont in run h s' next
-```
-
-It recurses in tail position and the handler never re-enters it, so execution is
-constant-stack independently of tail-call support and of the number of requests or
-binds. This is the row-3 eliminator. A *CPS-answer* eliminator
-`(forall x. f x -> (x -> r) -> r) -> Control f a -> (a -> r) -> r` also threads state
-(`r = s -> (s, a)`) but makes the driver *nested*, so it belongs to row 2 and is not
-this mechanism's eliminator ([Design space](#design-space),
-[Handler interface for a flat loop](#handler-interface-for-a-flat-loop)).
-
-**Why this surface.** It is exactly the shape `purescript-run` builds on, so that
-ecosystem's operation rows, `VariantF` encodings, and deep handlers map onto it
-directly; it keeps every concrete operation in library code; and it is expressible
-with ordinary rank-N polymorphism. The alternatives are rejected. A separate
-`suspend`/`handle`/`resume` triple with an abstract `Resumption` still has to carry
-the payload/result relation in the request value, so it collapses into this surface
-unless it adds an existential. `shift`/`reset` threads an answer type through the
-monad and is not expressible without a frontend effect-row system, which DEC-03
-excludes.
-
-The surface is **monadic, not direct style**. Direct-style effectful code needs
-`shift`/`reset` or effect syntax and is future work
-([Open questions](#open-questions-and-future-work)). The compiler's contribution
-over a pure library free monad is the representation: it lowers `bind`/`perform` to
-an explicit continuation chain, so binding is stack-safe without materializing a tree,
-and the handler is handed the continuation directly.
-
-The surface is independent of how the library encodes operations: `f` is opaque, so
-`VariantF` over an open row, a closed operation functor, `Data.Exists`, or a rank-N
-eliminator are all library choices.
+The surface is monadic. Direct-style syntax is separate future work. Operations
+may use a closed functor, an open `VariantF`, an existential or a rank-N library
+encoding; the compiler learns no concrete effect. Reference Run exposes source
+to target-monad elimination, but its API is not identical to this surface and
+its pinned package acceptance remains unverified.
 
 ### Effect-agnostic contracts
 
@@ -298,10 +262,10 @@ may silently replace them with an owner.
 
 ### Identity and exposure
 
-The compiler owns the carrier and the four primitives. They are declared as a
+The compiler owns the opaque carriers and eight generic control operations. They are declared as a
 compiler-reserved interface module, `Prim.Control`, the way `Prim.Coerce` exposes
 `coerce`: `Prim.Control` declares the abstract type `Control` and the
-`return`/`bind`/`perform`/`run` values, whose schemes the compiler checks against the
+`return`/`bind`/`perform`/`run`/`handle` and `once`/`resume`/`cancel` values, whose schemes the compiler checks against the
 [model above](#the-computation-carrier-and-primitives). The module carries no
 operation registry; no pass recognizes a concrete operation or adds an
 operation-specific solver.
@@ -317,58 +281,19 @@ implementation of its own, because the lowering produces ordinary guest code.
 
 ### Handler interface for a flat loop
 
-Row 3's eliminator is the state-threading fold in
-[Model](#the-computation-carrier-and-primitives). The handler is called once per
-request and returns the next state and computation, so the driver stays flat. For a
-State request functor:
+The closed `run` fold invokes its clause with state, request and raw source
+continuation, and drives the returned next computation. This convenience does
+not implement complete scoped-handler semantics. The generic `handle` instead
+separates source `Control u a` from target `Control g b`; its callbacks return
+inert target data to the shared loop. State, projection and reinstatement are
+ordinary library functions. Complete typed deep/shallow derivations and the
+return-clause contract are in
+[control elimination and handler scopes](control-elimination-and-handler-scopes.md#library-derivations).
 
-```text
-h s (Get f)    cont = (s, cont (f s))
-h s (Put s' n) cont = (s', cont n)
-
-runState s0 c = run h s0 c          -- (s, a)
-```
-
-A stateless handler uses `s = ()` and returns `((), next)`.
-
-**Removing one effect (residual rows).** The fold above interprets the *whole* effect
-`f`. The library's `Run r a = Control (VariantF r) a` and
-`handleState :: s -> Run (state :: StateF s | r) a -> Run r { state :: s, value :: a }`
-need the output to change effect, from `VariantF (label :: f | r)` to `VariantF r`.
-The mechanism follows the industry standard — an **open union** indexed by the effect
-collection — but keeps the compiler free of it: `handle` is generic over the combined
-effect functor `u`, and the library supplies the union and its split.
-
-```text
-handle s h project inject c :: Control g (s, a)
-
-go s (Return a)        = Return (s, a)
-go s (Perform uop cont) =
-    case project uop of
-      Left  fop -> let (s', next) = h s fop cont in go s' next   -- handled
-      Right gop -> Bind (Perform_g gop) (\x -> go s (cont x))    -- forwarded to residual
-```
-
-The library's `VariantF r` is the open union for the row; it supplies
-`project : VariantF (label :: f | r) x -> Either (f x) (VariantF r x)` and
-`inject : VariantF r x -> VariantF (label :: f | r) x` from ordinary row membership
-(`Prim.Row.Cons`/`Lacks`). The compiler therefore never reasons about rows or labels;
-the row machinery is library code, as with operations and handlers generally. This is
-the row-indexed open union the ecosystem uses (`purescript-run`'s `VariantF`, Haskell's
-`Union` with `Member`), realized here with a generic primitive rather than a
-compiler-known row.
-
-The driver stays flat for handled requests; a forwarded request builds a residual
-`Control g (s, a)` by binding `perform_g gop` to a continuation that resumes handling
-with the saved state, so re-entry is bounded by the number of handlers, not by the
-computation.
-
-**Why not the CPS-answer eliminator.**
-`run :: (forall x. f x -> (x -> r) -> r) -> Control f a -> (a -> r) -> r` also threads
-state, by choosing `r = s -> (s, a)`, but its handler's continuation `x -> r` must
-produce the answer synchronously, so the driver becomes a *nested* `run`
-(`\x -> run h (cont x) k`). That is not a flat loop and loses the row-3 stack
-guarantee; it is the row-2 shape, and this mechanism does not adopt it.
+A library deep handler removes a selected effect only by actually transforming
+source requests to target requests. A shallow remainder retains its source
+request domain. Moving an old source-domain clause to target dispatch without
+that typed transformation would be unsound.
 
 ### Lowering: selective CPS to resumable frames
 
@@ -445,143 +370,63 @@ handler written over a rank-2 newtype field compiled and executed on this target
 `wasmtime` run returning 42), and the official `purs` compiler accepts the same source.
 Row 2 is not rejected for expressibility; row 3 is chosen for the guarantees above.
 
-**The `run` typing is coupled to the representation.** Row 3 naturally supports a
-*structure-returning* handler `forall x. f x -> (x -> Control f a) -> Control f a`,
-whose result is the next computation, with `run :: ... -> Control f a -> a`. A
-*CPS-answer* handler `forall x. f x -> (x -> r) -> r` with a polymorphic `r` is what
-threads state (`r = s -> (s, a)`) and changes effects (`r = Control g b`); it is what
-row 2 uses directly (`run h c k = c k h`), but a trampoline (row 3) does not obviously
-carry it, because the handler's continuation `x -> r` must produce the answer
-synchronously.
-
-How existing systems thread handler state:
-
-- Row-1 libraries fold a **concrete** computation, with state in the target monad
-  (`StateT`) or in the fold's own recursion. This mechanism's carrier is opaque, so
-  the library cannot fold it.
-- Row-4 systems (OCaml 5, Koka, Eff) capture the stack and thread state through
-  handler-local (often mutable) state.
-- CPS encodings (`Cont`, `shift`/`reset`) thread state through the answer type —
-  exactly the CPS-answer `run`, i.e., row 2.
-
-This mechanism resolves the coupling as row 3 with the **state-threading fold**
-([Handler interface for a flat loop](#handler-interface-for-a-flat-loop)): the driver
-threads the handler state, so state threading no longer needs the CPS-answer
-eliminator and the driver stays flat. Effect removal uses the open-union `handle`,
-whose `project`/`inject` the library supplies so the compiler stays row-agnostic.
+**Elimination and the representation.** A trampoline can interpret a handler's
+inert target answer `Control g b` while preserving its raw source remainder
+`Control u a`. This provides answer-type separation without a synchronous
+`x -> r` interpreter. The former state-fold-only argument incorrectly excluded
+this case. The selected `handle` uses typed source and target contexts; `run`
+retains the closed state-fold convenience. Concrete state and open-union policy
+belong in the library, not compiler selectors.
 
 #### Selective conversion
 
-Converting a whole program to CPS would be slow and would change the representation
-of code that never suspends. The compilation is **selective**:
+Selectivity applies to checked control operations and their continuation/context
+representation. It is not whole-program dynamic-stack capture. Ordinary calls,
+including callbacks that construct `Control` data, keep the existing callable
+conventions. `bind` explicitly identifies saved continuation work; interpretation
+reifies and captures that work only to its source delimiter. Calling `perform`
+constructs data rather than suspending a live pure call stack.
 
-- A function is *convertible* when it can reach a suspension in its dynamic extent —
-  directly, through a call, or through a value it invokes.
-- Only convertible functions are lowered to resumable form. Pure, non-convertible
-  functions keep the ordinary direct representation and calling convention.
-- A suspension converts exactly the region from the suspension point out to its
-  delimiter; frames below the delimiter are ordinary calls and are not captured.
-
-Selectivity keeps the lowering proportional to the effectful part of the program and
-keeps pure code fast. It is also where optimization interacts with the mechanism: an
-inliner or specializer must not merge a convertible function into a non-convertible
-one without preserving the conversion of the merged region, nor erase a suspension
-whose result is unused, because the suspension is observable control, not a pure
-computation.
+A future direct-style transform would need its own conversion and foreign-frame
+contracts. This monadic design requires no conservative call-graph analysis that
+turns every unknown higher-order caller into a resumable function. Optimizers
+preserve strict argument evaluation, inert construction and observable execution
+separately. They may remove unused inert data, but may not erase, reorder or
+duplicate interpretation callbacks as though they were pure constructions.
 
 #### Frame construction
 
-The monadic surface is represented by inert computation nodes and a persistent
-sequence of continuation frames. Constructing a `bind` never interprets its input
-computation or invokes its continuation. Strict evaluation of primitive arguments
-still follows the ordinary language rules.
+The machine uses inert `Return`, `Perform`, `Bind`, raw `Resume`,
+`Handle(returnClause, operationClause, body)` and `OwnedResume` nodes. Pending
+continuations use immutable `Empty`, `Cons` and `Append` sequences. Raw resume
+checks checkpoint liveness, runs the saved sequence before its consumer queue,
+and does not automatically reinstall source dispatch. Capture excludes caller
+work. Abandonment clears the source queue from the driver; only explicit resume
+may run it. Persistent queues support replay without cloning user mutable data.
 
-```text
-Computation = Return(value) | Perform(request) | Bind(inner, continuation)
-            | Resume(value, savedSequence, boundary)       -- internal only
-            | Handle(state, handler, project, inject, inner)
-            | Reenter(state, handler, project, inject, inner, boundary)
-            | OwnedResume(owner, value)                   -- internal only
-Sequence    = Empty | Cons(continuation, rest) | Append(left, right)
-Machine     = (handler, state, computation, pendingSequence)
-```
+Explicit heap contexts distinguish source normalization from target execution.
+A clause's target answer runs under enclosing dispatch with an extent-finish
+marker. The [scope contract](control-elimination-and-handler-scopes.md#machine-phases-and-scope)
+specifies context identities, capture provenance and finish boundaries.
 
-`Bind` records a checked function from the inner result to the next computation.
-The executor pushes this function onto its pending sequence and descends into the
-inner computation. A `Return` consumes one pending function; that function returns
-a computation node to the executor. A `Perform` passes the unchanged request and a
-resumption capturing the entire pending sequence to the handler. The resumption
-constructs `Resume(value, savedSequence, boundary)`; it does not execute the sequence or
-re-enter the executor. A bare `Perform` therefore needs only a request field: its
-identity continuation is represented by the empty pending sequence.
-Suspension becomes observable when an executor interprets the node. An unused
-inert node may be eliminated only while preserving strict argument evaluation;
-an interpretation that invokes a handler remains an observable call.
-
-All sequence nodes are immutable GC objects. `Append` joins sequences without
-copying them, including when a resumed computation is itself bound by the handler.
-The saved sequence runs before the caller's pending sequence. Each normalization
-step is driven by the executor loop; recursively nested composition closures are
-not the sequence representation. This is the explicit continuation sequencing used
-by operational free/freer implementations, adapted to compiler-owned frames.
-
-The handler returns the next state and computation. The executor clears its old
-pending sequence: that remainder belongs to the resumption, so a clause may discard
-it, resume it once, or construct several independent resumptions. Retaining the old
-sequence would execute abandoned work or execute a resumed remainder twice.
-Persistent nodes preserve multi-shot replay without mutating shared continuations.
-
-CC layout predeclares these representations and the executor call signature. The
-continuation uses the existing unary erased callable-slot signature. The result
-pair uses the canonical erased record protocol for `_1` and `_2`; ordinary payload
-conversion adapts concrete states, results, handlers, and bind functions. CC lowering
-synthesizes function bodies and registers their direct-call signatures, but cannot
-mutate the representation table. Signature handles and verifier signatures come
-from the same layout declarations.
+CC layout predeclares computation/context layouts and all executor/callback
+SignatureIds. Lowering synthesizes bodies using these declarations and cannot
+mutate the representation table. Checked source/target contract identities remain
+available for verification after payload erasure. The previous open-union
+`Handle`/`Reenter` executor is v1 implementation evidence, not this normative shape.
 
 #### Open elimination and residual forwarding
 
-`handle` constructs an inert `Handle` node. It evaluates its arguments strictly,
-but invokes neither the handler nor `project` during construction. Interpretation
-enters a second instance of the same sequence machine with a fresh empty sequence;
-the caller's pending sequence stays outside this delimiter. Finishing the inner
-machine produces `Return((state, value))`, which the caller interprets with its own
-pending sequence.
+The compiler receives opaque source requests and invokes the supplied operation
+clause. Library code projects the union and constructs target residual requests.
+It decides whether to wrap the raw source remainder in a new handler. It also
+constructs state/result records through ordinary code. Neither union selectors
+nor a compiler-owned injection argument are part of revised `handle`.
 
-The checked compiler interface encodes `Either` using its Church eliminator:
-
-```text
-project : forall x r. u x -> (f x -> r) -> (g x -> r) -> r
-```
-
-The machine applies it to two generated selectors, yielding an internal tagged
-payload. The handled branch calls the supplied clause and continues the inner
-loop with the returned state and computation. The residual branch stops this
-inner loop and returns:
-
-```text
-Bind(Perform(gop), forward(savedState, handler, project, inject, savedSequence))
-forward(x) = Reenter(savedState, handler, project, inject,
-                     Resume(x, savedSequence, boundary), boundary)
-```
-
-The outer executor delivers `gop` unchanged to its handler. Calling `forward`
-only constructs data; re-entry occurs when the outer executor interprets the
-returned `Reenter`. Saved state is immutable: separate outer resumptions each
-start with the same saved inner state. Subsequent changes within one branch do
-not overwrite the other branch's state. An outer clause can abandon the entire
-inner delimiter by discarding its resumption.
-
-`inject` remains a checked, strictly evaluated library argument. This machine
-retains the original `u` computation and its pending sequence, so forwarding an
-answer does not reconstruct a `u` request or call `inject`. It needs no inverse
-law between `project` and `inject`. Requests remain opaque throughout.
-
-Both executors use loop-driven sequence normalization. Nested open delimiters
-may call the open executor while retaining their caller; stack use can depend on
-handler nesting depth, but does not grow with bind or forwarded request count
-at fixed handler depth. This guarantee does not cover arbitrary recursive user
-callbacks or direct-style capture across foreign frames.
+Forwarding suspends target execution. Capturing and replaying that target context
+must preserve nested source checkpoint provenance and instantiate lifecycle
+frames per replay, as required by the scope contract. Shared guest context
+transitions avoid native recursion per handler or forwarded request.
 
 #### The trampoline
 
@@ -606,24 +451,13 @@ the constant-stack property even where the machine calls into ordinary code.
 
 #### Deep and shallow handlers
 
-The delineated region is a marker in the frame chain. A **deep** handler is one
-whose continuation re-installs the handler before continuing, so subsequent requests
-at the same delimiter are handled again; the lowering wraps the resumed chain with
-the handler frame. A **shallow** handler resumes the chain without re-wrapping, so
-the handler runs once and later requests escape to an outer delimiter. The library
-selects the semantics; the lowering must implement both and must not silently deepen
-or shallow a handler.
-
-The current state-threading `run`/`handle` folds process the clause's returned
-computation under their own driver. That contract alone does not express the
-scoped-handler distinction between a fresh request in a clause (handled outside
-the delimiter) and a request in a resumed program (reinstalled under a deep
-handler). In particular, forwarding residual requests from the handled program
-does not prove forwarding from a clause. A generic typed delimiter boundary must
-preserve this distinction before the library can implement the complete
-deep/shallow contract. This is a remaining representation/API obligation, not
-permission to narrow the library semantics. The retained `ClauseScope.purs`
-acceptance case is described in the implementation checklist.
+Deep library code reinstalls `handle` around the raw source remainder; shallow
+code resumes that remainder directly. Both operation and return clauses execute
+outside the source handler. Deep output may remove the selected effect; shallow
+output generally retains it. The typed library definitions in the
+[scope contract](control-elimination-and-handler-scopes.md#library-derivations)
+are authoritative. A compiler mode flag or implicit raw-continuation reinstallation
+would change those semantics. Current v1 fold tests do not verify this contract.
 
 #### One-shot and multi-shot
 
@@ -644,35 +478,30 @@ into a one-shot one.
 
 #### Lifetime, GC roots, and abandonment
 
-A continuation keeps its captured frames reachable, so anything those frames
-captured stays alive until the continuation is dropped, resumed to completion,
-cancelled, or abandoned. When a handler returns without resuming, its continuation
-becomes unreachable and the GC reclaims the frames. The compiler must not drop a
-live continuation to an optimization, and must not let a dead one keep roots alive
-beyond its contract.
+A reachable continuation keeps its captured values as GC roots. Multi-shot use
+neither consumes it nor releases those roots automatically. Completion of its
+extent makes it unusable; roots may remain reachable if user code retains the
+expired closure. Abandonment makes frames collectible only when no references
+remain. Spent one-shot owners clear their private callback captures. Lifetime
+validity and heap reachability are separate facts, and optimizations preserve both.
 
-Every interpreted closed `run` allocates a fresh delimiter token. It closes
-that token before returning the result. A captured resumption and its `Resume`
-node both retain the token: calling the function and interpreting an already
-constructed node each check liveness. Moving the node into another `run` cannot
-bypass expiry. A live multi-shot resumption may be interpreted re-entrantly under
-a nested `run`; it still captures only its original pending sequence.
+Every interpreted closed `run` opens a lifetime extent and closes it before
+returning. Both calling a captured continuation and interpreting an already
+constructed resume node check liveness. Moving data into another runner cannot
+bypass expiry.
 
-An open `Handle` allocates a child token referring to its enclosing delimiter.
-Completion closes that activation's token. Forwarding suspends it; the saved
-checkpoint remains valid while its parent is live. Each residual replay starts
-a fresh activation with the same enclosing parent, so completing one replay does
-not invalidate the saved checkpoint used by another replay. New resumptions
-captured in that replay belong to its own activation and expire when it completes.
-Re-entry checks the checkpoint before creating the new activation. Tokens follow
-actual delimiter nesting, not forwarded request count; checkpoint re-entry does
-not build a new ancestor link for every request. Parent expiry also invalidates
-suspended children, including ones abandoned by an outer clause.
+For `handle`, source dispatch removal and extent completion are distinct. Its
+extent stays live during its target clause answer and closes when that answer
+finishes, even when the parent runner remains live. Replay instantiates compiler
+activation frames; it does not share a mutable finish token between independent
+branches or clone user state. Parent completion expires abandoned children.
+[Lifetime and replay](control-elimination-and-handler-scopes.md#lifetime-and-replay)
+defines checkpoint provenance and safe tail finalization groups. Long deep
+sequences must not build unbounded inactive lifetime ancestry merely because
+library code tail-returns another handler.
 
-Tokens are immutable tagged GC objects containing private mutable liveness cells
-and an optional parent. A shared generated loop checks the token and its ancestors.
-The token is not an abstract target-native stack handle. Frame payloads and saved
-sequences remain persistent, so lifetime checks do not consume multi-shot data.
+Lifetime metadata consists of GC frames and private liveness state, not a native
+stack handle. Persistent queues remain replayable while their checkpoint is live.
 
 This is the software-continuation cost model: because the frames are heap objects,
 the ordinary GC finds their roots and no separate root information is needed. A
@@ -692,8 +521,8 @@ buffer or a host-resource reference past the boundary's lifetime.
 ### The executor and the runtime boundary
 
 The eliminator's driver — the trampoline of [The trampoline](#the-trampoline) — is the
-**executor**: the component that turns a `Control` value, a handler, and a handler
-state into a result. Where it lives is a design decision with a strict boundary.
+**executor**: the component that interprets `Control` data through typed contexts
+and dispatch clauses; closed `run` also threads explicit handler state. Where it lives is a design decision with a strict boundary.
 
 - **The executor is guest code.** It is a compiler-generated loop over the frame
   representation, or a library function over a compiler-provided frame view. It runs
@@ -715,10 +544,11 @@ state into a result. Where it lives is a design decision with a strict boundary.
 The executor's contract:
 
 - Input: a `Control` value, a handler, and the initial handler state `s`.
-- Output: `(s, a)` for the closed `run`, or a residual `Control g (s, a)` for `handle`.
-- It calls the handler once per handled request and never re-enters itself for a
-  handled request; forwarded requests build residual data, so re-entry is bounded by
-  the handler count.
+- Output: `(s, a)` for the closed `run`. Interpreting scoped `handle` changes
+  from source `Control u a` to target `Control g b`, with an explicit finish context.
+- It invokes the matching clause once at each source return/request boundary.
+  Nested source/target and forwarding transitions use the shared guest loop;
+  library callbacks return data rather than invoking a synchronous inner executor.
 - It preserves the [invariants](#invariants-and-verification): frame identity, capture
   boundary, and one-shot status.
 
@@ -801,100 +631,46 @@ option remains a separate target-capability decision with its own evidence.
 
 ### Selective conversion
 
-```text
-convertible(f):
-    if f performs a suspension:            return true
-    for each call, value applied, or capture in f:
-        if convertible(callee) or callee is unknown: return true
-    return false
+1. Consume checked primitive occurrences, including callable aliases and partial
+   applications, using their authoritative Core contracts.
+2. Predeclare computation, sequence and context representations plus signatures
+   in CC layout before lowering synthesizes any bodies.
+3. Lower construction to inert data and interpretation to the guest context loop;
+   preserve source spans, source/target domain identities and capture provenance.
+4. Leave ordinary functions in the existing calling convention. Adapt callback
+   payloads through the shared checked representation operations.
 
-lower(program):
-    mark every function convertible by a fixed point over the call graph
-    for each convertible function:
-        rewrite its body in CPS form (Section "Frame construction") and
-        register its frames in the module frame table
-    leave non-convertible functions direct
-```
-
-An unknown or indirect callee that might suspend makes its caller convertible, so
-the analysis is conservative at exactly the boundaries it cannot see.
+This procedure does not infer effects from function names or unknown callees and
+does not capture the native stack of ordinary pure code.
 
 ### Perform and continuation
 
-```text
-perform(request):
-    k = capture_frames(current, up_to = nearest run delimiter)
-    transfer(request, k) to the delimiter's handler
-
-handler(request, k):              -- library code
-    ...                           -- resume k, abort, or replay k
-
-continue(k, value):
-    reinstall(k.frames, value)    -- the performed step's result is value
-```
-
-`capture_frames` reads the current chain up to the delimiter without copying outer
-frames. For the multi-shot surface it does not mutate the chain; for the one-shot
-API the status transition (`Pending` → `Running` → `Consumed`) is atomic, so a
-re-entrant resume is rejected.
+Constructing `perform(request)` stores inert data. At interpretation, the current
+source delimiter captures only its pending source queue and supplies a raw
+continuation to its operation clause. No callback runs during construction.
+The source clause returns target data; saved work executes only if it uses the
+raw continuation. Calling that continuation constructs a checked `Resume` node.
 
 ### The executor loop
 
-The closed executor drives both computation and pending sequence in a flat loop:
+Sequence normalization consumes `Bind`, `Return` and `Resume` iteratively.
+`Append(saved, consumer)` runs saved work first without mutating either sequence.
+Closed `run` supplies its state-fold clause and final result boundary. Scoped
+`handle` saves caller work, normalizes source work, removes source dispatch before
+calling either clause, and interprets the target answer under enclosing dispatch.
+An explicit finish context closes the extent only at target completion.
 
-```text
-exec(h, s, Bind(c, k), q) = exec(h, s, c, Cons(k, q))
-exec(h, s, Resume(v, saved), q) = exec(h, s, Return(v), Append(saved, q))
-exec(h, s, Return(v), Empty) = (s, v)
-exec(h, s, Return(v), Cons(k, q)) = exec(h, s, k(v), q)
-exec(h, s, Return(v), Append(Empty, q)) = exec(h, s, Return(v), q)
-exec(h, s, Return(v), Append(Cons(k, rest), q)) =
-    exec(h, s, k(v), Append(rest, q))
-exec(h, s, Return(v), Append(Append(a, b), q)) =
-    exec(h, s, Return(v), Append(a, Append(b, q)))
-exec(h, s, Perform(op), q) =
-    let cont(x) = Resume(x, q)
-    let (s', next) = h(s, op, cont)
-    exec(h, s', next, Empty)
-```
-
-Every recursive `exec` edge is a self tail call lowered to a MIR loop. Calls to
-ordinary bind functions and handlers return one computation step; they do not
-traverse the saved sequence. User code's own non-tail recursion is outside this
-machine's stack-safety guarantee. Invalid internal tags trap explicitly.
-
-The open executor uses the same sequence rules. At a request it projects the opaque
-union, calls the matching handler for a handled request, or constructs residual
-control data with a continuation that reinstates the saved handler state and
-sequence:
-
-```text
-handle h s project inject (Return a)        = Return (s, a)
-handle h s project inject (Perform uop cont) =
-    case project uop of
-      Left  fop -> let (s', next) = h s fop cont in handle h s' project inject next
-      Right gop -> Bind (Perform_g gop) (\x -> handle h s project inject (cont x))
-```
-
-`handle` threads the handler state and forwards unhandled requests to the residual;
-the loop recurses in tail position for handled requests, so the executor never grows
-the native stack with computation depth. A handler that returns without resuming
-leaves its continuation unreachable; deep and shallow differ only in whether `h`
-re-wraps the continuation.
+The complete transition procedure is in
+[scope algorithms](control-elimination-and-handler-scopes.md#algorithms).
+Nested context transitions use the shared guest loop. User callbacks' arbitrary
+non-tail recursion remains outside the machine guarantee. Invalid tags or contract
+mismatches fail explicitly.
 
 ### Deep-handler reinstatement
 
-```text
-install_deep(k, v, handler):
-    // Deep: the same delimiter must handle the continuation's later requests.
-    install(k, v) with handler re-wrapped around the resumed chain
-
-install_shallow(k, v):
-    install(k, v) without re-wrapping the handler
-```
-
-The frame chain records which wrapping applies; the lowering must not conflate the
-two.
+Reinstatement is a library `handle` construction around a raw resumed source.
+Shallow use omits that construction. Lowering preserves these ordinary typed
+operations; it does not inspect callback bodies to infer concrete handler policy.
 
 ### One-shot consumption
 
@@ -902,7 +678,8 @@ two.
 transfer(k):
     atomically: if k.status != Pending: reject
                 k.status = Running
-    ... normal or trapping completion sets k.status = Consumed ...
+    ... normal completion sets k.status = Consumed ...
+    ... caught-trap recovery requires the separate cleanup contract ...
     ... cancellation sets k.status = Cancelled ...
 ```
 
@@ -916,8 +693,8 @@ This is the design target, not a claim that these APIs exist yet:
 | Location | Intended responsibility |
 | --- | --- |
 | `Prim.Control` owner | The abstract `Control f a` carrier and the `return`/`bind`/`perform`/`run`/`handle` primitives, with their checked schemes |
-| CC control lowering and MIR | Persistent continuation sequencing and synthesis below Typed Core; selective conversion, deep/shallow wrapping, and one-shot status |
-| Executor (guest code) | The loop that drives frames against a handler and threads its state; compiler-generated or a library function over a frame view; never a runtime interpreter of the frame layout |
+| CC control lowering and MIR | Persistent sequencing and typed contexts below Typed Core; preserve library reinstatement, lifecycle provenance and one-shot status |
+| Executor (guest code) | The guest loop over typed source/target contexts, persistent queues and lifetime activations; closed run also threads fold state |
 | MIR verifier | Frame identity, capture boundary, continuation result-type, and suspension-observability checks |
 | Existing Core/CC/MIR lowering and optimizers | Compile the converted frames and the executor as ordinary higher-order code; preserve generic observable-call semantics |
 | `psrs-runtime` (software form) | GC heap, leaf primitives, trap, and linking; provides no continuation and must not learn the frame layout |
@@ -930,15 +707,14 @@ explicitly adopted.
 
 ## Invariants and verification
 
-- A suspension is observable control: it is never erased, reordered across, or
-  duplicated by an optimizer, and a convertible function is never merged into a
-  direct one without preserving its conversion.
+- Interpreting a suspension is observable control and may not be erased, reordered
+  or duplicated as a pure construction. Inert data follows ordinary strict evaluation.
 - A continuation is resumed only at its captured result type, and a one-shot
   continuation is transferred at most once, atomically with respect to re-entrancy.
 - Deep and shallow handlers behave as declared; the lowering does not silently
   change the semantics.
-- Captured frames keep their values valid until the continuation is dropped, resumed
-  to completion, or cancelled; a continuation is never retained across a
+- Reachable captured frames keep their values rooted; expiry follows the target
+  extent and multi-shot resume does not consume the checkpoint; a continuation is never retained across a
   non-suspendable foreign boundary.
 - The trampoline drives every step, so execution is stack-safe independently of the
   native stack; emitted tail positions use `return_call*`.
@@ -988,9 +764,10 @@ capability is an error, never a silent change to continuation semantics.
 
 ## Open questions and future work
 
-The eliminator is settled — the state-threading fold with the open-union `handle`
-([Handler interface for a flat loop](#handler-interface-for-a-flat-loop)). The
-following remain open.
+The source-to-target `handle` contract is selected by DEC-20; the separate `run`
+remains a closed fold. Migration, context-frame verification, replay activation
+identity and finalization coalescing require the evidence in the scope topic.
+The following remain open.
 
 1. **Direct-style surface sugar.** Effect typing is out of scope (see
    [Scope](#scope)). A non-typed syntax that desugars to the monadic API is a

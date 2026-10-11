@@ -86,7 +86,7 @@ program :: C.Control U Int
 program = C.bind (C.perform (UF (F \x -> x))) \_ -> C.perform (UG (G \x -> x))
 
 handled :: C.Control G { _1 :: Int, _2 :: Int }
-handled = C.handle 0 handler project inject program
+handled = foldOpen 0 handler project inject program
 
 main :: Int
 main = 0
@@ -135,7 +135,10 @@ fn executes_a_performed_request() {
 
 #[test]
 fn control_surface_handles_one_effect() {
-    if let Err(errors) = psrs_driver::check_source("Main.purs", HANDLES_ONE_EFFECT) {
+    if let Err(errors) = psrs_driver::check_source(
+        "Main.purs",
+        &control_support::fold_source(HANDLES_ONE_EFFECT),
+    ) {
         panic!("open handle rejected: {errors:?}");
     }
 }
@@ -159,23 +162,29 @@ fn control_surface_requires_a_rank_two_handler() {
 #[test]
 fn open_control_rejects_an_incompatible_residual_functor() {
     let source = HANDLES_ONE_EFFECT.replace("handled :: C.Control G", "handled :: C.Control F");
-    assert!(psrs_driver::check_source("Main.purs", &source).is_err());
+    assert!(
+        psrs_driver::check_source("Main.purs", &control_support::fold_source(&source)).is_err()
+    );
 }
 
 #[test]
-fn open_control_rejects_an_incompatible_injection() {
+fn library_fold_rejects_an_incompatible_injection() {
     let source = HANDLES_ONE_EFFECT.replace(
         "inject :: forall x. G x -> U x\ninject = UG",
         "inject :: forall x. F x -> U x\ninject = UF",
     );
-    assert!(psrs_driver::check_source("Main.purs", &source).is_err());
+    assert!(
+        psrs_driver::check_source("Main.purs", &control_support::fold_source(&source)).is_err()
+    );
 }
 
 #[test]
-fn open_control_requires_a_rank_two_projection() {
+fn library_fold_requires_a_rank_two_projection() {
     let source = HANDLES_ONE_EFFECT.replace(
         "project :: forall x r. U x -> (F x -> r) -> (G x -> r) -> r",
         "project :: forall r. U Int -> (F Int -> r) -> (G Int -> r) -> r",
     );
-    assert!(psrs_driver::check_source("Main.purs", &source).is_err());
+    assert!(
+        psrs_driver::check_source("Main.purs", &control_support::fold_source(&source)).is_err()
+    );
 }

@@ -23,7 +23,7 @@ fn run(name: &str, source: &str, expected: i32, force_gc: bool) {
         eprintln!("skipping control execution: wasmtime is unavailable");
         return;
     }
-    let artifact = psrs_driver::compile_source("Main.purs", source)
+    let artifact = psrs_driver::compile_source("Main.purs", &fold_source(source))
         .unwrap_or_else(|errors| panic!("compile {name}: {errors:?}"));
     let path =
         std::env::temp_dir().join(format!("psrs-control-{name}-{}.wasm", std::process::id()));
@@ -54,4 +54,25 @@ fn run(name: &str, source: &str, expected: i32, force_gc: bool) {
         Some(expected),
         "expected {name} to exit {expected}, got {output:?}"
     );
+}
+
+/// Preserve coverage of user-defined open state folds on the revised primitive.
+/// This is an ordinary library program, not a legacy compiler overload. Scoped
+/// deep/shallow semantics are tested separately in control_scoped_runtime.rs.
+pub fn fold_source(source: &str) -> String {
+    if !source.contains("foldOpen") {
+        return source.to_owned();
+    }
+    format!(
+        "{source}\n{}",
+        r"
+foldOpen :: forall f g u a s. s -> (forall x. s -> f x -> (x -> C.Control u a) -> { _1 :: s, _2 :: C.Control u a }) -> (forall x r. u x -> (f x -> r) -> (g x -> r) -> r) -> (forall x. g x -> u x) -> C.Control u a -> C.Control g { _1 :: s, _2 :: a }
+foldOpen state clause project inject computation = C.handle
+  (\value -> C.return { _1: state, _2: value })
+  (\request raw -> project request
+    (\op -> let next = clause state op raw in foldOpen next._1 clause project inject next._2)
+    (\op -> C.bind (C.perform op) (\answer -> foldOpen state clause project inject (raw answer))))
+  computation
+"
+    )
 }

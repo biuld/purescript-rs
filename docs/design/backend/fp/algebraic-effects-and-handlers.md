@@ -196,7 +196,11 @@ Deep and shallow are properties of a handler and are not part of the control
 surface. A deep State handler carries its state value forward and reinstalls itself
 around the continuation, so later requests at the same slot are handled again; a
 shallow handler returns control outside the delimiter after the current request.
-The library chooses by how it calls the continuation inside its `run` handler.
+The library chooses by wrapping the raw source continuation in a new `handle`
+(deep) or using it directly (shallow). Fresh clause requests run outside the source
+handler in its target domain. A shallow result retains the source effects unless
+library code explicitly transforms them; removing a slot from its type would not
+be justified merely by handling its first request.
 
 A handler that does not handle a request forwards it, and the residual row describes
 exactly what remains. A pure handler collects or discards a slot for testing; a
@@ -211,7 +215,7 @@ the [native Effect/ST topic](native-effect-and-st-handlers.md).
 | --- | --- |
 | Type system | Ordinary kinds, rows, class evidence, quantifiers, roles, constructor visibility, and applicable region constraints. No effect rows or handlers. |
 | Library | Operation signatures and functors, computation construction, handler interpretation, residual rows, continuation composition, and the one-shot/multi-shot API choice. |
-| Compiler | The effect-agnostic `Control f a` carrier, `return`/`bind`/`perform`/`run`, and the selective CPS/defunctionalization lowering — owned by [delimited control and resumable frames](delimited-control-and-resumable-frames.md). |
+| Compiler | The effect-agnostic `Control f a` carrier, `return`/`bind`/`perform`/`run`/`handle` plus ownership operations, and the selective CPS/defunctionalization lowering — owned by [delimited control and resumable frames](delimited-control-and-resumable-frames.md). |
 | Runtime | Real IO/storage primitives; an optional trampoline or driver; if separately adopted, target stack switching and native resumption lifetime checks. |
 
 No pass discovers an operation by the spelling `State`, `Console`, `Run`, or
@@ -221,7 +225,7 @@ representation, and CFG verification remain required.
 ### The library on the control surface
 
 The library builds on the compiler's surface — `Control f a` with `return`/`bind`/
-`perform`/`run`, specified in
+`perform`/`run`/`handle`, specified in
 [delimited control and resumable frames](delimited-control-and-resumable-frames.md).
 It defines its computation as that carrier over an operation functor:
 
@@ -236,11 +240,12 @@ get :: forall s r. Run (state :: StateF s | r) s
 get = perform (inj (StateF (Get identity)))     -- schematic; the library owns inj
 ```
 
-A handler is `run`'s rank-2 argument: it receives the handler state, the request, and
-the continuation, and returns the next state together with the next computation,
-deciding to resume, abort, or replay. Deep semantics is the library re-entering `run`
-when it forwards a request it does not handle; the compiler does not decide
-deep/shallow.
+A scoped handler uses `handle`'s return and rank-2 operation clauses. The raw
+continuation has source domain `Control u a`; both clauses return target domain
+`Control g b`. State, union projection and deep reinstatement belong to ordinary
+library code. `run` remains a closed state-fold convenience and does not provide
+this clause scope. Exact checked types and deep/shallow derivations are in
+[control elimination and handler scopes](control-elimination-and-handler-scopes.md).
 
 The surface is monadic, so effectful code is written with the library's operations
 and `bind` (via `do`). There is no direct-style effect syntax and no effect typing
@@ -275,7 +280,7 @@ handle(s, Put(s', next))   = handle(s', next)
 handle(s, Other(op, k))    = Request(op, x -> handle(s, k(x)))
 ```
 
-The library expresses this as a `run` handler over the control surface; the
+The library expresses this as a deep `handle` wrapper over the control surface; the
 mechanism that captures `k` and drives the trampoline is
 [delimited control and resumable frames](delimited-control-and-resumable-frames.md).
 The final rule preserves the captured state while the outer handler interprets
@@ -354,7 +359,7 @@ no effect syntax and no effect rows; the compiler adds no ambient effect inferen
 and does not recognize a `Run` or `Effect` constructor specially.
 
 The library and the compiler divide cleanly: operations, rows, handlers, and the
-one-shot/multi-shot API are library code; only the carrier, the four primitives, and
+one-shot/multi-shot API are library code; only the opaque carriers, generic control operations, and
 their lowering are compiler code
 ([delimited control and resumable frames](delimited-control-and-resumable-frames.md)).
 A library cannot make the optimizer unsound, and the compiler cannot change an

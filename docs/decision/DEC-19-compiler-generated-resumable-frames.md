@@ -21,8 +21,11 @@ A library-only encoding over a free/freer monad is portable and needs no compile
 change, but it forces every effectful computation through an explicit monadic
 value and depends on library trampolining for stack safety. A generic mechanism
 that can suspend a computation and capture the remainder — delimited control —
-gives the direct style users expect while keeping every concrete operation, row,
-and handler in library code.
+provides compiler-owned continuation sequencing while keeping every concrete
+operation, row, and handler in library code. The selected `Control` surface is
+monadic; it does not provide direct-style syntax or capture arbitrary pure calls.
+[DEC-20](DEC-20-typed-control-elimination.md) clarifies its typed elimination and
+clause-scope contract.
 
 Delimited control has exactly two viable implementations on this target:
 
@@ -82,9 +85,9 @@ perform.
   behind an explicit profile revision.
 - **Library-only free monad (retained as the portable baseline, not sufficient
   alone).** It needs no compiler change and remains valid for pure handlers, but
-  it is not direct style and gives no generic interruption mechanism for code not
-  written in the monad; its stack safety is a library trampoline, not a compiler
-  guarantee.
+  its stack safety is a library trampoline, not a compiler guarantee.
+  The selected compiler surface also uses explicit monadic computations; arbitrary
+  non-monadic interruption is not established by this decision.
 - **Host-imported stack capture (rejected as impossible).** A Wasm import cannot
   capture its caller's execution stack.
 - **A compiler-native effect system (rejected, unchanged from DEC-03).** Adding

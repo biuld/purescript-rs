@@ -10,8 +10,9 @@ pub(in crate::cc) struct ControlLayout {
     pub pair: ReprId,
     pub continuation: SignatureId,
     pub executor: SignatureId,
-    pub open_executor: SignatureId,
-    pub projected: ReprId,
+    pub context: ReprId,
+    pub clone_sequence: SignatureId,
+    pub rebuild_sequence: SignatureId,
     pub owner: ReprId,
     pub callback: ReprId,
     pub boundary: ReprId,
@@ -26,7 +27,7 @@ pub(super) fn append(table: &mut RepresentationTable, continuation: SignatureId)
     table.set(
         computation,
         Representation::Variant {
-            cases: [1, 1, 2, 3, 5, 6, 2]
+            cases: [1, 1, 2, 3, 3, 0, 2]
                 .into_iter()
                 .enumerate()
                 .map(|(tag, count)| VariantCase {
@@ -40,7 +41,7 @@ pub(super) fn append(table: &mut RepresentationTable, continuation: SignatureId)
     table.set(
         sequence,
         Representation::Variant {
-            cases: [0, 2, 2]
+            cases: [0, 2, 2, 3]
                 .into_iter()
                 .enumerate()
                 .map(|(tag, count)| VariantCase {
@@ -63,21 +64,27 @@ pub(super) fn append(table: &mut RepresentationTable, continuation: SignatureId)
         pair
     });
     let executor = table.add_signature(Signature {
+        parameters: vec![erased; 6],
+        result: erased,
+    });
+    let clone_sequence = table.add_signature(Signature {
         parameters: vec![erased; 5],
         result: erased,
     });
-    let open_executor = table.add_signature(Signature {
-        parameters: vec![erased; 7],
+    let rebuild_sequence = table.add_signature(Signature {
+        parameters: vec![erased; 4],
         result: erased,
     });
-    let projected = table.reserve();
+    let context = table.reserve();
     table.set(
-        projected,
+        context,
         Representation::Variant {
-            cases: (0..2)
-                .map(|tag| VariantCase {
-                    tag,
-                    fields: vec![erased],
+            cases: [1, 6]
+                .into_iter()
+                .enumerate()
+                .map(|(tag, count)| VariantCase {
+                    tag: tag as u32,
+                    fields: vec![erased; count],
                 })
                 .collect(),
         },
@@ -120,8 +127,9 @@ pub(super) fn append(table: &mut RepresentationTable, continuation: SignatureId)
         pair,
         continuation,
         executor,
-        open_executor,
-        projected,
+        context,
+        clone_sequence,
+        rebuild_sequence,
         owner,
         callback,
         boundary,

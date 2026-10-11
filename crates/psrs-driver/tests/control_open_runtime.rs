@@ -23,7 +23,7 @@ outer s (G k) cont = {outer}
 program :: C.Control U Int
 program = {program}
 handled :: C.Control G {{ _1 :: Int, _2 :: Int }}
-handled = C.handle 0 inner project inject program
+handled = foldOpen 0 inner project inject program
 result :: {{ _1 :: Int, _2 :: {{ _1 :: Int, _2 :: Int }} }}
 result = C.run 0 outer handled
 main :: Int
@@ -196,7 +196,7 @@ handlerH :: forall x. Int -> H x -> (x -> C.Control H { _1 :: Int, _2 :: { _1 ::
 handlerH s (H k) cont = { _1: intAdd s 1, _2: cont (k s) }
 program :: C.Control U Int
 program = C.bind (C.perform (UF (F \x -> x))) (\a -> C.bind (C.perform (UG (G \x -> x))) (\b -> C.bind (C.perform (UH (H \x -> x))) (\c -> C.bind (C.perform (UF (F \x -> x))) (\d -> C.return (intAdd a (intAdd b (intAdd c d)))))))
-result = C.run 30 handlerH (C.handle 10 handlerG projectG VH (C.handle 0 handlerF projectF injectF program))
+result = C.run 30 handlerH (foldOpen 10 handlerG projectG VH (foldOpen 0 handlerF projectF injectF program))
 main :: Int
 main = if intEq result._1 31 then if intEq result._2._1 11 then if intEq result._2._2._1 2 then intAdd result._2._2._2 1 else 1 else 1 else 1
 "#,
@@ -223,7 +223,7 @@ outer :: forall x. Int -> G x -> (x -> C.Control G { _1 :: { count :: Int }, _2 
 outer s (G k) cont = { _1: intAdd s 1, _2: cont (k { value: 39 }) }
 program :: C.Control U { answer :: Int }
 program = let captured = { offset: 2 } in C.bind (C.perform (UG (G \x -> x))) (\a -> C.bind (C.perform (UF (F \x -> x))) (\b -> C.return { answer: intAdd captured.offset (intAdd a.value b.value) }))
-result = C.run 0 outer (C.handle { count: 0 } inner project UG program)
+result = C.run 0 outer (foldOpen { count: 0 } inner project UG program)
 main :: Int
 main = if intEq result._1 1 then if intEq result._2._1.count 1 then result._2._2.answer else 1 else 1
 "#,
@@ -248,7 +248,7 @@ fn ignored_open_interpretation_retains_handler_traps() {
 #[test]
 fn open_handler_arguments_are_strict() {
     let text = source(MIXED, INNER, OUTER, "let unused = handled in 42")
-        .replace("C.handle 0", "C.handle (intQuot 1 0)");
+        .replace("foldOpen 0", "foldOpen (intQuot 1 0)");
     execute("open-strict", &text, 134);
 }
 
@@ -281,7 +281,7 @@ noise n = if intEq n 0 then C.return 0 else C.bind (C.perform (G \x -> x)) (\_ -
 }
 
 #[test]
-fn library_shallow_forwarding_differs_from_deep_reinstallation() {
+fn library_state_fold_can_choose_when_to_forward_selected_requests() {
     let program = r"C.bind (C.perform (UF (F \x -> x))) (\a -> C.bind (C.perform (UF (F \x -> x))) (\b -> C.bind (C.perform (UF (F \x -> x))) (\c -> C.return (intAdd a (intAdd b c)))))";
     execute(
         "open-deep",

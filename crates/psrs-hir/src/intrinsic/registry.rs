@@ -44,7 +44,7 @@ pub enum IntrinsicCategory {
     /// `Prim.undefined`: a value with no runtime representation.
     PartialValue,
     /// A compiler-owned delimited-control primitive: `Control`'s
-    /// `return`/`bind`/`perform`/`run`.
+    /// construction, execution, typed elimination and explicit ownership operations.
     Control,
 }
 
@@ -179,7 +179,7 @@ descriptors! {
     ControlBind => "controlBind", 2, Control, scheme::control_bind;
     ControlPerform => "controlPerform", 1, Control, scheme::control_perform;
     ControlRun => "controlRun", 3, Control, scheme::control_run;
-    ControlHandle => "controlHandle", 5, Control, scheme::control_handle;
+    ControlHandle => "controlHandle", 3, Control, scheme::control_handle;
     ControlOnce => "controlOnce", 1, Control, scheme::control_once;
     ControlResume => "controlResume", 2, Control, scheme::control_resume;
     ControlCancel => "controlCancel", 1, Control, scheme::control_cancel;

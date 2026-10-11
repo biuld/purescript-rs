@@ -95,6 +95,17 @@ fn inspect(root: &Path, revision: Option<String>) -> Result<StandardLibraryInfo,
             ));
         }
     }
+    // Packages using the draft control surface declare its checked API contract.
+    // Absence preserves packages that do not depend on control (including the
+    // older locked package); source is always rechecked against the registry.
+    if let Some(protocol) = manifest.pointer("/compiler_contract/control_protocol")
+        && protocol != &serde_json::json!(2)
+    {
+        return Err(format!(
+            "{}: unsupported stdlib control_protocol; expected 2",
+            root.display()
+        ));
+    }
     let command_runner = manifest
         .pointer("/compiler_contract/command_runner")
         .map(|value| {
@@ -274,6 +285,31 @@ mod tests {
             "{error}"
         );
     }
+    #[test]
+    fn declared_control_contract_rejects_incompatible_packages() {
+        let fixture = Fixture::new();
+        let path = fixture.0.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&read(&path).unwrap()).unwrap();
+        for protocol in [
+            serde_json::Value::Null,
+            serde_json::json!(1),
+            serde_json::json!(3),
+            serde_json::json!("2"),
+        ] {
+            manifest["compiler_contract"]["control_protocol"] = protocol;
+            std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+            assert!(
+                inspect(&fixture.0, None)
+                    .unwrap_err()
+                    .contains("control_protocol")
+            );
+        }
+        manifest["compiler_contract"]["control_protocol"] = serde_json::json!(2);
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert!(inspect(&fixture.0, None).is_ok());
+    }
+
     #[test]
     fn locked_package_rejects_dirty_content_and_invalid_dependency_paths() {
         let fixture = Fixture::new();

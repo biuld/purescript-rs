@@ -4,13 +4,25 @@
 **Branch:** `feat/effect-handlers`
 **Starting commit:** `2026238f`; the original checkout was clean.
 **Executor commit:** `1bcad5a7`; the ownership/lifetime continuation starts from this clean commit.
-**Scope:** Typed `Prim.Control` surface, closed/open executors, persistent bind
-sequencing, and one-shot ownership/lifetime checks. The ownership/lifetime changes are delivered with this handoff in one topical commit.
+**Scope:** Typed `Prim.Control` surface, a shared context executor, persistent bind
+sequencing, clause scope, library deep/shallow policies, and ownership/lifetime checks. The ownership/lifetime changes are delivered with this handoff in one topical commit.
 **Status:** Partial topic. All eight current primitives are lowered; complete AE/AC acceptance remains outstanding.
+
+## Latest state
+
+This topic commit implements DEC-20 control contract v2. The compiler lock pins
+stdlib `5d523805c4e2096e68fab5a4f965f62b225ee2af` with content identity
+`fnv1a64-v1:a1e5a2f8f4157041`. All 80 control tests pass under default locked package
+selection with mandatory Wasmtime; the official type comparison and nine public
+package fixtures are recorded in the v2 checklist. Historical sections below
+preserve prior checkpoints; the five-argument API belongs to those checkpoints.
+Full frame/context identity verification, allocation/depth measurements, foreign
+resources and caught-trap cleanup remain outstanding.
 
 ## Governing contracts
 
-- [DEC-19](../../decision/DEC-19-compiler-generated-resumable-frames.md).
+- [DEC-19](../../decision/DEC-19-compiler-generated-resumable-frames.md) and
+  [DEC-20](../../decision/DEC-20-typed-control-elimination.md).
 - [Delimited Control and Resumable Frames](../../design/backend/fp/delimited-control-and-resumable-frames.md).
 - [Library-Owned Algebraic Effects and Handlers](../../design/backend/fp/algebraic-effects-and-handlers.md).
 - [Acceptance checklist](algebraic-effects.md).
@@ -230,3 +242,69 @@ semantics require the outer handler to see it. Deep resumed execution and clause
 execution need distinct generic delimiter evidence; shallow removal also remains
 unexpressed. The checklist records the owning code, report and required next
 boundary. Do not treat existing residual forwarding as proof of clause scope.
+
+
+## Selected contract correction and next implementation
+
+The [scope contract](../../design/backend/fp/control-elimination-and-handler-scopes.md)
+and [DEC-20](../../decision/DEC-20-typed-control-elimination.md) resolve the next
+foundation. Generalize the existing `handle` rather than adding `step`:
+
+```text
+handle : (a -> Control g b)
+      -> (forall x. u x -> (x -> Control u a) -> Control g b)
+      -> Control u a -> Control g b
+```
+
+The old fold's source-domain clause cannot execute in its target domain merely
+by changing dispatch. Both new clauses return target computations outside source
+dispatch, while a raw continuation retains its original source type. Deep/shallow,
+state and union projection are library compositions; shallow output preserves
+remaining source effects. `run` stays a closed state fold.
+
+Dispatch scope and lifetime must migrate together. Explicit heap source/target
+contexts save caller work outside capture and retain extent-finish markers during
+clause execution. Target completion closes the extent. Replay instantiates
+compiler lifecycle activation frames, preserving original checkpoints and sharing
+user values/one-shot owners. Safe tail finalization groups prevent a deep wrapper
+from accumulating inactive ancestors per request; non-tail branches retain their
+independent expiry boundaries.
+
+Implement the registry/Core scheme and checked contracts, predeclare all CC
+layout/signatures, implement and verify the shared context machine, then migrate
+the independent package wrappers and acceptance cases. Retain ID 96 and eight
+operations; invalidate incompatible artifact/package contracts. Do not update
+`stdlib.lock.json` before package source/type/runtime acceptance. The checklist
+records the requirement-to-evidence matrix and actual design proofs: official
+`purs` accepts both wrappers and rejects four invalid relationships; an eight-case
+rewrite model passes. Neither proof establishes guest lifetime or stack safety.
+
+This handoff now distinguishes implemented v1 (`95982bea`, stdlib `28997b5`) from
+selected v2 design. No production source changed in the design correction.
+The older clause failure remains a v1 reproducer; migrate it to the revised typed
+wrapper before using it as v2 target acceptance. AE-06/AC-05, full frame identity,
+foreign resources and caught-trap cleanup remain Unverified.
+
+
+## Implemented v2 continuation
+
+The selected contract is now implemented: existing ID 96 has three arguments,
+Core checks control carrier/callable relationships, and CC generates one flat
+source/target context executor. Clause and return-clause requests execute outside
+source dispatch, with finish markers keeping the target lifetime live. Persistent
+replay creates fresh lifecycle activations; tail handler entry normalizes queue
+heads and shares compatible finish boundaries. No new intrinsic was added.
+
+The independent package provides the new `handle`/`handleOnce` and typed ordinary
+`handleDeep`/`handleShallow` wrappers with protocol 2. Public ClauseScope now
+returns 42. Nine public runtime fixtures and 17 official type comparisons pass;
+these remain separate from pinned Run/VariantF acceptance. Existing compiler
+fold cases are retained as ordinary `foldOpen` library regressions; new scope
+cases test the actual revised contract.
+
+The checklist's v2 section records 80 control tests (78 in the full workspace run
+plus two subsequent nested replay tests), 424 passing backend tests, formatting
+and clippy, and the unchanged nine-target / 175-name workspace failure baseline.
+Full CC/MIR semantic frame identity, allocation/depth measurement, foreign borrowed
+resources and caught-trap cleanup remain Unverified. Continue with those owner
+contracts rather than adding concrete effects or a dispatch mode to the compiler.

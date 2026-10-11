@@ -458,3 +458,195 @@ No Rust source changed in this continuation. Full Rust workspace tests/clippy
 were not repeated; the prior `a31ba11e` evidence remains the compiler baseline.
 The library tools, official type comparison, focused public runtime cases and
 source audit were actually executed as recorded above.
+
+
+### Typed elimination design correction (2026-10-11)
+
+[DEC-20](../../decision/DEC-20-typed-control-elimination.md) and
+[the scope contract](../../design/backend/fp/control-elimination-and-handler-scopes.md)
+replace the draft five-argument open fold with a three-argument generalized
+`handle`. No intrinsic was added and no compiler or production package source was
+changed in this design continuation. The existing ID 96 remains selected.
+`run` retains its closed state-fold contract. This is contract v2 design; compiler
+`95982bea` and independent package `28997b5` still implement v1.
+
+The ClauseScope failure is a missing typed API contract, not merely incorrect
+CC dispatch: the old clause returns source `Control u a`, whereas the operator
+returns target `Control g (s, a)`. Executing that clause as target data would be
+unsound without a conversion. Revised clauses return the actual target domain;
+a raw continuation remains in its source domain. Library code owns state,
+projection, forwarding, deep reinstallation and shallow residual preservation.
+
+#### Design validation actually performed
+
+Artifacts are retained in `/private/tmp/psrs-control-contract-20261011/`.
+Official `purs` 0.15.16 compiled `Contract.purs` to CoreFn using opaque foreign
+carrier/primitive declarations, with no foreign runtime. The accepted source
+contains the revised scheme, both complete wrapper bodies reproduced in the
+scope design, a deep clause performing a target request, and typed deep/shallow
+applications. `positive.json` records acceptance (shadowing warnings only).
+Four separate negatives each report `TypesDoNotUnify`:
+
+| File | Rejected relationship |
+| --- | --- |
+| `WrongClauseDomain.purs` | Source request performed in a target clause |
+| `ShallowCannotRemove.purs` | Shallow source result assigned a reduced target effect domain |
+| `WrongRawAnswer.purs` | Raw rank-2 continuation supplied an unrelated Boolean |
+| `WrongTargetAnswer.purs` | Target answer assigned an unrelated result type |
+
+Each file has a corresponding `.json` and `.stderr` report. These cases establish
+ordinary type expressibility, not current target compiler acceptance of v2.
+They are separate from the earlier nine package comparisons of the v1 interface.
+
+`node model.mjs` executed eight rewrite-semantic assertions; `model.json` records
+clause scope, deep reinstallation, shallow escape, residual forwarding, independent
+multi-shot state, abandonment, return-clause scope and caller capture boundaries.
+The expected clause-scope result is value 42 with one inner and one outer call;
+deep handles both source requests internally, while shallow sends the second to
+the outer handler. The model does not implement lifetime, GC, Wasm or a stack-safe
+executor. No AE/AC requirement requiring guest execution becomes Verified from
+these proofs. No official suite measurement changes.
+
+#### Required coherent migration and evidence
+
+| Obligation | Owner and required evidence | Status |
+| --- | --- | --- |
+| Revise checked scheme/arity, preserving intrinsic identity | Registry, primitive value elaboration, Core verification; direct calls, aliases, partial applications, malformed and old-signature rejection | Unverified |
+| Preserve source/target contracts after erasure | CC layout and verification; predeclared SignatureIds and immutable representation table; cross-domain and mismatched finish-frame rejection | Unverified |
+| Flat source/target context machine | CC lowering; inert construction, caller work outside capture, both clauses outside source dispatch, arbitrary nested handlers | Unverified |
+| Typed library policies | Independent stdlib; port the shown wrappers and type negatives into package-owned conformance, compare with official `purs`, migrate ClauseScope and deep/shallow runtime cases | Unverified |
+| Lifetime separate from dispatch | Mandatory Wasmtime; raw use during clause, expiry after target answer while parent stays live, expiry of already built nodes, abandoned child expiry | Unverified |
+| Replay activation identities | Mandatory Wasmtime; replay of nested finish contexts, original checkpoint retained, replay-local captures expire, shared one-shot owners reject reuse | Unverified |
+| Bound stack and inactive ancestor growth | Mandatory Wasmtime long deep/residual sequences; inspect frame/ancestor and allocation behavior; exercise non-tail multi-shot clauses separately | Unverified |
+| Coherent artifact/package contract v2 | Explicit compatibility invalidation/rejection, revised independent package acceptance before lock update; no old/new overload or hidden extra intrinsic | Unverified |
+| Complete adjacent obligations | Existing frame identity, GC roots, foreign borrowed-resource and caught-host-trap cleanup requirements remain in force | Unverified |
+
+AE-06 and AC-05 remain Unverified. Their normative scope is not reduced to the
+state fold. The earlier focused v1 runtime results remain historical evidence;
+they do not certify the revised interface. Rust tests/clippy were not rerun for
+this documentation-only correction; `git diff --check` is the relevant local gate.
+
+
+## Control contract v2 implementation (2026-10-11)
+
+Starting point: compiler `95982bea` on `feat/effect-handlers`, with the preceding
+design correction uncommitted; independent stdlib `28997b5` on `control-library`,
+initially clean. The default package selection rejected that main checkout because
+it differed from locked `1e01310`. The same original mixed-forwarding test passed
+with the explicit `PSRS_STDLIB_ROOT=/Users/biu/Projects/psrs-stdlib` development
+package. Baseline log: `/private/tmp/psrs-control-v2-before.log`.
+
+### Implemented ownership and machine contracts
+
+- `ControlHandle` retains ID 96 and now has arity three and the DEC-20 scheme.
+  There is no ninth intrinsic, legacy overload, compiler union projection or
+  effect-name dispatch. The separate closed `run` still implements a state fold.
+- Core rejects wrong saturated arity before indexing arguments, and checks all
+  eight control carrier/callable relationships before erasure. Rank-2 clauses
+  retain the shared request/raw answer variable and exact source/target domains.
+  `tests::control` has four malformed/valid IR checks, including a forged source
+  payload rejected at the common return constructor. Type relations use the
+  existing Core checking owner; no private effect solver was added.
+- CC layout predeclares computation, persistent queue, context and callback
+  signatures. The single six-argument executor switches between root/source
+  contexts. A source context saves its return clause, operation clause, caller
+  queue, caller extent, caller context and owned extent. Both clauses execute
+  with caller dispatch and a target finish marker, retaining the owned extent
+  until their target answer completes.
+- Raw resume remains inert and retains its original source queue/checkpoint.
+  Replay flattens lifecycle templates with a heap traversal stack and rebuilds
+  them from the outside inward with fresh activations. Ordinary callback values
+  and one-shot owners remain shared. New activation ancestry uses the current
+  dispatch extent; saved checkpoints retain their original owner. Helper edges
+  are self tail calls lowered to loops, not recursive native sequence traversal.
+- Tail handler entry normalizes leading `Append` nodes before inspecting finish
+  markers. A leading compiler finish allows shared completion of the tail-returned
+  handler without another lifetime ancestor or duplicate finish. User continuation
+  heads keep independent extents. The intermediate long-forwarding run exposed
+  missing queue normalization; it was stopped and superseded by the passing
+  corrected run in `/private/tmp/psrs-control-v2-long-forward.log`.
+
+Core verifies source typing. Existing CC/MIR verification checks generated
+representation shapes and predeclared calls; full semantic frame/context identity
+and malformed lifecycle-provenance verification remain Unverified. The long
+runtime cases establish bounded native stack on the executed programs, not a
+complete allocation/ancestor-depth measurement or proof for every control form.
+
+### Requirement-to-test evidence
+
+| Requirement slice | Actually executed evidence | Coverage |
+| --- | --- | --- |
+| Clause and return-clause scope; deep vs shallow | `control_scoped_runtime` fresh clause, return clause and distinct source-resumption cases | Focused Verified |
+| Source/target answers and primitive values | Scoped alias/partial application changes Int source answer to Boolean target; `control_scoped_surface` rejects source requests in target clauses, wrong raw/target answers, old scheme and false shallow removal | Focused Verified |
+| Replay, abandonment and caller capture | Scoped state replay/caller queue and abandonment; historical library-fold forwarding tests ported through an explicitly ordinary `foldOpen` helper | Focused Verified |
+| Normal target lifetime | Scoped expiry of raw closures and prebuilt nodes while parent remains live | Focused Verified |
+| Nested replay lifecycle | `control_scoped_replay` replays two nested finish contexts twice; new replay-local closures and prebuilt nodes expire after that branch | Focused Verified |
+| Request/bind stack safety | Scoped deep and mixed forwarding cases execute 100000 requests; existing closed bind/request case also executes | Focused Verified; general allocation/depth bound unverified |
+| Adjacent ownership, aggregate and GC behavior | Existing owned/open/closed control runtime targets; forced-GC evidence actually observes collection | Focused Verified |
+| Package contract | Package test rejects explicit incompatible/null/string control versions; source rejects v1 handle scheme | Focused Verified |
+| Complete verifier, foreign resources, caught traps, pinned reference library | No new execution establishes these contracts | Unverified |
+
+The helper `foldOpen` in compiler tests is a user-defined state fold over v2
+`handle`; it preserves historical fold behavior by explicitly converting its
+source clause result. It is not the public scoped handler contract. Actual
+shallow behavior is tested directly and through the independent public wrapper.
+No compiler dispatch flag emulates it.
+
+### Independent package and validation
+
+The independent package now exposes revised `handle`/`handleOnce`, plus ordinary
+`handleDeep`/`handleShallow`, and declares `control_protocol = 2`. Target wrapper
+provenance/hash are updated; official PureScript module sources are unchanged.
+The package-owned official comparison passes 17 cases: nine accepted sources and
+eight `TypesDoNotUnify` negatives. It uses `purs` 0.15.16 and an opaque CoreFn-only
+interface shim, not an official control runtime. Report:
+`/private/tmp/psrs-control-v2-official/types.json`.
+
+Nine public Wasmtime fixtures pass: `OneShot`, `MultiShot`, `Open`, `ClauseScope`,
+`HandleOnce`, `Deep`, `Shallow`, `DoubleResume`, and `Cancelled`. The last two
+require a completed semantic `unreachable` trap; the others require value 42,
+including inner/outer counts where declared. Reports:
+`/private/tmp/psrs-control-v2-public-<case>/run.json`.
+Node tool tests: 12 pass. Pinned source audit: 41 packages, 231 modules (170
+identical, 36 modified, 25 target additions), no missing upstream modules or
+direct self-recursions. Logs: `/private/tmp/psrs-control-v2-node.log` and
+`/private/tmp/psrs-control-v2-audit.log`.
+
+Compiler validation with explicit development package and mandatory Wasmtime:
+
+- Full workspace `--no-fail-fast` executes 78 control tests and all 424 backend
+  library tests successfully. It still fails at the same nine targets and 175
+  test names as `a31ba11e`; comparison has no added or recovered failure names.
+  This compares failure names, not an assertion that every failure has one cause.
+- Two additional nested replay tests execute successfully after the workspace
+  run, bringing focused control coverage to 80 Rust tests. Four Core control IR
+  tests and the package protocol rejection test pass in the workspace run.
+- Formatting, diff checking and full workspace clippy pass. No new syntax,
+  diagnostic code or official scoreboard measurement is claimed.
+
+Logs: `/private/tmp/psrs-control-v2-workspace.log`,
+`/private/tmp/psrs-control-v2-workspace-comparison.json`,
+`/private/tmp/psrs-control-v2-nested-replay.log`, and
+`/private/tmp/psrs-control-v2-clippy.log`.
+
+Package protocol v2 and source fingerprinting prevent silently accepting an
+explicit v1 package contract; old source schemes fail checking. The inspected
+pipeline rebuilds Core/CC from source and exposes no persistent checked-IR cache
+migration path. Existing standalone Wasm artifacts must be rebuilt; this change
+does not claim a new runtime artifact-version rejection mechanism.
+AE-06/AC-05 retain their full Unverified topic status, with the focused slices
+above recorded separately. This implementation does not close the topic.
+
+
+### Locked package integration
+
+The package continuation is committed at
+`5d523805c4e2096e68fab5a4f965f62b225ee2af`; the compiler lock now pins it with
+`fnv1a64-v1:a1e5a2f8f4157041`. After the pin, all 80 control tests execute and pass
+with `PSRS_STDLIB_ROOT` explicitly unset and mandatory Wasmtime, so ordinary
+package selection is exercised rather than relying on the development override.
+All five package-selection tests and four Core control IR tests also pass.
+Logs: `/private/tmp/psrs-control-v2-locked.log`,
+`/private/tmp/psrs-control-v2-package.log`, and `/private/tmp/psrs-control-v2-core.log`.
+The full workspace failure-set comparison above used the explicit development
+path to the same package content; it is not relabelled as a default-selection run.

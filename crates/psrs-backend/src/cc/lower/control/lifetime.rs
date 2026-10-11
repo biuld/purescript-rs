@@ -195,43 +195,4 @@ impl Machine<'_> {
             result,
         )
     }
-
-    pub(super) fn enter_handle(
-        &mut self,
-        state: ValueId,
-        handler: ValueId,
-        computation: ValueId,
-        sequence: ValueId,
-        case: u32,
-        body: &mut Vec<Assignment>,
-    ) -> ValueId {
-        let inner_state = self.field(computation, self.layout.computation, case, 0, body);
-        let inner_handler = self.field(computation, self.layout.computation, case, 1, body);
-        let project = self.field(computation, self.layout.computation, case, 2, body);
-        let inject = self.field(computation, self.layout.computation, case, 3, body);
-        let inner = self.field(computation, self.layout.computation, case, 4, body);
-        let boundary = if case == 4 {
-            self.new_boundary(self.boundary, body)
-        } else {
-            let boundary = self.field(computation, self.layout.computation, case, 5, body);
-            self.check_boundary(boundary, body);
-            let parent = self.field(boundary, self.layout.boundary, 1, 1, body);
-            self.new_boundary(Some(parent), body)
-        };
-        let empty = self.node(self.layout.sequence, 0, vec![], body);
-        let function = self.functions.open_executor;
-        let next = self.emit(erased_shape(), body, |_| AssignmentKind::DirectCall {
-            function,
-            arguments: vec![
-                inner_state,
-                inner_handler,
-                inner,
-                empty,
-                project,
-                inject,
-                boundary,
-            ],
-        });
-        self.recur(state, handler, next, sequence, body)
-    }
 }

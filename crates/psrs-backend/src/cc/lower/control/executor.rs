@@ -5,21 +5,16 @@ use crate::cc::payload::erased_shape;
 use crate::cc::{Assignment, Function, TagCase, ValueId};
 
 impl Machine<'_> {
-    pub(super) fn executor(mut self, open: bool) -> Function {
+    pub(super) fn executor(mut self) -> Function {
         let state = self.lower.fresh(erased_shape());
         let handler = self.lower.fresh(erased_shape());
         let computation = self.lower.fresh(erased_shape());
         let sequence = self.lower.fresh(erased_shape());
-        let mut parameters = vec![state, handler, computation, sequence];
-        if open {
-            let project = self.lower.fresh(erased_shape());
-            let inject = self.lower.fresh(erased_shape());
-            self.open = Some((project, inject));
-            parameters.extend([project, inject]);
-        }
         let boundary = self.lower.fresh(erased_shape());
+        let context = self.lower.fresh(erased_shape());
         self.boundary = Some(boundary);
-        parameters.push(boundary);
+        self.context = Some(context);
+        let parameters = vec![state, handler, computation, sequence, boundary, context];
         let mut cases = Vec::new();
 
         let mut body = Vec::new();
@@ -48,40 +43,36 @@ impl Machine<'_> {
         let saved = self.field(computation, self.layout.computation, 3, 1, &mut body);
         let captured_boundary = self.field(computation, self.layout.computation, 3, 2, &mut body);
         self.check_boundary(captured_boundary, &mut body);
+        let empty = self.node(self.layout.sequence, 0, vec![], &mut body);
+        let function = self.functions.clone_sequence;
+        let boundary = self.boundary.unwrap();
+        let parent = self.dispatch_boundary(&mut body);
+        let cloned = self.emit(erased_shape(), &mut body, |_| {
+            crate::cc::AssignmentKind::DirectCall {
+                function,
+                arguments: vec![saved, empty, empty, boundary, parent],
+            }
+        });
+        let saved = self.pair_field(cloned, 0, &mut body);
+        let active = self.pair_field(cloned, 1, &mut body);
         let pending = self.node(self.layout.sequence, 2, vec![saved, sequence], &mut body);
+        self.boundary = Some(active);
         let next = self.node(self.layout.computation, 0, vec![value], &mut body);
         let result = self.recur(state, handler, next, pending, &mut body);
         cases.push(arm(3, body, result));
+        self.boundary = Some(boundary);
 
         let mut body = Vec::new();
-        let result = self.enter_handle(state, handler, computation, sequence, 4, &mut body);
+        let result = self.enter_handle(state, handler, computation, sequence, &mut body);
         cases.push(arm(4, body, result));
-        let mut body = Vec::new();
-        let result = self.enter_handle(state, handler, computation, sequence, 5, &mut body);
-        cases.push(arm(5, body, result));
-
         let mut body = Vec::new();
         let result = self.consume_owned(state, handler, computation, sequence, &mut body);
         cases.push(arm(6, body, result));
 
         let mut body = Vec::new();
         let result = self.switch(computation, self.layout.computation, cases, &mut body);
-        let symbol = if open {
-            self.functions.open_executor
-        } else {
-            self.functions.executor
-        };
-        self.finish(
-            symbol,
-            if open {
-                "control_open_executor"
-            } else {
-                "control_executor"
-            },
-            parameters,
-            body,
-            result,
-        )
+        let symbol = self.functions.executor;
+        self.finish(symbol, "control_executor", parameters, body, result)
     }
 
     fn returned(
@@ -95,13 +86,7 @@ impl Machine<'_> {
     ) -> ValueId {
         let mut cases = Vec::new();
         let mut branch = Vec::new();
-        let pair = self.pair(state, value, &mut branch);
-        let result = if self.open.is_some() {
-            self.close_boundary(self.boundary.unwrap(), &mut branch);
-            self.node(self.layout.computation, 0, vec![pair], &mut branch)
-        } else {
-            pair
-        };
+        let result = self.finish_source(state, handler, value, &mut branch);
         cases.push(arm(0, branch, result));
 
         let mut branch = Vec::new();
@@ -116,6 +101,15 @@ impl Machine<'_> {
         let right = self.field(sequence, self.layout.sequence, 2, 1, &mut branch);
         let result = self.appended(state, handler, computation, value, left, right, &mut branch);
         cases.push(arm(2, branch, result));
+        let mut branch = Vec::new();
+        let boundary = self.field(sequence, self.layout.sequence, 3, 0, &mut branch);
+        let rest = self.field(sequence, self.layout.sequence, 3, 1, &mut branch);
+        let parent = self.field(sequence, self.layout.sequence, 3, 2, &mut branch);
+        self.close_boundary(boundary, &mut branch);
+        let old = self.boundary.replace(parent);
+        let result = self.recur(state, handler, computation, rest, &mut branch);
+        self.boundary = old;
+        cases.push(arm(3, branch, result));
         self.switch(sequence, self.layout.sequence, cases, body)
     }
 
@@ -150,6 +144,19 @@ impl Machine<'_> {
         let pending = self.node(self.layout.sequence, 2, vec![first, rest], &mut branch);
         let result = self.recur(state, handler, computation, pending, &mut branch);
         cases.push(arm(2, branch, result));
+        let mut branch = Vec::new();
+        let boundary = self.field(left, self.layout.sequence, 3, 0, &mut branch);
+        let rest = self.field(left, self.layout.sequence, 3, 1, &mut branch);
+        let parent = self.field(left, self.layout.sequence, 3, 2, &mut branch);
+        let pending = self.node(self.layout.sequence, 2, vec![rest, right], &mut branch);
+        let pending = self.node(
+            self.layout.sequence,
+            3,
+            vec![boundary, pending, parent],
+            &mut branch,
+        );
+        let result = self.recur(state, handler, computation, pending, &mut branch);
+        cases.push(arm(3, branch, result));
         self.switch(left, self.layout.sequence, cases, body)
     }
 }

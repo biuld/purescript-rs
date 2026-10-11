@@ -64,7 +64,7 @@ inner :: forall x. Saved -> F x -> (x -> C.Control U Int) -> { _1 :: Saved, _2 :
 inner s (F k) cont = { _1: { saved: \n -> cont (k n) }, _2: C.return 42 }
 outer :: forall x. Int -> G x -> (x -> C.Control G { _1 :: Saved, _2 :: Int }) -> { _1 :: Int, _2 :: C.Control G { _1 :: Saved, _2 :: Int } }
 outer s (G k) cont = { _1: s, _2: cont (k 0) }
-handled = C.handle { saved: \n -> C.return n } inner project UG (C.perform (UF (F \x -> x)))
+handled = foldOpen { saved: \n -> C.return n } inner project UG (C.perform (UF (F \x -> x)))
 result = C.run 0 outer handled
 main :: Int
 main = result._2._2
@@ -72,13 +72,13 @@ main = result._2._2
 
 #[test]
 fn rejects_a_completed_open_delimiter_while_its_outer_delimiter_is_live() {
-    let text = OPEN.replace("result = C.run 0 outer handled", r"result = C.run 0 outer (C.bind handled (\pair -> C.handle pair._1 inner project UG (pair._1.saved 42)))");
+    let text = OPEN.replace("result = C.run 0 outer handled", r"result = C.run 0 outer (C.bind handled (\pair -> foldOpen pair._1 inner project UG (pair._1.saved 42)))");
     execute("expired-open-live-outer", &text, 134);
 }
 
 #[test]
 fn rejects_an_open_resumption_after_the_outer_run_returns() {
-    let text = OPEN.replace("main = result._2._2", "main = (C.run 0 outer (C.handle result._2._1 inner project UG (result._2._1.saved 42)))._2._2");
+    let text = OPEN.replace("main = result._2._2", "main = (C.run 0 outer (foldOpen result._2._1 inner project UG (result._2._1.saved 42)))._2._2");
     execute("expired-open", &text, 134);
 }
 
@@ -100,9 +100,9 @@ inner :: forall x. Int -> F x -> (x -> C.Control U Int) -> { _1 :: Int, _2 :: C.
 inner s (F k) cont = { _1: s, _2: C.perform (UG (G (\n -> cont (k n)) (\x -> x))) }
 outer :: forall x. Saved -> G x -> (x -> C.Control G { _1 :: Int, _2 :: Int }) -> { _1 :: Saved, _2 :: C.Control G { _1 :: Int, _2 :: Int } }
 outer s (G saved k) cont = { _1: { saved: saved }, _2: C.return { _1: 0, _2: 42 } }
-result = C.run { saved: \n -> C.return n } outer (C.handle 0 inner project UG (C.perform (UF (F \x -> x))))
+result = C.run { saved: \n -> C.return n } outer (foldOpen 0 inner project UG (C.perform (UF (F \x -> x))))
 main :: Int
-main = (C.run result._1 outer (C.handle 0 inner project UG (result._1.saved 42)))._2._2
+main = (C.run result._1 outer (foldOpen 0 inner project UG (result._1.saved 42)))._2._2
 "#,
         134,
     );
