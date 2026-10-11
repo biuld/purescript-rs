@@ -18,8 +18,12 @@ operations and supply different handlers for production and testing, using
 existing PureScript syntax and types. The representation for the generic handler
 mechanism is recorded as a decision ([DEC-19](../decision/DEC-19-compiler-generated-resumable-frames.md));
 a separate draft proposes implementing the official Effect/ST APIs over library
-native handlers while preserving their public contracts. None of these proposals
-is an implemented capability yet.
+native handlers while preserving their public contracts. The low-level control surface now supports closed and open interpretation,
+persistent multi-shot continuations, and explicit one-shot owners. Calling or
+interpreting an expired continuation, reusing a spent owner, or resuming a
+cancelled owner traps. Full library APIs, host interpretation and official-suite
+acceptance remain incomplete; this does not restore the former `Effect Unit`
+entry capability.
 
 The intended workflow is:
 

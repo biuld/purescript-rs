@@ -1,0 +1,54 @@
+//! One-shot ownership is consumed at interpretation, before invoking user code.
+
+use super::builder::Machine;
+use crate::cc::payload::erased_shape;
+use crate::cc::{Assignment, Function, ValueId};
+
+impl Machine<'_> {
+    pub(super) fn owned(mut self) -> Function {
+        let continuation = self.lower.fresh(erased_shape());
+        let mut body = Vec::new();
+        let callback = self.new_cell(self.layout.callback, continuation, &mut body);
+        let status = self.new_status(&mut body);
+        let result = self.node(self.layout.owner, 0, vec![callback, status], &mut body);
+        let symbol = self.functions.once;
+        self.finish(symbol, "control_once", vec![continuation], body, result)
+    }
+
+    pub(super) fn cancel(mut self) -> Function {
+        let owner = self.lower.fresh(erased_shape());
+        let mut body = Vec::new();
+        let status = self.field(owner, self.layout.owner, 0, 1, &mut body);
+        self.guard_pending(status, &mut body);
+        self.set_status(status, 3, &mut body);
+        let callback = self.field(owner, self.layout.owner, 0, 0, &mut body);
+        self.write_cell(self.layout.callback, callback, status, &mut body);
+        let symbol = self.functions.cancel;
+        self.finish(symbol, "control_cancel", vec![owner], body, owner)
+    }
+
+    pub(super) fn consume_owned(
+        &mut self,
+        state: ValueId,
+        handler: ValueId,
+        computation: ValueId,
+        sequence: ValueId,
+        body: &mut Vec<Assignment>,
+    ) -> ValueId {
+        let owner = self.field(computation, self.layout.computation, 6, 0, body);
+        let value = self.field(computation, self.layout.computation, 6, 1, body);
+        let callback = self.field(owner, self.layout.owner, 0, 0, body);
+        let status = self.field(owner, self.layout.owner, 0, 1, body);
+        self.guard_pending(status, body);
+        // No guest callback runs between this check and transition. The pinned
+        // guest profile is single-threaded; re-entrant callbacks see Running.
+        self.set_status(status, 1, body);
+        let continuation = self.read_cell(self.layout.callback, erased_shape(), callback, body);
+        // The local invocation roots the callback; a retained consumed owner
+        // must no longer root its captures.
+        self.write_cell(self.layout.callback, callback, status, body);
+        let next = self.apply(continuation, &[value], body);
+        self.set_status(status, 2, body);
+        self.recur(state, handler, next, sequence, body)
+    }
+}

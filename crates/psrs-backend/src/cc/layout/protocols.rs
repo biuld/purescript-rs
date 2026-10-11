@@ -14,19 +14,10 @@ pub(super) fn append(table: &mut RepresentationTable) {
         .representations
         .iter()
         .any(|representation| matches!(representation, Representation::Array { .. }));
-    if has_array
-        && !table.representations.iter().any(|representation|
-        matches!(representation, Representation::Array { element } if *element == erased))
-    {
-        let id = table.reserve();
-        table.set(id, Representation::Array { element: erased });
-    }
-    // Text codecs use a private integer buffer. Source arrays use erased slots;
-    // codec conversion explicitly crosses this value-producing boundary.
-    if has_array && !table.representations.iter().any(|representation|
-        matches!(representation, Representation::Array { element } if *element == ValueShape::Integer)) {
-        let id = table.reserve();
-        table.set(id, Representation::Array { element: ValueShape::Integer });
+    if has_array {
+        array(table, erased);
+        // Text codecs explicitly cross from source slots to integer buffers.
+        array(table, ValueShape::Integer);
     }
     let labels = table
         .product_labels
@@ -63,4 +54,16 @@ pub(crate) fn record(table: &RepresentationTable, labels: &[String]) -> Option<R
             if fields.len() == labels.len() && fields.iter().all(|field| *field == erased)))
         .then_some(*id)
     })
+}
+
+/// Reuse the authoritative array representation for a physical element shape.
+pub(super) fn array(table: &mut RepresentationTable, element: ValueShape) -> ReprId {
+    if let Some(index) = table.representations.iter().position(|representation| {
+        matches!(representation, Representation::Array { element: existing } if *existing == element)
+    }) {
+        return ReprId(index as u32);
+    }
+    let id = table.reserve();
+    table.set(id, Representation::Array { element });
+    id
 }

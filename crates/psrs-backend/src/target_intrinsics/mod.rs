@@ -121,14 +121,15 @@ pub(crate) fn implementation(intrinsic: Intrinsic) -> Implementation {
             Elaborated
         }
         Intrinsic::Undefined => Unsupported,
-        // The delimited-control primitives have no target implementation until
-        // the selective-CPS/resumable-frame lowering lands; they are reported as
-        // unsupported rather than lowered as a placeholder.
+        // Control primitives lower to guest frames and generated drivers.
         Intrinsic::ControlReturn
         | Intrinsic::ControlBind
         | Intrinsic::ControlPerform
         | Intrinsic::ControlRun
-        | Intrinsic::ControlHandle => Control,
+        | Intrinsic::ControlHandle
+        | Intrinsic::ControlOnce
+        | Intrinsic::ControlResume
+        | Intrinsic::ControlCancel => Control,
     }
 }
 

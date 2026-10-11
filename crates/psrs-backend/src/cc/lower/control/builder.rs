@@ -16,6 +16,7 @@ pub(super) struct Machine<'a> {
     pub functions: ControlFunctions,
     pub span: TextRange,
     pub open: Option<(ValueId, ValueId)>,
+    pub boundary: Option<ValueId>,
 }
 
 pub(super) fn repr(id: ReprId) -> ValueShape {
@@ -42,6 +43,7 @@ impl<'a> Machine<'a> {
             functions,
             span,
             open: None,
+            boundary: None,
         }
     }
 
@@ -199,12 +201,26 @@ impl<'a> Machine<'a> {
         let (function, arguments) = if let Some((project, inject)) = self.open {
             (
                 self.functions.open_executor,
-                vec![state, handler, computation, sequence, project, inject],
+                vec![
+                    state,
+                    handler,
+                    computation,
+                    sequence,
+                    project,
+                    inject,
+                    self.boundary.unwrap(),
+                ],
             )
         } else {
             (
                 self.functions.executor,
-                vec![state, handler, computation, sequence],
+                vec![
+                    state,
+                    handler,
+                    computation,
+                    sequence,
+                    self.boundary.unwrap(),
+                ],
             )
         };
         self.emit(erased_shape(), body, |_| AssignmentKind::DirectCall {

@@ -27,6 +27,9 @@ fn every_active_identity_has_an_explicit_implementation() {
                         | Intrinsic::ControlPerform
                         | Intrinsic::ControlRun
                         | Intrinsic::ControlHandle
+                        | Intrinsic::ControlOnce
+                        | Intrinsic::ControlResume
+                        | Intrinsic::ControlCancel
                 ));
             }
             Implementation::Generated(_) | Implementation::Elaborated => {}

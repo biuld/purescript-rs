@@ -179,6 +179,12 @@ pub enum Intrinsic {
     /// operations of a computation over a combined effect `u` and leaves the
     /// rest as a residual `Control g (s, a)`.
     ControlHandle = 96,
+    /// Allocate opaque one-shot continuation ownership.
+    ControlOnce = 97,
+    /// Build an inert computation that consumes ownership at interpretation.
+    ControlResume = 98,
+    /// Cancel a pending one-shot owner.
+    ControlCancel = 99,
 }
 
 impl Intrinsic {
@@ -206,7 +212,7 @@ impl Intrinsic {
 
     /// Every active variant, in discriminant order. Binding resolution uses the
     /// complete list.
-    pub const ALL: [Intrinsic; 90] = [
+    pub const ALL: [Intrinsic; 93] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::IntAdd,
@@ -297,6 +303,9 @@ impl Intrinsic {
         Intrinsic::ControlPerform,
         Intrinsic::ControlRun,
         Intrinsic::ControlHandle,
+        Intrinsic::ControlOnce,
+        Intrinsic::ControlResume,
+        Intrinsic::ControlCancel,
     ];
 }
 
@@ -305,7 +314,7 @@ impl Intrinsic {
 // cannot be added and silently left out of the bootstrap name table.
 const _: () = {
     assert!(
-        Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len() == 97,
+        Intrinsic::ALL.len() + Intrinsic::RESERVED_IDS.len() == 100,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 = 0;

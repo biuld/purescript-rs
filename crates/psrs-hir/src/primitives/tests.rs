@@ -46,7 +46,8 @@ const OFFICIAL_MEMBERS: &[(&str, &str)] = &[
 /// Compiler-owned members that extend the official `Prim.*` environment. They
 /// are not part of PureScript's `primModules`, so they are recorded separately
 /// and never folded into the official transcription above.
-const COMPILER_EXTENSIONS: &[(&str, &str)] = &[("Prim.Control", "Control")];
+const COMPILER_EXTENSIONS: &[(&str, &str)] =
+    &[("Prim.Control", "Control"), ("Prim.Control", "Resumption")];
 
 fn declared(owner: &str, name: &str) -> TypeDeclaration {
     primitive_type_declarations()

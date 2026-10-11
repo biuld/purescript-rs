@@ -305,6 +305,7 @@ pub(crate) fn lower_module_with_relations(
     // its frame representation, and its shape is the erased aggregate reference
     // so this slice needs no `scalar_type` change.
     aggregate_types.insert(HirTypeId::CONTROL);
+    aggregate_types.insert(HirTypeId::RESUMPTION);
     let layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
     let mut constructor_tags = HashMap::new();
     let mut constructors_by_type: HashMap<HirTypeId, Vec<(SymbolId, u32)>> = HashMap::new();

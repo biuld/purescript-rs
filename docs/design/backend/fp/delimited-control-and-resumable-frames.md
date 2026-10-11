@@ -254,13 +254,45 @@ and may call it zero, one, or many times; replay re-runs the interpreted remaind
 and does not roll back mutations or external IO already performed by another branch.
 This matches the portable library encoding and needs no extra representation.
 
-**One-shot is a separate library API.** It exposes an opaque `Resumption a` value
-with a consumed status instead of a bare function; the first resume atomically
-consumes it and a second attempt is rejected rather than silently reinterpreted. The
-compiler provides the frame representation and the atomic check; no optimization may
-turn a multi-shot continuation into a one-shot one. Existing PureScript arrows are
-unrestricted, so hiding a constructor or adding a nominal parameter does not enforce
-one-shot use; the guarantee lives at the representation boundary, not in the type.
+**One-shot is a separate library API.** It exposes an opaque
+`Resumption f a b`. A library can wrap the multi-shot function received by a
+clause once and expose only this owner to its clients. The compiler provides:
+
+```text
+once   : (a -> Control f b) -> Resumption f a b
+resume : Resumption f a b -> a -> Control f b
+cancel : Resumption f a b -> Unit
+```
+
+All three type parameters have nominal roles: safe coercion cannot change the
+owned request, input or answer contract. `once` allocates independent ownership;
+wrapping the same unrestricted function twice deliberately creates two owners.
+It does not make the original function linear. Aliases of one owner share its
+status, and a library that promises one-shot use must expose that owner rather
+than the unrestricted function or a factory for additional owners.
+
+`resume` constructs an inert node and evaluates its arguments strictly. When an
+executor interprets that node, it requires `Pending`, enters `Running` before
+invoking the wrapped function, and enters `Consumed` when that function returns
+the next computation. Re-entrant interpretation or cancellation sees `Running`
+and is rejected. A second interpretation of the same node also fails. Once the
+wrapped function returns, subsequent suspended work is ordinary `Control` data;
+the owner grants one invocation, not a linear-use rule for every value produced
+by that invocation. No optimization may consume ownership during construction.
+
+`cancel` immediately transitions a `Pending` owner to `Cancelled`; cancelling a
+running, consumed or cancelled owner traps. Cancelling an owner does not cancel
+the delimiter or other owners. Discarding an inert resume node leaves ownership
+pending. Status transitions use private mutable GC cells and happen without a
+callback between the check and update. This is atomic with respect to re-entrancy
+under the pinned single-threaded guest profile; it is not a cross-thread atomic
+protocol. Enabling shared guest execution requires a separate ownership design.
+
+The callback is stored in a private mutable reference slot and removed on
+consumption or cancellation. A retained spent owner does not retain that
+callback's captures. The executor's local reference roots a running callback.
+Existing unrestricted PureScript arrows remain multi-shot, and no optimization
+may silently replace them with an owner.
 
 ## Design
 
@@ -466,8 +498,10 @@ still follows the ordinary language rules.
 
 ```text
 Computation = Return(value) | Perform(request) | Bind(inner, continuation)
-            | Resume(value, savedSequence)                 -- internal only
+            | Resume(value, savedSequence, boundary)       -- internal only
             | Handle(state, handler, project, inject, inner)
+            | Reenter(state, handler, project, inject, inner, boundary)
+            | OwnedResume(owner, value)                   -- internal only
 Sequence    = Empty | Cons(continuation, rest) | Append(left, right)
 Machine     = (handler, state, computation, pendingSequence)
 ```
@@ -477,7 +511,7 @@ The executor pushes this function onto its pending sequence and descends into th
 inner computation. A `Return` consumes one pending function; that function returns
 a computation node to the executor. A `Perform` passes the unchanged request and a
 resumption capturing the entire pending sequence to the handler. The resumption
-constructs `Resume(value, savedSequence)`; it does not execute the sequence or
+constructs `Resume(value, savedSequence, boundary)`; it does not execute the sequence or
 re-enter the executor. A bare `Perform` therefore needs only a request field: its
 identity continuation is represented by the empty pending sequence.
 Suspension becomes observable when an executor interprets the node. An unused
@@ -527,13 +561,13 @@ inner loop and returns:
 
 ```text
 Bind(Perform(gop), forward(savedState, handler, project, inject, savedSequence))
-forward(x) = Handle(savedState, handler, project, inject,
-                    Resume(x, savedSequence))
+forward(x) = Reenter(savedState, handler, project, inject,
+                     Resume(x, savedSequence, boundary), boundary)
 ```
 
 The outer executor delivers `gop` unchanged to its handler. Calling `forward`
 only constructs data; re-entry occurs when the outer executor interprets the
-returned `Handle`. Saved state is immutable: separate outer resumptions each
+returned `Reenter`. Saved state is immutable: separate outer resumptions each
 start with the same saved inner state. Subsequent changes within one branch do
 not overwrite the other branch's state. An outer clause can abandon the entire
 inner delimiter by discarding its resumption.
@@ -590,8 +624,7 @@ The frame chain is the continuation. Two representations are possible:
   external IO already performed by another branch are shared, exactly as the pure
   model requires; multi-shot execution does not roll back IO.
 - **Owned frames** (the one-shot representation): a `Resumption` holds a status of
-  `Pending`, `Running`, `Consumed`, or `Cancelled`. The first `resume` atomically
-  transitions out of `Pending`; a second attempt is rejected rather than silently
+  `Pending`, `Running`, `Consumed`, or `Cancelled`. The first interpreted `resume` transitions out of `Pending` without an intervening callback; a second attempt is rejected rather than silently
   reinterpreted. Transfer must be atomic with respect to re-entrancy, so a re-entrant
   resume of a running resumption fails rather than corrupting the chain.
 
@@ -606,6 +639,29 @@ cancelled, or abandoned. When a handler returns without resuming, its continuati
 becomes unreachable and the GC reclaims the frames. The compiler must not drop a
 live continuation to an optimization, and must not let a dead one keep roots alive
 beyond its contract.
+
+Every interpreted closed `run` allocates a fresh delimiter token. It closes
+that token before returning the result. A captured resumption and its `Resume`
+node both retain the token: calling the function and interpreting an already
+constructed node each check liveness. Moving the node into another `run` cannot
+bypass expiry. A live multi-shot resumption may be interpreted re-entrantly under
+a nested `run`; it still captures only its original pending sequence.
+
+An open `Handle` allocates a child token referring to its enclosing delimiter.
+Completion closes that activation's token. Forwarding suspends it; the saved
+checkpoint remains valid while its parent is live. Each residual replay starts
+a fresh activation with the same enclosing parent, so completing one replay does
+not invalidate the saved checkpoint used by another replay. New resumptions
+captured in that replay belong to its own activation and expire when it completes.
+Re-entry checks the checkpoint before creating the new activation. Tokens follow
+actual delimiter nesting, not forwarded request count; checkpoint re-entry does
+not build a new ancestor link for every request. Parent expiry also invalidates
+suspended children, including ones abandoned by an outer clause.
+
+Tokens are immutable tagged GC objects containing private mutable liveness cells
+and an optional parent. A shared generated loop checks the token and its ancestors.
+The token is not an abstract target-native stack handle. Frame payloads and saved
+sequences remain persistent, so lifetime checks do not consume multi-shot data.
 
 This is the software-continuation cost model: because the frames are heap objects,
 the ordinary GC finds their roots and no separate root information is needed. A

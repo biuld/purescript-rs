@@ -17,6 +17,9 @@ impl Machine<'_> {
             self.open = Some((project, inject));
             parameters.extend([project, inject]);
         }
+        let boundary = self.lower.fresh(erased_shape());
+        self.boundary = Some(boundary);
+        parameters.push(boundary);
         let mut cases = Vec::new();
 
         let mut body = Vec::new();
@@ -43,27 +46,23 @@ impl Machine<'_> {
         let mut body = Vec::new();
         let value = self.field(computation, self.layout.computation, 3, 0, &mut body);
         let saved = self.field(computation, self.layout.computation, 3, 1, &mut body);
+        let captured_boundary = self.field(computation, self.layout.computation, 3, 2, &mut body);
+        self.check_boundary(captured_boundary, &mut body);
         let pending = self.node(self.layout.sequence, 2, vec![saved, sequence], &mut body);
         let next = self.node(self.layout.computation, 0, vec![value], &mut body);
         let result = self.recur(state, handler, next, pending, &mut body);
         cases.push(arm(3, body, result));
 
         let mut body = Vec::new();
-        let inner_state = self.field(computation, self.layout.computation, 4, 0, &mut body);
-        let inner_handler = self.field(computation, self.layout.computation, 4, 1, &mut body);
-        let project = self.field(computation, self.layout.computation, 4, 2, &mut body);
-        let inject = self.field(computation, self.layout.computation, 4, 3, &mut body);
-        let inner = self.field(computation, self.layout.computation, 4, 4, &mut body);
-        let empty = self.node(self.layout.sequence, 0, vec![], &mut body);
-        let function = self.functions.open_executor;
-        let next = self.emit(erased_shape(), &mut body, |_| {
-            crate::cc::AssignmentKind::DirectCall {
-                function,
-                arguments: vec![inner_state, inner_handler, inner, empty, project, inject],
-            }
-        });
-        let result = self.recur(state, handler, next, sequence, &mut body);
+        let result = self.enter_handle(state, handler, computation, sequence, 4, &mut body);
         cases.push(arm(4, body, result));
+        let mut body = Vec::new();
+        let result = self.enter_handle(state, handler, computation, sequence, 5, &mut body);
+        cases.push(arm(5, body, result));
+
+        let mut body = Vec::new();
+        let result = self.consume_owned(state, handler, computation, sequence, &mut body);
+        cases.push(arm(6, body, result));
 
         let mut body = Vec::new();
         let result = self.switch(computation, self.layout.computation, cases, &mut body);
@@ -98,6 +97,7 @@ impl Machine<'_> {
         let mut branch = Vec::new();
         let pair = self.pair(state, value, &mut branch);
         let result = if self.open.is_some() {
+            self.close_boundary(self.boundary.unwrap(), &mut branch);
             self.node(self.layout.computation, 0, vec![pair], &mut branch)
         } else {
             pair

@@ -258,3 +258,134 @@ The open executor retains one non-tail call to itself for nested `Handle` entry;
 this matches the documented handler-depth bound and does not recurse once per
 forwarded request. Wasmtime 49.0.2 executes the long forwarding test and the
 collection test. Official differential cases and scoreboards were not run.
+
+
+## One-shot ownership and delimiter lifetime evidence (2026-10-11)
+
+The prior executor slice was committed as `1bcad5a7`. With that compiler, a handler
+could store its continuation in an ordinary record, return from `run`, then call
+and interpret the saved continuation in another `run`, returning 42. The owning
+boundary is CC control lowering: the old captured sequence carried no liveness
+evidence. `/private/tmp/psrs-control-lifetime-before.log` records execution of the
+baseline case. The continuation now carries a delimiter token checked both on
+invocation and interpretation; the same case traps with Wasmtime exit 134.
+
+The compiler interface adds nominal `Resumption f a b`, `once`, inert `resume`, and
+immediate `cancel`. Owners use a shared private status cell. Interpretation checks
+Pending and changes it to Running without invoking a callback between these steps;
+normal callback return changes it to Consumed. Cancellation changes only Pending
+to Cancelled. Re-entrant callbacks observe Running, and all non-Pending uses trap.
+The guarantee is atomic with respect to callbacks in the pinned single-threaded
+guest profile. It is not an atomic protocol for shared-memory threads.
+The mutable callback slot is cleared on consumption/cancellation, so a retained
+spent owner does not root its callback indefinitely. This is ordinary CC/MIR GC
+array storage; no target-native continuations or runtime frame interpreter were
+added. Layout predeclares the new representations/signatures and stays immutable
+during CC lowering. Scheme helpers were split into focused modules to retain the
+500-line source limit.
+
+The existing multi-shot handler API is preserved. Wrapping one unrestricted
+function in two `once` calls creates independent owners; aliasing one owner shares
+one consumption status. A one-shot library wrapper must keep the unrestricted
+function private and expose only its owner. `resume` consumes an invocation when
+interpreted, not when constructed. Its returned ordinary computation can still be
+shared; this API does not impose a linear-use type system on `Control` values.
+
+Executed evidence:
+
+- `control_owned_surface.rs`: six checks for the nominal API, incompatible
+  arguments/results/functors, cancellation of a bare function, and refusal to
+  safely coerce the owner's answer parameter. The same-identity coercion control
+  succeeds, so the rejection is not an unavailable import.
+- `control_owned_runtime.rs`: fourteen mandatory runtime tests for one use,
+  inert and abandoned resume nodes, aliases/double interpretation, repeated
+  interpretation, cancellation, spent-owner cancellation, re-entrant resume and
+  cancellation, independent owners, strict arguments, ignored callback traps,
+  and collection while an owner retains an aggregate capture.
+- `control_lifetime.rs`: six mandatory runtime tests for expired closed/open
+  continuations, already-built Resume nodes, completion of an inner open
+  delimiter while the outer remains live, invalidation of a suspended child
+  after outer abandonment, and allowed re-entrant multi-shot interpretation
+  while the original delimiter is still live.
+- The previous 38 surface/closed/open control tests still pass, including
+  outer replay and 100,000 forwarded requests. Replay creates a fresh activation
+  with the checkpoint's original parent rather than a growing ancestry chain.
+
+The owner GC case uses a 65,536-byte initial heap, requires observed completed
+collections in Wasmtime's log, and then checks capture recovery with result 42.
+The retained log is `$TMPDIR/psrs-control-owned-gc-gc.log`.
+
+Run all focused evidence with the locked package and mandatory runtime:
+
+```sh
+PSRS_STDLIB_ROOT=<locked stdlib> PSRS_REQUIRE_WASMTIME=1 \
+  cargo test -p psrs-driver --test control_surface --test control_runtime \
+    --test control_open_runtime --test control_owned_surface \
+    --test control_owned_runtime --test control_lifetime
+```
+
+Normal return closes delimiter tokens; a guest trap terminates the current command
+path. The guest has no exception cleanup path under the selected profile. A host
+that catches a guest trap and later re-enters the same retained state requires an
+explicit invalidation/cleanup protocol; this is not proved by exit-134 tests.
+Complete foreign borrowed-buffer/resource capture checks, host trap recovery,
+frame-identity verification and official differentials remain unverified.
+Ordinary library wrappers have separate executed evidence below. No complete AE/AC requirement is marked Verified by this slice.
+
+## Checked primitive values and independent library wrappers (2026-10-11)
+
+Ordinary source aliases such as `pure = Prim.Control.return` exposed a common P8
+contract gap: compiler-interface primitive globals were omitted from mandatory
+checked primitive-value elaboration. This is owned by Core primitive expansion
+and the backend primitive-binding boundary, not by control-specific CC global
+handling. The operation inventory now combines registry-owned intrinsic symbols
+with validated foreign primitive bindings, even when the module has no foreign
+bindings. Expansion preserves checked occurrence types and verifies the complete
+candidate before publication. `control_primitive_values.rs` executes both aliases
+(including rank-N `run`, `once`, `resume`, and scalar `intAdd`) and partial
+applications, returning 42 in both cases.
+
+Control callback/status cells also share the canonical array-layout owner with
+ordinary array protocols. A direct layout test proves reuse; the existing
+linked-module canonical-layout regression passes. Control layouts are declared
+only when the linked type table contains the opaque carrier or owner, avoiding
+unused synthetic layouts in pure modules.
+
+The independent package worktree `/private/tmp/psrs-stdlib-control-20261011` is
+based on the compiler's locked `1e01310` package and committed as `dda3ba3`.
+The original stdlib working checkout and compiler lock are unchanged. The new
+target-only `PSRS.Control` module has explicit provenance in `upstream-lock.json`;
+no official module is edited. It supplies ordinary aliases and `runOnce` /
+`handleOnce`, which expose one owner per request without leaking the unrestricted
+continuation. Public package-runner cases `OneShot`, `MultiShot`, and `Open`
+execute with exit 42; `DoubleResume` and `Cancelled` compile and execute with
+exit 134 and an `unreachable` trap. Negative reports use reviewed byte-exact
+runtime stderr files, as required by the existing runner. These do not establish
+row compatibility, deep/shallow semantics, official `purescript-run` acceptance,
+or host IO safety.
+
+All five reports are `/private/tmp/psrs-control-library-<case>/run.json` and record
+compiler/runtime/package fingerprints and artifact hashes. The package-owned
+Node test suite passes all 11 tests. Its pinned source audit reports 41 packages,
+231 modules: 170 identical, 36 modified, 25 target additions, and no absent upstream
+modules or direct self-recursions. The audit is comparison evidence, not approval
+of every existing target adaptation. Retained logs are
+`/private/tmp/psrs-stdlib-control-node-tests-final.log` and
+`/private/tmp/psrs-control-library-audit-final.log`.
+
+Final compiler validation with the locked package and mandatory Wasmtime:
+
+- `cargo fmt --all --check` and `git diff --check`: pass.
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass.
+- `cargo test --workspace --no-fail-fast`: 424 backend library tests and all
+  66 control tests pass. The workspace still fails at the same 9 baseline
+  targets, with 175 failing names versus 176 at archived `2026238f`. No new
+  failure names are present; the recovered case is
+  `tests::adts::erases_a_newtype_constructor_and_pattern_at_runtime`.
+
+Final logs are `/private/tmp/psrs-control-owned-alias-workspace.log`,
+`/private/tmp/psrs-control-owned-alias-clippy.log`, and the baseline comparison
+`/private/tmp/psrs-control-owned-alias-comparison.json`. Earlier intermediate
+runs that failed canonical-array reuse or suffered shared build-cache interference
+are not final evidence. No official differential or scoreboard was run. Complete
+AE/AC requirements retain their Unverified status.

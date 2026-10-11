@@ -2,10 +2,11 @@
 
 **Date:** 2026-10-11
 **Branch:** `feat/effect-handlers`
-**Starting commit:** `2026238f`; the checkout was clean before this continuation.
-**Scope:** Typed `Prim.Control` surface, closed/open executors, and persistent bind
-sequencing. The continuation changes below are uncommitted.
-**Status:** Partial topic. All five current primitives are lowered; complete AE/AC acceptance remains outstanding.
+**Starting commit:** `2026238f`; the original checkout was clean.
+**Executor commit:** `1bcad5a7`; the ownership/lifetime continuation starts from this clean commit.
+**Scope:** Typed `Prim.Control` surface, closed/open executors, persistent bind
+sequencing, and one-shot ownership/lifetime checks. The ownership/lifetime changes are delivered with this handoff in one topical commit.
+**Status:** Partial topic. All eight current primitives are lowered; complete AE/AC acceptance remains outstanding.
 
 ## Governing contracts
 
@@ -42,10 +43,12 @@ are registered from those same declarations.
 
 ```text
 Computation = Return(value) | Perform(request) | Bind(inner, continuation)
-            | Resume(value, savedSequence)
+            | Resume(value, savedSequence, boundary)
             | Handle(state, handler, project, inject, inner)
+            | Reenter(state, handler, project, inject, inner, boundary)
+            | OwnedResume(owner, value)
 Sequence    = Empty | Cons(continuation, rest) | Append(left, right)
-executor(state, handler, computation, pendingSequence) -> erased (state, value)
+executor(state, handler, computation, pendingSequence, boundary) -> erased (state, value)
 ```
 
 `Bind` is inert. The executor pushes its continuation and processes its inner
@@ -89,7 +92,7 @@ control-specific optimizer classification was introduced.
 `handle` is an inert node. The open executor shares closed-driver reductions,
 but returns residual computation data. Its Church-sum projection selects handled
 requests or unchanged residual payloads. A residual bind closure captures the
-inner state, handler and pending sequence and constructs a fresh `Handle` around
+inner state, handler and pending sequence and constructs `Reenter` around
 `Resume`; it does not recursively interpret the sequence. Outer replay preserves
 independent copies of saved inner state, and outer abandonment discards the inner
 remainder. The caller's pending bind stays outside the inner delimiter.
@@ -103,6 +106,28 @@ nesting depth, not on the number of requests at fixed depth.
 aggregate, replay, trap and GC evidence. The GC case requires an observed completed
 collection in the runtime log before claiming success. Source tests reject an
 incompatible residual functor/injection and a monomorphic projection.
+
+## Ownership and lifetime continuation
+
+The compiler interface adds nominal `Resumption f a b` and `once`/`resume`/`cancel`.
+`resume` constructs an inert `OwnedResume`; interpretation checks shared ownership,
+sets Running before calling the wrapped function, then marks Consumed on its
+normal return. Immediate cancellation changes only Pending to Cancelled. Spent
+owners clear their callback slot, allowing captured values to be collected.
+Separate `once` calls allocate independent owners; ordinary captured functions
+remain multi-shot.
+
+`run` creates and closes a delimiter token. Calling a resumption and interpreting
+its already-built `Resume` node both check token liveness. Open delimiters refer to
+their enclosing token; suspended checkpoints expire when that parent expires.
+Residual replay creates a fresh sibling activation, preserving multi-shot replay
+without growing the token ancestor chain once per forwarded request.
+
+The baseline at `1bcad5a7` executed an escaped continuation after its `run` returned
+with result 42. It now traps. New source/runtime tests cover owned API rejection,
+double interpretation, cancellation, re-entrancy, closed/open expiry, outer
+abandonment and GC with a pending owner. Checked frame identity, foreign resource
+capture and host recovery after a guest trap still require complete acceptance.
 
 ## Validation
 
@@ -123,19 +148,22 @@ cargo test --workspace
 PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --test control_surface --test control_runtime --test control_open_runtime
 ```
 
-Final validation passed formatting, full clippy, 423 backend library tests, and
-38 control tests with mandatory Wasmtime. Full workspace acceptance still fails:
-the open-continuation `--no-fail-fast` run and archived `2026238f` baseline have the same
-9 failing targets and 176 failing test names. The acceptance checklist records
+The committed executor slice passed formatting, full clippy, 423 backend library
+tests, and 38 control tests with mandatory Wasmtime. Its full workspace run and
+archived `2026238f` baseline had the same 9 failing targets and 176 failing test
+names. The ownership/lifetime continuation adds focused evidence recorded below.
+The acceptance checklist records
 the decomposition, logs, tested cases, and remaining obligations.
 Compile acceptance, executed runtime checks, and official source comparison are
 separate claims.
 
 ## Remaining work
 
-- Implement library wrappers in the independent `psrs-stdlib` repository.
-- Complete generic deep/shallow wrappers, one-shot, lifetime/cancellation,
-  foreign capture-boundary, foreign-resource GC, and official differential evidence.
+- Integrate the independently committed library wrappers into a selected package
+  revision; the compiler lock remains unchanged for this continuation.
+- Complete generic deep/shallow wrappers, foreign capture-boundary, foreign-resource
+  GC, host recovery after a guest trap, and official differential evidence.
+  One-shot and normal-return lifetime checks have focused executed evidence.
   Ordinary GC capture recovery during suspension has executed evidence.
 - Formalize selective conversion beyond the monadic surface. This closed executor
   does not establish direct-style capture or arbitrary user recursion safety.
@@ -147,5 +175,34 @@ separate claims.
   not evidence about the self-contained control programs.
 
 No complete AE/AC requirement is marked Verified by these slices. All current
-`Prim.Control` primitives lower and execute; one-shot and expired-boundary
-guarantees still require their API and representation contracts.
+`Prim.Control` primitives lower and execute, including one-shot consumption and
+normal-return delimiter expiry. The complete foreign, host recovery and frame
+verification guarantees remain unverified.
+
+## Latest continuation validation and package handoff
+
+All 66 control tests and 424 backend library tests pass with mandatory Wasmtime.
+Formatting and full workspace clippy pass. The full workspace `--no-fail-fast`
+run remains failing at the same 9 baseline targets: 175 names versus 176 at
+`2026238f`, with no new failures. The recovered case is the newtype constructor /
+pattern runtime test. Retained final logs and decomposition are in the acceptance
+checklist's checked primitive values section.
+
+The continuation also repairs mandatory primitive-value elaboration for compiler
+interface globals, so valid aliases and partial applications use their checked
+Core types before CC. Two direct runtime regressions cover scalar/control aliases
+and partial applications. It does not add a feature-specific global exception.
+
+Independent library wrappers are committed at `dda3ba3` in
+`/private/tmp/psrs-stdlib-control-20261011`, based on locked stdlib `1e01310`.
+Public `PSRS.Control` wrappers execute one-shot, multi-shot, open forwarding,
+double-use rejection and cancellation rejection through the package-owned Node
+runner. The original dirty stdlib checkout is preserved, and the compiler package
+lock is unchanged. Integrating this package revision with the unrelated existing
+stdlib changes is still separate work; these wrappers are not yet in the locked
+compiler package.
+
+The next required slices are deep/shallow handler behavior with official library
+comparison, complete frame identity verification, foreign borrowed resources and
+host recovery/cleanup after a caught guest trap. Normal-return lifetime and
+single-thread callback ownership evidence do not discharge those obligations.

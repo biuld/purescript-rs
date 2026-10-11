@@ -11,7 +11,9 @@ use psrs_span::TextRange;
 
 mod builder;
 mod executor;
+mod lifetime;
 mod open;
+mod owned;
 use builder::Machine;
 
 #[derive(Clone, Copy)]
@@ -22,6 +24,11 @@ pub(in crate::cc) struct ControlFunctions {
     forward: SymbolId,
     project_left: SymbolId,
     project_right: SymbolId,
+    start: SymbolId,
+    check: SymbolId,
+    close: SymbolId,
+    once: SymbolId,
+    cancel: SymbolId,
 }
 
 impl FunctionLowerer<'_> {
@@ -43,15 +50,68 @@ impl FunctionLowerer<'_> {
             .iter()
             .map(|argument| self.lower_array_element(argument, assignments))
             .collect::<Result<Vec<_>, _>>()?;
+        if matches!(intrinsic, Intrinsic::ControlOnce | Intrinsic::ControlCancel) {
+            let functions = self.ensure_control_functions(layout, expression.span)?;
+            let function = if intrinsic == Intrinsic::ControlOnce {
+                functions.once
+            } else {
+                functions.cancel
+            };
+            let result = self.fresh(erased_shape());
+            assignments.push(Assignment {
+                destination: result,
+                kind: AssignmentKind::DirectCall {
+                    function,
+                    arguments: fields,
+                },
+                span: expression.span,
+            });
+            if intrinsic == Intrinsic::ControlCancel {
+                let unit = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination: unit,
+                    kind: AssignmentKind::Constant(0),
+                    span: expression.span,
+                });
+                return Ok(unit);
+            }
+            let conversion = self.recover_payload(ty, expression.span)?;
+            return Ok(self.emit_conversion(
+                result,
+                erased_shape(),
+                ty,
+                conversion,
+                expression.span,
+                assignments,
+            ));
+        }
         if intrinsic == Intrinsic::ControlRun {
             let functions = self.ensure_control_functions(layout, expression.span)?;
             let empty = self.control_empty_sequence(layout, expression.span, assignments);
+            let boundary = self.fresh(erased_shape());
+            assignments.push(Assignment {
+                destination: boundary,
+                kind: AssignmentKind::DirectCall {
+                    function: functions.start,
+                    arguments: vec![],
+                },
+                span: expression.span,
+            });
             let result = self.fresh(erased_shape());
             assignments.push(Assignment {
                 destination: result,
                 kind: AssignmentKind::DirectCall {
                     function: functions.executor,
-                    arguments: vec![fields[0], fields[1], fields[2], empty],
+                    arguments: vec![fields[0], fields[1], fields[2], empty, boundary],
+                },
+                span: expression.span,
+            });
+            let closed = self.fresh(erased_shape());
+            assignments.push(Assignment {
+                destination: closed,
+                kind: AssignmentKind::DirectCall {
+                    function: functions.close,
+                    arguments: vec![boundary],
                 },
                 span: expression.span,
             });
@@ -70,6 +130,7 @@ impl FunctionLowerer<'_> {
             Intrinsic::ControlPerform => 1,
             Intrinsic::ControlBind => 2,
             Intrinsic::ControlHandle => 4,
+            Intrinsic::ControlResume => 6,
             _ => return Err(control_error(expression.span, "not a control primitive")),
         };
         let destination = self.fresh(ty);
@@ -131,6 +192,11 @@ impl FunctionLowerer<'_> {
                 forward: symbols.fresh(self.owner),
                 project_left: symbols.fresh(self.owner),
                 project_right: symbols.fresh(self.owner),
+                start: symbols.fresh(self.owner),
+                check: symbols.fresh(self.owner),
+                close: symbols.fresh(self.owner),
+                once: symbols.fresh(self.owner),
+                cancel: symbols.fresh(self.owner),
             }
         };
         let signature = self
@@ -151,12 +217,40 @@ impl FunctionLowerer<'_> {
         self.generated_signatures
             .borrow_mut()
             .insert(functions.open_executor, open_signature);
+        for (symbol, id) in [
+            (functions.start, layout.start),
+            (functions.check, layout.boundary_check),
+            (functions.close, layout.boundary_check),
+            (functions.once, layout.boundary_check),
+            (functions.cancel, layout.boundary_check),
+        ] {
+            let signature = self
+                .representations
+                .signature(id)
+                .ok_or_else(|| {
+                    control_error(
+                        span,
+                        "control lifetime function has no predeclared signature",
+                    )
+                })?
+                .clone();
+            self.generated_signatures
+                .borrow_mut()
+                .insert(symbol, signature);
+        }
         let mut resume = Machine::new(self.child_lowerer(), layout, functions, span);
         let receiver = resume.lower.fresh(super::lambda::closure_value_type());
         let value = resume.lower.fresh(erased_shape());
         let mut assignments = Vec::new();
         let saved = resume.capture(receiver, 0, &mut assignments);
-        let result = resume.node(layout.computation, 3, vec![value, saved], &mut assignments);
+        let boundary = resume.capture(receiver, 1, &mut assignments);
+        resume.check_boundary(boundary, &mut assignments);
+        let result = resume.node(
+            layout.computation,
+            3,
+            vec![value, saved, boundary],
+            &mut assignments,
+        );
         let resume = resume.finish(
             functions.resume,
             "control_resume",
@@ -180,6 +274,16 @@ impl FunctionLowerer<'_> {
                 Machine::new(self.child_lowerer(), layout, functions, span).selector(case, symbol);
             self.verify_synthesized(&selector)?;
             self.generated.push(selector);
+        }
+        for function in [
+            Machine::new(self.child_lowerer(), layout, functions, span).start_boundary(),
+            Machine::new(self.child_lowerer(), layout, functions, span).boundary_check(),
+            Machine::new(self.child_lowerer(), layout, functions, span).boundary_close(),
+            Machine::new(self.child_lowerer(), layout, functions, span).owned(),
+            Machine::new(self.child_lowerer(), layout, functions, span).cancel(),
+        ] {
+            self.verify_synthesized(&function)?;
+            self.generated.push(function);
         }
         *self.control_functions.borrow_mut() = Some(functions);
         Ok(functions)

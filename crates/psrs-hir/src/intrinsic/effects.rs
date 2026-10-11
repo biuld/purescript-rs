@@ -11,7 +11,7 @@ impl IntrinsicEffects {
     pub(super) fn for_intrinsic(intrinsic: Intrinsic) -> Self {
         use Intrinsic::*;
         match intrinsic {
-            ArrayWrite => Self {
+            ArrayWrite | ControlCancel => Self {
                 may_trap: true,
                 may_write: true,
             },
@@ -40,7 +40,7 @@ impl IntrinsicEffects {
             | NumberAtan2 | NumberSin | NumberCos | NumberTan | NumberExp | NumberLog
             | NumberPow | NumberMin | NumberMax | NumberSign | NumberRemainder | NumberIsNaN
             | NumberNaN | NumberInfinity | ControlReturn | ControlBind | ControlPerform
-            | ControlHandle => Self::default(),
+            | ControlHandle | ControlOnce | ControlResume => Self::default(),
         }
     }
 }

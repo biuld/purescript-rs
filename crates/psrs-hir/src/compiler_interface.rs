@@ -39,7 +39,7 @@ pub const COMPILER_INTERFACES: &[CompilerInterface] = &[
         types: &[],
         classes: &[("IsSymbol", CompilerClass::IsSymbol)],
     },
-    // The effect-agnostic delimited-control surface. The carrier and the four
+    // The effect-agnostic delimited-control surface. The carrier and the control
     // primitives are compiler-owned; no pass recognizes a concrete operation.
     CompilerInterface {
         module: "Prim.Control",
@@ -50,8 +50,14 @@ pub const COMPILER_INTERFACES: &[CompilerInterface] = &[
             ("perform", Intrinsic::ControlPerform),
             ("run", Intrinsic::ControlRun),
             ("handle", Intrinsic::ControlHandle),
+            ("once", Intrinsic::ControlOnce),
+            ("resume", Intrinsic::ControlResume),
+            ("cancel", Intrinsic::ControlCancel),
         ],
-        types: &[("Control", TypeId::CONTROL)],
+        types: &[
+            ("Control", TypeId::CONTROL),
+            ("Resumption", TypeId::RESUMPTION),
+        ],
         classes: &[],
     },
 ];

@@ -43,7 +43,14 @@ impl Machine<'_> {
         let continuation = self.closure(
             self.functions.forward,
             self.layout.continuation,
-            vec![state, handler, project, inject, sequence],
+            vec![
+                state,
+                handler,
+                project,
+                inject,
+                sequence,
+                self.boundary.unwrap(),
+            ],
             &mut branch,
         );
         let result = self.node(
@@ -72,7 +79,7 @@ impl Machine<'_> {
         let continuation = self.closure(
             self.functions.resume,
             self.layout.continuation,
-            vec![sequence],
+            vec![sequence, self.boundary.unwrap()],
             body,
         );
         let pair = self.apply(handler, &[state, request, continuation], body);
@@ -91,9 +98,17 @@ impl Machine<'_> {
             .map(|index| self.capture(receiver, index, &mut body))
             .collect::<Vec<_>>();
         let saved = self.capture(receiver, 4, &mut body);
-        let resumed = self.node(self.layout.computation, 3, vec![value, saved], &mut body);
+        let boundary = self.capture(receiver, 5, &mut body);
+        self.check_boundary(boundary, &mut body);
+        let resumed = self.node(
+            self.layout.computation,
+            3,
+            vec![value, saved, boundary],
+            &mut body,
+        );
         fields.push(resumed);
-        let result = self.node(self.layout.computation, 4, fields, &mut body);
+        fields.push(boundary);
+        let result = self.node(self.layout.computation, 5, fields, &mut body);
         let symbol = self.functions.forward;
         self.finish(
             symbol,

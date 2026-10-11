@@ -109,6 +109,8 @@ impl TypeId {
     /// Stable identity of the compiler-owned `Prim.Control.Control` carrier, the
     /// effect-agnostic delimited-control computation type.
     pub const CONTROL: Self = Self::new(ModuleId::INTRINSICS, 31);
+    /// Opaque owner of one continuation use; argument roles are nominal.
+    pub const RESUMPTION: Self = Self::new(ModuleId::INTRINSICS, 32);
 }
 
 mod intrinsic;

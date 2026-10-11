@@ -254,7 +254,7 @@ pub(super) fn type_layout(
     let mut aggregate_ids = aggregate_types
         .iter()
         .copied()
-        .filter(|id| *id != HirTypeId::CONTROL)
+        .filter(|id| *id != HirTypeId::CONTROL && *id != HirTypeId::RESUMPTION)
         .collect::<Vec<_>>();
     aggregate_ids.sort_by_key(|id| (id.module.0, id.index));
     for type_id in aggregate_ids {
@@ -307,7 +307,9 @@ pub(super) fn type_layout(
         &function_types,
         module.span,
     )?;
-    let control_layout = Some(control::append(&mut representations, function_slot));
+    let uses_control = module.types.iter().any(|ty| matches!(ty,
+        Type::Constructor(TypeConstructor::User(id)) if *id == HirTypeId::CONTROL || *id == HirTypeId::RESUMPTION));
+    let control_layout = uses_control.then(|| control::append(&mut representations, function_slot));
     Ok(TypeLayout {
         function_slot,
         protocols,

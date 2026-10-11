@@ -18,9 +18,6 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
             Some((external.clone(), intrinsic))
         })
         .collect::<Vec<_>>();
-    if bindings.is_empty() {
-        return Ok(());
-    }
     module
         .verify_with_source(source.unwrap_or(module))
         .map_err(|errors| {
@@ -42,9 +39,17 @@ pub(crate) fn lower(module: &mut Module, source: Option<&Module>) -> Result<(), 
     let mut probe = module.clone();
     probe.declarations.clear();
     probe.entry = None;
-    let operations = bindings
+    // Compiler-interface globals and explicit foreign primitive bindings share
+    // the same checked value elaboration. A primitive used as an alias or a
+    // partial application still needs expansion when there are no externals.
+    let operations = Intrinsic::ALL
         .iter()
-        .map(|(external, intrinsic)| (external.symbol, *intrinsic))
+        .map(|intrinsic| (intrinsic.symbol(), *intrinsic))
+        .chain(
+            bindings
+                .iter()
+                .map(|(external, intrinsic)| (external.symbol, *intrinsic)),
+        )
         .collect();
     for (external, intrinsic) in bindings {
         let span = external
