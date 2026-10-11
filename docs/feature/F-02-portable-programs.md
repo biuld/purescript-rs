@@ -2,7 +2,9 @@
 
 **Status:** In progress
 **Design:** [wasm encoding — Wasm Lowering](../design/backend/wasm/encoding-and-structuring.md),
-[linking and runtime (Draft)](../design/backend/wasm/linking-and-runtime.md)
+[linking and runtime (Draft)](../design/backend/wasm/linking-and-runtime.md),
+[algebraic effects and handlers (Draft proposal)](../design/backend/fp/algebraic-effects-and-handlers.md),
+[native Effect/ST handlers (Draft proposal)](../design/backend/fp/native-effect-and-st-handlers.md)
 
 ## User need
 
@@ -10,6 +12,13 @@ Users want to build a supported PureScript program once and run it in a
 compatible portable environment.
 
 ## User-visible behavior
+
+A proposed library-level algebraic effects API would let programs describe
+operations and supply different handlers for production and testing, using
+existing PureScript syntax and types. A separate draft proposes implementing
+the official Effect/ST APIs over library native handlers while preserving
+their public contracts. Neither proposal is an implemented capability or an
+accepted native representation.
 
 The intended workflow is:
 
@@ -48,17 +57,16 @@ See [Explicit Component Linking](../workflow/component-linking.md) for the
 manifest format and supported boundary.
 
 The compiler selects `Main.main` when that declaration exists; otherwise it
-requires exactly one top-level declaration named `main`. The selected entry
-takes no arguments and may return `Int` or `Effect Unit`. An integer result
-continues to determine the process exit code. For `Effect Unit`, the compiler
-runs the returned action once; normal completion exits with code 0, and a guest
-trap propagates as a failure.
+requires exactly one top-level declaration named `main`. A direct entry returns
+`Int`, which determines the process exit code. A package may explicitly configure
+an ordinary runner to adapt its source entry to that integer command boundary.
+The runner's implementation determines execution behavior; the compiler does
+not discover an Effect type or synthesize its operations.
 
-A direct reference to the provided `runEffect` operation may appear only in the
-selected entry declaration. This is a lexical source restriction: the entry may
-pass the runner to a helper, and that helper may call it. An `Effect` value is
-opaque to source code, and constructing the value itself does not run its
-deferred operation.
+The former `Effect Unit` entry adaptation and lexical `runEffect` restriction
+were removed on 2026-10-11. Their replacement remains a draft proposal. Earlier platform
+coverage below does not establish current execution of package sources that
+depend on the withdrawn Effect or State mechanisms.
 
 The compiler emits a WASI 0.2 Component Model artifact. The legacy WASI
 Preview 1 module ABI is not part of the supported output contract.
@@ -107,8 +115,8 @@ and closed concrete record patterns with variable, wildcard, and nested
 constructor or record field bindings, function values including
 scalar-capturing closures, higher-order calls, and the implemented effect-based
 WASI console and clock libraries plus random imports.
-The selected source entry must take no arguments and return `Int` or
-`Effect Unit`. Generic direct calls and annotated rank-N values are lowered,
+The command boundary returns `Int`, directly or through an explicitly configured
+ordinary runner. Generic direct calls and annotated rank-N values are lowered,
 including quantified parameters, record and constructor fields, captures, and
 returned functions. Each use can
 instantiate a quantified value independently; nested constraints are supplied
@@ -162,9 +170,8 @@ function calls.
   requested output path.
 - The compiler prints WAT or writes it at the requested output path.
 - The WASI artifact runs in a compatible runtime and preserves observable
-  behavior. An `Int` entry preserves its exit code; an `Effect Unit` entry
-  executes once, exits with code 0 after normal completion, and propagates a
-  trap.
+  behavior. An `Int` entry preserves its exit code; a configured ordinary runner
+  preserves its declared behavior, and guest traps propagate as failures.
 - Unsupported constructs fail with a source-oriented diagnostic.
 - Each added platform service has documented behavior and executable tests.
 - Explicit guest linking verifies artifact pins and interface compatibility,
