@@ -194,6 +194,9 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
         boxed_integer_type: None,
         boxed_number_type: None,
         control_type: None,
+        generated_signatures: std::rc::Rc::new(std::cell::RefCell::new(
+            std::collections::HashMap::new(),
+        )),
         array_types: &array_types,
         record_types: &record_types,
         constructor_tags: &constructor_tags,

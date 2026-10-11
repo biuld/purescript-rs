@@ -405,6 +405,8 @@ pub(crate) fn lower_module_with_relations(
     }
     let mut functions = Vec::with_capacity(module.declarations.len());
     let generated_symbols = Rc::new(RefCell::new(GeneratedSymbolAllocator::new(&module)));
+    let generated_signatures: Rc<RefCell<HashMap<SymbolId, Signature>>> =
+        Rc::new(RefCell::new(HashMap::new()));
     let function_wrappers = module
         .declarations
         .iter()
@@ -441,6 +443,7 @@ pub(crate) fn lower_module_with_relations(
         function_types: &layout.function_types,
         function_wrappers: &function_wrappers,
         generated_symbols,
+        generated_signatures,
     };
     let mut warnings = Vec::new();
     for declaration in &module.declarations {

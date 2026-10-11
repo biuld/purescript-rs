@@ -54,6 +54,10 @@ pub(super) struct LoweringContext<'a> {
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, SignatureId>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
     pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
+    /// Signatures of functions generated during lowering (for example the
+    /// control executor). The per-function verifier resolves calls against these
+    /// in addition to the declared signatures.
+    pub(super) generated_signatures: Rc<RefCell<HashMap<SymbolId, Signature>>>,
 }
 
 pub(super) fn lower_function(
@@ -84,6 +88,7 @@ pub(super) fn lower_function(
         function_types: context.function_types,
         function_wrappers: context.function_wrappers,
         generated_symbols: Rc::clone(&context.generated_symbols),
+        generated_signatures: Rc::clone(&context.generated_signatures),
         owner: declaration.symbol.module,
         warnings: Vec::new(),
         generated: Vec::new(),
@@ -187,7 +192,11 @@ pub(super) fn lower_function(
         result_type,
         span: declaration.span,
     };
-    super::verify::verify_function(&function, context.signatures, context.representations)?;
+    let mut all_signatures = context.signatures.clone();
+    for (symbol, signature) in state.generated_signatures.borrow().iter() {
+        all_signatures.insert(*symbol, signature.clone());
+    }
+    super::verify::verify_function(&function, &all_signatures, context.representations)?;
     let mut generated = state.generated;
     generated.push(lambda::make_wrapper(&function, declaration, context));
     let warnings = state
@@ -227,6 +236,10 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, SignatureId>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
     pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
+    /// Signatures of functions generated during lowering (for example the
+    /// control executor). The per-function verifier resolves calls against these
+    /// in addition to the declared signatures.
+    pub(super) generated_signatures: Rc<RefCell<HashMap<SymbolId, Signature>>>,
     pub(super) owner: ModuleId,
     pub(super) warnings: Vec<BackendWarning>,
     pub(super) generated: Vec<Function>,

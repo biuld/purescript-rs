@@ -330,6 +330,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             function_types: self.function_types,
             function_wrappers: self.function_wrappers,
             generated_symbols: std::rc::Rc::clone(&self.generated_symbols),
+            generated_signatures: std::rc::Rc::clone(&self.generated_signatures),
             owner: self.owner,
             warnings: Vec::new(),
             local_types: HashMap::new(),
