@@ -235,8 +235,9 @@ get :: forall s r. Run (state :: StateF s | r) s
 get = perform (inj (StateF (Get identity)))     -- schematic; the library owns inj
 ```
 
-A handler is a `run` handler: it receives each request and the continuation, and it
-decides to resume, abort, or replay. Deep semantics is the library re-entering `run`
+A handler is `run`'s rank-2 argument: it receives the handler state, the request, and
+the continuation, and returns the next state together with the next computation,
+deciding to resume, abort, or replay. Deep semantics is the library re-entering `run`
 when it forwards a request it does not handle; the compiler does not decide
 deep/shallow.
 

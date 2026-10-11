@@ -16,14 +16,17 @@ lowering is not implemented.
 `Control f a` with `return`/`bind`/`perform`/`run` — lowered by a selective,
 defunctionalized continuation-passing transformation to explicit GC frame objects
 driven by a trampoline. It needs no new target capability and is distinct from
-WebAssembly stack switching.
+WebAssembly stack switching. The selected activation is the frame/trampoline
+representation (row 3) with a state-threading fold eliminator and an open-union
+`handle` that removes one effect.
 
 ## Scope
 
 This document owns the generic control surface, its identity, the selective
-CPS/defunctionalization lowering, the frame representation and trampoline,
-deep/shallow encoding, one-shot status, continuation lifetime and GC roots,
-foreign-call capture boundaries, and the comparison with native stack switching.
+CPS/defunctionalization lowering, the frame representation and trampoline (the
+executor), the executor's boundary with the runtime, deep/shallow encoding, one-shot
+status, continuation lifetime and GC roots, foreign-call capture boundaries, and the
+comparison with native stack switching.
 
 It does not own operation signatures, handlers, or rows — those are the
 [library-owned effects](algebraic-effects-and-handlers.md) this mechanism runs — nor
@@ -57,6 +60,22 @@ signatures, and handlers themselves are library values
 the suspension/delimiter/resumption mechanism and its representation, and never
 learns what a particular operation means.
 
+### Relationship to the withdrawn State mechanism
+
+This mechanism is not the removed compiler-owned State mechanism, and a frame chain
+is not a state chain. The State mechanism (`Prim.State`, the `runWorld`/`runRegion`
+intrinsics, and the Core/CC/MIR dependency graph) encoded a **linear token** whose
+flow through calls a static analysis verified and then erased at MIR. It could order
+effects but could not capture, store, or resume control. A frame chain is a
+**runtime continuation**: heap data recording the rest of the computation, delivered
+to a handler and resumable zero, one, or many times.
+
+They share only that both are compiler-owned representations of "the rest of the
+computation", and both risked cross-pass coupling. The State mechanism was removed
+for that coupling. This mechanism avoids it by being effect-agnostic — it knows only
+an opaque request functor — and additive, below Typed Core, which the State
+mechanism was not.
+
 ### Continuation-passing style and defunctionalization
 
 In direct style, a function `f :: A -> B` returns its result to its caller, and the
@@ -79,6 +98,37 @@ The concept alone is not enough for this target, for two reasons:
 The lowering therefore **defunctionalizes** CPS: instead of closures, a continuation
 is an explicit chain of **frame objects** in the GC heap, and a loop runs the
 machine one frame at a time.
+
+### Software and native continuations
+
+A continuation can be implemented in two fundamentally different places, and this is
+the distinction the rest of this document turns on.
+
+- **Software continuation (heap).** The compiler reifies the rest of the computation
+  as ordinary heap data — a computation AST or a frame chain — and a loop drives it.
+  The continuation's state lives on the **language heap**, so every reference it
+  captured is an ordinary GC root and nothing special keeps it alive. The driver and
+  the frame layout are the compiler's (or a library's) responsibility.
+- **Native continuation (stack).** The runtime exposes an opaque continuation handle
+  (`cont`) with `suspend`/`resume` and captures the **native execution stack** itself.
+  The continuation's state lives in runtime-managed stack memory, not the language
+  heap. The runtime, not the compiler, performs the stack capture and restore, and
+  must therefore scan captured stack slots for GC roots and own the continuation's
+  lifetime and, for multi-shot use, stack cloning.
+
+These are not layers of one another. A defunctionalized representation plus a
+trampoline is a *software* continuation, built on the heap precisely because the
+language cannot capture its own native stack; stack switching is a *native*
+continuation, which exists so the compiler does **not** have to build the heap
+representation. They are two implementations of the same abstract continuation, and a
+mechanism can move from one to the other behind an unchanged surface
+([Migration to native control](#migration-to-native-control)).
+
+The distinction sets the cost model. The software form is portable and GC-friendly,
+but makes the compiler own the driver, the frame layout, and frame-identity
+verification. The native form is cheaper to execute and reaches the direct style, but
+requires a target capability and moves stack capture, GC-root scanning, and lifetime
+onto the runtime.
 
 ### Why a host import cannot capture a continuation
 
@@ -113,23 +163,47 @@ Control f a                  -- computation over request functor f, yielding an 
 return  : a -> Control f a
 bind    : Control f a -> (a -> Control f b) -> Control f b
 perform : f a -> Control f a
-run     : (forall x. f x -> (x -> Control f a) -> Control f a)
-        -> Control f a -> a
+run     : s
+        -> (forall x. s -> f x -> (x -> Control f a) -> (s, Control f a))
+        -> Control f a
+        -> (s, a)
+handle  : s
+        -> (forall x. s -> f x -> (x -> Control u a) -> (s, Control u a))
+        -> (forall x. u x -> Either (f x) (g x))
+        -> (forall x. g x -> u x)
+        -> Control u a
+        -> Control g (s, a)
 ```
 
 - `Control f a` is opaque; no pass inspects a request.
 - `perform` suspends: it captures the continuation up to the nearest `run`,
   delivers the request value `f a` to that delimiter, and resumes with an `a`.
-- `run` installs the delimiter. Its handler is rank-2 in the request's answer `x`,
-  so an operation's payload/continuation relation is checked by ordinary rank-N
-  typing; no native GADT or existential is needed.
-- `bind` composes continuations directly (freer style), so no `Functor f`
-  constraint is required and a library functor needs no mapping instance.
+- `run` is a **state-threading fold**. The driver threads a handler state `s`; the
+  handler is rank-2 in the request's answer `x`, receives the current state, the
+  request, and the continuation, and returns the next state together with the next
+  computation. A stateless handler uses `s = ()`.
+- `handle` is the open eliminator: it interprets the `f` operations of a computation
+  over a combined effect `u` and leaves the rest as a residual `Control g (s, a)`. The
+  library supplies the open union `u` and its split, `project : u x -> Either (f x)
+  (g x)` and `inject : g x -> u x`, so the compiler never reasons about rows or
+  labels. `run` is the closed case, with an empty residual.
+- `bind` composes continuations directly (freer style), so no `Functor f` constraint
+  is required and a library functor needs no mapping instance.
 
-The continuation a handler receives is the function `x -> Control f a`, delimited by
-its `run`; it captures only frames inside that delimiter. `run` is **closed** to its
-answer `a`; a residual computation is a library concern, handled by re-entering
-`run`.
+The driver is a flat loop:
+
+```text
+run h s (Return a)        = (s, a)
+run h s (Perform op cont) = let (s', next) = h s op cont in run h s' next
+```
+
+It recurses in tail position and the handler never re-enters it, so execution is
+constant-stack independently of tail-call support and of the number of requests or
+binds. This is the row-3 eliminator. A *CPS-answer* eliminator
+`(forall x. f x -> (x -> r) -> r) -> Control f a -> (a -> r) -> r` also threads state
+(`r = s -> (s, a)`) but makes the driver *nested*, so it belongs to row 2 and is not
+this mechanism's eliminator ([Design space](#design-space),
+[Handler interface for a flat loop](#handler-interface-for-a-flat-loop)).
 
 **Why this surface.** It is exactly the shape `purescript-run` builds on, so that
 ecosystem's operation rows, `VariantF` encodings, and deep handlers map onto it
@@ -145,8 +219,8 @@ The surface is **monadic, not direct style**. Direct-style effectful code needs
 `shift`/`reset` or effect syntax and is future work
 ([Open questions](#open-questions-and-future-work)). The compiler's contribution
 over a pure library free monad is the representation: it lowers `bind`/`perform` to
-an explicit continuation chain, so binding is stack-safe without materializing a
-tree and a handler receives a first-class resumption.
+an explicit continuation chain, so binding is stack-safe without materializing a tree,
+and the handler is handed the continuation directly.
 
 The surface is independent of how the library encodes operations: `f` is opaque, so
 `VariantF` over an open row, a closed operation functor, `Data.Exists`, or a rank-N
@@ -210,7 +284,160 @@ primitives, whose types state the suspension.
 `Prim.Control` is not a host import and not a WIT binding: it has no runtime
 implementation of its own, because the lowering produces ordinary guest code.
 
+### Handler interface for a flat loop
+
+Row 3's eliminator is the state-threading fold in
+[Model](#the-computation-carrier-and-primitives). The handler is called once per
+request and returns the next state and computation, so the driver stays flat. For a
+State request functor:
+
+```text
+h s (Get f)    cont = (s, cont (f s))
+h s (Put s' n) cont = (s', cont n)
+
+runState s0 c = run h s0 c          -- (s, a)
+```
+
+A stateless handler uses `s = ()` and returns `((), next)`.
+
+**Removing one effect (residual rows).** The fold above interprets the *whole* effect
+`f`. The library's `Run r a = Control (VariantF r) a` and
+`handleState :: s -> Run (state :: StateF s | r) a -> Run r { state :: s, value :: a }`
+need the output to change effect, from `VariantF (label :: f | r)` to `VariantF r`.
+The mechanism follows the industry standard — an **open union** indexed by the effect
+collection — but keeps the compiler free of it: `handle` is generic over the combined
+effect functor `u`, and the library supplies the union and its split.
+
+```text
+handle s h project inject c :: Control g (s, a)
+
+go s (Return a)        = Return (s, a)
+go s (Perform uop cont) =
+    case project uop of
+      Left  fop -> let (s', next) = h s fop cont in go s' next   -- handled
+      Right gop -> Bind (Perform_g gop) (\x -> go s (cont x))    -- forwarded to residual
+```
+
+The library's `VariantF r` is the open union for the row; it supplies
+`project : VariantF (label :: f | r) x -> Either (f x) (VariantF r x)` and
+`inject : VariantF r x -> VariantF (label :: f | r) x` from ordinary row membership
+(`Prim.Row.Cons`/`Lacks`). The compiler therefore never reasons about rows or labels;
+the row machinery is library code, as with operations and handlers generally. This is
+the row-indexed open union the ecosystem uses (`purescript-run`'s `VariantF`, Haskell's
+`Union` with `Member`), realized here with a generic primitive rather than a
+compiler-known row.
+
+The driver stays flat for handled requests; a forwarded request builds a residual
+`Control g (s, a)` by binding `perform_g gop` to a continuation that resumes handling
+with the saved state, so re-entry is bounded by the number of handlers, not by the
+computation.
+
+**Why not the CPS-answer eliminator.**
+`run :: (forall x. f x -> (x -> r) -> r) -> Control f a -> (a -> r) -> r` also threads
+state, by choosing `r = s -> (s, a)`, but its handler's continuation `x -> r` must
+produce the answer synchronously, so the driver becomes a *nested* `run`
+(`\x -> run h (cont x) k`). That is not a flat loop and loses the row-3 stack
+guarantee; it is the row-2 shape, and this mechanism does not adopt it.
+
 ### Lowering: selective CPS to resumable frames
+
+The mechanism compiles the regions that can suspend into an explicit continuation
+representation. The concept is **continuation-passing style (CPS)**; the chosen
+representation is **defunctionalized resumable frames** driven by a **trampoline**.
+
+#### Design space
+
+The design space has three independent axes; earlier drafts were confusing because
+they mixed them.
+
+**Axis 1 — continuation representation.**
+- *Closure (CPS).* The continuation is a closure; `perform op = \k h -> h op k` and
+  `run h c k = c k h`. There is no distinct continuation node: the continuation is
+  ordinary function data.
+- *Defunctionalized.* The continuation is data: either a *free/freer monad* (the whole
+  computation is an AST, `Pure`/`Impure`, with a bind queue) or a *frame chain* (the
+  continuation itself is a chain of explicit frame records).
+- *Native `cont`.* The continuation is a runtime object capturing the execution stack
+  (stack switching).
+
+**Axis 2 — driver.**
+- *Tail call.* Each continuation step is a tail call (`return_call*`); constant stack
+  only if every step is truly in tail position.
+- *Trampoline.* A loop repeatedly takes the next step/computation/frame; constant
+  stack regardless of the step's position.
+- *Runtime `suspend`/`resume`.* The runtime captures and reinstalls the stack.
+
+**Axis 3 — ownership.** The structure is *library-owned* (the library builds and folds
+it, as `purescript-run` does) or *compiler-owned* (the compiler lowers the surface to
+it).
+
+**Dispatch.** With a single delimiter there is no dispatch. With several effects or
+stacked handlers, a request is routed by the dynamic delimiter chain, by an operation
+tag/label, or statically by *evidence passing* (Koka), which removes the runtime
+lookup.
+
+The candidate architectures combine the axes as follows.
+
+| # | Representation | Driver | Ownership | Continuation state / roots | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | free/freer monad AST | trampoline (library) | library | heap; GC scans it | `purescript-run`, `freer-simple`; the library folds, so handlers thread state naturally; little compiler involvement |
+| 2 | closure (CPS) | tail call | compiler | heap; GC scans it | smallest lowering, no new backend construct; stack safety depends on every step being a tail call; the continuation is opaque (not verifiable) |
+| 3 | frame chain (defunctionalized continuation) | trampoline (compiler-generated loop) | compiler | heap; GC scans it | DEC-19's design; tail-call-independent; frame identity / capture boundary / one-shot status are verifiable |
+| 4 | native `cont` | runtime `suspend`/`resume` | compiler + runtime | runtime stack; the runtime scans roots | stack switching; a target capability |
+
+Rows 1–3 are **software continuations** and row 4 is a **native continuation**
+([Software and native continuations](#software-and-native-continuations)): rows 1–3
+keep the continuation on the language heap, so the GC finds its roots for free, while
+row 4 keeps it in runtime stack memory, so the runtime must scan captured stack slots
+and own the lifetime. Only row 2 depends on tail calls: rows 3 and 4 are
+tail-call-independent — a trampoline loops, and `suspend` captures non-tail frames
+just as well as tail ones.
+
+Terminology: *capture/reinstall* of a defunctionalized continuation (rows 1 and 3) is
+not *suspend/resume* of a native stack (row 4). The frame model's "self-implemented
+suspend/resume" is really *capture/reinstall*, driven by a trampoline; the
+suspend/resume words belong to stack switching.
+
+Rows 3 and 1 are the same idea — defunctionalized representation plus an interpreter
+loop — differing in what is defunctionalized (the continuation vs the whole
+computation) and in ownership, which is an independent axis: a library or a compiler
+can own either. Row 2 is not defunctionalized at all: its continuation is a closure
+and it leans on tail calls.
+
+**Whole-program CPS** (CPS-transforming every effectful user function) is a further
+candidate but is rejected: it changes calling conventions across Core/CC/MIR and needs
+adapters between converted and direct functions, for a direct style this mechanism
+does not provide (operations and handlers are monadic here).
+
+This document's design is row 3. Row 2 is a shorter alternative: a source CPS State
+handler written over a rank-2 newtype field compiled and executed on this target (a
+`wasmtime` run returning 42), and the official `purs` compiler accepts the same source.
+Row 2 is not rejected for expressibility; row 3 is chosen for the guarantees above.
+
+**The `run` typing is coupled to the representation.** Row 3 naturally supports a
+*structure-returning* handler `forall x. f x -> (x -> Control f a) -> Control f a`,
+whose result is the next computation, with `run :: ... -> Control f a -> a`. A
+*CPS-answer* handler `forall x. f x -> (x -> r) -> r` with a polymorphic `r` is what
+threads state (`r = s -> (s, a)`) and changes effects (`r = Control g b`); it is what
+row 2 uses directly (`run h c k = c k h`), but a trampoline (row 3) does not obviously
+carry it, because the handler's continuation `x -> r` must produce the answer
+synchronously.
+
+How existing systems thread handler state:
+
+- Row-1 libraries fold a **concrete** computation, with state in the target monad
+  (`StateT`) or in the fold's own recursion. This mechanism's carrier is opaque, so
+  the library cannot fold it.
+- Row-4 systems (OCaml 5, Koka, Eff) capture the stack and thread state through
+  handler-local (often mutable) state.
+- CPS encodings (`Cont`, `shift`/`reset`) thread state through the answer type —
+  exactly the CPS-answer `run`, i.e., row 2.
+
+This mechanism resolves the coupling as row 3 with the **state-threading fold**
+([Handler interface for a flat loop](#handler-interface-for-a-flat-loop)): the driver
+threads the handler state, so state threading no longer needs the CPS-answer
+eliminator and the driver stays flat. Effect removal uses the open-union `handle`,
+whose `project`/`inject` the library supplies so the compiler stays row-agnostic.
 
 #### Selective conversion
 
@@ -306,6 +533,12 @@ becomes unreachable and the GC reclaims the frames. The compiler must not drop a
 live continuation to an optimization, and must not let a dead one keep roots alive
 beyond its contract.
 
+This is the software-continuation cost model: because the frames are heap objects,
+the ordinary GC finds their roots and no separate root information is needed. A
+native continuation moves the same obligation to the runtime, which scans captured
+stack slots for roots and owns the stack's lifetime
+([Software and native continuations](#software-and-native-continuations)).
+
 #### Foreign-call boundaries
 
 Suspension cannot cross a non-suspendable host or foreign frame: a captured
@@ -314,6 +547,48 @@ resumed without that boundary's cooperation. The lowering rejects a conversion t
 would capture across such a boundary unless the boundary declares an explicit
 suspension protocol. A continuation also cannot retain a borrowed canonical-ABI
 buffer or a host-resource reference past the boundary's lifetime.
+
+### The executor and the runtime boundary
+
+The eliminator's driver — the trampoline of [The trampoline](#the-trampoline) — is the
+**executor**: the component that turns a `Control` value, a handler, and a handler
+state into a result. Where it lives is a design decision with a strict boundary.
+
+- **The executor is guest code.** It is a compiler-generated loop over the frame
+  representation, or a library function over a compiler-provided frame view. It runs
+  in the compiled program because it must call the guest handler and guest
+  continuations; a host function cannot call back into arbitrary guest closures
+  without an explicit boundary.
+- **The host runtime does not interpret frames.** `psrs-runtime` provides the GC heap
+  (where frames live), the leaf primitives a request may call (storage, host services,
+  trap), and linking. It does not inspect the frame layout, index frames, or own a
+  continuation. Nothing about the software representation crosses the host boundary.
+- **The runtime may provide a generic driver loop.** A runtime that loops calling a
+  guest "step" function is admissible, as long as it treats the step as opaque guest
+  code and learns nothing about the frame layout. This is optional; a guest-side loop
+  is the baseline.
+- **Under a native continuation the executor disappears.** With stack switching the
+  runtime captures and resumes the stack itself, so there is no software driver to
+  place ([Migration to native control](#migration-to-native-control)).
+
+The executor's contract:
+
+- Input: a `Control` value, a handler, and the initial handler state `s`.
+- Output: `(s, a)` for the closed `run`, or a residual `Control g (s, a)` for `handle`.
+- It calls the handler once per handled request and never re-enters itself for a
+  handled request; forwarded requests build residual data, so re-entry is bounded by
+  the handler count.
+- It preserves the [invariants](#invariants-and-verification): frame identity, capture
+  boundary, and one-shot status.
+
+What the compiler and the runtime each own:
+
+| Concern | Compiler (guest code) | Runtime (`psrs-runtime`) |
+| --- | --- | --- |
+| Continuation | frame objects and the executor loop | nothing for the software form; `cont` capture/resume for a native form |
+| GC roots | frames are GC objects, scanned by the GC | stack scanning only under a native form |
+| Leaf operations | ordinary calls to checked bindings | storage, host services, trap |
+| Frame layout | defines and verifies it | must not know it |
 
 ### Compiler CPS versus native stack switching
 
@@ -356,6 +631,18 @@ identity and lifetime explicit and verifiable. Given the project's rule that run
 support is not a contract and that a proposal is adopted only by deliberate profile
 revision, the compiler frames are the correct baseline. Stack switching remains a
 future accelerator behind a separate decision once the proposal stabilizes.
+
+### Migration to native control
+
+The frame representation also eases a later move to WebAssembly stack switching,
+because the two share one shape: the continuation is explicit and the suspension
+protocol is explicit. The mapping is mechanical — a frame chain becomes a `cont`
+reference, the compiler-inserted suspension becomes `suspend`, the trampoline's
+resume becomes `resume`, and the one-shot status becomes the native consumption.
+The `Control` surface and all library and user code stay unchanged; only the
+lowering and the target capability change. A closure/CPS representation would need
+an added suspension protocol before it mapped as directly. Adopting the native
+option remains a separate target-capability decision with its own evidence.
 
 ### Rejected shortcuts
 
@@ -410,23 +697,26 @@ frames. For the multi-shot surface it does not mutate the chain; for the one-sho
 API the status transition (`Pending` → `Running` → `Consumed`) is atomic, so a
 re-entrant resume is rejected.
 
-### Frame construction and trampoline loop
+### The executor loop
+
+The executor is the fold driver ([The executor and the runtime boundary](#the-executor-and-the-runtime-boundary)):
 
 ```text
-run(initial):
-    state = initial
-    loop:
-        match state:
-            Return(v)           -> return v
-            Eval(frame)         -> state = frame.step()
-            Suspend(payload, k) -> state = deliver(payload, k)
-            Resume(k, v)        -> state = install(k, v)
-            Abort               -> trap
+run h s (Return a)        = (s, a)
+run h s (Perform op cont) = let (s', next) = h s op cont in run h s' next
+
+handle h s project inject (Return a)        = Return (s, a)
+handle h s project inject (Perform uop cont) =
+    case project uop of
+      Left  fop -> let (s', next) = h s fop cont in handle h s' project inject next
+      Right gop -> Bind (Perform_g gop) (\x -> handle h s project inject (cont x))
 ```
 
-`install(k, v)` continues the captured chain with `v` as the suspended step's
-result. `deliver` calls the delimiter's handler; a handler that returns without
-resuming produces a normal answer, and its continuation becomes unreachable.
+`handle` threads the handler state and forwards unhandled requests to the residual;
+the loop recurses in tail position for handled requests, so the executor never grows
+the native stack with computation depth. A handler that returns without resuming
+leaves its continuation unreachable; deep and shallow differ only in whether `h`
+re-wraps the continuation.
 
 ### Deep-handler reinstatement
 
@@ -461,15 +751,18 @@ This is the design target, not a claim that these APIs exist yet:
 
 | Location | Intended responsibility |
 | --- | --- |
-| `Prim.Control` owner | The abstract `Control f a` carrier and the `return`/`bind`/`perform`/`run` primitives, with their checked schemes |
-| MIR control-lowering owner | Selective CPS/defunctionalization, the frame table, the trampoline, deep/shallow wrapping, and one-shot status |
+| `Prim.Control` owner | The abstract `Control f a` carrier and the `return`/`bind`/`perform`/`run`/`handle` primitives, with their checked schemes |
+| MIR control-lowering owner | Selective CPS/defunctionalization, the frame table, deep/shallow wrapping, and one-shot status |
+| Executor (guest code) | The loop that drives frames against a handler and threads its state; compiler-generated or a library function over a frame view; never a runtime interpreter of the frame layout |
 | MIR verifier | Frame identity, capture boundary, continuation result-type, and suspension-observability checks |
-| Existing Core/CC/MIR lowering and optimizers | Compile the converted frames as ordinary higher-order code; preserve generic observable-call semantics |
+| Existing Core/CC/MIR lowering and optimizers | Compile the converted frames and the executor as ordinary higher-order code; preserve generic observable-call semantics |
+| `psrs-runtime` (software form) | GC heap, leaf primitives, trap, and linking; provides no continuation and must not learn the frame layout |
 | Runtime control owner, only if separately adopted | Stack-switching ABI, captured-root storage, lifecycle checks, and capability requirements |
 
 No compiler-side operation registry, handler IR, or effect-specific solver is
-required. Runtime control module names and entry-point signatures remain unselected
-until a target option is explicitly adopted.
+required. The runtime carries no continuation for the software form; runtime control
+module names and entry-point signatures remain unselected until a target option is
+explicitly adopted.
 
 ## Invariants and verification
 
@@ -520,12 +813,20 @@ the compiler adds no ambient effect inference. It is the only compiler-owned par
 the effects story; operations, rows, handlers, and the one-shot/multi-shot API are
 library code ([library-owned effects](algebraic-effects-and-handlers.md#ownership)).
 
+For the software form the runtime carries no continuation: the executor is guest code
+and `psrs-runtime` provides only the GC heap, leaf primitives, and trap
+([The executor and the runtime boundary](#the-executor-and-the-runtime-boundary)).
+
 The baseline target profile does not gain stack switching through this design. A
 native resumption option requires a pinned target capability, an MIR/lowering
 contract, validator coverage, and actual execution evidence. An unsupported
 capability is an error, never a silent change to continuation semantics.
 
 ## Open questions and future work
+
+The eliminator is settled — the state-threading fold with the open-union `handle`
+([Handler interface for a flat loop](#handler-interface-for-a-flat-loop)). The
+following remain open.
 
 1. **Direct-style surface sugar.** Effect typing is out of scope (see
    [Scope](#scope)). A non-typed syntax that desugars to the monadic API is a
@@ -538,7 +839,7 @@ capability is an error, never a silent change to continuation semantics.
    foreign frame is rejected by the lowering; a boundary that needs to suspend across
    it must define an explicit protocol and its lifetime contract.
 4. **Performance.** Measure allocation, frame churn, and deep execution to set the
-   lowering's performance contract.
+   lowering's performance cost.
 
 ## References
 
