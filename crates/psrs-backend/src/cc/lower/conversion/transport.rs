@@ -158,7 +158,6 @@ impl FunctionLowerer<'_> {
                 "constructor transport result differs from its checked storage field",
             ));
         }
-        let state = self.state_slot(&signature, span)?;
         let protocol = self.boundary.protocol_signature(concrete).ok_or_else(|| {
             conversion_error(span, "constructor transport has no registered protocol")
         })?;
@@ -169,20 +168,12 @@ impl FunctionLowerer<'_> {
         });
         let identity_arguments = vec![ValueConversion::Identity; parameters.len()];
         let plan = if entering {
-            let result = if let Some(state) = state {
-                self.state_slot_result(state, true, span)?
-            } else {
-                self.erase_payload(payload, span)?
-            };
+            let result = self.erase_payload(payload, span)?;
             let adapter =
                 self.physical_callable_plan(concrete, protocol, identity_arguments, result, span)?;
             sequence(vec![adapter, ValueConversion::EraseReference])
         } else {
-            let result = if let Some(state) = state {
-                self.state_slot_result(state, false, span)?
-            } else {
-                self.recover_payload(payload, span)?
-            };
+            let result = self.recover_payload(payload, span)?;
             let adapter =
                 self.physical_callable_plan(protocol, concrete, identity_arguments, result, span)?;
             sequence(vec![

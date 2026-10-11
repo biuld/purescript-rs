@@ -1,4 +1,4 @@
-use super::{lower_program_to_core_and_effect_context, typecheck_warnings};
+use super::{lower_program_to_core_and_warnings, typecheck_warnings};
 use crate::{
     Artifact, CompilationReport, Diagnostic, DiagnosticOrigin, FrontendPassTrace, IrDumpArtifacts,
     PartialIrDumps, ProgramDiagnostic, backend_warnings,
@@ -30,14 +30,14 @@ pub(super) fn compile_attempt(
     trace_enabled: bool,
     runner: Option<&crate::prelude::CommandRunner>,
 ) -> CompilationReport {
-    let (core, source_warnings, effect_context) = match if let Some(runner) = runner {
+    let (core, source_warnings) = match if let Some(runner) = runner {
         super::lowering::lower_program_inner(
             sources,
             trusted_prefix,
             Some((&runner.module, &runner.function)),
         )
     } else {
-        lower_program_to_core_and_effect_context(sources, trusted_prefix)
+        lower_program_to_core_and_warnings(sources, trusted_prefix)
     } {
         Ok(lowered) => lowered,
         Err(diagnostics) => {
@@ -71,7 +71,6 @@ pub(super) fn compile_attempt(
         let linked_core = capture_dumps.then(|| core.clone());
         let traced = psrs_backend::compile_with_context_traced(
             core,
-            effect_context,
             psrs_backend::TargetCapabilities::default(),
             capture_dumps,
         );
@@ -111,7 +110,6 @@ pub(super) fn compile_attempt(
         let linked_core = core.clone();
         let stages = match psrs_backend::compile_with_context_capturing(
             core,
-            effect_context,
             psrs_backend::TargetCapabilities::default(),
         ) {
             Ok(stages) => stages,
@@ -123,11 +121,7 @@ pub(super) fn compile_attempt(
         return success_report(stages, source_warnings, trusted_prefix, true, None, None);
     }
 
-    match psrs_backend::compile_with_context(
-        core,
-        effect_context,
-        psrs_backend::TargetCapabilities::default(),
-    ) {
+    match psrs_backend::compile_with_context(core, psrs_backend::TargetCapabilities::default()) {
         Ok(stages) => success_report(stages, source_warnings, trusted_prefix, false, None, None),
         Err(errors) => {
             CompilationReport::failed(backend_diagnostics(errors), PartialIrDumps::default())

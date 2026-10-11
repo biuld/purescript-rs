@@ -8,27 +8,6 @@ fn flattened_definitions(layout: &PlannedLayout) -> Vec<&DefinedType> {
 }
 
 #[test]
-fn a_logical_state_cannot_become_a_physical_scalar_or_storage_slot() {
-    let layout = PlannedLayout::plan(
-        &RepresentationTable::default(),
-        TargetCapabilities::default(),
-    )
-    .unwrap();
-    assert!(matches!(
-        layout.value_type(&CcValueShape::State),
-        Err(LayoutError::UnprojectedState)
-    ));
-    let mut table = RepresentationTable::default();
-    table.representations.push(Representation::Product {
-        fields: vec![CcValueShape::State, CcValueShape::Integer],
-    });
-    assert!(matches!(
-        PlannedLayout::plan(&table, TargetCapabilities::default()),
-        Err(LayoutError::UnprojectedState)
-    ));
-}
-
-#[test]
 fn planner_owns_the_gc_closure_and_capture_layouts() {
     let mut table = RepresentationTable::default();
     table.add_signature(Signature {

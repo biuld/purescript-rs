@@ -16,7 +16,6 @@ pub mod opt;
 mod planner;
 mod reachable;
 mod runtime;
-pub mod state;
 mod verify;
 mod wit;
 
@@ -62,8 +61,6 @@ pub struct Module {
     /// here to resolve a list element's guest layout. `None` for a hand-built
     /// test module with no representation table.
     pub(crate) layout: Option<layout::PlannedLayout>,
-    /// Immutable source requirements, independent of mutable function evidence.
-    pub(crate) dependencies: state::Inventory,
     pub span: TextRange,
 }
 
@@ -93,9 +90,6 @@ pub(crate) struct BoundWasiImport {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
-    /// Logical dependencies and their checked correspondence to instructions.
-    /// They have no target value type and survive physical State projection.
-    pub state: Option<state::DependencyFlow>,
     /// Stable module-local MIR identity. P10 maps this identity to a final
     /// Wasm function index after imports are ordered.
     pub id: FunctionId,
@@ -231,8 +225,6 @@ fn lower_module_after_binding_validation(
 ) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
     // P8 owns ordinary CC typing. Recheck actual dependency bodies at the
     // physical boundary, including callers supplying CC directly.
-    let projected = state::project(module, &bindings.runtime)?;
-    let module = projected.physical;
     // Resolve every source-declared WIT binding and pair it with the CC
     // abstract signature. Conformance was already checked at the linking
     // boundary; a declaration the backend cannot lower is rejected here.
@@ -300,12 +292,7 @@ fn lower_module_after_binding_validation(
             module.entry.map(|entry| entry.module),
         )
     })?;
-    let runtime = runtime::RuntimeContext::checked(
-        &bindings.runtime,
-        projected.logical.clone(),
-        &module,
-        &layout,
-    )?;
+    let runtime = runtime::RuntimeContext::checked(&bindings.runtime, &module, &layout)?;
     let mut conversion_helpers = lower::ConversionHelpers::new(&module);
     let mut literals = StringLiterals::default();
     let mut functions = Vec::with_capacity(module.functions.len());
@@ -314,11 +301,9 @@ fn lower_module_after_binding_validation(
             function,
             FunctionId(id as u32),
             &wit_imports,
-            &runtime,
             &layout,
             Some(&mut conversion_helpers),
             Some(&mut literals),
-            projected.inventory.source_for(function.symbol),
             target,
         )
         .map_err(|errors| {
@@ -335,11 +320,9 @@ fn lower_module_after_binding_validation(
             helper,
             FunctionId(first_helper_id + offset as u32),
             &wit_imports,
-            &runtime,
             &layout,
             None,
             Some(&mut literals),
-            None,
             target,
         )?;
         functions.push(lowered);
@@ -422,9 +405,6 @@ fn lower_module_after_binding_validation(
         }
     }
     let strings = literals.into_strings();
-    let dependencies = projected
-        .inventory
-        .with_helpers(&functions[first_helper_id as usize..])?;
     let mir = Module {
         name: module.name,
         types: layout.types.clone(),
@@ -432,7 +412,6 @@ fn lower_module_after_binding_validation(
         imports,
         functions,
         entry: module.entry,
-        dependencies,
         layout: Some(layout),
         span: module.span,
     };

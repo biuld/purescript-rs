@@ -219,7 +219,7 @@ fn simplify_expr_inner(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
         ExprKind::Boolean(value) => ExprKind::Boolean(value),
         ExprKind::String(value) => ExprKind::String(value),
         ExprKind::Char(value) => ExprKind::Char(value),
-        kind @ (ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap) => kind,
+        kind @ (ExprKind::Unit | ExprKind::Trap) => kind,
     };
     expression
 }

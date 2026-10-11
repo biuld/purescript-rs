@@ -96,7 +96,7 @@ fn collect_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
-        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::Trap => {}
     }
 }
 

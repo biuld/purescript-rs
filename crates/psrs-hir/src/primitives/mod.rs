@@ -7,7 +7,6 @@ use psrs_span::TextRange;
 mod core;
 mod numbers;
 mod rows;
-mod state;
 mod type_error;
 
 #[cfg(test)]
@@ -21,7 +20,6 @@ pub fn primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)> {
         rows::declarations(),
         numbers::declarations(),
         type_error::declarations(),
-        state::declarations(),
     ]
     .into_iter()
     .flatten()

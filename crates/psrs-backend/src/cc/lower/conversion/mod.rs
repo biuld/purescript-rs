@@ -15,7 +15,6 @@ mod callable;
 mod function_slot;
 mod product_map;
 mod scalars;
-mod state_slot;
 mod transport;
 
 pub(in crate::cc) struct VariantFieldConversion {

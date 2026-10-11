@@ -45,10 +45,7 @@ pub(super) fn integer_constant(function: &Function, value: ValueId) -> Option<i3
 
 fn propagate_function(function: &mut Function) -> bool {
     let facts = analyze(function);
-    // Join parameters and their incoming payloads are source anchors in a
-    // dependency projection. Removing them requires an explicit evidence
-    // transfer, even when their scalar value is known.
-    let changed = function.state.is_none() && materialize_block_parameters(function, &facts);
+    let changed = materialize_block_parameters(function, &facts);
     changed | fold_scalar_instructions(function)
 }
 

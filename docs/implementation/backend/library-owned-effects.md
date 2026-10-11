@@ -1,5 +1,13 @@
 # Library-Owned Effects: Implementation Evidence
 
+> **Withdrawn 2026-10-11.** The compiler-owned Effect and State mechanisms this
+> record tracks were removed. The State vocabulary, checked primitive
+> type contracts, dependency graph verifier, CC/MIR projection, runtime storage
+> source bindings, and world-boundary runner integration no longer exist. The
+> record below is retained as dated historical evidence and is **not** a plan to
+> rebuild the removed machinery; the replacement Effect representation is
+> undecided.
+
 Governing designs: [library-owned effects](../../design/backend/fp/library-owned-effects.md)
 and [State primitives and dependency lowering](../../design/backend/fp/state-primitives-and-dependency-lowering.md).
 The State topic owns compiler semantics and pass contracts; this record tracks
@@ -9,7 +17,7 @@ The [2026-10-11 audit](library-owned-effects-audit-2026-10-11.md) records the pu
 loop stack-exhaustion baseline and outstanding scope/projection concerns.
 The tail-call follow-up below records the repaired loop case.
 
-Status: **Partial**. The state vocabulary, checked primitive type contracts and
+Status (pre-removal, historical): **Partial**. The state vocabulary, checked primitive type contracts and
 generic dependency graph verifier exist. Core verification now produces checked
 flow for State-to-Step lambda bodies. CC now retains logical State values and
 derives checked flow from actual single-root function instructions. P9 now

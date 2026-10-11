@@ -98,7 +98,7 @@ fn collect_captures_inner(
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
         // Neither a literal unit nor a trap reads a local.
-        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::Trap => {}
     }
 }
 

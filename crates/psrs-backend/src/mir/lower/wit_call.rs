@@ -23,10 +23,7 @@ impl FunctionLowerer<'_> {
         // The isolated builder shares checked layouts and helper ownership,
         // but cannot inspect or mutate the actual instruction stream.
         let mut builder = FunctionLowerer {
-            erased_states: Default::default(),
             owner: self.owner,
-            runtime: None,
-            runtime_calls: Vec::new(),
             wit_calls: Vec::new(),
             next_block: self.next_block,
             blocks: vec![BasicBlock {
@@ -55,7 +52,6 @@ impl FunctionLowerer<'_> {
         let plan = wit::CallPlan::new(
             self.owner,
             assignment.clone(),
-            import.clone(),
             start,
             exit,
             builder.blocks.clone(),

@@ -30,17 +30,15 @@ pub(super) fn live_type_ids(module: &CoreModule) -> HashSet<TypeId> {
             record_type(module, *field, &mut visiting, &mut referenced);
         }
     }
-    // Runtime declarations must publish complete logical call contracts even
-    // when unused. Their Step and callable payload layouts cannot be inferred
-    // from the remaining bodies alone. A state-stepping declaration needs the
-    // same treatment whichever interface it binds, because its result is a
-    // Step whose successor and payload are not reachable from any body.
+    // Runtime declarations must publish their callable payload layouts even
+    // when unused, because a runtime import's function shape is fixed by its
+    // provider contract rather than inferred from any remaining body.
     for checked in &module.external_types {
         let runtime = module.externals.iter().any(|external| {
             external.symbol == checked.symbol
                 && matches!(external.kind, psrs_hir::ExternalKind::Runtime { .. })
         });
-        if runtime || psrs_core::state::signature(module, checked.ty).is_ok() {
+        if runtime {
             record_type(module, checked.ty, &mut visiting, &mut referenced);
         }
     }
@@ -131,7 +129,7 @@ fn record_expr_inner(
         | ExprKind::Char(_) => {}
         // Both mention no subexpression, so the type recorded above is all
         // their layout can refer to.
-        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::Trap => {}
     }
 }
 

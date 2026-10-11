@@ -2,7 +2,6 @@ use super::*;
 use psrs_hir::{Intrinsic, LocalId, ModuleId, SymbolId};
 
 mod deep_expr;
-mod effects;
 mod external_types;
 mod instantiation;
 mod link;

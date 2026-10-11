@@ -16,7 +16,6 @@ mod projection;
 mod representation;
 mod scalar;
 mod source_abi;
-pub mod state;
 mod verify;
 
 pub(crate) use source_abi::abstract_signature;
@@ -110,11 +109,6 @@ pub enum AssignmentKind {
         arguments: Vec<ValueId>,
     },
     /// A checked source runner supplies and discharges one logical root.
-    StateExecution {
-        operation: psrs_hir::StateOperation,
-        function: ValueId,
-        signature: SignatureId,
-    },
     ClosureGetCapture {
         closure: ValueId,
         index: u32,
@@ -396,23 +390,6 @@ pub(crate) fn lower_module_with_relations(
                 .map(|error| error.with_module(binding.source_module))
                 .collect::<Vec<_>>()
         })?;
-        state::StateCallProjection::checked(&signature, &layout.representations)
-            .map_err(|message| {
-                vec![
-                    BackendError::invalid_ir("P8 closure conversion", binding.span, message)
-                        .with_module(binding.source_module),
-                ]
-            })?
-            .ok_or_else(|| {
-                vec![
-                    BackendError::invalid_ir(
-                        "P8 closure conversion",
-                        binding.span,
-                        "runtime binding lost its logical State contract",
-                    )
-                    .with_module(binding.source_module),
-                ]
-            })?;
         let signature =
             crate::bindings::runtime_cc_signature(binding, &signature, &layout.representations)?;
         signatures.insert(binding.symbol, signature.clone());

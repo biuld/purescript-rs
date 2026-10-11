@@ -1,5 +1,11 @@
 # Library-owned effects: scope and implementation audit
 
+> **Historical (2026-10-11).** The compiler-owned Effect and State mechanisms
+> audited here were removed on 2026-10-11. This audit describes the pre-removal
+> tree and is retained as dated evidence only; it is **not** a plan to rebuild
+> the removed machinery. See the
+> [removal handoff](effect-state-removal-handoff-2026-10-11.md).
+
 Date: 2026-10-11. Compiler branch: `stdlib/vendor-core-libraries`, HEAD
 `6b40b8d6`. This audit includes the existing 28 modified/untracked paths,
 including the uncommitted scoped-callback and zero-width-choice slices. The

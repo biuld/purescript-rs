@@ -7,11 +7,6 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) fn forward_copies(module: &mut Module) {
     for function in &mut module.functions {
-        if function.state.is_some() {
-            // Source predicates, action operands and adapter inputs remain
-            // anchored until this pass can transfer their alias evidence.
-            continue;
-        }
         forward_function(function);
     }
 }
@@ -52,12 +47,6 @@ fn forward_function(function: &mut Function) {
 
 pub(super) fn eliminate_dead_pure(module: &mut Module) {
     for function in &mut module.functions {
-        if function.state.is_some() {
-            // Dependency correspondence retains source destinations and exact
-            // adapter instruction ranges, including unused Unit recovery.
-            // Deletion requires an explicit transfer of that evidence.
-            continue;
-        }
         eliminate_function(function);
     }
 }

@@ -1,9 +1,18 @@
 # Library-Owned Effects
 
+> **Withdrawn 2026-10-11.** The compiler no longer owns the Effect type or the
+> State dependency protocol. The `Prim.State` primitives, the
+> `RunWorld`/`RunRegion` intrinsics, the Core/CC/MIR State analysis, the legacy
+> trusted-Effect synthesis, and the runtime storage source-binding contract were
+> removed. No replacement Effect representation has been selected, so a program
+> that used either mechanism does not compile. Everything below is retained as
+> dated historical evidence and is **not** an instruction to rebuild the
+> removed machinery. See the
+> [removal handoff](../../../implementation/backend/effect-state-removal-handoff-2026-10-11.md).
+
 **Feature:** [F-02](../../../feature/F-02-portable-programs.md)  
-**Status:** Draft design; newtype and state-dependency direction selected,
-implementation migration in progress. Coverage is recorded in the
-[implementation checklist](../../../implementation/backend/library-owned-effects.md).  
+**Status:** Withdrawn. The newtype and state-dependency direction recorded below
+was removed on 2026-10-11; the replacement Effect representation is undecided.  
 **Prerequisites:** [State primitives and dependency lowering](state-primitives-and-dependency-lowering.md),
 [effects](effects.md), [representation and evidence](representation-and-evidence.md),
 [primitive types](../../frontend/type-system/prim.md),

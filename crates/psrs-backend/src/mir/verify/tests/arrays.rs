@@ -12,7 +12,6 @@ fn array_conversion_function(
         heap: HeapType::Index(DefinedTypeId(0)),
     });
     let function = Function {
-        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "array_default".into(),
@@ -222,7 +221,6 @@ fn clone_function(element_storage: crate::types::StorageType) -> (Function, Vec<
         heap: HeapType::Index(DefinedTypeId(0)),
     });
     let function = Function {
-        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "array_clone".into(),

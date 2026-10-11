@@ -81,12 +81,6 @@ pub(crate) trait PayloadPlanner {
             return Ok(sequence(vec![adapter, ValueConversion::EraseReference]));
         }
         let boxed = match shape {
-            ValueShape::State => {
-                return Err(self.payload_error(
-                    span,
-                    "state dependencies require checked logical transport, not payload boxing",
-                ));
-            }
             ValueShape::Integer | ValueShape::Boolean => {
                 self.box_plan(BoxKind::Integer, self.payload_box(BoxKind::Integer), span)?
             }
@@ -122,10 +116,6 @@ pub(crate) trait PayloadPlanner {
             return self.payload_callable(signature, false, span);
         }
         match shape {
-            ValueShape::State => Err(self.payload_error(
-                span,
-                "state dependencies cannot be recovered from a physical payload",
-            )),
             ValueShape::Integer | ValueShape::Boolean => self.unbox_plan(
                 BoxKind::Integer,
                 self.payload_box(BoxKind::Integer),

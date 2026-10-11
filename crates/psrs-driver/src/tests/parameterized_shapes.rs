@@ -13,12 +13,9 @@ unwrap value = case value of
 main = arrayIndex (unwrap (wrap [40, 42])) 1
 ";
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("generic source Core should lower to CC before P7")
-    .cc;
+    let generic_cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("generic source Core should lower to CC before P7")
+        .cc;
     let generic_array_maps = aggregate_conversions(&generic_cc)
         .iter()
         .map(|conversion| array_map_count(&conversion.plan))
@@ -29,7 +26,6 @@ main = arrayIndex (unwrap (wrap [40, 42])) 1
     );
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("generic Array a must map at concrete call boundaries");
@@ -108,12 +104,9 @@ copy record = record { value = record.value }
 main = arrayIndex ((copy { items: [40, 42], value: 7 }).items) 1
 ";
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("generic source Core should lower to CC before P7")
-    .cc;
+    let generic_cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("generic source Core should lower to CC before P7")
+        .cc;
     let generic_conversions = aggregate_conversions(&generic_cc);
     assert!(
         generic_conversions
@@ -127,7 +120,6 @@ main = arrayIndex ((copy { items: [40, 42], value: 7 }).items) 1
         "record conversion retains explicit product construction");
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("closed generic records should map across concrete instantiations");
@@ -155,12 +147,9 @@ duplicate values = values
 main = arrayIndex (arrayIndex (duplicate [[40, 42]]) 0) 1
 ";
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("generic source Core should lower to CC before P7")
-    .cc;
+    let generic_cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("generic source Core should lower to CC before P7")
+        .cc;
     let conversions = aggregate_conversions(&generic_cc);
     let maximum_nested_array_maps = conversions
         .iter()
@@ -173,7 +162,6 @@ main = arrayIndex (arrayIndex (duplicate [[40, 42]]) 0) 1
     );
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("nested generic arrays should map recursively");
@@ -200,12 +188,9 @@ concrete values = values
 main = arrayIndex (applyArray concrete [40, 42]) 1
 ";
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("generic source Core should lower to CC before P7")
-    .cc;
+    let generic_cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("generic source Core should lower to CC before P7")
+        .cc;
     let array_maps = aggregate_conversions(&generic_cc)
         .iter()
         .map(|conversion| array_map_count(&conversion.plan))
@@ -216,7 +201,6 @@ main = arrayIndex (applyArray concrete [40, 42]) 1
     );
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("higher-order adapters should convert generic aggregate arguments and results");

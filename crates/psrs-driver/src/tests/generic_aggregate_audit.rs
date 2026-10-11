@@ -410,7 +410,6 @@ fn empty_array_reconstruction_executes() {
     );
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("an empty concrete array must still lower through the conversion path");

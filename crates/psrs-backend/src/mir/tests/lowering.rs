@@ -22,11 +22,9 @@ fn defined_types_flow_into_the_wasm_type_section() {
             }]),
         }])],
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![Function {
-            state: None,
             id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
@@ -73,11 +71,9 @@ fn lowers_and_validates_f64_to_f32_abi_conversions() {
         entry: Some(symbol),
         types: Vec::new(),
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![Function {
-            state: None,
             id: crate::types::FunctionId(0),
             symbol,
             name: "main".into(),
@@ -164,7 +160,6 @@ fn lowers_an_imported_call() {
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: Vec::new(),
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: vec![Import {
             runtime: None,
@@ -173,7 +168,6 @@ fn lowers_an_imported_call() {
             result: import.result,
         }],
         functions: vec![Function {
-            state: None,
             id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
@@ -226,11 +220,9 @@ fn wasm_lowering_requires_an_explicit_entry_symbol() {
         entry: None,
         types: Vec::new(),
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![Function {
-            state: None,
             id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),

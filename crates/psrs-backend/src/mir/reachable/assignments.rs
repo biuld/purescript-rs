@@ -39,8 +39,7 @@ pub(super) fn add_assignments(
                     .iter()
                     .any(|capture| value_types.get(capture) == Some(&ValueShape::Number));
             }
-            AssignmentKind::IndirectCall { signature, .. }
-            | AssignmentKind::StateExecution { signature, .. } => {
+            AssignmentKind::IndirectCall { signature, .. } => {
                 add_signature(*signature, signatures, signature_work);
             }
             AssignmentKind::RepresentationTest { reference, .. }

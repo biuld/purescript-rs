@@ -75,7 +75,7 @@ fn expression_has_integer_capture_inner(expression: &Expr, module: &CoreModule) 
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => false,
-        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => false,
+        ExprKind::Unit | ExprKind::Trap => false,
     }
 }
 
@@ -171,7 +171,7 @@ fn free_integer_local_inner(
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => false,
-        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => false,
+        ExprKind::Unit | ExprKind::Trap => false,
     }
 }
 

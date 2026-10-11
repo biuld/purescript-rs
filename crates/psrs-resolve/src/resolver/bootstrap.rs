@@ -9,7 +9,6 @@ use psrs_hir::{ExternalKind, ExternalSymbol, Intrinsic};
 pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
     Intrinsic::ALL
         .into_iter()
-        .filter(|intrinsic| intrinsic.is_bootstrap())
         .map(|intrinsic| {
             let descriptor = intrinsic.descriptor();
             ExternalSymbol {

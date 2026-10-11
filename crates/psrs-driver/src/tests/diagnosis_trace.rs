@@ -171,12 +171,7 @@ fn target_rejection_keeps_prior_artifacts_and_maps_errors_to_its_execution() {
         component_model: false,
         ..Default::default()
     };
-    let traced = psrs_backend::compile_with_context_traced(
-        prepared.core,
-        prepared.effect_context,
-        target,
-        false,
-    );
+    let traced = psrs_backend::compile_with_context_traced(prepared.core, target, false);
     let failure = traced
         .result
         .expect_err("target profile should be rejected");

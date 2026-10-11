@@ -1,11 +1,12 @@
 # Primitive Foreign Imports and Standard-Library Wrappers
 
-> **Selected extension:** [State primitives and dependency lowering](../fp/state-primitives-and-dependency-lowering.md)
-> owns primitive State contracts, preserved dependencies and checked zero-width
-> projection. [Library-owned effects](../fp/library-owned-effects.md) owns the
-> library adaptation. GC storage/termination retain their runtime-owned checked
-> reference ABI, separate from scalar artifact calls. Coverage remains partial; see the
-> [implementation checklist](../../../implementation/backend/library-owned-effects.md).
+> **Withdrawn extension (2026-10-11).** [State primitives and dependency
+> lowering](../fp/state-primitives-and-dependency-lowering.md) and
+> [library-owned effects](../fp/library-owned-effects.md) were removed. GC
+> storage/termination retain their runtime-owned checked reference ABI, but the
+> source runtime-storage binding contract no longer projects. Any paragraph that
+> refers to State dependencies is retained as historical evidence, not as a
+> current requirement.
 
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
 **Status:** Draft  
@@ -413,7 +414,9 @@ crates/psrs-backend/src/
   `Data.Show` and not a second stringifier. `Test.Assert` composes
   `Effect.Console.error` with `Prelude.trap`. A
   failure is a guest trap because that is the only signal a compilable corpus
-  case can carry; `Prelude.trap` is a `psrs:effect` external, not a host call.
+  case can carry. `Prelude.trap` was formerly a `psrs:effect` external the
+  compiler synthesized a body for; that mechanism was removed on 2026-10-11 and
+  the replacement is undecided.
 - Each raw binding is an unexported `foreign import` whose parameters and
   single result are in the primitive set. The binding string is
   `<interface>#<function>`, as in the canonical ABI topic.

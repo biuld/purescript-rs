@@ -4,14 +4,7 @@ pub(super) fn lower_program_inner(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
     runner: Option<(&str, &str)>,
-) -> Result<
-    (
-        psrs_core::Module,
-        Vec<ProgramWarning>,
-        Option<psrs_core::effect::EffectCompilation>,
-    ),
-    Vec<ProgramDiagnostic>,
-> {
+) -> Result<(psrs_core::Module, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
     let resolved = resolve_program_sources(sources)?;
     let selected_runner = runner
         .map(|(owner, name)| {
@@ -39,19 +32,7 @@ pub(super) fn lower_program_inner(
         })
         .transpose()?;
     let entry = effects::require_unambiguous_entry(effects::select_entry(&resolved))?;
-    let trusted = if selected_runner.is_none() {
-        let trusted = effects::trusted_effect(&resolved, trusted_prefix)?;
-        effects::check_run_effect_scope(&resolved, entry, trusted.as_ref())?;
-        trusted
-    } else {
-        None
-    };
     let (typed, warnings) = typecheck_resolved_program_with_warnings(resolved)?;
-    let command_entry = if selected_runner.is_none() {
-        classify_command_entry(&typed, entry, trusted.as_ref())?
-    } else {
-        None
-    };
     let mut modules = Vec::with_capacity(typed.len());
     for (index, module) in typed.into_iter().enumerate() {
         match psrs_core::lower_module_unverified(module) {
@@ -96,32 +77,12 @@ pub(super) fn lower_program_inner(
             })
             .collect());
     }
-    let context = trusted.map(|trusted| psrs_core::effect::EffectCompilation {
-        trusted,
-        command_entry,
-    });
-    Ok((linked, warnings, context))
+    Ok((linked, warnings))
 }
 
-pub(crate) fn lower_program_to_core_and_effect_context(
+pub(crate) fn lower_program_to_core_and_warnings(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
-) -> Result<
-    (
-        psrs_core::Module,
-        Vec<ProgramWarning>,
-        Option<psrs_core::effect::EffectCompilation>,
-    ),
-    Vec<ProgramDiagnostic>,
-> {
+) -> Result<(psrs_core::Module, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
     lower_program_inner(sources, trusted_prefix, None)
-}
-
-#[cfg(test)]
-pub(crate) fn lower_program_to_core_with_runner(
-    sources: &[(&str, &str)],
-    owner: &str,
-    function: &str,
-) -> Result<psrs_core::Module, Vec<ProgramDiagnostic>> {
-    lower_program_inner(sources, 0, Some((owner, function))).map(|(core, _, _)| core)
 }

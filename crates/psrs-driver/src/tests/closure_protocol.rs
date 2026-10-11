@@ -85,12 +85,9 @@ main :: Int
 main = repeatAction action 42
 "#;
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("the Reader dictionary should lower to CC")
-    .cc;
+    let cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("the Reader dictionary should lower to CC")
+        .cc;
     let has_adapter = cc
         .functions
         .iter()

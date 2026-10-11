@@ -11,7 +11,7 @@ impl IntrinsicEffects {
     pub(super) fn for_intrinsic(intrinsic: Intrinsic) -> Self {
         use Intrinsic::*;
         match intrinsic {
-            ArrayWrite | RunWorld | RunRegion => Self {
+            ArrayWrite => Self {
                 may_trap: true,
                 may_write: true,
             },

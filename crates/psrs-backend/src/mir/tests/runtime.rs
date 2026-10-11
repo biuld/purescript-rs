@@ -34,11 +34,9 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: vec![RecGroup(vec![struct_type])],
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![Function {
-            state: None,
             id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),

@@ -2,7 +2,10 @@
 
 **Date:** 2026-10-11  
 **Scope:** Compiler cleanup only; no replacement Effect design.  
-**Status:** Instructions for the next agent. Removal has not been implemented.
+**Status:** Implemented 2026-10-11. The legacy Effect mechanism and the State
+dependency mechanism were removed from the compiler. The replacement Effect
+representation remains undecided. The sections below are retained as the
+instruction record that governed the removal.
 
 ## User decision and authority
 
@@ -191,3 +194,41 @@ Completion means compiler ownership of both protocols is removed and all
 remaining consumers and limitations are explicit. It does **not** mean a new
 Effect mechanism exists or that either current stdlib package remains
 executable. Designing that mechanism is a separate user decision.
+
+## Post-removal record
+
+The removal was implemented on 2026-10-11. What was deleted and what remains:
+
+- **Removed.** `psrs-core/src/effect`, `psrs-core/src/state`,
+  `psrs-backend/src/effects`, `psrs-backend/src/cc/state`,
+  `psrs-backend/src/mir/state`, `psrs-hir/src/primitives/state.rs`,
+  `psrs-hir/src/intrinsic/state.rs`, the `Prim.State`/`Prim.RealWorld` catalog,
+  the `RunWorld`/`RunRegion` intrinsics, the `StateExecutionBoundary` target
+  implementation, the driver's trusted-Effect discovery and lexical
+  `runEffect` rule, `ExprKind::StateToken`, `ExprKind::StateToken`'s opaque
+  token identity, `ValueShape::State`, `StateCallProjection`,
+  `LayoutError::UnprojectedState`, and the State-specific fields on shared CC
+  and MIR objects. The Effect/State protocol tests were removed.
+- **Retained generic.** Strict evaluation order and call lowering; `Trap`;
+  generic foreign and WIT calls; the generic Core/MIR effect summaries;
+  ordinary newtypes, roles, closures and adapters; generic direct, indirect,
+  and tail calls with loopification; the `psrs-runtime` GC storage crate and
+  the linker's canonical component boundary; and the package-configured
+  command runner.
+- **Explicit failures.** A source runtime storage binding (`psrs:runtime-*`)
+  can no longer be projected: the operand mapping depended on the withdrawn
+  State contract, and no generic replacement exists. `bindings::validate`,
+  `plan_runtime_import`, and `canonical_signature` report
+  `runtime storage bindings require the withdrawn State contract`. The
+  linker-side `psrs_linker::runtime::package_offers` path and
+  `psrs-linker/tests/gc_storage.rs` do not use the source binding contract and
+  remain.
+- **Affected package consumers.** The independent `psrs-stdlib` sources that
+  declare `Prim.State`, `psrs:intrinsic#runWorld`/`runRegion`, or
+  `psrs:runtime-storage` do not compile against the removal. The normal compiler
+  lock still points at `1e01310daa7e56de5ed379029d6a24dcf39e879c`, whose
+  `Prelude` uses the legacy Effect mechanism. Package-dependent tests therefore
+  cannot run; they fail before lowering on the stdlib lock mismatch or on the
+  missing primitive surface. The replacement Effect representation and the
+  stdlib migration that follows it are separate, undecided work.
+

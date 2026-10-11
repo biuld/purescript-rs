@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-const TYPES: &str = "module Types where\nimport Prim.State (State, RealWorld)\ntype Step s a = { state :: State s, value :: a }\nnewtype Job a = Job (State RealWorld -> Step RealWorld a)\n";
-const RUNNER: &str = "module Runner where\nimport Prim.State (State, RealWorld)\nimport Types (Job(..), Step)\nforeign import \"psrs:intrinsic#runWorld\" execute :: forall a. (State RealWorld -> Step RealWorld a) -> a\nrun :: Job Int -> Int\nrun (Job action) = execute action\n";
-const MAIN: &str = "module Main where\nimport Types (Job(..))\nmain :: Job Int\nmain = Job (\\state -> { state: state, value: 42 })\n";
+const TYPES: &str = "module Types where\nnewtype Job a = Job (Unit -> a)\n";
+const RUNNER: &str = "module Runner where\nimport Types (Job(..))\nrun :: Job Int -> Int\nrun (Job action) = action unit\n";
+const MAIN: &str =
+    "module Main where\nimport Types (Job(..))\nmain :: Job Int\nmain = Job (\\_ -> 42)\n";
 
 struct Package(PathBuf);
 
@@ -148,20 +149,20 @@ fn reports_and_diagnosis_retain_the_configured_runner() {
 }
 
 #[test]
-fn configured_source_runner_executes_an_unrelated_state_newtype() {
+fn configured_source_runner_executes_an_unrelated_newtype() {
     let package = Package::new();
     fs::write(
         package.0.join("lib/Prelude.purs"),
-        "module Prelude where\nforeign import data Effect :: Type -> Type\n",
+        "module Prelude where\nforeign import data Unrelated :: Type -> Type\n",
     )
     .unwrap();
     fs::write(
         package.0.join("Main.purs"),
-        MAIN.replace("import Types", "import Prelude (Effect)\nimport Types"),
+        MAIN.replace("import Types", "import Prelude (Unrelated)\nimport Types"),
     )
     .unwrap();
     // Main neither imports Runner nor calls it: configuration must retain it.
-    // An unrelated opaque Effect declaration must not activate legacy checks.
+    // An unrelated opaque declaration must not activate any special handling.
     package.execute(42);
     fs::write(
         package.0.join("Main.purs"),

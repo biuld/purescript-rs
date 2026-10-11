@@ -134,7 +134,7 @@ wrapper owns the corpus-facing name.
 
 | Module | Corpus name | Over | Owner |
 | --- | --- | --- | --- |
-| `Prelude` | `Effect`, `pure`, `bind`, `discard`, `map`, `apply`, `runEffect`, `trap`, and the re-exported `class Semigroup`, `append`, `<>`, `const`, `flip`, `$`, `#` | the `psrs:effect` interface the compiler synthesizes bodies for, and `Data.Function` / `Data.Semigroup` | FE-02, FE-05, FE-09, FE-14, BE-02, BE-21 |
+| `Prelude` | `Effect`, `pure`, `bind`, `discard`, `map`, `apply`, `runEffect`, `trap`, and the re-exported `class Semigroup`, `append`, `<>`, `const`, `flip`, `$`, `#` | the `psrs:effect` interface the compiler formerly synthesized bodies for (removed 2026-10-11; replacement undecided), and `Data.Function` / `Data.Semigroup` | FE-02, FE-05, FE-09, FE-14, BE-02, BE-21 |
 | `Data.Function` | `apply`, `applyFlipped`, `const`, `flip`, `on`, `$`, `#` | nothing: it is the definition site, and `$`/`#` are its fixity aliases | FE-05 |
 | `Data.Semigroup` | `class Semigroup`, `append`, `<>` | nothing: it is the definition site for the class, and `append` for `String` is built from the compiler's `stringToBytes` / `arrayAppend` / `bytesToString`; `append` for `Array a` is `arrayAppend` | FE-14, BE-10 |
 | `Data.Monoid` | `class Monoid`, `mempty` | `Data.Semigroup`; `String`, `Unit`, and `Array a` identities | FE-14 |

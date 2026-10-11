@@ -12,7 +12,6 @@ fn module(import: mir::Import) -> mir::Module {
         strings: vec![],
         imports: vec![import],
         functions: vec![],
-        dependencies: Default::default(),
         layout: None,
         span: TextRange::new(0, 1),
     }

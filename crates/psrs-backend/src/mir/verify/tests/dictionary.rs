@@ -73,7 +73,6 @@ fn return_function(
     result_type: ValueType,
 ) -> Function {
     Function {
-        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: name.into(),
@@ -213,7 +212,6 @@ fn rejects_dictionary_struct_get_with_wrong_result_type() {
 fn method_function() -> Function {
     let result = ValueId(0);
     Function {
-        state: None,
         id: FunctionId(1),
         symbol: SymbolId::new(ModuleId(0), 1),
         name: "method".into(),
@@ -275,7 +273,6 @@ fn rejects_a_non_dominating_dictionary_projection() {
     let dictionary = ValueId(3);
     let projected = ValueId(4);
     let function = Function {
-        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "non_dominating_projection".into(),

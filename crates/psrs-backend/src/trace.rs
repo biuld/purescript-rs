@@ -349,29 +349,6 @@ impl TraceRecorder {
         self.reject(call, diagnostic_count);
     }
 
-    pub(crate) fn not_applicable(&mut self, pass_key: &'static str, reason: &'static str) {
-        let call = self.begin(
-            pass_key,
-            &[],
-            TraceValidationCoverage::NotObserved,
-            vec![TraceParameter {
-                key: "reason",
-                value: reason.into(),
-            }],
-        );
-        self.trace.executions.push(TraceExecution {
-            id: call.id,
-            pass_key: call.pass_key,
-            contract_version: 1,
-            inputs: Vec::new(),
-            outputs: Vec::new(),
-            status: TracePassStatus::NotApplicable,
-            diagnostic_indices: Vec::new(),
-            validation_coverage: call.validation_coverage,
-            parameters: call.parameters,
-        });
-    }
-
     #[cfg(test)]
     fn validations(&self) -> &[TraceValidation] {
         &self.trace.validations

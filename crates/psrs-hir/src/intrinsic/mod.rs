@@ -8,11 +8,9 @@
 
 mod effects;
 mod registry;
-mod state;
 
 pub use effects::IntrinsicEffects;
 pub use registry::{IntrinsicCategory, IntrinsicDescriptor};
-pub use state::StateOperation;
 
 use crate::{ModuleId, SymbolId};
 
@@ -166,23 +164,9 @@ pub enum Intrinsic {
     NumberNaN = 85,
     /// Positive infinity.
     NumberInfinity = 86,
-    RunWorld = 87,
-    RunRegion = 88,
 }
 
 impl Intrinsic {
-    /// State operations are available only through explicit checked bindings.
-    pub fn state_operation(self) -> Option<StateOperation> {
-        Some(match self {
-            Self::RunWorld => StateOperation::RunWorld,
-            Self::RunRegion => StateOperation::RunRegion,
-            _ => return None,
-        })
-    }
-
-    pub fn is_bootstrap(self) -> bool {
-        self.state_operation().is_none()
-    }
     pub const fn symbol(self) -> SymbolId {
         SymbolId::new(ModuleId::INTRINSICS, self as u32)
     }
@@ -200,13 +184,14 @@ impl Intrinsic {
             .find(|value| value.descriptor().name == name)
     }
 
-    /// Retired floor division and experimental storage intrinsic identities.
-    /// Storage now uses ordinary runtime bindings; slots must never be reused.
-    pub const RESERVED_IDS: [u32; 5] = [26, 27, 89, 90, 91];
+    /// Retired floor division, experimental storage, and State runner
+    /// intrinsic identities. Storage uses ordinary runtime bindings and the
+    /// State mechanism was removed; these slots must never be reused.
+    pub const RESERVED_IDS: [u32; 7] = [26, 27, 87, 88, 89, 90, 91];
 
     /// Every active variant, in discriminant order. Binding resolution uses the
-    /// complete list; bootstrap resolution selects only exposed operations.
-    pub const ALL: [Intrinsic; 87] = [
+    /// complete list.
+    pub const ALL: [Intrinsic; 85] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::IntAdd,
@@ -292,8 +277,6 @@ impl Intrinsic {
         Intrinsic::NumberIsNaN,
         Intrinsic::NumberNaN,
         Intrinsic::NumberInfinity,
-        Intrinsic::RunWorld,
-        Intrinsic::RunRegion,
     ];
 }
 

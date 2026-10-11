@@ -1,10 +1,10 @@
 # CC IR: ANF and Closure Conversion
 
-> **Selected extension:** [State primitives and dependency lowering](state-primitives-and-dependency-lowering.md)
-> owns primitive State contracts, preserved dependencies and checked zero-width
-> projection. [Library-owned effects](library-owned-effects.md) owns the
-> library adaptation. Coverage remains partial; see the
-> [implementation checklist](../../../implementation/backend/library-owned-effects.md).
+> **Withdrawn extension (2026-10-11).** [State primitives and dependency
+> lowering](state-primitives-and-dependency-lowering.md) and
+> [library-owned effects](library-owned-effects.md) were removed. Any paragraph
+> that refers to State values, dependencies, or `StateExecution` is retained as
+> historical evidence, not as a current requirement.
 
 **Feature:** F-02  
 **Status:** Stable (design)  
@@ -140,6 +140,10 @@ Every case and default edge transfers the current dependency to its arm; only
 normally completing arms feed the join. The shared dependency graph records
 all edges, while CC retains switch predicates and labels for the physical
 correspondence check. Nested choices preserve these same rules.
+
+> **Withdrawn 2026-10-11.** The `runWorld`/`runRegion` intrinsics and the
+> `StateExecution` CC assignment were removed with the State mechanism. The
+> paragraph below is retained as historical evidence.
 
 Explicit `runWorld` and `runRegion` bindings lower to `StateExecution` with a
 checked closure signature and stable operation identity. Core owns RealWorld,

@@ -19,11 +19,6 @@ fn every_active_identity_has_an_explicit_implementation() {
                 );
             }
             Implementation::Unsupported => assert_eq!(intrinsic, Intrinsic::Undefined),
-            Implementation::StateExecutionBoundary => {
-                assert!(intrinsic.state_operation().is_some());
-                assert!(intrinsic.descriptor().effects.may_trap);
-                assert!(intrinsic.descriptor().effects.may_write);
-            }
             Implementation::Generated(_) | Implementation::Elaborated => {}
         }
     }

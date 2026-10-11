@@ -90,7 +90,6 @@ mod tests {
             name: "ImportProjectionTest".into(),
             types: Vec::new(),
             strings: Vec::new(),
-            dependencies: Default::default(),
             layout: None,
             imports: vec![Import {
                 runtime: None,
@@ -99,7 +98,6 @@ mod tests {
                 result: None,
             }],
             functions: vec![Function {
-                state: None,
                 id: FunctionId(0),
                 symbol: entry,
                 name: "main".into(),

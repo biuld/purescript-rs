@@ -40,7 +40,7 @@ contract each pass has for interpreting an intrinsic. It does not own:
 | Kind | Examples | Owner | Crosses the component boundary? |
 | --- | --- | --- | --- |
 | Intrinsic | `i32Add`, `charToInt`, `arrayAppend`, `stringToBytes`, `unit` | the compiler; emitted inline | no |
-| External | `wasi:cli/stdout#get-stdout` (WIT), `psrs:effect#bind` (effect) | a WIT import or a compiler-lowered effect external | only the WIT import |
+| External | `wasi:cli/stdout#get-stdout` (WIT) | a WIT import | only the WIT import |
 | Type-level function | `Prim.Int.Add`, `Prim.Row.Cons`, `Prim.Symbol.Append` | compile-time only | no runtime form |
 
 Only the first kind is this document's subject. The second is

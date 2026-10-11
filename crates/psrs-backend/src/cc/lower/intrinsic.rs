@@ -156,44 +156,6 @@ impl FunctionLowerer<'_> {
                     "intrinsic requires elaboration or has no runtime implementation",
                 )])
             }
-            Implementation::StateExecutionBoundary => {
-                psrs_core::state::primitive::verify(
-                    self.module,
-                    intrinsic,
-                    &arguments.iter().map(|value| value.ty).collect::<Vec<_>>(),
-                    expression.ty,
-                )
-                .map_err(|message| {
-                    vec![BackendError::invalid_ir(
-                        "P8 closure conversion",
-                        expression.span,
-                        message,
-                    )]
-                })?;
-                let function = self.lower_value(&arguments[0], assignments)?;
-                let signature = self
-                    .function_types
-                    .get(&arguments[0].ty)
-                    .copied()
-                    .ok_or_else(|| {
-                        vec![BackendError::invalid_ir(
-                            "P8 closure conversion",
-                            expression.span,
-                            "state execution has no checked callable signature",
-                        )]
-                    })?;
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::StateExecution {
-                        operation: intrinsic.state_operation().unwrap(),
-                        function,
-                        signature,
-                    },
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
         }
     }
 }

@@ -21,7 +21,6 @@ fn number_format_module() -> Module {
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: Vec::new(),
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: vec![
             Import {
@@ -38,7 +37,6 @@ fn number_format_module() -> Module {
             },
         ],
         functions: vec![Function {
-            state: None,
             id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),

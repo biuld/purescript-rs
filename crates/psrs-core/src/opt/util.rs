@@ -16,7 +16,7 @@ fn count_nodes_inner(expression: &Expr) -> usize {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => 0,
-        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => 0,
+        ExprKind::Unit | ExprKind::Trap => 0,
         ExprKind::Constructor { arguments, .. }
         | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
@@ -121,7 +121,6 @@ fn substitute_inner_walk(
         ExprKind::String(value) => ExprKind::String(value.clone()),
         ExprKind::Char(value) => ExprKind::Char(*value),
         ExprKind::Unit => ExprKind::Unit,
-        ExprKind::StateToken => ExprKind::StateToken,
         ExprKind::Trap => ExprKind::Trap,
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements

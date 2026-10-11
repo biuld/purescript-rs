@@ -15,7 +15,6 @@ use tag_switch::verify_tag_switch;
 
 mod aggregate;
 mod arrays;
-mod execution;
 mod string_bytes;
 mod table;
 mod tag_switch;
@@ -198,14 +197,6 @@ pub(super) fn verify_assignments(
                 )?;
                 uses.push(*function);
                 uses.extend(arguments.iter().copied());
-            }
-            AssignmentKind::StateExecution {
-                function,
-                signature,
-                ..
-            } => {
-                execution::verify(assignment, *function, *signature, declared, table)?;
-                uses.push(*function);
             }
             AssignmentKind::ClosureGetCapture { closure, .. } => {
                 require_value_shape(declared, *closure, aggregate_shape(), assignment)?;

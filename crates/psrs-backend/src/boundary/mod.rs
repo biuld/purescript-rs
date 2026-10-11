@@ -23,9 +23,6 @@ pub(crate) enum RepresentationPolicy {
     /// The fixed parameters are the constructor's checked instantiation
     /// arguments (a function arrow's domain).
     InstantiationArguments,
-    /// The owner registered explicit fixed parameters (the Effect runtime
-    /// token). The payload remains the application's result.
-    Fixed(Vec<TypeId>),
     /// Complete source and canonical callable fields of a transparent newtype.
     /// Storage uses the declared field, without specializing its free variables.
     Newtype(newtypes::NewtypeCallable),
@@ -84,13 +81,12 @@ impl RepresentationRegistry {
     ) -> Option<Vec<TypeId>> {
         Some(match self.policies.get(&constructor)? {
             RepresentationPolicy::InstantiationArguments => arguments.to_vec(),
-            RepresentationPolicy::Fixed(parameters) => parameters.clone(),
             RepresentationPolicy::Newtype(template) => template.parameters.clone(),
         })
     }
 
     /// A transparent newtype's full declared storage result. Ordinary function
-    /// and legacy fixed-token policies obtain their result from the use type.
+    /// policies obtain their result from the use type.
     fn protocol_result(&self, constructor: TypeConstructor) -> Option<TypeId> {
         match self.policies.get(&constructor)? {
             RepresentationPolicy::Newtype(template) => Some(template.result),
@@ -248,32 +244,10 @@ pub(crate) fn payload_erased_protocols(
                     "callable owner has no registered signature",
                 )]
             })?;
-        let error = |message: &'static str| {
-            vec![crate::BackendError::invalid_ir(
-                "P8 callable protocol",
-                span,
-                message,
-            )]
-        };
-        let result = if let Some(state) =
-            crate::cc::state::StateCallProjection::checked(&signature, representations)
-                .map_err(error)?
-        {
-            let slot = state
-                .payload_slot_signature(&signature, representations)
-                .map_err(error)?;
-            representations
-                .signature(slot)
-                .ok_or_else(|| {
-                    error("State callable protocol has no registered payload signature")
-                })?
-                .result
-        } else {
-            ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Erased,
-            })
-        };
+        let result = ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Erased,
+        });
         let protocol = Signature {
             parameters: signature.parameters,
             result,

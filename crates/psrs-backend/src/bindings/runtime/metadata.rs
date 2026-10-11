@@ -97,7 +97,6 @@ pub(crate) fn validate_core(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bindings::ExternalBindings, cc};
 
     fn fixture() -> CoreModule {
         let mut module = crate::bindings::tests::module(Vec::new());
@@ -143,84 +142,5 @@ mod tests {
         let mut wrong = bindings;
         wrong[0].symbol = SymbolId::new(module.id, 8);
         assert!(validate_core(&wrong, &module).is_err());
-    }
-
-    #[test]
-    fn direct_cc_runtime_bindings_cannot_bypass_the_projection_boundary() {
-        let source = fixture();
-        let binding = from_core(&source).remove(0);
-        let mut module = cc::Module {
-            name: source.name.clone(),
-            externals: vec![cc::External {
-                symbol: binding.symbol,
-                signature: None,
-                projection: None,
-            }],
-            representations: cc::RepresentationTable::default(),
-            functions: Vec::new(),
-            entry: None,
-            span: source.span,
-        };
-        let bindings = ExternalBindings {
-            imports: Vec::new(),
-            runtime: vec![binding.clone()],
-        };
-        let errors = bindings.validate_cc(&module).unwrap_err();
-        assert_eq!(errors[0].pass, "P9 runtime projection");
-        assert_eq!(
-            errors[0].message,
-            "runtime CC binding has no logical signature"
-        );
-        let array = module.representations.reserve();
-        module.representations.set(
-            array,
-            cc::Representation::Array {
-                element: cc::payload::erased_shape(),
-            },
-        );
-        let step = module.representations.reserve();
-        module.representations.set(
-            step,
-            cc::Representation::Product {
-                fields: vec![cc::ValueShape::State, cc::payload::erased_shape()],
-            },
-        );
-        let reference = |id| {
-            cc::ValueShape::Reference(cc::Reference {
-                nullable: false,
-                heap: cc::RefShape::Repr(id),
-            })
-        };
-        module.externals[0].signature = Some(cc::Signature {
-            parameters: vec![
-                reference(array),
-                cc::ValueShape::Integer,
-                cc::ValueShape::State,
-            ],
-            result: reference(step),
-        });
-        bindings.validate_cc(&module).unwrap();
-        let (lowered, _) = crate::mir::lower_module_with_bindings(
-            module.clone(),
-            bindings.clone(),
-            crate::TargetCapabilities::default(),
-        )
-        .unwrap();
-        assert!(
-            lowered.imports.is_empty(),
-            "unused runtime declarations do not emit imports"
-        );
-        let mut missing = bindings.clone();
-        missing.runtime.clear();
-        assert_eq!(
-            missing.validate_cc(&module).unwrap_err()[0].pass,
-            "P9 external binding validation"
-        );
-        let mut duplicate = bindings;
-        duplicate.runtime.push(binding);
-        assert_eq!(
-            duplicate.validate_cc(&module).unwrap_err()[0].pass,
-            "P9 external binding validation"
-        );
     }
 }

@@ -3,7 +3,6 @@ mod bindings;
 mod boundary;
 pub mod capability;
 pub mod cc;
-mod effects;
 mod linking;
 pub mod mir;
 mod pipeline;
@@ -132,36 +131,6 @@ pub fn compile(module: psrs_core::Module) -> Result<Artifact, Vec<BackendError>>
     Ok(compile_with_stages(module)?.artifact)
 }
 
-/// Compiles linked Core using the trusted Effect identities issued by the
-/// driver. Core-only callers that do not provide this contract receive no
-/// library-specific Effect lowering.
-pub fn compile_with_effect_context(
-    module: psrs_core::Module,
-    effect_context: psrs_core::effect::EffectCompilation,
-) -> Result<Artifact, Vec<BackendError>> {
-    Ok(compile_with_context(module, Some(effect_context), TargetCapabilities::default())?.artifact)
-}
-
-/// Lowers Core to CC after applying an explicit Effect contract.
-///
-/// Callers that already removed trusted Effect imports, or that have no
-/// trusted contract, pass `None` and get the same binding extraction as
-/// [`cc::lower_module`].
-pub fn lower_cc_with_context(
-    mut module: psrs_core::Module,
-    effect_context: Option<&psrs_core::effect::EffectCompilation>,
-) -> Result<BackendInput, Vec<BackendError>> {
-    let mut external_bindings = ExternalBindings::from_core(&module);
-    let mut source = None;
-    let mut registry = boundary::RepresentationRegistry::new();
-    if let Some(context) = effect_context {
-        let prepared = effects::lower_effects(&mut module, &mut external_bindings, context)?;
-        registry = prepared.registry;
-        source = Some(prepared.source);
-    }
-    cc::lower_module_with_relations(module, external_bindings, source.as_ref(), registry)
-}
-
 /// The default-profile validator, retained for backend unit tests.
 #[allow(dead_code)]
 pub(crate) fn validator() -> wasmparser::Validator {
@@ -180,8 +149,6 @@ pub(crate) fn validator_for(target: TargetCapabilities) -> wasmparser::Validator
 pub struct Stages {
     /// Verified Typed Core after P7 and before P8.
     pub core: psrs_core::Module,
-    /// The explicit trusted Effect context needed to compile `core` again.
-    pub effect_context: Option<psrs_core::effect::EffectCompilation>,
     pub cc: cc::Module,
     pub mir: mir::Module,
     pub wasm: wasm::Module,
@@ -226,15 +193,14 @@ pub fn compile_with_target(
     module: psrs_core::Module,
     target: TargetCapabilities,
 ) -> Result<Stages, Vec<BackendError>> {
-    compile_with_context(module, None, target)
+    compile_with_context(module, target)
 }
 
 pub fn compile_with_context(
     module: psrs_core::Module,
-    effect_context: Option<psrs_core::effect::EffectCompilation>,
     target: TargetCapabilities,
 ) -> Result<Stages, Vec<BackendError>> {
-    pipeline::compile_with_context_inner(module, effect_context, target, None, None)
+    pipeline::compile_with_context_inner(module, target, None, None)
 }
 
 /// Compiles with actual top-level pass/artifact tracing. Setting
@@ -242,12 +208,10 @@ pub fn compile_with_context(
 /// lightweight and does not clone or format IR values.
 pub fn compile_with_context_traced(
     module: psrs_core::Module,
-    effect_context: Option<psrs_core::effect::EffectCompilation>,
     target: TargetCapabilities,
     capture_partial: bool,
 ) -> TracedCompile {
-    let (result, trace) =
-        pipeline::compile_with_context_traced(module, effect_context, target, capture_partial);
+    let (result, trace) = pipeline::compile_with_context_traced(module, target, capture_partial);
     TracedCompile { result, trace }
 }
 
@@ -256,13 +220,13 @@ pub fn compile_with_context_traced(
 /// the verified Core available but does not publish the unverified CC candidate.
 pub fn compile_with_context_capturing(
     module: psrs_core::Module,
-    effect_context: Option<psrs_core::effect::EffectCompilation>,
     target: TargetCapabilities,
 ) -> Result<Stages, CompileFailure> {
     let mut partial = PartialStages::default();
-    pipeline::compile_with_context_inner(module, effect_context, target, Some(&mut partial), None)
-        .map_err(|errors| CompileFailure {
+    pipeline::compile_with_context_inner(module, target, Some(&mut partial), None).map_err(
+        |errors| CompileFailure {
             errors,
             partial: Box::new(partial),
-        })
+        },
+    )
 }

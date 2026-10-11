@@ -22,12 +22,6 @@ pub(super) fn mark_tail(
     function: &mut Function,
     target: TargetCapabilities,
 ) -> Result<(), Vec<BackendError>> {
-    if let Some(flow) = function.state.clone() {
-        let (transformed, checked) = flow.project_tail(function, target)?;
-        *function = transformed;
-        function.state = Some(checked);
-        return Ok(());
-    }
     rewrite(function, target)
 }
 

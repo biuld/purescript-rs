@@ -134,7 +134,6 @@ fn rewrite_inner(
         ExprKind::String(value) => ExprKind::String(value),
         ExprKind::Char(value) => ExprKind::Char(value),
         ExprKind::Unit => ExprKind::Unit,
-        ExprKind::StateToken => ExprKind::StateToken,
         ExprKind::Trap => ExprKind::Trap,
     };
     expression

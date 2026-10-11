@@ -1,5 +1,5 @@
-mod calls;
 mod callable_fields;
+mod calls;
 mod types;
 
 use super::{Budget, util::count_nodes};
@@ -229,6 +229,6 @@ fn collect_references_inner(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
         | crate::ExprKind::Boolean(_)
         | crate::ExprKind::String(_)
         | crate::ExprKind::Char(_) => {}
-        crate::ExprKind::Unit | crate::ExprKind::StateToken | crate::ExprKind::Trap => {}
+        crate::ExprKind::Unit | crate::ExprKind::Trap => {}
     }
 }

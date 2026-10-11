@@ -23,8 +23,6 @@ mod graph;
 mod lenient;
 mod library;
 mod lowering;
-#[cfg(test)]
-pub(crate) use lowering::lower_program_to_core_with_runner;
 mod reports;
 mod signatures;
 
@@ -69,84 +67,10 @@ pub(crate) fn lower_program_to_core_with_trusted_prefix_and_warnings(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
 ) -> Result<(psrs_core::Module, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
-    lower_program_to_core_and_effect_context(sources, trusted_prefix)
-        .map(|(core, warnings, _context)| (core, warnings))
+    lower_program_to_core_and_warnings(sources, trusted_prefix)
 }
 
-pub(super) use lowering::lower_program_to_core_and_effect_context;
-
-fn classify_command_entry(
-    typed: &[psrs_thir::Module],
-    selected: Option<effects::EntrySelection>,
-    trusted: Option<&psrs_core::effect::TrustedEffect>,
-) -> Result<Option<psrs_core::effect::EffectCommandEntry>, Vec<ProgramDiagnostic>> {
-    let Some(selected) = selected else {
-        return Ok(None);
-    };
-    let Some(module) = typed.get(selected.source) else {
-        return Err(vec![ProgramDiagnostic {
-            source: DiagnosticOrigin::Source(selected.source),
-            diagnostic: diagnostic(
-                "P7 entry selection",
-                selected.span,
-                "selected command entry was not type checked",
-            ),
-        }]);
-    };
-    let Some(main) = module
-        .declarations
-        .iter()
-        .find(|declaration| declaration.symbol == selected.symbol)
-    else {
-        return Err(vec![ProgramDiagnostic {
-            source: DiagnosticOrigin::Source(selected.source),
-            diagnostic: diagnostic(
-                "P7 entry selection",
-                selected.span,
-                "selected command entry has no typed declaration",
-            ),
-        }]);
-    };
-    if matches!(
-        module.types.get(main.ty.0 as usize),
-        Some(psrs_thir::Type::Constructor(
-            psrs_thir::TypeConstructor::Int
-        ))
-    ) {
-        return Ok(None);
-    }
-    let is_effect_unit = trusted.is_some_and(|trusted| {
-        let Some(psrs_thir::Type::Application(function, payload)) =
-            module.types.get(main.ty.0 as usize)
-        else {
-            return false;
-        };
-        matches!(
-            module.types.get(function.0 as usize),
-            Some(psrs_thir::Type::Constructor(psrs_thir::TypeConstructor::User(id)))
-                if *id == trusted.effect_type
-        ) && matches!(
-            module.types.get(payload.0 as usize),
-            Some(psrs_thir::Type::Constructor(
-                psrs_thir::TypeConstructor::Unit
-            ))
-        ) && main.quantified.is_empty()
-    });
-    if is_effect_unit {
-        Ok(Some(psrs_core::effect::EffectCommandEntry {
-            symbol: selected.symbol,
-        }))
-    } else {
-        Err(vec![ProgramDiagnostic {
-            source: DiagnosticOrigin::Source(selected.source),
-            diagnostic: diagnostic(
-                "P7 entry selection",
-                main.name_span,
-                "command entry must have type `Int` or `Effect Unit`",
-            ),
-        }])
-    }
-}
+pub(super) use lowering::lower_program_to_core_and_warnings;
 
 /// Resolves a program from a list of `(source_name, source_text)` pairs. Module
 /// IDs equal each source's index in the list. This is the module-graph entry
@@ -197,15 +121,6 @@ pub(crate) fn check_program_with_trusted_prefix_and_warnings(
         .map(|(_modules, warnings)| warnings)
 }
 
-#[cfg(test)]
-pub(crate) fn typecheck_program_sources_with_trusted_prefix(
-    sources: &[(&str, &str)],
-    trusted_prefix: usize,
-) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
-    let modules = resolve_program_sources(sources)?;
-    typecheck_program_with_warnings(modules, trusted_prefix).map(|(modules, _warnings)| modules)
-}
-
 fn typecheck_program_sources_with_trusted_prefix_and_warnings(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
@@ -216,14 +131,8 @@ fn typecheck_program_sources_with_trusted_prefix_and_warnings(
 
 pub(super) fn typecheck_program_with_warnings(
     modules: Vec<psrs_hir::Module>,
-    trusted_prefix: usize,
+    _trusted_prefix: usize,
 ) -> Result<(Vec<psrs_thir::Module>, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
-    let entry = match effects::select_entry(&modules) {
-        effects::EntryResolution::Selected(entry) => Some(entry),
-        effects::EntryResolution::Missing | effects::EntryResolution::Ambiguous { .. } => None,
-    };
-    let trusted = effects::trusted_effect(&modules, trusted_prefix)?;
-    effects::check_run_effect_scope(&modules, entry, trusted.as_ref())?;
     typecheck_resolved_program_with_warnings(modules)
 }
 

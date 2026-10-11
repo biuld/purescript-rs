@@ -18,7 +18,6 @@ mod assignment_string;
 mod assignments;
 mod conversion_helpers;
 mod runtime_call;
-mod storage_call;
 pub(in crate::mir) mod tail;
 mod variant;
 mod wit_call;
@@ -47,36 +46,14 @@ pub(super) fn lower_function(
     source: &cc::Function,
     id: FunctionId,
     wit_imports: &HashMap<SymbolId, BoundWasiImport>,
-    runtime: &super::runtime::RuntimeContext,
     layout: &PlannedLayout,
     conversion_helpers: Option<&mut ConversionHelpers>,
     literals: Option<&mut StringLiterals>,
-    logical_state_source: Option<std::sync::Arc<super::state::CheckedSource>>,
     target: crate::capability::TargetCapabilities,
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
-    // Removed logical identities remain reserved while their source-to-MIR
-    // relation is checked; helper temporaries must not reuse State identities.
-    let logical_values = logical_state_source
-        .as_ref()
-        .and_then(|module| {
-            module
-                .module
-                .functions
-                .iter()
-                .find(|function| function.symbol == source.symbol)
-        })
-        .unwrap_or(source);
     let mut lowerer = FunctionLowerer {
-        erased_states: logical_values
-            .values
-            .iter()
-            .filter(|value| value.ty == cc::ValueShape::State)
-            .map(|value| value.id)
-            .collect(),
         owner: source.symbol,
-        runtime: Some(runtime),
-        runtime_calls: Vec::new(),
         wit_calls: Vec::new(),
         next_block: 1,
         blocks: vec![BasicBlock {
@@ -97,7 +74,7 @@ pub(super) fn lower_function(
                 })
             })
             .collect::<Result<Vec<_>, Vec<BackendError>>>()?,
-        next_value: logical_values
+        next_value: source
             .values
             .iter()
             .map(|value| value.id.0)
@@ -118,7 +95,6 @@ pub(super) fn lower_function(
         source.span,
     )?;
     let mut function = Function {
-        state: None,
         id,
         symbol: source.symbol,
         name: source.name.clone(),
@@ -135,30 +111,12 @@ pub(super) fn lower_function(
     for plan in &lowerer.wit_calls {
         plan.verify(&function)?;
     }
-    if let Some(source) = logical_state_source {
-        function.state = Some(super::state::DependencyFlow::checked_with_runtime(
-            source,
-            &function,
-            lowerer.runtime_calls,
-            lowerer.wit_calls,
-        )?);
-    } else if !lowerer.runtime_calls.is_empty() {
-        return Err(vec![BackendError::invalid_ir(
-            "P9 runtime projection",
-            function.span,
-            "raw runtime invocation has no owning dependency flow",
-        )]);
-    }
     tail::mark_tail(&mut function, target)?;
     wit::verify_function(&function, wit_imports)?;
     Ok(function)
 }
 pub(super) struct FunctionLowerer<'a> {
-    // Logical IDs remain reserved, but have no physical declaration or slot.
-    erased_states: std::collections::HashSet<ValueId>,
     owner: SymbolId,
-    runtime: Option<&'a super::runtime::RuntimeContext>,
-    runtime_calls: Vec<super::state::RuntimeInvocation>,
     wit_calls: Vec<super::wit::CallPlan>,
     next_block: u32,
     blocks: Vec<BasicBlock>,
@@ -172,11 +130,7 @@ pub(super) struct FunctionLowerer<'a> {
 
 impl FunctionLowerer<'_> {
     fn control_values(&self, value: ValueId) -> Vec<ValueId> {
-        if self.erased_states.contains(&value) {
-            Vec::new()
-        } else {
-            vec![value]
-        }
+        vec![value]
     }
     pub(super) fn value_type(&self, id: ValueId) -> Option<ValueType> {
         self.values

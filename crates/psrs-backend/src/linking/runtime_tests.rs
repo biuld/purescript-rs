@@ -188,7 +188,6 @@ fn fixture() -> mir::Module {
             ),
         ],
         functions: vec![Function {
-            state: None,
             id: FunctionId(0),
             symbol: symbol(20),
             name: "main".into(),
@@ -216,7 +215,6 @@ fn fixture() -> mir::Module {
             span,
         }],
         entry: Some(symbol(20)),
-        dependencies: Default::default(),
         layout: None,
         span,
     }

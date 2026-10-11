@@ -1,10 +1,10 @@
 # Runtime Representation and Checked Boundaries
 
-> **Selected revision:** [Library-owned effects](library-owned-effects.md)
-> replaces the Effect-specific token contract with ordinary library newtypes.
-> [State primitives and dependency lowering](state-primitives-and-dependency-lowering.md)
-> owns the logical dependency and zero-width projection contracts. Coverage
-> remains partial; see the [implementation checklist](../../../implementation/backend/library-owned-effects.md).
+> **Withdrawn extension (2026-10-11).** [Library-owned effects](library-owned-effects.md)
+> and [State primitives and dependency lowering](state-primitives-and-dependency-lowering.md)
+> were removed. Any paragraph that refers to the Effect token, State
+> dependencies, or zero-width State projection is retained as historical
+> evidence, not as a current requirement.
 
 **Feature:** F-02  
 **Status:** Stable (design)  

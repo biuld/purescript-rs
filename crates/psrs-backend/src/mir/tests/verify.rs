@@ -22,11 +22,9 @@ fn rejects_a_struct_new_with_a_mistyped_field() {
             }]),
         }])],
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![Function {
-            state: None,
             id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),

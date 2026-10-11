@@ -399,7 +399,6 @@ pub(crate) enum LayoutError {
     UnsupportedClosureTarget,
     IncompatibleVariant,
     UnsupportedValue,
-    UnprojectedState,
 }
 
 impl std::fmt::Display for LayoutError {
@@ -408,10 +407,6 @@ impl std::fmt::Display for LayoutError {
             Self::InvalidPayloadConversion(message) => {
                 write!(f, "invalid payload storage conversion: {message}")
             }
-            Self::UnprojectedState => write!(
-                f,
-                "state dependencies require checked MIR instruction projection"
-            ),
             other => write!(f, "{other:?}"),
         }
     }
@@ -433,7 +428,6 @@ fn value_type(
     string_index: Option<DefinedTypeId>,
 ) -> Result<ValueType, LayoutError> {
     Ok(match value {
-        CcValueShape::State => return Err(LayoutError::UnprojectedState),
         CcValueShape::Integer => ValueType::I32,
         CcValueShape::Boolean => ValueType::Boolean,
         CcValueShape::Number => ValueType::F64,

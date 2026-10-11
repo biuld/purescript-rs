@@ -7,13 +7,12 @@ use crate::{
     annotate_errors,
 };
 
-use crate::{cc, effects, mir};
+use crate::{cc, mir};
 
 mod emission;
 
 pub(crate) fn compile_with_context_inner(
     module: psrs_core::Module,
-    effect_context: Option<psrs_core::effect::EffectCompilation>,
     target: TargetCapabilities,
     mut capture: Option<&mut PartialStages>,
     mut trace: Option<&mut TraceRecorder>,
@@ -35,7 +34,7 @@ pub(crate) fn compile_with_context_inner(
             target_parameter(),
         )
     });
-    let mut module = match psrs_core::opt::optimize(module, psrs_core::opt::Budget::default()) {
+    let module = match psrs_core::opt::optimize(module, psrs_core::opt::Budget::default()) {
         Ok(module) => module,
         Err(errors) => {
             if let (Some(trace), Some(call)) = (trace.as_deref_mut(), core_call) {
@@ -80,8 +79,8 @@ pub(crate) fn compile_with_context_inner(
             Vec::new(),
         )
     });
-    let mut external_bindings = crate::ExternalBindings::from_core(&module);
-    let mut binding_id = if let (Some(trace), Some(call)) = (trace.as_deref_mut(), binding_call) {
+    let external_bindings = crate::ExternalBindings::from_core(&module);
+    let binding_id = if let (Some(trace), Some(call)) = (trace.as_deref_mut(), binding_call) {
         trace
             .complete(call, &[TraceRepresentation::ExternalBindings], &[])
             .first()
@@ -89,54 +88,6 @@ pub(crate) fn compile_with_context_inner(
     } else {
         None
     };
-
-    let mut effect_source = None;
-    let mut effect_registry = crate::boundary::RepresentationRegistry::new();
-    if let Some(context) = effect_context.as_ref() {
-        let effect_call = trace.as_deref_mut().map(|trace| {
-            trace.begin(
-                "backend.effect.lower",
-                &[
-                    core_id.expect("traced optimized Core"),
-                    binding_id.expect("traced external bindings"),
-                ],
-                TraceValidationCoverage::Composite,
-                vec![TraceParameter {
-                    key: "effect_context",
-                    value: "present".into(),
-                }],
-            )
-        });
-        let prepared = match effects::lower_effects(&mut module, &mut external_bindings, context) {
-            Ok(prepared) => prepared,
-            Err(errors) => {
-                if let (Some(trace), Some(call)) = (trace.as_deref_mut(), effect_call) {
-                    trace.reject(call, errors.len());
-                }
-                return Err(errors);
-            }
-        };
-        effect_registry = prepared.registry;
-        effect_source = Some(prepared.source);
-        if let (Some(trace), Some(call)) = (trace.as_deref_mut(), effect_call) {
-            let outputs = trace.complete(
-                call,
-                &[
-                    TraceRepresentation::Core,
-                    TraceRepresentation::ExternalBindings,
-                ],
-                &[TraceValidationSpec::outputs(
-                    "psrs_backend::effects::lower_effects",
-                    &[0, 1],
-                    TraceValidationCoverage::Composite,
-                )],
-            );
-            core_id = outputs.first().copied();
-            binding_id = outputs.get(1).copied();
-        }
-    } else if let Some(trace) = trace.as_deref_mut() {
-        trace.not_applicable("backend.effect.lower", "no effect context supplied");
-    }
 
     let conformance_call = trace.as_deref_mut().map(|trace| {
         trace.begin(
@@ -189,8 +140,8 @@ pub(crate) fn compile_with_context_inner(
     let lowered_cc = match cc::lower_module_with_relations(
         module,
         external_bindings,
-        effect_source.as_ref(),
-        effect_registry,
+        None,
+        crate::boundary::RepresentationRegistry::new(),
     ) {
         Ok(lowered) => lowered,
         Err(errors) => {
@@ -359,7 +310,6 @@ pub(crate) fn compile_with_context_inner(
 
     Ok(Stages {
         core: optimized_core,
-        effect_context,
         cc,
         mir,
         wasm: emitted.module,
@@ -373,7 +323,6 @@ pub(crate) fn compile_with_context_inner(
 
 pub(crate) fn compile_with_context_traced(
     module: psrs_core::Module,
-    effect_context: Option<psrs_core::effect::EffectCompilation>,
     target: TargetCapabilities,
     capture_partial: bool,
 ) -> (Result<Stages, CompileFailure>, CompileTrace) {
@@ -381,7 +330,6 @@ pub(crate) fn compile_with_context_traced(
     let mut partial = PartialStages::default();
     let result = compile_with_context_inner(
         module,
-        effect_context,
         target,
         capture_partial.then_some(&mut partial),
         Some(&mut trace),

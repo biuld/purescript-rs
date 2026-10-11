@@ -27,7 +27,6 @@ fn function(
         .expect("result value has a declaration")
         .ty;
     Function {
-        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "extent_test".into(),
@@ -46,7 +45,6 @@ fn module(function: Function) -> Module {
         name: "ExtentTest".into(),
         types: Vec::new(),
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![function],

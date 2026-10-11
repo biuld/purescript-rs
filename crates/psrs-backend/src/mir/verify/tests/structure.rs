@@ -5,7 +5,6 @@ use super::*;
 
 fn simple_function(values: Vec<ValueDecl>, blocks: Vec<BasicBlock>) -> Function {
     Function {
-        state: None,
         id: crate::types::FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "structure".into(),
@@ -154,7 +153,6 @@ fn recursive_references_are_scoped_to_their_declared_group() {
         name: "recursive_group_scope".into(),
         types: vec![RecGroup(vec![definition(1), definition(0)])],
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: Vec::new(),

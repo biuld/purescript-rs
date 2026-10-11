@@ -1,5 +1,9 @@
 # Control-Flow Lowering and Tail Calls
 
+> **Withdrawn extension (2026-10-11).** The State dependency projection and
+> tail-transfer proof replay described below were removed. Any paragraph that
+> refers to State dependencies is retained as historical evidence.
+
 **Feature:** F-02  
 **Status:** Stable (design)  
 **Prerequisites:** [MIR](mir.md) and its SSA/CFG model, [CC IR](cc-ir.md);

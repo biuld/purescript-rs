@@ -35,7 +35,6 @@ fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
         name: source.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![source.clone()],
@@ -138,7 +137,6 @@ fn irreducible_function() -> Function {
     let first_branch_span = TextRange::new(10, 12);
     let second_branch_span = TextRange::new(20, 22);
     Function {
-        state: None,
         id: FunctionId(0),
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "irreducible_dispatch".into(),
@@ -339,7 +337,6 @@ fn structures_and_executes_irreducible_cfg_with_block_parameters_and_sparse_swit
         name: function.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),
-        dependencies: Default::default(),
         layout: None,
         imports: Vec::new(),
         functions: vec![function.clone()],

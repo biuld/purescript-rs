@@ -387,7 +387,6 @@ fn collect_references_inner(
         | ExprKind::String(_)
         | ExprKind::Char(_)
         | ExprKind::Unit
-        | ExprKind::StateToken
         | ExprKind::Trap => {}
         ExprKind::Array { elements } => {
             for element in elements {

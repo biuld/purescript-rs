@@ -113,7 +113,7 @@ pub(crate) fn function_signature(
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<Signature, Vec<BackendError>> {
     let projection = CallProjection::checked(module, id)?;
-    let mut signature = projection.physical_signature(|source, ty| {
+    let signature = projection.physical_signature(|source, ty| {
         scalar_type(
             source,
             ty,
@@ -126,20 +126,6 @@ pub(crate) fn function_signature(
             function_types,
         )
     })?;
-    if projection.state_contract().is_some() {
-        signature.parameters.push(ValueShape::State);
-        signature.result = scalar_type(
-            module,
-            projection.logical_result(),
-            module.span,
-            enum_types,
-            aggregate_types,
-            newtype_ids,
-            array_types,
-            record_types,
-            function_types,
-        )?;
-    }
     Ok(signature)
 }
 

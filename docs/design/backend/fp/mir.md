@@ -1,10 +1,10 @@
 # MIR: SSA/CFG and Verification
 
-> **Selected extension:** [State primitives and dependency lowering](state-primitives-and-dependency-lowering.md)
-> owns primitive State contracts, preserved dependencies and checked zero-width
-> projection. [Library-owned effects](library-owned-effects.md) owns the
-> library adaptation. Coverage remains partial; see the
-> [implementation checklist](../../../implementation/backend/library-owned-effects.md).
+> **Withdrawn extension (2026-10-11).** [State primitives and dependency
+> lowering](state-primitives-and-dependency-lowering.md) and
+> [library-owned effects](library-owned-effects.md) were removed. Any paragraph
+> that refers to State dependencies or projection is retained as historical
+> evidence, not as a current requirement.
 
 **Feature:** F-02  
 **Status:** Stable (design)  

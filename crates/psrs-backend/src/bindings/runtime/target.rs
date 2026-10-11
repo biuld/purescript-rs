@@ -1,17 +1,9 @@
 //! Storage-provider ABI adaptation at the external-binding boundary.
 //! MIR consumers receive physical signatures and a general return convention.
-use crate::mir::{Import, RuntimeImport, layout::PlannedLayout};
+use crate::mir::{Import, layout::PlannedLayout};
 use crate::types::{CompositeType, FieldType, HeapType, RecGroup, RefType, StorageType, ValueType};
 use crate::{BackendError, RuntimeBinding, cc};
-use psrs_runtime::{StorageResultProjection, StorageType as RawType};
-
-/// Result adaptation for a checked external call, independent of its provider.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RawCallResult {
-    Value,
-    Unit,
-    Never,
-}
+use psrs_runtime::StorageType as RawType;
 
 fn matches_raw_type(raw: RawType, value: ValueType, types: &[RecGroup]) -> bool {
     match (raw, value) {
@@ -89,79 +81,17 @@ pub(crate) fn error(binding: &RuntimeBinding, message: &str) -> Vec<BackendError
 
 /// Plan raw types in the application's own layout arena. This does not box
 /// operands, recover results, emit calls, or authorize dependency erasure.
+///
+/// The source operand projection depended on the withdrawn State protocol, so
+/// no generic replacement exists. This reports the missing interface explicitly
+/// instead of planning a call from an erased contract.
 pub(crate) fn plan_import(
     binding: &RuntimeBinding,
-    logical: &cc::Module,
-    layout: &PlannedLayout,
-) -> Result<(Import, RawCallResult), Vec<BackendError>> {
-    let raw = crate::bindings::checked_runtime_call(binding, logical)?;
-    let signature = logical
-        .externals
-        .iter()
-        .find(|external| external.symbol == binding.symbol)
-        .and_then(|external| external.signature.as_ref())
-        .unwrap();
-    let state = cc::state::StateCallProjection::checked(signature, &logical.representations)
-        .map_err(|message| error(binding, message))?
-        .unwrap();
-    let physical = |raw: RawType, shape: cc::ValueShape| -> Result<ValueType, Vec<BackendError>> {
-        match raw {
-            RawType::I32 => Ok(ValueType::I32),
-            RawType::Value => Ok(ValueType::Ref(RefType {
-                nullable: true,
-                heap: HeapType::Eq,
-            })),
-            RawType::Array => {
-                let ty = layout.value_type(&shape).map_err(|_| {
-                    error(
-                        binding,
-                        "runtime array has no planned type in the application arena",
-                    )
-                })?;
-                let ValueType::Ref(RefType {
-                    nullable: false,
-                    heap: HeapType::Index(_),
-                }) = ty
-                else {
-                    return Err(error(
-                        binding,
-                        "runtime array has no non-null concrete target type",
-                    ));
-                };
-                if !matches_raw_type(raw, ty, layout.types()) {
-                    return Err(error(
-                        binding,
-                        "runtime array target must be mutable nullable-eqref storage",
-                    ));
-                }
-                Ok(ty)
-            }
-        }
-    };
-    let parameters = raw
-        .operands()
-        .zip(&signature.parameters)
-        .map(|((_, raw), shape)| physical(raw, *shape))
-        .collect::<Result<Vec<_>, _>>()?;
-    let result = raw
-        .abi()
-        .result
-        .map(|raw| physical(raw, state.payload))
-        .transpose()?;
-    Ok((
-        Import {
-            runtime: Some(RuntimeImport {
-                module: binding.module.clone(),
-                function: binding.function.clone(),
-            }),
-            symbol: binding.symbol,
-            parameters,
-            result,
-        },
-        match raw.result() {
-            StorageResultProjection::Value(_) => RawCallResult::Value,
-            StorageResultProjection::Unit => RawCallResult::Unit,
-            StorageResultProjection::Never => RawCallResult::Never,
-        },
+    _logical: &cc::Module,
+    _layout: &PlannedLayout,
+) -> Result<Import, Vec<BackendError>> {
+    Err(error(
+        binding,
+        "runtime storage bindings require the withdrawn State contract",
     ))
 }

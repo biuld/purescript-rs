@@ -43,8 +43,6 @@ pub enum IntrinsicCategory {
     Coercion,
     /// `Prim.undefined`: a value with no runtime representation.
     PartialValue,
-    /// An explicitly bound operation with a checked state contract.
-    State,
 }
 
 /// The metadata for one intrinsic.
@@ -174,8 +172,6 @@ descriptors! {
     ArrayWrite => "arrayWrite", 3, ArrayWrite, scheme::array_update;
     NumberToString => "numberToString", 1, Unary, scheme::number_string;
     NumberFromDecimal => "numberFromDecimal", 1, Unary, scheme::string_number;
-    RunWorld => "runWorld", 1, State, super::state::run_world;
-    RunRegion => "runRegion", 1, State, super::state::run_region;
 }
 
 /// The HIR type schemes. Each returns a fresh [`Type`], so a caller that

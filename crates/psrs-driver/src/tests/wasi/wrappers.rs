@@ -240,10 +240,10 @@ fn raw_foreign_value_names(text: &str) -> Vec<String> {
         let Some(close) = rest.find('"') else {
             continue;
         };
-        // `psrs:` names compiler bindings (`psrs:effect` abstract effect
-        // operations, `psrs:intrinsic` checked primitives). Those are the
-        // public library interface, not a private host import hidden behind a
-        // wrapper; only `wasi:` bindings name host imports.
+        // `psrs:` names compiler bindings (`psrs:intrinsic` checked primitives,
+        // `psrs:runtime-*` runtime providers). Those are the public library
+        // interface, not a private host import hidden behind a wrapper; only
+        // `wasi:` bindings name host imports.
         if rest[..close].starts_with("psrs:") {
             continue;
         }

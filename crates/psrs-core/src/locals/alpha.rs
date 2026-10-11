@@ -38,7 +38,6 @@ fn clone_expr(
         ExprKind::String(value) => ExprKind::String(value.clone()),
         ExprKind::Char(value) => ExprKind::Char(*value),
         ExprKind::Unit => ExprKind::Unit,
-        ExprKind::StateToken => ExprKind::StateToken,
         ExprKind::Trap => ExprKind::Trap,
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements

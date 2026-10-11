@@ -36,7 +36,7 @@ fn scoped_expr_inner(
         | ExprKind::Char(_) => {}
         // Both are leaves: their type is already checked by the expression
         // check, and neither mentions a binder.
-        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::Trap => {}
         ExprKind::Constructor { arguments, .. } => {
             // Constructor lowering collapses a THIR application spine. Its
             // result quantifiers still bind the corresponding free variables

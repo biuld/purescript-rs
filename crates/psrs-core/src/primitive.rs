@@ -185,7 +185,6 @@ fn rewrite_inner(
         | ExprKind::String(_)
         | ExprKind::Char(_)
         | ExprKind::Unit
-        | ExprKind::StateToken
         | ExprKind::Trap => {}
     }
     Ok(())

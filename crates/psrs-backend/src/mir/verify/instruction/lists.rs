@@ -123,7 +123,6 @@ fn element_storage_matches(element: &CanonicalType, storage: &StorageType) -> bo
 /// Whether the struct field storage can hold a product field shape.
 fn field_storage_matches(shape: ValueShape, storage: &StorageType) -> bool {
     match shape {
-        ValueShape::State => false,
         ValueShape::Integer | ValueShape::Boolean => *storage == StorageType::I32,
         ValueShape::Number => *storage == StorageType::F64,
         ValueShape::String | ValueShape::Reference(_) => matches!(storage, StorageType::Ref(_)),

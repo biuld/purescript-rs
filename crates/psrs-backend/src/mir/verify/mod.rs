@@ -32,9 +32,6 @@ struct Signature {
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
     verify_defined_types(module, &mut errors);
-    if let Err(failures) = module.dependencies.verify(module) {
-        errors.extend(failures);
-    }
     let mut signatures = module
         .functions
         .iter()
@@ -70,16 +67,6 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let defined = defined_types_list(module);
     let mut function_ids = HashSet::new();
     for (position, function) in module.functions.iter().enumerate() {
-        if let Some(state) = &function.state
-            && let Err(failures) = state.verify(function)
-        {
-            errors.extend(failures);
-        }
-        if let Some(state) = &function.state
-            && let Err(failures) = state.verify_imports(module)
-        {
-            errors.extend(failures);
-        }
         if !function_ids.insert(function.id) || function.id != FunctionId(position as u32) {
             errors.extend(mir_error(
                 function.span,

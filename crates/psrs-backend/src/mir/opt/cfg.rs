@@ -7,10 +7,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub(super) fn prune_unreachable(module: &mut Module) -> bool {
     let mut changed = false;
     for function in &mut module.functions {
-        if function.state.is_some() {
-            // CFG edits require a corresponding checked dependency transfer.
-            continue;
-        }
         let reachable = reachable_blocks(function.entry, &function.blocks);
         let original_len = function.blocks.len();
         function
@@ -24,9 +20,6 @@ pub(super) fn prune_unreachable(module: &mut Module) -> bool {
 pub(super) fn simplify_terminators(module: &mut Module) -> bool {
     let mut changed = false;
     for function in &mut module.functions {
-        if function.state.is_some() {
-            continue;
-        }
         let rewrites = function
             .blocks
             .iter()

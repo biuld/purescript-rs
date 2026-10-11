@@ -1,9 +1,10 @@
 # Primitive Interfaces and Relations
 
-> **Selected extension:** [library-owned effects and state dependencies](../../backend/fp/library-owned-effects.md)
-> specifies generic primitive state contracts, preserved Core/CC/MIR dependencies
-> and checked zero-width projection. Implementation and acceptance evidence
-> have not migrated; the existing contracts below remain the implementation baseline.
+> **Withdrawn extension (2026-10-11).** The generic primitive state contracts
+> described by [library-owned effects and state dependencies](../../backend/fp/library-owned-effects.md)
+> were removed, including `Prim.State`/`Prim.RealWorld` and the
+> `runWorld`/`runRegion` intrinsics. The contracts below are the implementation
+> baseline.
 
 **Feature:** F-02
 

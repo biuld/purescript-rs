@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 
 mod adaptation;
 mod helpers;
-pub(crate) use helpers::capture_shapes;
 mod ops;
 mod scalar;
 mod variant;
@@ -125,7 +124,6 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 .collect::<Vec<_>>()
         })?;
     }
-    super::state::derive_all(module)?;
     Ok(())
 }
 

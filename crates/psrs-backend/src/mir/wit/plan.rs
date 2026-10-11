@@ -1,7 +1,7 @@
 //! Immutable canonical adapter plans, produced before physical emission.
 use crate::BackendError;
 use crate::cc;
-use crate::mir::{BasicBlock, BlockId, BoundWasiImport, Function};
+use crate::mir::{BasicBlock, BlockId, Function};
 use crate::types::ValueDecl;
 use psrs_hir::SymbolId;
 
@@ -9,7 +9,6 @@ use psrs_hir::SymbolId;
 pub(in crate::mir) struct CallPlan {
     owner: SymbolId,
     source: cc::Assignment,
-    binding: BoundWasiImport,
     start: usize,
     exit: BlockId,
     blocks: Vec<BasicBlock>,
@@ -17,84 +16,10 @@ pub(in crate::mir) struct CallPlan {
 }
 
 impl CallPlan {
-    pub(in crate::mir) fn entry(&self) -> BlockId {
-        self.blocks[0].id
-    }
-    pub(in crate::mir) fn start(&self) -> usize {
-        self.start
-    }
-    pub(in crate::mir) fn exit(&self) -> (BlockId, usize) {
-        let block = self
-            .blocks
-            .iter()
-            .find(|block| block.id == self.exit)
-            .expect("canonical lowering returns its own exit block");
-        (
-            self.exit,
-            if self.exit == self.entry() {
-                self.start
-            } else {
-                0
-            } + block.instructions.len(),
-        )
-    }
-    pub(in crate::mir) fn created_blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
-        self.blocks.iter().skip(1).map(|block| block.id)
-    }
-    pub(in crate::mir) fn matches_source(
-        &self,
-        assignment: &cc::Assignment,
-        arguments: &[cc::ValueId],
-    ) -> bool {
-        match (&self.source.kind, &assignment.kind) {
-            (
-                cc::AssignmentKind::DirectCall {
-                    function,
-                    arguments: planned,
-                },
-                cc::AssignmentKind::DirectCall {
-                    function: actual, ..
-                },
-            ) => {
-                function == actual
-                    && planned == arguments
-                    && self.source.destination == assignment.destination
-                    && self.source.span == assignment.span
-            }
-            _ => false,
-        }
-    }
-
-    pub(in crate::mir) fn verify_import(
-        &self,
-        module: &crate::mir::Module,
-    ) -> Result<(), Vec<BackendError>> {
-        let import = &self.binding.import;
-        let expected = crate::mir::Import {
-            runtime: None,
-            symbol: import.symbol,
-            parameters: import.parameters.clone(),
-            result: import.result,
-        };
-        if module
-            .imports
-            .iter()
-            .find(|actual| actual.symbol == expected.symbol)
-            != Some(&expected)
-        {
-            return Err(vec![BackendError::invalid_ir(
-                "P9 canonical call verification",
-                self.source.span,
-                "canonical import differs from its immutable checked binding",
-            )]);
-        }
-        Ok(())
-    }
     #[allow(clippy::too_many_arguments)]
     pub(in crate::mir) fn new(
         owner: SymbolId,
         source: cc::Assignment,
-        binding: BoundWasiImport,
         start: usize,
         exit: BlockId,
         blocks: Vec<BasicBlock>,
@@ -103,7 +28,6 @@ impl CallPlan {
         Self {
             owner,
             source,
-            binding,
             start,
             exit,
             blocks,

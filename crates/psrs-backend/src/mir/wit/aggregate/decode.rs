@@ -244,7 +244,6 @@ fn read_value_concrete<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
     match shape {
-        ValueShape::State => Err(unsupported(span)),
         ValueShape::Integer | ValueShape::Boolean => {
             read_scalar(lowerer, kind, address, offset, block, span)
         }

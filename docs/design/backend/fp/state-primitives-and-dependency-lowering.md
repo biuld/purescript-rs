@@ -1,10 +1,15 @@
 # State Primitives and Dependency Lowering
 
+> **Withdrawn 2026-10-11.** The compiler no longer owns the State dependency
+> protocol. `Prim.State`, `Prim.RealWorld`, the `runWorld`/`runRegion`
+> intrinsics, the Core/CC/MIR State analysis, and the runtime storage
+> source-binding contract were removed. Everything below is retained as dated
+> historical evidence and is **not** an instruction to rebuild the removed
+> machinery.
+
 **Feature:** [F-02](../../../feature/F-02-portable-programs.md)
-**Status:** Draft. The primitive representation direction is selected; general
-transport and optimizer integration remain incomplete. Coverage belongs in the
-[implementation checklist](../../../implementation/backend/library-owned-effects.md),
-with known gaps recorded in the [scope audit](../../../implementation/backend/library-owned-effects-audit-2026-10-11.md).
+**Status:** Withdrawn. The primitive representation direction recorded below was
+removed on 2026-10-11; no replacement has been selected.
 **Prerequisites:** [primitive types](../../frontend/type-system/prim.md),
 [Functional Core](../../frontend/semantics/functional-core.md),
 [representation and evidence](representation-and-evidence.md), [CC](cc-ir.md),

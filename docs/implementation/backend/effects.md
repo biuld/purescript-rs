@@ -1,10 +1,15 @@
 # Effects Implementation Acceptance
 
+> **Withdrawn 2026-10-11.** The trusted-Effect implementation and its acceptance
+> scope were removed. The `EF-*` rows and the measurements below are retained as
+> dated historical evidence and are **not** current capability or requirements.
+> See the [removal handoff](effect-state-removal-handoff-2026-10-11.md).
+
 **Feature:** [F-02](../../feature/F-02-portable-programs.md)
 
 **Design:** [Effects](../../design/backend/fp/effects.md)
 
-**Progress:** EF-01 through EF-13 are Verified on the explicit trusted-identity
+**Progress (pre-removal, historical):** EF-01 through EF-13 were Verified on the explicit trusted-identity
 contract. The effect-entry measurement on 2026-10-04 was 124/413 (Wasmtime
 49.0.2, `purs` 0.15.16). Those 124 files are the previous non-`Int` entries;
 each exits 0. A later `Data.Functor` measurement on the same day moved the

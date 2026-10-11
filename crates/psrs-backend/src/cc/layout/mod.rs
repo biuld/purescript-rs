@@ -50,9 +50,6 @@ pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<Valu
 /// The primitive shape of a Core type when its head is a primitive constructor.
 pub(super) fn primitive_shape_of(module: &CoreModule, id: TypeId) -> Option<ValueShape> {
     let id = unquantified_type(module, id);
-    if psrs_core::state::region(module, id).is_some() {
-        return Some(ValueShape::State);
-    }
     match module.types.get(id.0 as usize)? {
         Type::Constructor(constructor) => primitive_value_shape(*constructor),
         _ => None,
@@ -300,7 +297,6 @@ pub(super) fn type_layout(
 
     protocols::append(&mut representations);
     let function_slot = crate::boundary::function_slot_protocol(&mut representations);
-    crate::cc::state::register_payload_slots(&mut representations);
     let protocols = crate::boundary::payload_erased_protocols(
         &mut representations,
         &function_types,

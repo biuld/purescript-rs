@@ -1,14 +1,17 @@
 # Effects
 
-> **Selected revision:** [library-owned effects](library-owned-effects.md)
-> replaces the Effect-specific token contract with a library newtype and generic
-> state dependencies governed by [the State topic](state-primitives-and-dependency-lowering.md),
-> with executable storage and termination owned by
-> `psrs-runtime` and combinators owned by stdlib. Integrated acceptance has not migrated;
-> this document retains the existing contract pending that migration.
+> **Withdrawn 2026-10-11.** The compiler no longer owns the identity,
+> representation, or operations of the library type `Effect`. Trusted-Effect
+> discovery, synthesized `pure`/`bind`/`runEffect`/trap implementations, the
+> Effect-specific backend entry adaptation, the opaque state token, and the
+> `Effect Unit` command entry were removed. No replacement Effect representation
+> has been selected, so a program that used the mechanism does not compile.
+> Everything below is retained as dated historical evidence and is **not** an
+> instruction to rebuild the removed machinery.
 
 **Feature:** F-02  
-**Status:** Draft (design)  
+**Status:** Withdrawn. The trusted-identity contract recorded below was removed
+on 2026-10-11.  
 **Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md), and
 [type classes and dictionaries](type-classes-and-dictionaries.md); monads,
 closures, and the distinction between a value and a computation. Read

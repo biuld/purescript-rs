@@ -244,7 +244,6 @@ fn children(expr: &mut Expr) -> Vec<&mut Expr> {
         | ExprKind::String(_)
         | ExprKind::Char(_)
         | ExprKind::Unit
-        | ExprKind::StateToken
         | ExprKind::Trap => Vec::new(),
     }
 }
@@ -328,7 +327,6 @@ fn children_ref(expr: &Expr) -> Vec<&Expr> {
         | ExprKind::String(_)
         | ExprKind::Char(_)
         | ExprKind::Unit
-        | ExprKind::StateToken
         | ExprKind::Trap => Vec::new(),
     }
 }

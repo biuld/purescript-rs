@@ -9,16 +9,13 @@ use std::collections::{HashMap, HashSet};
 mod primitives;
 mod runtime;
 pub(crate) use primitives::lower as lower_primitives;
-pub(crate) use runtime::call::{
-    canonical_signature as runtime_cc_signature, checked as checked_runtime_call,
-};
+pub(crate) use runtime::call::canonical_signature as runtime_cc_signature;
 pub use runtime::metadata::RuntimeBinding;
 pub(crate) use runtime::metadata::{
     from_core as runtime_metadata_from_core, validate_core as validate_runtime_bindings,
 };
 pub(crate) use runtime::target::{
-    RawCallResult, error as runtime_projection_error, plan_import as plan_runtime_import,
-    verify_import as verify_runtime_import,
+    plan_import as plan_runtime_import, verify_import as verify_runtime_import,
 };
 
 /// The complete input consumed by P9. Platform binding metadata is kept beside
