@@ -8,6 +8,10 @@ use crate::cc::{
 use crate::types::{DefinedTypeId, HeapType, RefType, ValueType};
 
 impl PlannedLayout {
+    pub(crate) fn types(&self) -> &[crate::types::RecGroup] {
+        &self.types
+    }
+
     pub(crate) fn repr_index(&self, id: ReprId) -> Result<DefinedTypeId, LayoutError> {
         self.repr_indices
             .get(&id)

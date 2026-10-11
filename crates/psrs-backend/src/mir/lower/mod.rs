@@ -18,6 +18,7 @@ mod assignment_string;
 mod assignments;
 mod conversion_helpers;
 mod runtime_call;
+mod storage_call;
 pub(in crate::mir) mod tail;
 mod variant;
 mod wit_call;
@@ -46,6 +47,7 @@ pub(super) fn lower_function(
     source: &cc::Function,
     id: FunctionId,
     wit_imports: &HashMap<SymbolId, BoundWasiImport>,
+    runtime_imports: &HashMap<SymbolId, super::Import>,
     layout: &PlannedLayout,
     conversion_helpers: Option<&mut ConversionHelpers>,
     literals: Option<&mut StringLiterals>,
@@ -81,6 +83,7 @@ pub(super) fn lower_function(
             .max()
             .map_or(0, |max| max + 1),
         wit_imports,
+        runtime_imports,
         layout,
         conversion_helpers,
         literals,
@@ -123,6 +126,7 @@ pub(super) struct FunctionLowerer<'a> {
     values: Vec<ValueDecl>,
     next_value: u32,
     wit_imports: &'a HashMap<SymbolId, BoundWasiImport>,
+    runtime_imports: &'a HashMap<SymbolId, super::Import>,
     pub(in crate::mir) layout: &'a PlannedLayout,
     conversion_helpers: Option<&'a mut ConversionHelpers>,
     literals: Option<&'a mut StringLiterals>,

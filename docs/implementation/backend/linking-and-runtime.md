@@ -332,3 +332,46 @@ Workspace tests and corpus scoreboards were not rerun for this bounded fix.
 Storage ABI comments now describe ordinary operands without a State protocol.
 Compiler-side generic storage bindings remain explicitly unsupported after
 withdrawal of State; this work does not restore them or implement Effect/ST.
+
+## Ordinary runtime storage bindings (2026-10-11)
+
+The subsequent storage-binding repair replaces the explicit unsupported
+boundaries described above. `bindings/runtime/source.rs` checks ordinary Core
+operand/result types before erasure, using Core's existing type-equivalence
+relation. `bindings/runtime/call/` publishes canonical CC payload signatures;
+the common CC conversion machinery supplies boxing and recovery. Array values
+retain their canonical representation and identity. `target.rs` plans actual
+raw imports in the application layout arena, and MIR lowering adapts reference
+nullability and void/non-returning results. No State or dependency analysis was
+reintroduced. Zero-operand external polymorphic values now obtain their source
+scheme from the external type inventory through ordinary global lowering.
+
+Baseline inspection at `e806616e`: CC runtime signature conversion, CC binding
+verification and MIR import planning unconditionally rejected storage bindings
+with the withdrawn State-contract diagnostic. This was a code baseline, not an
+independent before-build measurement.
+
+| Validation | Result |
+| --- | --- |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib runtime_storage::` | 6 passed; generic/concrete calls, partial application, alias write, string/record/function/nested-array recovery, bounds traps, polymorphic and concrete trap values, unused declaration rejection and provider omission |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend --lib runtime -- --nocapture` | 11 passed; includes malformed CC signatures, runtime metadata, physical provider checks, GC composition/execution and neighboring artifact protocols |
+| `cargo clippy -p psrs-backend -p psrs-driver --all-targets -- -D warnings` | Passed |
+
+The broad erasure cohort cannot currently pass against this compiler and the
+locked stdlib. Materializing the locked revision `1e01310` (whose content
+reproduces fingerprint `fnv1a64-v1:bca0ace40bd0ccac`) and running
+`PSRS_REQUIRE_WASMTIME=1 PSRS_STDLIB_ROOT=<revision> cargo test -p psrs-driver
+--lib polymorphism_erasure_audit::` gives 9 passed, 12 failed. That set is
+identical at HEAD `e806616e` and with this work, so the storage repair changes
+none of it: 9 failures are the locked `Prelude`'s `foreign import
+"psrs:effect#..."` declarations rejected at P8 WIT linking after the effect
+mechanism was removed, and 3 are pre-existing `guest projection of a non-closed
+type` closure-conversion cases. The committed lock is stale relative to the
+effect removal, so comparable broad erasure evidence needs a matching
+compiler/stdlib pair; neither the lock nor the development package was modified.
+
+Final `cargo fmt --all --check` and `git diff --check` passed.
+
+Workspace tests and corpus scoreboards were not run. Effect/ST and algebraic
+handler drafts remain unimplemented; successful storage ABI calls do not
+establish effect-library conformance.

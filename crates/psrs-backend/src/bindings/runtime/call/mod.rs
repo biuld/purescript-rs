@@ -1,42 +1,91 @@
-//! Checked logical CC operands for the runtime-owned raw storage contract.
-//!
-//! The source storage operations were declared through the withdrawn State
-//! protocol. No generic source-to-raw operand projection replaced it, so this
-//! boundary reports the missing interface explicitly instead of fabricating a
-//! successful binding. Provider identity validation lives in
-//! [`super::target::verify_import`], which does not need a State contract.
-use crate::BackendError;
-use crate::bindings::RuntimeBinding;
-use crate::cc;
+//! Ordinary CC call signatures for the runtime storage ABI.
+use crate::{BackendError, RuntimeBinding, cc};
+use psrs_runtime::{StorageOperation, StorageValue};
 
-fn unsupported(binding: &RuntimeBinding, message: &str) -> Vec<BackendError> {
+#[cfg(test)]
+mod tests;
+
+fn error(binding: &RuntimeBinding, message: &str) -> Vec<BackendError> {
     vec![
-        BackendError::invalid_ir("P9 runtime projection", binding.span, message)
+        BackendError::invalid_ir("P8 runtime ABI", binding.span, message)
             .with_module(binding.source_module),
     ]
 }
 
-/// The former State-to-Step operand projection. Retained as an explicit failure
-/// while the replacement runtime binding contract is undecided.
 pub(crate) fn checked(
     binding: &RuntimeBinding,
-    _module: &cc::Module,
+    module: &cc::Module,
 ) -> Result<(), Vec<BackendError>> {
-    Err(unsupported(
-        binding,
-        "runtime storage bindings require the withdrawn State contract",
-    ))
+    let signature = module
+        .externals
+        .iter()
+        .find(|external| external.symbol == binding.symbol)
+        .and_then(|external| external.signature.as_ref())
+        .ok_or_else(|| error(binding, "runtime external has no CC signature"))?;
+    let canonical = canonical_signature(binding, signature, &module.representations)?;
+    if &canonical != signature {
+        return Err(error(
+            binding,
+            "runtime external disagrees with its canonical CC signature",
+        ));
+    }
+    Ok(())
 }
 
-/// The former canonical storage signature. There is no generic replacement, so
-/// a runtime source binding cannot produce a CC signature.
+/// Use the common CC payload protocol at the external call boundary. Source
+/// arrays already store erased elements: their identity is never converted.
 pub(crate) fn canonical_signature(
     binding: &RuntimeBinding,
-    _signature: &cc::Signature,
-    _table: &cc::RepresentationTable,
+    signature: &cc::Signature,
+    table: &cc::RepresentationTable,
 ) -> Result<cc::Signature, Vec<BackendError>> {
-    Err(unsupported(
-        binding,
-        "runtime storage bindings require the withdrawn State contract",
-    ))
+    if binding.module != psrs_runtime::STORAGE_MODULE {
+        return Err(error(binding, "unknown runtime storage provider"));
+    }
+    let operation = StorageOperation::from_export(&binding.function)
+        .ok_or_else(|| error(binding, "unknown runtime storage export"))?;
+    let contract = operation.source_contract();
+    if signature.parameters.len() != contract.parameters.len() {
+        return Err(error(
+            binding,
+            "runtime CC signature has the wrong parameter count",
+        ));
+    }
+    let shape = |expected, actual| -> Result<_, Vec<BackendError>> {
+        match expected {
+            StorageValue::Int | StorageValue::Unit if actual == cc::ValueShape::Integer => {
+                Ok(actual)
+            }
+            StorageValue::Element => Ok(cc::payload::erased_shape()),
+            StorageValue::Any => Ok(actual),
+            StorageValue::Array => {
+                if let cc::ValueShape::Reference(cc::Reference {
+                    nullable: false,
+                    heap: cc::RefShape::Repr(id),
+                }) = actual
+                    && matches!(table.representation(id), Some(cc::Representation::Array { element }) if *element == cc::payload::erased_shape())
+                {
+                    return Ok(actual);
+                }
+                Err(error(
+                    binding,
+                    "runtime array requires canonical erased-element storage",
+                ))
+            }
+            _ => Err(error(
+                binding,
+                "runtime CC operand shape disagrees with its contract",
+            )),
+        }
+    };
+    Ok(cc::Signature {
+        parameters: contract
+            .parameters
+            .iter()
+            .copied()
+            .zip(&signature.parameters)
+            .map(|(expected, actual)| shape(expected, *actual))
+            .collect::<Result<_, _>>()?,
+        result: shape(contract.payload, signature.result)?,
+    })
 }

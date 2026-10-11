@@ -20,16 +20,12 @@ impl RuntimeContext {
                 failure.to_string(),
             )]
         })?;
-        // A live source runtime binding needs the withdrawn State contract to
-        // map its operands. There is no generic replacement, so planning it is
-        // an explicit failure rather than a fabricated successful binding.
+        let mut imports = HashMap::new();
         for binding in bindings {
             if live.direct_calls.contains(&binding.symbol) {
-                plan_import(binding, physical, layout)?;
+                imports.insert(binding.symbol, plan_import(binding, physical, layout)?);
             }
         }
-        Ok(Self {
-            imports: HashMap::new(),
-        })
+        Ok(Self { imports })
     }
 }

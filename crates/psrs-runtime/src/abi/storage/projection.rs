@@ -7,13 +7,13 @@ pub enum StorageResultProjection {
     Value(StorageType),
     /// The export returns normally without a value. The caller produces Unit.
     Unit,
-    /// The export cannot return normally; no successor or payload is produced.
+    /// The export cannot return normally; no result is produced.
     Never,
 }
 
 /// Validated correspondence between source operands and raw ABI operands.
-/// This does not authorize erasure of a compiler's dependency graph or provide
-/// boxing, reference validation, or instruction correspondence evidence.
+/// Consumers still own checked element-type correspondence, boxing and recovery,
+/// and mutable array identity. The raw ABI alone does not prove those facts.
 pub struct StorageCallProjection {
     source: StorageSourceContract,
     abi: StorageAbi,

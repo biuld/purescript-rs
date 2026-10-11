@@ -139,20 +139,33 @@ impl GlobalLowering for FunctionLowerer<'_> {
             if source_shape == result_type {
                 return Ok(destination);
             }
-            let declaration = self
+            let (source_type, quantified) = if let Some(declaration) = self
                 .module
                 .declarations
                 .iter()
                 .find(|declaration| declaration.symbol == function)
-                .ok_or_else(|| {
-                    global_error(expression, "global value has no source declaration type")
-                })?;
-            let source_type = declaration.ty;
-            let evidence = self.boundary.checked_instantiation(
-                source_type,
-                &declaration.quantified,
-                expression.ty,
-            );
+            {
+                (declaration.ty, declaration.quantified.clone())
+            } else if let Some(external) = self
+                .module
+                .external_types
+                .iter()
+                .find(|external| external.symbol == function)
+            {
+                let (quantified, _) = psrs_core::scheme_parts(&self.module.types, external.ty)
+                    .ok_or_else(|| {
+                        global_error(expression, "external value has an invalid source scheme")
+                    })?;
+                (external.ty, quantified)
+            } else {
+                return Err(global_error(
+                    expression,
+                    "global value has no source declaration type",
+                ));
+            };
+            let evidence =
+                self.boundary
+                    .checked_instantiation(source_type, &quantified, expression.ty);
             let conversion = self.typed_conversion_with_instantiation(
                 source_type,
                 expression.ty,

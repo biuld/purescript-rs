@@ -637,6 +637,30 @@ Guest execution evidence is recorded separately from the numeric runtime slice.
 
 ### Consumer signatures and implementation selection
 
+Ordinary source imports can name the storage provider through
+`foreign import "psrs:runtime-storage#<export>"`. The runtime ABI owns the raw
+export contract. Backend binding validation checks the checked Core declaration,
+including unused imports: arity, `Int` indices and lengths, `Unit` write results,
+and agreement of every array element and payload occurrence. The interface is
+`Int -> a -> Array a` for fill, `Array a -> Int -> a` for read,
+`Array a -> Int -> a -> Unit` for write, and a zero-operand arbitrary result
+for the non-returning trap. These can be polymorphic or concrete signatures.
+
+CC uses its existing payload erasure and recovery operations for element
+operands and results, including callable adapters. Source arrays already use
+canonical erased-element storage and cross the import boundary with the same
+identity; adapting a mutable array by copying its elements is forbidden.
+MIR plans the physical import in the application's layout arena. It widens
+element references to nullable `eqref` for raw calls, checks returned references
+before recovering non-null source values, materializes source `Unit` after a
+void write, and emits an unreachable result after a non-returning trap.
+Provider selection still comes from the actual MIR import; unused declarations
+are validated without adding a provider to the executable. Partial application
+and higher-order uses follow the ordinary closure adapter path.
+
+This is a typed external-call ABI, with no State token, dependency chain or
+read/write ordering analysis. It does not define an Effect/ST implementation.
+
 The exhaustive [intrinsic implementation catalog](../fp/intrinsic-implementations.md)
 owns direct/generated/artifact selection. HIR owns language schemes and semantic
 effects; the runtime owns raw export contracts and transport protocols. CC keeps

@@ -8,14 +8,13 @@ use psrs_runtime::StorageOperation;
 
 pub(super) mod call;
 pub(super) mod metadata;
+mod source;
 pub(super) mod target;
 
 /// Validate all declarations, including unused ones, before lowering/erasure.
 /// The immutable checked Core arena owns every signature identity used here.
 ///
-/// The former State-to-Step source contract check was removed with the State
-/// mechanism. Provider identity and export existence are still checked; the
-/// operand projection is reported unsupported at the CC boundary instead.
+/// Source operands are ordinary values; no sequencing protocol is inferred.
 pub(crate) fn validate(module: &Module) -> Result<(), Vec<BackendError>> {
     for external in &module.externals {
         let ExternalKind::Runtime {
@@ -40,11 +39,14 @@ pub(crate) fn validate(module: &Module) -> Result<(), Vec<BackendError>> {
         if provider != psrs_runtime::STORAGE_MODULE {
             return Err(error(format!("unknown runtime provider `{provider}`")));
         }
-        StorageOperation::from_export(function).ok_or_else(|| {
+        let operation = StorageOperation::from_export(function).ok_or_else(|| {
             error(format!(
                 "runtime provider `{provider}` has no export `{function}`"
             ))
         })?;
+        let checked = checked
+            .ok_or_else(|| error("runtime binding has no checked source signature".into()))?;
+        source::validate(module, checked.ty, operation).map_err(error)?;
     }
     Ok(())
 }

@@ -217,7 +217,7 @@ impl ExternalBindings {
 
     /// Checks that the binding inventory covers CC externals exactly once.
     /// Source conformance is checked against Core before CC publication;
-    /// unsupported runtime call projection remains an explicit boundary.
+    /// runtime operands must agree with the canonical CC call signature.
     pub(crate) fn validate_cc(&self, module: &cc::Module) -> Result<(), Vec<BackendError>> {
         let mut cc_externals = HashMap::new();
         let mut errors = Vec::new();

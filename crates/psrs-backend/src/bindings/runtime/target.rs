@@ -74,24 +74,61 @@ pub(crate) fn verify_import(import: &Import, types: &[RecGroup]) -> Result<(), S
 
 pub(crate) fn error(binding: &RuntimeBinding, message: &str) -> Vec<BackendError> {
     vec![
-        BackendError::invalid_ir("P9 runtime projection", binding.span, message)
+        BackendError::invalid_ir("P9 runtime ABI", binding.span, message)
             .with_module(binding.source_module),
     ]
 }
 
-/// Plan raw types in the application's own layout arena. This does not box
-/// operands, recover results, emit calls, or authorize dependency erasure.
-///
-/// The source operand projection depended on the withdrawn State protocol, so
-/// no generic replacement exists. This reports the missing interface explicitly
-/// instead of planning a call from an erased contract.
+/// Plan raw types using the canonical CC signature and the application's arena.
 pub(crate) fn plan_import(
     binding: &RuntimeBinding,
-    _logical: &cc::Module,
-    _layout: &PlannedLayout,
+    logical: &cc::Module,
+    layout: &PlannedLayout,
 ) -> Result<Import, Vec<BackendError>> {
-    Err(error(
-        binding,
-        "runtime storage bindings require the withdrawn State contract",
-    ))
+    super::call::checked(binding, logical)?;
+    let signature = logical
+        .externals
+        .iter()
+        .find(|external| external.symbol == binding.symbol)
+        .and_then(|external| external.signature.as_ref())
+        .ok_or_else(|| error(binding, "runtime external has no CC signature"))?;
+    let operation = psrs_runtime::StorageOperation::from_export(&binding.function)
+        .ok_or_else(|| error(binding, "unknown runtime storage export"))?;
+    let raw = operation
+        .projection()
+        .map_err(|message| error(binding, message))?;
+    let physical = |raw, shape| -> Result<_, Vec<BackendError>> {
+        Ok(match raw {
+            RawType::I32 => ValueType::I32,
+            RawType::Value => ValueType::Ref(RefType {
+                nullable: true,
+                heap: HeapType::Eq,
+            }),
+            RawType::Array => layout
+                .value_type(&shape)
+                .map_err(|_| error(binding, "runtime array has no planned layout"))?,
+        })
+    };
+    let import = Import {
+        symbol: binding.symbol,
+        runtime: Some(crate::mir::RuntimeImport {
+            module: binding.module.clone(),
+            function: binding.function.clone(),
+        }),
+        parameters: raw
+            .abi()
+            .parameters
+            .iter()
+            .copied()
+            .zip(&signature.parameters)
+            .map(|(raw, shape)| physical(raw, *shape))
+            .collect::<Result<_, _>>()?,
+        result: raw
+            .abi()
+            .result
+            .map(|raw| physical(raw, signature.result))
+            .transpose()?,
+    };
+    verify_import(&import, layout.types()).map_err(|message| error(binding, &message))?;
+    Ok(import)
 }

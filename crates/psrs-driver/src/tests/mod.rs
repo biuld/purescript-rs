@@ -31,6 +31,7 @@ mod number_trunc;
 mod operators;
 mod partial_application;
 mod primitive_foreign;
+mod runtime_storage;
 mod scalars;
 mod semigroup;
 mod show;

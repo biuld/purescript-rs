@@ -1,5 +1,5 @@
 //! GC storage ABI, separate from scalar/linear-memory artifact contracts.
-//! State dependencies have no physical parameters or results in this ABI.
+//! Operands and results describe only storage values, without execution tokens.
 
 mod projection;
 pub use projection::*;
@@ -23,7 +23,7 @@ pub enum StorageOperation {
     Trap,
 }
 
-/// Checked source-value relations before GC boxing and state projection.
+/// Checked source-value relations before GC boxing and ABI conversion.
 /// Element occurrences in one binding must denote the same source type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StorageValue {
@@ -36,7 +36,7 @@ pub enum StorageValue {
 }
 
 pub struct StorageSourceContract {
-    /// Ordinary parameters before the final logical State parameter.
+    /// Complete source operands corresponding to the raw ABI parameters.
     pub parameters: &'static [StorageValue],
     pub payload: StorageValue,
 }
@@ -58,7 +58,7 @@ impl StorageOperation {
             .find(|operation| operation.abi().export == export)
     }
 
-    /// State regions are generic and must agree between input and successor.
+    /// Source element occurrences must share the same checked type.
     pub const fn source_contract(self) -> StorageSourceContract {
         use StorageValue::*;
         match self {

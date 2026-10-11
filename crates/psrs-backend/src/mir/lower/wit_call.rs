@@ -35,6 +35,7 @@ impl FunctionLowerer<'_> {
             values: self.values.clone(),
             next_value: self.next_value,
             wit_imports: self.wit_imports,
+            runtime_imports: self.runtime_imports,
             layout: self.layout,
             conversion_helpers: self.conversion_helpers.as_deref_mut(),
             literals: self.literals.as_deref_mut(),
