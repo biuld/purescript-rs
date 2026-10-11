@@ -22,9 +22,11 @@ It includes Effect.Ref, STRef, mutable-array boundaries, native execution, and
 the bridge from user-defined algebraic effects to native operations.
 
 It does not add syntax, ambient effect inference, primitive State types, a
-special compiler-known Effect constructor, or a new execution intrinsic.
-Runtime delimited continuation support remains a separate option in the
-algebraic-effects topic; it is not required by this representation proposal.
+special compiler-known Effect constructor, or a new execution intrinsic. The
+generic handler mechanism is selected by
+[DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md) as
+compiler-generated resumable frames; this representation can be interpreted by an
+explicit library interpreter or by that mechanism without changing its public API.
 Compiler cleanup remains in force. This design is not authorization to change
 the independent package, publish a lock, or claim restored runtime support.
 
@@ -368,10 +370,12 @@ Leaf storage uses the GC language heap. Host calls retain WIT resource and
 canonical ABI ownership rules. A trap is not automatic finalization; resource
 bracketing, exceptions, and cancellation need their own explicit contracts.
 
-This proposal neither requires runtime delimited control nor prohibits a
-future implementation that preserves its native API and multiplicity. A native
-continuation implementation must meet the separate control obligations before
-replacing explicit library continuations.
+This proposal uses the generic handler mechanism selected by DEC-19 but does not
+require target stack switching, and it does not prohibit a future target option
+that preserves its native API and multiplicity. Any target continuation
+implementation must meet the separate control obligations in the
+[algebraic-effects topic](algebraic-effects-and-handlers.md) before replacing
+compiler-generated frames.
 
 ## Open questions and future work
 

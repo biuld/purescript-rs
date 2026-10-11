@@ -54,7 +54,7 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [pattern-matching.md](fp/pattern-matching.md) | Pattern decision trees and exhaustiveness | cc-ir |
 | [control-flow-and-tail-calls.md](fp/control-flow-and-tail-calls.md) | CFG structuring, `Switch`, tail calls | mir |
 | [type-classes-and-dictionaries.md](fp/type-classes-and-dictionaries.md) | Dictionary passing and instance evidence | functional-core |
-| [algebraic-effects-and-handlers.md](fp/algebraic-effects-and-handlers.md) | Library operation rows and handlers; continuation ownership and runtime control options (**Draft proposal**) | DEC-03, ordinary rows/classes, functional-core, runtime linking |
+| [algebraic-effects-and-handlers.md](fp/algebraic-effects-and-handlers.md) | Library operation rows and handlers; the generic suspension/handler mechanism and its compiler-generated resumable-frame lowering (**Draft design**) | DEC-03, DEC-19, ordinary rows/classes, functional-core, capability-profile, runtime linking |
 | [native-effect-and-st-handlers.md](fp/native-effect-and-st-handlers.md) | Official Effect/ST facades, common native computation, typed storage/host handlers, and region safety (**Draft proposal**) | algebraic effects, roles, rank-N, runtime linking |
 | [effects.md](fp/effects.md) | Effect representation and the platform boundary (**withdrawn 2026-10-11**; replacement undecided) | functional-core |
 | [state-primitives-and-dependency-lowering.md](fp/state-primitives-and-dependency-lowering.md) | Primitive State semantics and cross-pass dependencies (**withdrawn 2026-10-11**) | primitive types, functional-core, CC, MIR |

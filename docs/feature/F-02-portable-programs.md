@@ -15,10 +15,11 @@ compatible portable environment.
 
 A proposed library-level algebraic effects API would let programs describe
 operations and supply different handlers for production and testing, using
-existing PureScript syntax and types. A separate draft proposes implementing
-the official Effect/ST APIs over library native handlers while preserving
-their public contracts. Neither proposal is an implemented capability or an
-accepted native representation.
+existing PureScript syntax and types. The representation for the generic handler
+mechanism is recorded as a decision ([DEC-19](../decision/DEC-19-compiler-generated-resumable-frames.md));
+a separate draft proposes implementing the official Effect/ST APIs over library
+native handlers while preserving their public contracts. None of these proposals
+is an implemented capability yet.
 
 The intended workflow is:
 
