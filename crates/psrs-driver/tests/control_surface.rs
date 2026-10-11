@@ -3,9 +3,8 @@
 //! `Prim.Control` exposes the effect-agnostic `Control f a` carrier with
 //! `return`/`bind`/`perform`/`run`/`handle` ([DEC-19](../../../docs/decision/DEC-19-compiler-generated-resumable-frames.md),
 //! [delimited control and resumable frames](../../../docs/design/backend/fp/delimited-control-and-resumable-frames.md)).
-//! The selective CPS / resumable-frame lowering is not implemented, so these
-//! tests check source acceptance and rejection (P0-P5) only; they do not claim
-//! execution.
+//! Source acceptance/rejection and focused executor execution.
+//! Open execution is covered in `control_open_runtime.rs`.
 
 /// A well-typed program over an opaque request functor, interpreted by the
 /// closed state-threading `run`. `Op`'s answer type is `Int`, and the handler
@@ -93,7 +92,8 @@ main :: Int
 main = 0
 "#;
 
-use std::process::Command;
+mod control_support;
+use control_support::execute;
 
 /// The `return`-only path lowers to a frame and executes: `main` reads the
 /// `(state, value)` result of the closed `run`.
@@ -125,35 +125,12 @@ fn control_surface_typechecks() {
 
 #[test]
 fn executes_a_returning_computation() {
-    let available = Command::new("wasmtime")
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success());
-    if !available {
-        assert_ne!(
-            std::env::var("PSRS_REQUIRE_WASMTIME").as_deref(),
-            Ok("1"),
-            "control execution requires wasmtime"
-        );
-        eprintln!("skipping control execution: wasmtime is unavailable");
-        return;
-    }
-    let artifact = psrs_driver::compile_source("Main.purs", RETURNS_AND_RUNS)
-        .expect("compile the returning computation");
-    let path =
-        std::env::temp_dir().join(format!("psrs-control-return-{}.wasm", std::process::id()));
-    std::fs::write(&path, &artifact.wasm).expect("write component");
-    let output = Command::new("wasmtime")
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("run component");
-    let _ = std::fs::remove_file(path);
-    assert_eq!(
-        output.status.code(),
-        Some(42),
-        "expected the returning computation to exit 42, got {output:?}"
-    );
+    execute("return", RETURNS_AND_RUNS, 42);
+}
+
+#[test]
+fn executes_a_performed_request() {
+    execute("perform", &ACCEPTS.replace("C.run 0", "C.run 42"), 42);
 }
 
 #[test]
@@ -177,4 +154,28 @@ fn control_surface_requires_a_rank_two_handler() {
         psrs_driver::check_source("Main.purs", REJECTS_MONOMORPHIC_HANDLER).is_err(),
         "a monomorphic handler must not satisfy run's rank-2 argument"
     );
+}
+
+#[test]
+fn open_control_rejects_an_incompatible_residual_functor() {
+    let source = HANDLES_ONE_EFFECT.replace("handled :: C.Control G", "handled :: C.Control F");
+    assert!(psrs_driver::check_source("Main.purs", &source).is_err());
+}
+
+#[test]
+fn open_control_rejects_an_incompatible_injection() {
+    let source = HANDLES_ONE_EFFECT.replace(
+        "inject :: forall x. G x -> U x\ninject = UG",
+        "inject :: forall x. F x -> U x\ninject = UF",
+    );
+    assert!(psrs_driver::check_source("Main.purs", &source).is_err());
+}
+
+#[test]
+fn open_control_requires_a_rank_two_projection() {
+    let source = HANDLES_ONE_EFFECT.replace(
+        "project :: forall x r. U x -> (F x -> r) -> (G x -> r) -> r",
+        "project :: forall r. U Int -> (F Int -> r) -> (G Int -> r) -> r",
+    );
+    assert!(psrs_driver::check_source("Main.purs", &source).is_err());
 }

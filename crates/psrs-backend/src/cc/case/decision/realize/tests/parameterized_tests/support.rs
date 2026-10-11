@@ -61,7 +61,8 @@ pub(super) fn lower_and_verify(
         newtype_ids: &newtype_ids,
         boxed_integer_type: None,
         boxed_number_type: None,
-        control_type: None,
+        control_layout: None,
+        control_functions: std::rc::Rc::new(std::cell::RefCell::new(None)),
         generated_signatures: std::rc::Rc::new(std::cell::RefCell::new(
             std::collections::HashMap::new(),
         )),

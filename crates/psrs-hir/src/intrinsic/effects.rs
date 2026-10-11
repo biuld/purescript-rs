@@ -23,9 +23,9 @@ impl IntrinsicEffects {
             },
             // Executing a delimiter runs the handler and the continuation, which
             // can trap or mutate storage; the summary is deliberately
-            // conservative. `return`/`bind`/`perform` only build an inert
+            // conservative. `return`/`bind`/`perform`/`handle` only build an inert
             // computation, so they carry no effect of their own.
-            ControlRun | ControlHandle => Self {
+            ControlRun => Self {
                 may_trap: true,
                 may_write: true,
             },
@@ -39,9 +39,8 @@ impl IntrinsicEffects {
             | NumberCeil | NumberAbs | NumberSqrt | NumberAcos | NumberAsin | NumberAtan
             | NumberAtan2 | NumberSin | NumberCos | NumberTan | NumberExp | NumberLog
             | NumberPow | NumberMin | NumberMax | NumberSign | NumberRemainder | NumberIsNaN
-            | NumberNaN | NumberInfinity | ControlReturn | ControlBind | ControlPerform => {
-                Self::default()
-            }
+            | NumberNaN | NumberInfinity | ControlReturn | ControlBind | ControlPerform
+            | ControlHandle => Self::default(),
         }
     }
 }

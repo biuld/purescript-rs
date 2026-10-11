@@ -14,6 +14,7 @@ use std::rc::Rc;
 mod array;
 mod call;
 mod constructor;
+mod control;
 mod conversion;
 mod dictionary;
 mod erased;
@@ -45,7 +46,8 @@ pub(super) struct LoweringContext<'a> {
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
     pub(super) boxed_integer_type: Option<ReprId>,
     pub(super) boxed_number_type: Option<ReprId>,
-    pub(super) control_type: Option<ReprId>,
+    pub(super) control_layout: Option<super::layout::control::ControlLayout>,
+    pub(super) control_functions: Rc<RefCell<Option<control::ControlFunctions>>>,
     pub(super) array_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) record_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
@@ -79,7 +81,8 @@ pub(super) fn lower_function(
         newtype_ids: context.newtype_ids,
         boxed_integer_type: context.boxed_integer_type,
         boxed_number_type: context.boxed_number_type,
-        control_type: context.control_type,
+        control_layout: context.control_layout,
+        control_functions: Rc::clone(&context.control_functions),
         array_types: context.array_types,
         record_types: context.record_types,
         constructor_tags: context.constructor_tags,
@@ -227,7 +230,8 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
     pub(super) boxed_integer_type: Option<ReprId>,
     pub(super) boxed_number_type: Option<ReprId>,
-    pub(super) control_type: Option<ReprId>,
+    pub(super) control_layout: Option<super::layout::control::ControlLayout>,
+    pub(super) control_functions: Rc<RefCell<Option<control::ControlFunctions>>>,
     pub(super) array_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) record_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
@@ -246,6 +250,21 @@ pub(super) struct FunctionLowerer<'a> {
 }
 
 impl FunctionLowerer<'_> {
+    pub(in crate::cc::lower) fn verify_synthesized(
+        &self,
+        function: &Function,
+    ) -> Result<(), Vec<BackendError>> {
+        let mut signatures: std::collections::HashMap<SymbolId, Signature> =
+            self.signatures.clone();
+        signatures.extend(
+            self.generated_signatures
+                .borrow()
+                .iter()
+                .map(|(symbol, signature)| (*symbol, signature.clone())),
+        );
+        crate::cc::verify::verify_function(function, &signatures, self.representations)
+    }
+
     pub(super) fn lower_value(
         &mut self,
         expression: &Expr,

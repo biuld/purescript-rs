@@ -2,8 +2,7 @@
 
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
 **Status:** Draft design. The mechanism is selected by
-[DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md); the
-lowering is not implemented.  
+[DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md).
 **Prerequisites:** [DEC-03](../../../decision/DEC-03-purescript-faithful-type-system.md),
 [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md),
 [functional Core](../../frontend/semantics/functional-core.md),
@@ -460,20 +459,95 @@ computation.
 
 #### Frame construction
 
-Each step of a converted computation is represented by a frame. A frame stores:
+The monadic surface is represented by inert computation nodes and a persistent
+sequence of continuation frames. Constructing a `bind` never interprets its input
+computation or invokes its continuation. Strict evaluation of primitive arguments
+still follows the ordinary language rules.
 
-- the free variables the step needs (its captured environment),
-- a small tag identifying which continuation step it is ("after this `perform`,
-  apply this function to the answer"),
-- the pointer to the next frame (the previously captured remainder).
+```text
+Computation = Return(value) | Perform(request) | Bind(inner, continuation)
+            | Resume(value, savedSequence)                 -- internal only
+            | Handle(state, handler, project, inject, inner)
+Sequence    = Empty | Cons(continuation, rest) | Append(left, right)
+Machine     = (handler, state, computation, pendingSequence)
+```
 
-A `perform` builds a frame chain from the current point out to its `run` delimiter,
-hands the request and a handle to that chain (the continuation) to the handler, and
-stops running the current computation. Continuing re-installs the chain and supplies
-a value as the performed step's result. Frames are ordinary GC objects, so captured
-references are roots the engine scans automatically; this is a decisive advantage
-over capturing a raw execution stack, where the runtime must establish stack maps to
-find roots.
+`Bind` records a checked function from the inner result to the next computation.
+The executor pushes this function onto its pending sequence and descends into the
+inner computation. A `Return` consumes one pending function; that function returns
+a computation node to the executor. A `Perform` passes the unchanged request and a
+resumption capturing the entire pending sequence to the handler. The resumption
+constructs `Resume(value, savedSequence)`; it does not execute the sequence or
+re-enter the executor. A bare `Perform` therefore needs only a request field: its
+identity continuation is represented by the empty pending sequence.
+Suspension becomes observable when an executor interprets the node. An unused
+inert node may be eliminated only while preserving strict argument evaluation;
+an interpretation that invokes a handler remains an observable call.
+
+All sequence nodes are immutable GC objects. `Append` joins sequences without
+copying them, including when a resumed computation is itself bound by the handler.
+The saved sequence runs before the caller's pending sequence. Each normalization
+step is driven by the executor loop; recursively nested composition closures are
+not the sequence representation. This is the explicit continuation sequencing used
+by operational free/freer implementations, adapted to compiler-owned frames.
+
+The handler returns the next state and computation. The executor clears its old
+pending sequence: that remainder belongs to the resumption, so a clause may discard
+it, resume it once, or construct several independent resumptions. Retaining the old
+sequence would execute abandoned work or execute a resumed remainder twice.
+Persistent nodes preserve multi-shot replay without mutating shared continuations.
+
+CC layout predeclares these representations and the executor call signature. The
+continuation uses the existing unary erased callable-slot signature. The result
+pair uses the canonical erased record protocol for `_1` and `_2`; ordinary payload
+conversion adapts concrete states, results, handlers, and bind functions. CC lowering
+synthesizes function bodies and registers their direct-call signatures, but cannot
+mutate the representation table. Signature handles and verifier signatures come
+from the same layout declarations.
+
+#### Open elimination and residual forwarding
+
+`handle` constructs an inert `Handle` node. It evaluates its arguments strictly,
+but invokes neither the handler nor `project` during construction. Interpretation
+enters a second instance of the same sequence machine with a fresh empty sequence;
+the caller's pending sequence stays outside this delimiter. Finishing the inner
+machine produces `Return((state, value))`, which the caller interprets with its own
+pending sequence.
+
+The checked compiler interface encodes `Either` using its Church eliminator:
+
+```text
+project : forall x r. u x -> (f x -> r) -> (g x -> r) -> r
+```
+
+The machine applies it to two generated selectors, yielding an internal tagged
+payload. The handled branch calls the supplied clause and continues the inner
+loop with the returned state and computation. The residual branch stops this
+inner loop and returns:
+
+```text
+Bind(Perform(gop), forward(savedState, handler, project, inject, savedSequence))
+forward(x) = Handle(savedState, handler, project, inject,
+                    Resume(x, savedSequence))
+```
+
+The outer executor delivers `gop` unchanged to its handler. Calling `forward`
+only constructs data; re-entry occurs when the outer executor interprets the
+returned `Handle`. Saved state is immutable: separate outer resumptions each
+start with the same saved inner state. Subsequent changes within one branch do
+not overwrite the other branch's state. An outer clause can abandon the entire
+inner delimiter by discarding its resumption.
+
+`inject` remains a checked, strictly evaluated library argument. This machine
+retains the original `u` computation and its pending sequence, so forwarding an
+answer does not reconstruct a `u` request or call `inject`. It needs no inverse
+law between `project` and `inject`. Requests remain opaque throughout.
+
+Both executors use loop-driven sequence normalization. Nested open delimiters
+may call the open executor while retaining their caller; stack use can depend on
+handler nesting depth, but does not grow with bind or forwarded request count
+at fixed handler depth. This guarantee does not cover arbitrary recursive user
+callbacks or direct-style capture across foreign frames.
 
 #### The trampoline
 
@@ -699,12 +773,35 @@ re-entrant resume is rejected.
 
 ### The executor loop
 
-The executor is the fold driver ([The executor and the runtime boundary](#the-executor-and-the-runtime-boundary)):
+The closed executor drives both computation and pending sequence in a flat loop:
 
 ```text
-run h s (Return a)        = (s, a)
-run h s (Perform op cont) = let (s', next) = h s op cont in run h s' next
+exec(h, s, Bind(c, k), q) = exec(h, s, c, Cons(k, q))
+exec(h, s, Resume(v, saved), q) = exec(h, s, Return(v), Append(saved, q))
+exec(h, s, Return(v), Empty) = (s, v)
+exec(h, s, Return(v), Cons(k, q)) = exec(h, s, k(v), q)
+exec(h, s, Return(v), Append(Empty, q)) = exec(h, s, Return(v), q)
+exec(h, s, Return(v), Append(Cons(k, rest), q)) =
+    exec(h, s, k(v), Append(rest, q))
+exec(h, s, Return(v), Append(Append(a, b), q)) =
+    exec(h, s, Return(v), Append(a, Append(b, q)))
+exec(h, s, Perform(op), q) =
+    let cont(x) = Resume(x, q)
+    let (s', next) = h(s, op, cont)
+    exec(h, s', next, Empty)
+```
 
+Every recursive `exec` edge is a self tail call lowered to a MIR loop. Calls to
+ordinary bind functions and handlers return one computation step; they do not
+traverse the saved sequence. User code's own non-tail recursion is outside this
+machine's stack-safety guarantee. Invalid internal tags trap explicitly.
+
+The open executor uses the same sequence rules. At a request it projects the opaque
+union, calls the matching handler for a handled request, or constructs residual
+control data with a continuation that reinstates the saved handler state and
+sequence:
+
+```text
 handle h s project inject (Return a)        = Return (s, a)
 handle h s project inject (Perform uop cont) =
     case project uop of
@@ -752,7 +849,7 @@ This is the design target, not a claim that these APIs exist yet:
 | Location | Intended responsibility |
 | --- | --- |
 | `Prim.Control` owner | The abstract `Control f a` carrier and the `return`/`bind`/`perform`/`run`/`handle` primitives, with their checked schemes |
-| MIR control-lowering owner | Selective CPS/defunctionalization, the frame table, deep/shallow wrapping, and one-shot status |
+| CC control lowering and MIR | Persistent continuation sequencing and synthesis below Typed Core; selective conversion, deep/shallow wrapping, and one-shot status |
 | Executor (guest code) | The loop that drives frames against a handler and threads its state; compiler-generated or a library function over a frame view; never a runtime interpreter of the frame layout |
 | MIR verifier | Frame identity, capture boundary, continuation result-type, and suspension-observability checks |
 | Existing Core/CC/MIR lowering and optimizers | Compile the converted frames and the executor as ordinary higher-order code; preserve generic observable-call semantics |
@@ -846,6 +943,8 @@ following remain open.
 - [DEC-03](../../../decision/DEC-03-purescript-faithful-type-system.md),
   [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md), and
   [compiler cleanup handoff](../../../implementation/backend/effect-state-removal-handoff-2026-10-11.md).
+- [Reflection without Remorse](https://okmij.org/ftp/Haskell/Reflection.html) for
+  explicit type-aligned continuation sequences.
 - [Continuing WebAssembly with Effect Handlers](https://arxiv.org/abs/2308.08347)
   and the [WebAssembly stack-switching proposal](https://github.com/WebAssembly/stack-switching),
   proposal-level references, not evidence of this target profile's support.

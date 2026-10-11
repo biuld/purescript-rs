@@ -129,7 +129,8 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
         newtype_ids: &newtype_ids,
         boxed_integer_type: None,
         boxed_number_type: None,
-        control_type: None,
+        control_layout: None,
+        control_functions: std::rc::Rc::new(std::cell::RefCell::new(None)),
         generated_signatures: std::rc::Rc::new(std::cell::RefCell::new(
             std::collections::HashMap::new(),
         )),

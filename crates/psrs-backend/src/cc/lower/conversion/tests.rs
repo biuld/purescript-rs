@@ -51,7 +51,8 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         newtype_ids: &ids,
         boxed_integer_type: None,
         boxed_number_type: None,
-        control_type: None,
+        control_layout: None,
+        control_functions: std::rc::Rc::new(std::cell::RefCell::new(None)),
         generated_signatures: std::rc::Rc::new(std::cell::RefCell::new(
             std::collections::HashMap::new(),
         )),

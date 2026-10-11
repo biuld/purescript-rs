@@ -4,6 +4,9 @@ use crate::cc::{Assignment, AssignmentKind};
 use crate::mir::{BlockId, Instruction};
 use crate::types::{HeapType, RefType, ValueType};
 
+#[cfg(test)]
+mod tests;
+
 impl FunctionLowerer<'_> {
     pub(in crate::mir) fn lower_variant(
         &mut self,
@@ -22,6 +25,24 @@ impl FunctionLowerer<'_> {
                     .layout
                     .variant_index(*representation, *case)
                     .map_err(|error| layout_error(span, error))?;
+                // CC permits a variant's common representation as well as an
+                // abstract aggregate result. Construct at the concrete case
+                // type before widening to a declared common representation.
+                let declared = self.value_type(*destination);
+                let widened = match declared {
+                    Some(ValueType::Ref(reference)) if matches!(reference.heap, HeapType::Index(index) if index != case_type) => {
+                        Some(reference)
+                    }
+                    _ => None,
+                };
+                let constructed = if widened.is_some() {
+                    self.fresh(ValueType::Ref(RefType {
+                        nullable: false,
+                        heap: HeapType::Index(case_type),
+                    }))
+                } else {
+                    *destination
+                };
                 let tag = self.fresh(ValueType::I32);
                 self.append_instruction(
                     current,
@@ -36,13 +57,26 @@ impl FunctionLowerer<'_> {
                 self.append_instruction(
                     current,
                     Instruction::StructNew {
-                        destination: *destination,
+                        destination: constructed,
                         type_index: case_type,
                         arguments,
                         span,
                     },
                     span,
-                )
+                )?;
+                if let Some(reference) = widened {
+                    self.append_instruction(
+                        current,
+                        Instruction::RefCast {
+                            destination: *destination,
+                            value: constructed,
+                            reference,
+                            span,
+                        },
+                        span,
+                    )?;
+                }
+                Ok(())
             }
             AssignmentKind::VariantTag {
                 destination,

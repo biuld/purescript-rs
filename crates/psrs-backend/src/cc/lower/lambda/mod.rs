@@ -256,11 +256,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             result_type: final_result_type,
             span: expression.span,
         };
-        super::super::verify::verify_function(
-            &nested_function,
-            self.signatures,
-            self.representations,
-        )?;
+        self.verify_synthesized(&nested_function)?;
         let FunctionLowerer {
             generated: nested_generated,
             warnings: nested_warnings,
@@ -321,7 +317,8 @@ impl LambdaLowering for FunctionLowerer<'_> {
             newtype_ids: self.newtype_ids,
             boxed_integer_type: self.boxed_integer_type,
             boxed_number_type: self.boxed_number_type,
-            control_type: self.control_type,
+            control_layout: self.control_layout,
+            control_functions: std::rc::Rc::clone(&self.control_functions),
             array_types: self.array_types,
             record_types: self.record_types,
             constructor_tags: self.constructor_tags,
