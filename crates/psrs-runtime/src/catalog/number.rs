@@ -16,7 +16,7 @@ pub const NUMBER_RUNTIME: RuntimeArtifact = RuntimeArtifact {
         target: "wasm32-unknown-unknown",
         profile: "target-runtime",
         recipe: "tools/build.sh: RUSTFLAGS=-C no-redzone=yes; --import-memory --global-base=65536 \
-                 -zstack-size=65536 --export=__heap_base, then package",
+                 -zstack-size=65536 --export=__heap_base, then psrs-runtime-package",
         sha256: "458a7df7eb27038c4d6b22aa52fc8ea283c6dca41120b0c0bf31f6a851aa0260",
     },
     required_features: &[

@@ -246,16 +246,27 @@ The package remains one crate, with four module owners:
 - `src/catalog/` contains plain metadata records, WIT assets, package membership,
   and separate numeric/allocator declarations. Each unit's operation offers and
   pinned artifact contract are declared together.
-- `src/number/` implements formatting, decimal parsing, and scalar math. The
-  existing `formatter` feature remains its build entry for compatibility.
+- `src/number/` implements formatting, decimal parsing, and scalar math,
+  selected by the `number` feature.
 - `src/allocator/` separates portable allocation validation, phase handling and
   segment planning from the Wasm adapter and its persistent state.
 
 `lib.rs` selects these modules and preserves the existing root-level exports.
-One Wasm-only panic handler supplies trap behavior for either executable build;
-the numeric and allocator features remain mutually exclusive on Wasm. Native
-compiler consumers enable only `catalog`, while each artifact build enables only
-its executable feature. `tools/check-reproducible.sh` rebuilds and compares both
+One Wasm-only panic handler supplies trap behavior for executable builds.
+Features are additive: enabling both numeric and allocator code is permitted,
+but does not select a published artifact's storage contract. Native
+compiler consumers enable `catalog` and, where needed, the `gc-storage` host
+encoder. The default feature set contains only `catalog`; executable numeric
+code is not enabled by metadata consumption. Catalog and GC encoding modules,
+and packaging dependencies, are host-only even when their features are enabled
+on Wasm. Each Rust artifact build disables
+defaults and enables only `number` or `allocator`. The host packaging binary
+`psrs-runtime-package` lives in `tools/package.rs` and requires `artifact-tool`;
+`tools/build.sh` invokes it with defaults disabled to reserve the numeric
+artifact's private stack. The scripts use separate `runtime-number` and
+`runtime-allocator` target directories under the configured Cargo target root,
+so concurrent builds cannot exchange their output modules.
+`tools/check-reproducible.sh` rebuilds and compares both
 pinned artifacts through their respective build scripts without overwriting them.
 
 The resolved default world supplies interface membership. Capability policy is

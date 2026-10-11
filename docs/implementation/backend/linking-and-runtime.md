@@ -290,3 +290,45 @@ tests execute string-buffer reclamation through the composed provider.
 
 Corpus scoreboards were not remeasured. This evidence does not close all
 allocator and buffer-lifetime acceptance obligations or persistent Core caching.
+
+## Runtime address and build contracts (2026-10-11)
+
+Canonical allocator operands now use unsigned wasm32 addresses, lengths and
+alignment throughout the runtime adapter. The Core export signature remains
+four `i32` parameters and one `i32` result. High-bit live addresses can be resized
+and freed; backing layouts beyond Rust's `isize::MAX` allocation limit fail
+explicitly. Full-memory byte coverage no longer wraps at 4 GiB.
+
+The allocator artifact was rebuilt and repinned to SHA-256
+`4eca097da7112522a23cd790d7562d643090ac7d5f63aa493e853b23925dfb23`.
+Composition verifies its ABI, storage reservations and declared 80-byte stack
+upper bound against the actual binary.
+
+`catalog` is the only default feature. Host metadata, GC encoding and packaging
+dependencies are excluded from Wasm builds. Executable features are additive;
+published numeric and allocator artifacts still select separate feature sets
+and storage contracts. Their build scripts now use distinct target directories.
+Numeric packaging is an explicit host binary under `tools/`, rather than an
+example. The numeric artifact is unchanged.
+
+Focused validation:
+
+| Command or check | Result |
+| --- | --- |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-runtime --all-features --lib` | 26 passed; includes sparse high-bit address and unsigned-length allocator cases, and mandatory GC provider execution |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-linker --test heap_getter` | 4 passed with the new artifact; the execution case subsequently passed with an added `0x80000000` heap boundary |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend --lib post_return::` | 3 passed, including composed string-buffer reclamation |
+| `cargo check --locked -p psrs-runtime --lib --target wasm32-unknown-unknown --all-features` | Passed |
+| Concurrent numeric and allocator build scripts, followed by comparison against pinned bytes | Both artifacts reproduced byte-for-byte |
+| `cargo clippy -p psrs-runtime --all-targets --all-features -- -D warnings` | Passed |
+
+Formatting (`cargo fmt --all --check`), shell syntax checks and
+`git diff --check` passed for this continuation.
+
+The high-boundary execution allocates a small payload in memory above 2 GiB,
+checks its contents after resizing, and frees it through the composed allocator.
+It does not attempt a single allocation larger than Rust's layout limit.
+Workspace tests and corpus scoreboards were not rerun for this bounded fix.
+Storage ABI comments now describe ordinary operands without a State protocol.
+Compiler-side generic storage bindings remain explicitly unsupported after
+withdrawal of State; this work does not restore them or implement Effect/ST.

@@ -122,7 +122,7 @@ main = let ignored = log (show 1.0e21) in 0
     assert!(digests.contains("psrs:runtime-number"), "{digests}");
     assert!(digests.contains("psrs:runtime-allocator"), "{digests}");
     assert!(
-        digests.contains("a6f556d0151e8c474c495ad4488b9a23d67bb105dda2dc84eff17eaba70bbf19"),
+        digests.contains("4eca097da7112522a23cd790d7562d643090ac7d5f63aa493e853b23925dfb23"),
         "{digests}"
     );
     assert!(

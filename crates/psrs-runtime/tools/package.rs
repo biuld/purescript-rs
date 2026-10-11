@@ -51,7 +51,7 @@ impl Reencode for Reservation {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args().collect();
     if args.len() != 3 {
-        return Err("usage: package <linked.wasm> <reserved.wasm>".into());
+        return Err("usage: psrs-runtime-package <linked.wasm> <reserved.wasm>".into());
     }
     let bytes = fs::read(&args[1])?;
     wasmparser::Validator::new().validate_all(&bytes)?;

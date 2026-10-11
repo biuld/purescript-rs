@@ -122,7 +122,9 @@ fn allocator_executes_with_each_application_supplied_boundary() {
         return;
     }
     let context = resolve_default_definitions().unwrap();
-    for heap in [65536, 262144] {
+    // The last boundary exercises real high-bit pointers through allocation,
+    // content-preserving resize and free, without a large payload allocation.
+    for heap in [65536_u32, 262144, 0x8000_0000] {
         let link = plan(&context, input(heap)).unwrap();
         // Allocate beyond the initial page, verify bounds and scratch survival,
         // resize with content preservation, then free through the same instance.

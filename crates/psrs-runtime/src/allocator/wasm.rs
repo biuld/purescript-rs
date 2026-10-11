@@ -64,6 +64,12 @@ struct WasmStore<'a> {
 
 impl algorithm::Store for WasmStore<'_> {
     fn allocate(&mut self, size: u32, align: u32) -> Option<u32> {
+        // Rust allocations cannot exceed isize::MAX even though the canonical
+        // ABI accepts unsigned lengths. Reject such requests as allocation
+        // failures, without treating the high bit of an address as a sign.
+        if size > isize::MAX as u32 || align > isize::MAX as u32 {
+            return None;
+        }
         let pointer = unsafe { self.alloc.malloc(size as usize, align as usize) };
         if pointer.is_null() {
             None
@@ -120,7 +126,10 @@ static mut STATE: State = State {
 };
 
 fn memory_bytes() -> usize {
-    core::arch::wasm32::memory_size(0) * PAGE
+    // A full wasm32 memory is 4 GiB, whose byte count exceeds usize::MAX.
+    // Saturation preserves coverage checks; segment planning still rejects
+    // ranges whose exclusive end cannot be represented.
+    core::arch::wasm32::memory_size(0).saturating_mul(PAGE)
 }
 
 fn initialize(alloc: &mut Dlmalloc<Provision>) -> Result<(), ()> {
@@ -134,7 +143,7 @@ fn initialize(alloc: &mut Dlmalloc<Provision>) -> Result<(), ()> {
 
 /// Canonical realloc export. A trap leaves no published replacement pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cabi_realloc(old_ptr: i32, old_len: i32, align: i32, new_len: i32) -> i32 {
+pub unsafe extern "C" fn cabi_realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
     unsafe {
         let state = &mut *core::ptr::addr_of_mut!(STATE);
         let initializing = phase::enter(&mut state.phase).unwrap_or_else(|_| {

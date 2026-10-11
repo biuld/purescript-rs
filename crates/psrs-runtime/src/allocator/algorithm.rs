@@ -23,21 +23,21 @@ struct Live {
     align: u32,
 }
 
-/// Runs one canonical call. `Err` is a trap. `Ok` is the returned pointer.
+/// Runs one canonical call with unsigned wasm32 addresses and byte lengths.
+/// `Err` is a trap. `Ok` is the returned pointer, including addresses above 2 GiB.
 pub fn realloc(
     store: &mut impl Store,
     head: &mut u32,
-    old_ptr: i32,
-    old_len: i32,
-    align: i32,
-    new_len: i32,
-) -> Result<i32, ()> {
+    old_ptr: u32,
+    old_len: u32,
+    align: u32,
+    new_len: u32,
+) -> Result<u32, ()> {
     let align = canonical_align(align)?;
-    let new_len = canonical_len(new_len)?;
     if new_len == 0 {
         if old_ptr != 0 {
             let live = find(store, *head, old_ptr)?;
-            if live.requested != canonical_len(old_len)? {
+            if live.requested != old_len {
                 return Err(());
             }
             unlink(store, head, live.backing);
@@ -49,9 +49,8 @@ pub fn realloc(
         if old_len != 0 {
             return Err(());
         }
-        return Ok(insert(store, head, align, new_len)? as i32);
+        return insert(store, head, align, new_len);
     }
-    let old_len = canonical_len(old_len)?;
     let live = find(store, *head, old_ptr)?;
     if live.requested != old_len {
         return Err(());
@@ -60,7 +59,7 @@ pub fn realloc(
     store.copy(live.user, user, old_len.min(new_len));
     unlink(store, head, live.backing);
     store.release(live.backing, live.size, live.align);
-    Ok(user as i32)
+    Ok(user)
 }
 
 fn insert(store: &mut impl Store, head: &mut u32, align: u32, len: u32) -> Result<u32, ()> {
@@ -82,15 +81,14 @@ fn insert(store: &mut impl Store, head: &mut u32, align: u32, len: u32) -> Resul
     Ok(user)
 }
 
-fn find(store: &impl Store, head: u32, old_ptr: i32) -> Result<Live, ()> {
-    if old_ptr <= 0 {
+fn find(store: &impl Store, head: u32, old_ptr: u32) -> Result<Live, ()> {
+    if old_ptr == 0 {
         return Err(());
     }
-    let wanted = old_ptr as u32;
     let mut backing = head;
     while backing != 0 {
         let live = read_live(store, backing)?;
-        if live.user == wanted {
+        if live.user == old_ptr {
             return Ok(live);
         }
         backing = live.next;
@@ -125,20 +123,12 @@ fn unlink(store: &mut impl Store, head: &mut u32, backing: u32) {
     }
 }
 
-fn canonical_align(align: i32) -> Result<u32, ()> {
-    if align <= 0 {
-        return Err(());
-    }
-    let align = align as u32;
+fn canonical_align(align: u32) -> Result<u32, ()> {
     if align.is_power_of_two() {
         Ok(align)
     } else {
         Err(())
     }
-}
-
-fn canonical_len(len: i32) -> Result<u32, ()> {
-    u32::try_from(len).map_err(|_| ())
 }
 
 pub mod provision {
@@ -211,7 +201,7 @@ mod tests {
         let mut heap = Heap::new();
         let mut head = 0;
         let first = realloc(&mut heap, &mut head, 0, 0, 8, 4).unwrap();
-        heap.write(first as u32, u32::from_le_bytes(*b"abcd"));
+        heap.write(first, u32::from_le_bytes(*b"abcd"));
         assert_eq!(first & 7, 0);
         let resized = realloc(&mut heap, &mut head, first, 4, 32, 4).unwrap();
         assert_eq!(resized & 31, 0);
@@ -234,9 +224,75 @@ mod tests {
         heap.bytes[first as usize] = 9;
         assert!(realloc(&mut heap, &mut head, first, 4, 8, 8).is_err());
         assert_eq!(heap.bytes[first as usize], 9);
-        assert_eq!(
-            head,
-            first as u32 - provision::align_u32(RECORD, 8).unwrap()
-        );
+        assert_eq!(head, first - provision::align_u32(RECORD, 8).unwrap());
+    }
+
+    // Sparse bookkeeping exercises unsigned addresses/lengths without reserving
+    // gigabytes of host memory. Copies are recorded rather than materialized.
+    struct SparseHeap {
+        cursor: u32,
+        words: std::collections::BTreeMap<u32, u32>,
+        copies: Vec<(u32, u32, u32)>,
+        released: Vec<u32>,
+    }
+
+    impl SparseHeap {
+        fn at(cursor: u32) -> Self {
+            Self {
+                cursor,
+                words: Default::default(),
+                copies: Vec::new(),
+                released: Vec::new(),
+            }
+        }
+    }
+
+    impl Store for SparseHeap {
+        fn allocate(&mut self, size: u32, align: u32) -> Option<u32> {
+            let address = provision::align_u32(self.cursor, align).ok()?;
+            self.cursor = address.checked_add(size)?;
+            Some(address)
+        }
+        fn release(&mut self, pointer: u32, _: u32, _: u32) {
+            self.released.push(pointer);
+        }
+        fn read(&self, address: u32) -> u32 {
+            self.words[&address]
+        }
+        fn write(&mut self, address: u32, value: u32) {
+            self.words.insert(address, value);
+        }
+        fn copy(&mut self, from: u32, to: u32, len: u32) {
+            self.copies.push((from, to, len));
+        }
+    }
+
+    #[test]
+    fn high_bit_addresses_can_be_resized_and_freed() {
+        let mut heap = SparseHeap::at(0x8000_0000);
+        let mut head = 0;
+        let first = realloc(&mut heap, &mut head, 0, 0, 4, 8).unwrap();
+        assert_eq!(first, 0x8000_0014);
+        assert!(realloc(&mut heap, &mut head, first + 1, 8, 4, 0).is_err());
+        let resized = realloc(&mut heap, &mut head, first, 8, 8, 16).unwrap();
+        assert_eq!(heap.copies, vec![(first, resized, 8)]);
+        assert_eq!(heap.released, vec![0x8000_0000]);
+        assert_eq!(realloc(&mut heap, &mut head, resized, 16, 8, 0), Ok(0));
+        assert_eq!(head, 0);
+        assert_eq!(heap.released.len(), 2);
+        assert!(realloc(&mut heap, &mut head, resized, 16, 8, 0).is_err());
+    }
+
+    #[test]
+    fn unsigned_lengths_are_preserved_and_overflow_is_rejected() {
+        let mut heap = SparseHeap::at(64);
+        let mut head = 0;
+        let first = realloc(&mut heap, &mut head, 0, 0, 4, 0x8000_0000).unwrap();
+        let resized = realloc(&mut heap, &mut head, first, 0x8000_0000, 4, 1).unwrap();
+        assert_eq!(heap.copies, vec![(first, resized, 1)]);
+        assert_eq!(realloc(&mut heap, &mut head, resized, 1, 4, 0), Ok(0));
+        assert_eq!(realloc(&mut heap, &mut head, 0, 0, 0x8000_0000, 0), Ok(0));
+        assert!(realloc(&mut heap, &mut head, 0, 0, 4, u32::MAX).is_err());
+        assert_eq!(head, 0);
     }
 }

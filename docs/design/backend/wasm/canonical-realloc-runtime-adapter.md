@@ -152,8 +152,16 @@ an optimization requiring correct record updates and the same failure guarantees
 
 ## Algorithms
 
-1. Validate `align` as a nonzero power of two for every call, including zero sizes.
+1. Interpret pointers, lengths and alignment as unsigned wasm32 values; their
+   physical Core signature remains `i32`. A high-bit address is a valid address,
+   not a negative-pointer error. Validate `align` as a nonzero power of two for
+   every call, including zero sizes.
    Apply checked payload/prefix/alignment arithmetic before allocator mutation.
+   The Rust allocation adapter rejects backing sizes and alignments above
+   `isize::MAX` as allocation failures. This bounds individual allocation
+   layouts, not the numeric address of a live allocation. At full wasm32 memory,
+   byte coverage saturates to `usize::MAX`; segment planning still rejects an
+   unrepresentable exclusive end.
 2. For `new_len == 0`, locate and free any non-null live allocation using its
    stored backing layout, unlink its record, and return zero. Preserve the
    existing free-path old-length treatment; do not pass that length to Rust.

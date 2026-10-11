@@ -22,7 +22,7 @@ pub const ALLOCATOR_RUNTIME: RuntimeArtifact = RuntimeArtifact {
         recipe: "tools/build-allocator.sh: remap-path-prefix, no-redzone, --import-memory \
                  --stack-first -zstack-size=32768 --global-base=32768; direct Rust output, \
                  imports __main_module__.get_heap_base, no executable start",
-        sha256: "a6f556d0151e8c474c495ad4488b9a23d67bb105dda2dc84eff17eaba70bbf19",
+        sha256: "4eca097da7112522a23cd790d7562d643090ac7d5f63aa493e853b23925dfb23",
     },
     required_features: &[
         "mutable-globals",
