@@ -154,7 +154,7 @@ separate decision.
 ### The computation carrier and primitives
 
 The compiler-owned surface is an **over-functor computation**: a freer computation
-over an opaque request functor `f`, with four primitives.
+over an opaque request functor `f`, with construction and interpretation primitives.
 
 ```text
 Control f a                  -- computation over request functor f, yielding an a
@@ -613,6 +613,17 @@ the handler frame. A **shallow** handler resumes the chain without re-wrapping, 
 the handler runs once and later requests escape to an outer delimiter. The library
 selects the semantics; the lowering must implement both and must not silently deepen
 or shallow a handler.
+
+The current state-threading `run`/`handle` folds process the clause's returned
+computation under their own driver. That contract alone does not express the
+scoped-handler distinction between a fresh request in a clause (handled outside
+the delimiter) and a request in a resumed program (reinstalled under a deep
+handler). In particular, forwarding residual requests from the handled program
+does not prove forwarding from a clause. A generic typed delimiter boundary must
+preserve this distinction before the library can implement the complete
+deep/shallow contract. This is a remaining representation/API obligation, not
+permission to narrow the library semantics. The retained `ClauseScope.purs`
+acceptance case is described in the implementation checklist.
 
 #### One-shot and multi-shot
 

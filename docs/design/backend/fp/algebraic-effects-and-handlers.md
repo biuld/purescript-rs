@@ -4,7 +4,8 @@
 **Status:** Draft design. The execution mechanism is selected by
 [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md) and
 specified in [delimited control and resumable frames](delimited-control-and-resumable-frames.md);
-the lowering is not implemented.  
+the low-level closed/open folds and ownership checks have focused implementation
+evidence; complete library handler semantics remain unverified.
 **Prerequisites:** [DEC-03](../../../decision/DEC-03-purescript-faithful-type-system.md),
 [functional Core](../../frontend/semantics/functional-core.md),
 [rows and records](../../frontend/type-system/rows-and-records.md),

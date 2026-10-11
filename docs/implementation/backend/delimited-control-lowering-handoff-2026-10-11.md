@@ -206,3 +206,27 @@ The next required slices are deep/shallow handler behavior with official library
 comparison, complete frame identity verification, foreign borrowed resources and
 host recovery/cleanup after a caught guest trap. Normal-return lifetime and
 single-thread callback ownership evidence do not discharge those obligations.
+
+## Main stdlib continuation (2026-10-11)
+
+The main stdlib worktree is now clean on `control-library` at `28997b5`, containing
+`dda3ba3` plus official type comparison and semantic trap acceptance. Withdrawn
+State-protocol changes were archived in a stash; the main checkout no longer
+contains that implementation. The compiler lock remains on `1e01310`.
+The clean temporary stdlib control worktree was removed after its commits were
+retained on the main package branch.
+
+The official type comparison discovered and fixed the wrapper's invalid imported
+type exports by using local type aliases. Both compilers agree on five accepting
+and four `TypesDoNotUnify` rejection cases; the official side uses an explicitly
+opaque interface shim and makes no control runtime claim. The five public
+Wasmtime fixtures and 12 Node tool tests pass. Full Rust checks were not repeated
+because this continuation changes only library/tool sources and compiler docs.
+
+The next concrete blocker is retained in stdlib `ClauseScope.purs`: compilation
+succeeds, execution returns 0 against required 42. The current fold interprets a
+clause's fresh request under the same inner handler, while complete scoped-handler
+semantics require the outer handler to see it. Deep resumed execution and clause
+execution need distinct generic delimiter evidence; shallow removal also remains
+unexpressed. The checklist records the owning code, report and required next
+boundary. Do not treat existing residual forwarding as proof of clause scope.

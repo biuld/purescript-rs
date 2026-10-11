@@ -389,3 +389,72 @@ Final logs are `/private/tmp/psrs-control-owned-alias-workspace.log`,
 runs that failed canonical-array reuse or suffered shared build-cache interference
 are not final evidence. No official differential or scoreboard was run. Complete
 AE/AC requirements retain their Unverified status.
+
+## Main package cleanup and official type comparison (2026-10-11)
+
+The stdlib main worktree previously contained committed `7852625` and uncommitted
+State-protocol/WASI adaptations. At the user's request those old working changes
+were archived in a named stash, and the main worktree switched to `control-library`
+based on the locked package plus `dda3ba3`. The generic trap-runner improvement
+was preserved separately. The old branch and stash retain recovery history; no
+shared Git repository directory was deleted. The main package is now committed
+at `28997b5` and clean. The compiler lock is still unchanged.
+
+Official `purs` 0.15.16 found `UnknownExport` in the initial target wrapper:
+imported type names cannot be listed as local exports. The wrapper now declares
+local `Control` and `Resumption` type aliases. The retained before report is
+`/private/tmp/psrs-control-official-types-before.stdout`.
+
+The package-owned `conformance/control-types.mjs` compares five accepting and
+four rejecting sources using both public compiler executables. Since official
+`purs` does not implement `Prim.Control`, the official side explicitly uses an
+opaque foreign-declaration shim with the same eight scheme shapes, local Unit
+and scalar declarations, and a compiler-interface import remap. It emits CoreFn
+only, with no fabricated foreign runtime. The wrapper bodies and aliases are
+otherwise unchanged. Both compilers accept all five wrapper fixture sources and
+reject wrong owner input, wrong result, a bare function passed to cancellation,
+and a monomorphic clause with `TypesDoNotUnify`. The target rejection must come
+from P5 typecheck; crashes, missing tools and unrelated diagnostics do not count.
+The accepted report, including tool/source hashes and unchanged package
+fingerprint, is `/private/tmp/psrs-control-official-types/types.json`.
+
+This is focused ordinary-language type evidence. It does not establish official
+control runtime behavior, pinned `purescript-run` compatibility, full rows or any
+complete AE requirement. No official suite scoreboard was rerun.
+
+All five public target runtime fixtures pass from the main package. Negative
+cases now use `--expected-trap unreachable`: completed nonzero execution,
+expected stdout and the terminal trap reason are required; raw stderr is still
+retained. Backtrace offsets are no longer a golden. All 12 Node tool tests pass;
+the pinned audit retains 41 packages / 231 modules (170 identical, 36 modified,
+25 target additions), with no absent upstream modules or direct self-recursions.
+Reports are `/private/tmp/psrs-control-main-<case>/run.json`; tool and audit logs
+are `/private/tmp/psrs-stdlib-control-trap-node.log` and
+`/private/tmp/psrs-control-main-audit.log`.
+
+### Next owning contract: clause scope and deep/shallow reinstatement
+
+`conformance/control/ClauseScope.purs` in stdlib is a retained failing acceptance
+case. An inner clause performs a fresh request before invoking its continuation.
+The scoped-handler requirement expects the outer handler to handle that request
+and supply 42; the inner clause should be invoked once. Under `a31ba11e`, the
+case compiles successfully but returns 0, because the inner fold handles both
+requests. `/private/tmp/psrs-control-main-ClauseScope/run.json` records the
+failure against expected exit 42. This case is excluded from the five passing
+runtime fixtures and the nine type comparisons.
+
+`cc/lower/control/open.rs::handled` calls the clause then recurs with the same
+handler over its next computation. That implements the present state-threading
+fold, but it does not carry the semantic evidence needed to distinguish clause
+execution outside the delimiter from deep reinstatement of a resumed program.
+A shallow continuation likewise cannot select removal of that handler with the
+current fold surface. The next foundation must provide that distinction at one
+generic typed delimiter boundary, keep clause and resumed-program domains
+explicit, and retain lifetime/multiplicity evidence through CC. A hidden mutable
+projection flag, concrete-effect dispatch exception or request suppression would
+not satisfy the contract. AE-06 and AC-05 remain Unverified.
+
+No Rust source changed in this continuation. Full Rust workspace tests/clippy
+were not repeated; the prior `a31ba11e` evidence remains the compiler baseline.
+The library tools, official type comparison, focused public runtime cases and
+source audit were actually executed as recorded above.
