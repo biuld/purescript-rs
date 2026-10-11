@@ -16,6 +16,9 @@ stdlib `5d523805c4e2096e68fab5a4f965f62b225ee2af` with content identity
 selection with mandatory Wasmtime; the official type comparison and nine public
 package fixtures are recorded in the v2 checklist. Historical sections below
 preserve prior checkpoints; the five-argument API belongs to those checkpoints.
+The continuation from compiler `bdaf0cfc` makes machine frame storage fields
+nominal and adds malformed CC/MIR construction/projection checks; detailed
+validation is recorded in the acceptance checklist's machine storage section.
 Full frame/context identity verification, allocation/depth measurements, foreign
 resources and caught-trap cleanup remain outstanding.
 

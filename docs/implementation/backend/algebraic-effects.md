@@ -650,3 +650,51 @@ Logs: `/private/tmp/psrs-control-v2-locked.log`,
 `/private/tmp/psrs-control-v2-package.log`, and `/private/tmp/psrs-control-v2-core.log`.
 The full workspace failure-set comparison above used the explicit development
 path to the same package content; it is not relabelled as a default-selection run.
+
+## Nominal machine storage continuation (2026-10-11)
+
+Starting point: compiler `bdaf0cfc`, a clean worktree, and the default locked
+stdlib `5d523805c4e2096e68fab5a4f965f62b225ee2af`. The scoped runtime, nested
+replay and lifetime targets pass before the change; their baseline log is
+`/private/tmp/psrs-control-typed-frames-before.log`.
+
+CC layout now stores computation links, queue tails, finish extents, caller
+contexts and ownership cells with explicit representation handles. Stored
+callbacks name the predeclared unary signature. Primitive and synthesized
+constructors consult this same immutable schema; projections declare its field
+shape before a separate erasure. Existing erased carrier/helper boundaries use
+explicit reference casts. They recover existing objects without invoking source
+array payload conversion, which would adapt/copy a shared integer status cell.
+The target planner retains recursive nominal fields in MIR struct types.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Reject wrong or erased machine storage fields | `control_frames_reject_erased_or_wrong_machine_fields_in_cc`: resume queue, handle body, append queue, finish extent, caller context, owner status and boundary parent | Focused Verified |
+| Preserve typed projection before erasure | `control_frame_projection_cannot_silently_erase_checkpoint_identity` rejects an erased declaration for a finish extent projection | Focused Verified |
+| Preserve field contracts into MIR | `mir_preserves_control_frame_fields_and_rejects_cross_wired_storage` lowers valid recursive frames, then swaps fields in resume, finish, context, owner and boundary structs; MIR rejects wrong argument types | Focused Verified |
+| Preserve execution and shared ownership | All 80 control tests pass with mandatory Wasmtime and default package selection, including reentrant live raw resume, nested replay, expiry, cancellation, GC and long requests | Focused Verified |
+| Prove semantic source/target identity and checkpoint provenance | Same-shaped extents/domains can still be exchanged without this storage check proving their ownership; erased helper calls and reference casts remain trusted producer boundaries | Unverified |
+
+Trap assertions now require an actual guest trap and reject cast failures, so
+incorrect machine representations cannot satisfy expected control rejection.
+Ordinary strictness/ignored-result fixtures retain their divide-by-zero traps.
+No package source, control signature, intrinsic identity or gate measurement
+changes in this continuation. Full AE/AC acceptance remains Unverified.
+
+Validation logs: `/private/tmp/psrs-control-typed-frames-ir.log` (three new
+malformed-IR tests), `/private/tmp/psrs-control-typed-frames-control.log` (80 control
+tests), and `/private/tmp/psrs-control-typed-frames-clippy.log` (workspace clippy).
+Formatting and diff checking pass. `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+--no-fail-fast` executes all 427 backend tests and the control targets successfully.
+The nine pre-existing non-doc targets still fail at exactly the same 175 test
+names as the v2 baseline, with no added or recovered names. Two additional
+doctest targets report `E0463` (missing dependency crate) in that run while other
+validation commands rebuild shared artifacts; a subsequent serial
+`cargo test -p psrs-backend -p psrs-driver --doc` passes both targets (zero doc
+examples). This rerun resolves the observed operational failures, without
+relabeling the initial full workspace run as passing.
+Logs: `/private/tmp/psrs-control-typed-frames-workspace.log`,
+`/private/tmp/psrs-control-typed-frames-comparison.json`, and
+`/private/tmp/psrs-control-typed-frames-doctests.log`. No official scoreboard or
+upstream type comparison is rerun for this internal storage change; the prior
+package type/source evidence is retained rather than remeasured here.

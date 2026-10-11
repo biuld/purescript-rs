@@ -87,6 +87,10 @@ impl<'a> Machine<'a> {
         fields: Vec<ValueId>,
         body: &mut Vec<Assignment>,
     ) -> ValueId {
+        let fields = self
+            .lower
+            .control_fields(representation, case, fields, self.span, body)
+            .expect("machine construction must match its predeclared frame schema");
         let value = self.emit(repr(representation), body, |destination| {
             AssignmentKind::VariantNew {
                 destination,
@@ -107,15 +111,19 @@ impl<'a> Machine<'a> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         let value = self.cast(value, repr(representation), body);
-        self.emit(erased_shape(), body, |destination| {
-            AssignmentKind::VariantGet {
-                destination,
-                representation,
-                case,
-                field,
-                value,
-            }
-        })
+        let shape = self.lower.control_field_shape(representation, case, field);
+        let result = self.emit(shape, body, |destination| AssignmentKind::VariantGet {
+            destination,
+            representation,
+            case,
+            field,
+            value,
+        });
+        if shape == erased_shape() {
+            result
+        } else {
+            self.cast(result, erased_shape(), body)
+        }
     }
 
     pub fn pair(&mut self, state: ValueId, value: ValueId, body: &mut Vec<Assignment>) -> ValueId {

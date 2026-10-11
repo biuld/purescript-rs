@@ -164,6 +164,30 @@ answer boundary; replay-local captures still expire at branch completion.
 Long request sequences require allocation and ancestor-depth evidence as well
 as stack evidence. Any optimization must preserve the observable expiry rules.
 
+### Machine storage contracts
+
+The representation table owns the recursive field schema. Computation links,
+queue tails, finish extents, caller contexts, owner callback cells and status
+cells have explicit `ReprId` shapes; stored bind/handler callbacks have the
+predeclared unary callable shape. Only user requests, answers and the mutable
+callback-cell contents use erased storage. A spent owner clears its callback
+slot with another erased reference while its integer status cell stays shared.
+
+The erased carrier/helper protocol uses explicit reference casts to recover
+these existing machine objects before construction. This is not source payload
+recovery: adapting array contents here would copy a status cell and invalidate
+ownership/lifetime sharing. Projections produce their declared stored shape;
+erasure for a helper call is a separate conversion. CC verifies construction
+and projection shapes, and the target planner retains them as MIR struct field
+types, including recursive queue/context/extent references.
+
+These storage contracts reject a queue supplied as a finish extent and an
+erased field projection declared without an explicit conversion. They do not
+prove which particular extent owns a checkpoint or that two same-shaped fields
+have compatible source/target domains. Full semantic provenance verification
+must additionally retain those identities through helper calls and casts; a
+well-shaped reference cast alone is not that proof.
+
 ### Alternatives
 
 - Moving old clause execution to the caller changes neither its source type nor

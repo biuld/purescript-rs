@@ -1,7 +1,10 @@
 //! Predeclared representations for the persistent control abstract machine.
 
 use crate::cc::payload::erased_shape;
-use crate::cc::{ReprId, Representation, RepresentationTable, Signature, SignatureId, VariantCase};
+use crate::cc::{
+    RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, SignatureId,
+    ValueShape, VariantCase,
+};
 
 #[derive(Clone, Copy)]
 pub(in crate::cc) struct ControlLayout {
@@ -21,35 +24,75 @@ pub(in crate::cc) struct ControlLayout {
     pub boundary_check: SignatureId,
 }
 
-pub(super) fn append(table: &mut RepresentationTable, continuation: SignatureId) -> ControlLayout {
+pub(in crate::cc) fn append(
+    table: &mut RepresentationTable,
+    continuation: SignatureId,
+) -> ControlLayout {
     let erased = erased_shape();
     let computation = table.reserve();
-    table.set(
-        computation,
-        Representation::Variant {
-            cases: [1, 1, 2, 3, 3, 0, 2]
-                .into_iter()
-                .enumerate()
-                .map(|(tag, count)| VariantCase {
-                    tag: tag as u32,
-                    fields: vec![erased; count],
-                })
-                .collect(),
-        },
-    );
     let sequence = table.reserve();
-    table.set(
+    let context = table.reserve();
+    let owner = table.reserve();
+    let boundary = table.reserve();
+    let callback = super::protocols::array(table, erased);
+    let status = super::protocols::array(table, ValueShape::Integer);
+    let callable = reference(RefShape::Closure(continuation));
+    let queue = reference(RefShape::Repr(sequence));
+    let extent = reference(RefShape::Repr(boundary));
+    let frame = reference(RefShape::Repr(computation));
+    set_cases(
+        table,
+        computation,
+        vec![
+            vec![erased],
+            vec![erased],
+            vec![frame, callable],
+            vec![erased, queue, extent],
+            vec![callable, callable, frame],
+            vec![], // Retired v1 Reenter tag; the executor rejects it.
+            vec![reference(RefShape::Repr(owner)), erased],
+        ],
+    );
+    set_cases(
+        table,
         sequence,
-        Representation::Variant {
-            cases: [0, 2, 2, 3]
-                .into_iter()
-                .enumerate()
-                .map(|(tag, count)| VariantCase {
-                    tag: tag as u32,
-                    fields: vec![erased; count],
-                })
-                .collect(),
-        },
+        vec![
+            vec![],
+            vec![callable, queue],
+            vec![queue, queue],
+            vec![extent, queue, extent],
+        ],
+    );
+    set_cases(
+        table,
+        context,
+        vec![
+            vec![extent],
+            vec![
+                callable,
+                callable,
+                queue,
+                extent,
+                reference(RefShape::Repr(context)),
+                extent,
+            ],
+        ],
+    );
+    set_cases(
+        table,
+        owner,
+        vec![vec![
+            reference(RefShape::Repr(callback)),
+            reference(RefShape::Repr(status)),
+        ]],
+    );
+    set_cases(
+        table,
+        boundary,
+        vec![
+            vec![reference(RefShape::Repr(status))],
+            vec![reference(RefShape::Repr(status)), extent],
+        ],
     );
     let labels = vec!["_1".to_owned(), "_2".to_owned()];
     let pair = super::protocols::record(table, &labels).unwrap_or_else(|| {
@@ -75,44 +118,6 @@ pub(super) fn append(table: &mut RepresentationTable, continuation: SignatureId)
         parameters: vec![erased; 4],
         result: erased,
     });
-    let context = table.reserve();
-    table.set(
-        context,
-        Representation::Variant {
-            cases: [1, 6]
-                .into_iter()
-                .enumerate()
-                .map(|(tag, count)| VariantCase {
-                    tag: tag as u32,
-                    fields: vec![erased; count],
-                })
-                .collect(),
-        },
-    );
-    let callback = super::protocols::array(table, erased);
-    let owner = table.reserve();
-    table.set(
-        owner,
-        Representation::Variant {
-            cases: vec![VariantCase {
-                tag: 0,
-                fields: vec![erased; 2],
-            }],
-        },
-    );
-    let status = super::protocols::array(table, crate::cc::ValueShape::Integer);
-    let boundary = table.reserve();
-    table.set(
-        boundary,
-        Representation::Variant {
-            cases: (0..2)
-                .map(|tag| VariantCase {
-                    tag,
-                    fields: vec![erased; tag as usize + 1],
-                })
-                .collect(),
-        },
-    );
     let start = table.add_signature(Signature {
         parameters: vec![],
         result: erased,
@@ -137,6 +142,29 @@ pub(super) fn append(table: &mut RepresentationTable, continuation: SignatureId)
         start,
         boundary_check,
     }
+}
+
+fn reference(heap: RefShape) -> ValueShape {
+    ValueShape::Reference(Reference {
+        nullable: false,
+        heap,
+    })
+}
+
+fn set_cases(table: &mut RepresentationTable, id: ReprId, fields: Vec<Vec<ValueShape>>) {
+    table.set(
+        id,
+        Representation::Variant {
+            cases: fields
+                .into_iter()
+                .enumerate()
+                .map(|(tag, fields)| VariantCase {
+                    tag: tag as u32,
+                    fields,
+                })
+                .collect(),
+        },
+    );
 }
 
 #[cfg(test)]

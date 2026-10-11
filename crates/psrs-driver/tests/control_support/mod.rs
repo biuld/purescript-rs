@@ -54,6 +54,13 @@ fn run(name: &str, source: &str, expected: i32, force_gc: bool) {
         Some(expected),
         "expected {name} to exit {expected}, got {output:?}"
     );
+    if expected == 134 {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("wasm trap:") && !stderr.contains("cast failure"),
+            "expected a guest trap without an invalid machine representation in {name}, got: {stderr}"
+        );
+    }
 }
 
 /// Preserve coverage of user-defined open state folds on the revised primitive.

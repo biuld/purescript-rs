@@ -11,6 +11,7 @@ use psrs_span::TextRange;
 
 mod builder;
 mod executor;
+mod fields;
 mod lifetime;
 mod owned;
 mod replay;
@@ -98,13 +99,20 @@ impl FunctionLowerer<'_> {
             });
             let shape = builder::repr(layout.context);
             let context = self.fresh(shape);
+            let context_fields = self.control_fields(
+                layout.context,
+                0,
+                vec![boundary],
+                expression.span,
+                assignments,
+            )?;
             assignments.push(Assignment {
                 destination: context,
                 kind: AssignmentKind::VariantNew {
                     destination: context,
                     representation: layout.context,
                     case: 0,
-                    fields: vec![boundary],
+                    fields: context_fields,
                 },
                 span: expression.span,
             });
@@ -153,6 +161,13 @@ impl FunctionLowerer<'_> {
             _ => return Err(control_error(expression.span, "not a control primitive")),
         };
         let destination = self.fresh(ty);
+        let fields = self.control_fields(
+            layout.computation,
+            case,
+            fields,
+            expression.span,
+            assignments,
+        )?;
         assignments.push(Assignment {
             destination,
             kind: AssignmentKind::VariantNew {
