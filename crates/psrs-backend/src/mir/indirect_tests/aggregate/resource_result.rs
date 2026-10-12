@@ -61,6 +61,7 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },

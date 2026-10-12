@@ -73,6 +73,7 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -198,6 +199,7 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
                 Assignment {
                     destination: ValueId(0),
                     kind: AssignmentKind::DirectCall {
+                        contract: None,
                         function: external_symbol,
                         arguments: Vec::new(),
                     },

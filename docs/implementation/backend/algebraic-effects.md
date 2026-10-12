@@ -987,3 +987,55 @@ comparison, not a new classification of each baseline cause. Logs and comparison
 `/private/tmp/psrs-control-contracts-clippy.log`. Explicit upstream type comparison,
 package conformance and suite scoreboards are not rerun for this internal stage
 contract unit; no measured gate number changes.
+
+
+### Semantic helper callee bindings (2026-10-12)
+
+This continuation starts from `57e94257`. Check and close have the same callable
+signature but different lifetime meanings. Previously, exchanging their callee
+symbols could pass all physical call checks. P8 now predeclares an immutable
+helper binding for each executor/lifecycle/replay/owner role before any function
+body is lowered. The binding contains the concrete helper symbol and its
+predeclared signature. The source contract planner retains the first owning
+run/once/cancel declaration's module; generated diagnostics do not acquire an unrelated
+entry module merely because helper allocation moved earlier.
+
+Machine direct calls carry their `ControlHelperId`; ordinary calls carry no
+machine contract. CC checks the exact callee binding and rejects missing or
+invalid contracts. Run/once/cancel source witnesses additionally require their
+expected helper role. P9 checks call identity before local/import conversion and
+before self loopification. Ordinary MIR calls and non-self tail calls retain and
+verify it. P10's common inliner may discharge a verified call by substituting that
+resolved callee's body; common self loopification discharges the verified self
+binding. This adds no source intrinsic, runtime frame or optimization exemption.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Distinguish semantic helpers with equal signatures | `cc_rejects_exchanging_check_and_close_despite_equal_signatures`, `optimized_mir_rejects_exchanging_check_and_close` | Focused Verified |
+| Reject loss of a required machine call contract | `cc_rejects_removing_a_machine_call_contract`, `mir_rejects_missing_identity_on_a_tail_helper_call` | Focused Verified |
+| Validate before P9 can discharge a call into a loop/import lowering | `p9_rejects_a_wrong_helper_before_lowering_or_loopifying_calls`, actual malformed CC through the public P9 entry | Focused Verified |
+| Preserve helper identity across non-self tail conversion | `mir_tail_calls_retain_the_predeclared_helper_identity`, actual checked-source optimized MIR | Focused Verified |
+| Execute the persistent driver without tail-call capability | `control_helper_contracts_execute_long_requests_without_tail_call_capability`: compile with `tail_call: false`, assert no MIR tail-call terminators, run Wasmtime with `-W tail-call=n`, count exactly 100,000 requests and return 42 | Focused Verified |
+| Verify complete checkpoint, activation and finish provenance | The bound callee may still receive a wrong same-shaped boundary; helper-body lifecycle correctness is not proved by the binding alone | Unverified |
+
+Focused log: `/private/tmp/psrs-control-helpers-focused.log` (seven tests, mandatory
+Wasmtime). Earlier source/provenance and ancestry/GC probes also pass in the
+filtered control driver run. Complete AE/AC status remains Unverified; source and
+checkpoint argument relations, foreign capture, caught-trap cleanup, full pinned
+library comparison and remaining general allocation obligations remain open.
+
+
+Final validation: `cargo fmt --all --check`, `git diff --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` pass. Mandatory Wasmtime
+workspace execution passes all 435 backend tests, 95 Core tests, 80 control
+integration tests, the seven new helper/capability tests and the existing
+source/provenance and three cost tests. The nine failed targets and 175 failed
+test names exactly match `57e94257`; no names are added or recovered. This compares
+failure names, not every baseline cause. Logs:
+`/private/tmp/psrs-control-helpers-workspace.log`,
+`/private/tmp/psrs-control-helpers-comparison.json`, and
+`/private/tmp/psrs-control-helpers-clippy.log`. The six ancestry/GC workloads are
+remeasured; component fingerprints, collection counts and maximum post-GC live
+bytes exactly match the preceding source-contract slice. Explicit upstream type
+comparison, package conformance and scoreboards are not rerun for this internal
+call-contract unit, and no measured gate number changes.

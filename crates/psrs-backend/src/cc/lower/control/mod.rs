@@ -20,6 +20,7 @@ use builder::Machine;
 
 #[derive(Clone, Copy)]
 pub(in crate::cc) struct ControlFunctions {
+    emitted: bool,
     executor: SymbolId,
     resume: SymbolId,
     clone_sequence: SymbolId,
@@ -32,24 +33,32 @@ pub(in crate::cc) struct ControlFunctions {
 }
 
 impl ControlFunctions {
-    fn signatures(self, layout: ControlLayout) -> [(SymbolId, SignatureId); 8] {
+    fn contracts(
+        self,
+        layout: ControlLayout,
+    ) -> [(SymbolId, SignatureId, crate::cc::ControlHelperRole); 8] {
+        use crate::cc::ControlHelperRole::*;
         [
-            (self.executor, layout.executor),
-            (self.clone_sequence, layout.clone_sequence),
-            (self.rebuild_sequence, layout.rebuild_sequence),
-            (self.start, layout.start),
-            (self.check, layout.boundary_check),
-            (self.close, layout.boundary_check),
-            (self.once, layout.once),
-            (self.cancel, layout.cancel),
+            (self.executor, layout.executor, Executor),
+            (self.clone_sequence, layout.clone_sequence, CloneSequence),
+            (
+                self.rebuild_sequence,
+                layout.rebuild_sequence,
+                RebuildSequence,
+            ),
+            (self.start, layout.start, Start),
+            (self.check, layout.boundary_check, Check),
+            (self.close, layout.boundary_check, Close),
+            (self.once, layout.once, Once),
+            (self.cancel, layout.cancel, Cancel),
         ]
     }
 
     fn signature(self, layout: ControlLayout, function: SymbolId) -> SignatureId {
-        self.signatures(layout)
+        self.contracts(layout)
             .into_iter()
-            .find(|(symbol, _)| *symbol == function)
-            .map(|(_, signature)| signature)
+            .find(|(symbol, _, _)| *symbol == function)
+            .map(|(_, signature, _)| signature)
             .expect("predeclared control function")
     }
 }
@@ -266,24 +275,14 @@ impl FunctionLowerer<'_> {
         layout: ControlLayout,
         span: TextRange,
     ) -> Result<ControlFunctions, Vec<BackendError>> {
-        if let Some(functions) = *self.control_functions.borrow() {
+        let functions = self
+            .control_functions
+            .borrow()
+            .ok_or_else(|| control_error(span, "control helpers were not predeclared"))?;
+        if functions.emitted {
             return Ok(functions);
         }
-        let functions = {
-            let mut symbols = self.generated_symbols.borrow_mut();
-            ControlFunctions {
-                executor: symbols.fresh(self.owner),
-                resume: symbols.fresh(self.owner),
-                clone_sequence: symbols.fresh(self.owner),
-                rebuild_sequence: symbols.fresh(self.owner),
-                start: symbols.fresh(self.owner),
-                check: symbols.fresh(self.owner),
-                close: symbols.fresh(self.owner),
-                once: symbols.fresh(self.owner),
-                cancel: symbols.fresh(self.owner),
-            }
-        };
-        for (symbol, id) in functions.signatures(layout) {
+        for (symbol, id, _) in functions.contracts(layout) {
             let signature = self
                 .representations
                 .signature(id)
@@ -345,7 +344,10 @@ impl FunctionLowerer<'_> {
             self.verify_synthesized(&function)?;
             self.generated.push(function);
         }
-        *self.control_functions.borrow_mut() = Some(functions);
+        *self.control_functions.borrow_mut() = Some(ControlFunctions {
+            emitted: true,
+            ..functions
+        });
         Ok(functions)
     }
 }
@@ -356,4 +358,36 @@ fn control_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
         span,
         message,
     )]
+}
+
+pub(in crate::cc) fn plan_control_helpers(
+    layout: &mut crate::cc::layout::TypeLayout,
+    allocator: &std::rc::Rc<std::cell::RefCell<super::GeneratedSymbolAllocator>>,
+) -> Option<ControlFunctions> {
+    let control = layout.control_layout?;
+    let mut allocator = allocator.borrow_mut();
+    let owner = layout.control_owner?;
+    let functions = ControlFunctions {
+        emitted: false,
+        executor: allocator.fresh(owner),
+        resume: allocator.fresh(owner),
+        clone_sequence: allocator.fresh(owner),
+        rebuild_sequence: allocator.fresh(owner),
+        start: allocator.fresh(owner),
+        check: allocator.fresh(owner),
+        close: allocator.fresh(owner),
+        once: allocator.fresh(owner),
+        cancel: allocator.fresh(owner),
+    };
+    for (function, signature, role) in functions.contracts(control) {
+        layout
+            .representations
+            .control_helpers
+            .push(crate::cc::ControlHelperContract {
+                role,
+                function,
+                signature,
+            });
+    }
+    Some(functions)
 }

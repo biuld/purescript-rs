@@ -27,6 +27,7 @@ mod record;
 mod string_bytes;
 mod symbols;
 use call::ApplicationLowering;
+pub(super) use control::plan_control_helpers;
 pub(in crate::cc) use conversion::VariantFieldConversion;
 use global::GlobalLowering;
 use lambda::LambdaLowering;

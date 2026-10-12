@@ -250,6 +250,7 @@ fn rejects_dictionary_method_call_with_wrong_arity() {
                 value(1, ValueType::I32),
             ],
             vec![Instruction::Call {
+                contract: None,
                 destination,
                 function: SymbolId::new(ModuleId(0), 1),
                 arguments: vec![method],

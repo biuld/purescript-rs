@@ -55,6 +55,7 @@ pub(super) fn verify_instruction(
             function: callee,
             arguments,
             span,
+            ..
         } => {
             let Some(Some(signature)) = signatures.get(callee) else {
                 return Err(mir_error(*span, "MIR call target has no valid signature"));

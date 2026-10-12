@@ -61,8 +61,14 @@ pub struct ControlDomain {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ControlImplementation {
-    Frame { representation: ReprId, case: u32 },
-    Call { signature: SignatureId },
+    Frame {
+        representation: ReprId,
+        case: u32,
+    },
+    Call {
+        signature: SignatureId,
+        role: super::ControlHelperRole,
+    },
 }
 
 /// A source use can only be published from the control owner's checked proof.

@@ -112,6 +112,7 @@ pub(super) fn fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(4),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(3)],
             },
@@ -213,6 +214,7 @@ pub(super) fn result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 Assignment {
                     destination: ValueId(0),
                     kind: AssignmentKind::DirectCall {
+                        contract: None,
                         function: external_symbol,
                         arguments: Vec::new(),
                     },
@@ -329,6 +331,7 @@ pub(super) fn string_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(4),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(3)],
             },

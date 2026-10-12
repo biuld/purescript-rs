@@ -100,6 +100,7 @@ fn fixture() -> mir::Module {
             span,
         },
         I::Call {
+            contract: None,
             destination: value(3),
             function: symbol(11),
             arguments: vec![value(0), value(11)],
@@ -141,6 +142,7 @@ fn fixture() -> mir::Module {
             span,
         },
         I::Call {
+            contract: None,
             destination: value(8),
             function: symbol(13),
             arguments: vec![value(7), value(4)],

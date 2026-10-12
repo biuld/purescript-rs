@@ -43,6 +43,7 @@ fn call_fixture(signature: &Signature) -> Function {
         assignments: vec![Assignment {
             destination: result,
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: symbol(1),
                 arguments: parameters,
             },

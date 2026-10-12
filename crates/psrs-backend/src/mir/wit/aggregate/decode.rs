@@ -347,6 +347,7 @@ fn read_string<L: WitCallLowerer>(
     lowerer.append_wit_instruction(
         block,
         Instruction::Call {
+            contract: None,
             destination: value,
             function: abi::BYTES_TO_STRING_SYMBOL,
             arguments: vec![pointer, length],

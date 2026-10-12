@@ -214,6 +214,7 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
     assignments.push(Assignment {
         destination: call_result,
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: external_symbol,
             arguments: call_arguments,
         },

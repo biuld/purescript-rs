@@ -115,6 +115,7 @@ fn parameter_fixture(
     assignments.push(Assignment {
         destination: ValueId(4),
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: external_symbol,
             arguments: vec![ValueId(3)],
         },
@@ -303,6 +304,7 @@ pub(crate) fn option_string_list_result_fixture() -> (cc::Module, ExternalBindin
                 Assignment {
                     destination: ValueId(0),
                     kind: AssignmentKind::DirectCall {
+                        contract: None,
                         function: external_symbol,
                         arguments: Vec::new(),
                     },
@@ -419,6 +421,7 @@ pub(crate) fn option_list_list_fixture() -> (cc::Module, ExternalBindings, Resol
         Assignment {
             destination: ValueId(5),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(4)],
             },

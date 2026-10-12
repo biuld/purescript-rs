@@ -382,6 +382,7 @@ pub(super) fn allocate<L: WitCallLowerer>(
     lowerer.append_wit_instruction(
         current,
         Instruction::Call {
+            contract: None,
             destination: address,
             function: abi::REALLOC_SYMBOL,
             arguments,

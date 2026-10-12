@@ -241,6 +241,7 @@ fn rejects_a_direct_call_to_an_unbound_runner_external() {
         assignments: vec![Assignment {
             destination,
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: runner,
                 arguments: Vec::new(),
             },

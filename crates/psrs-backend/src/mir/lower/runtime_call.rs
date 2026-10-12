@@ -58,6 +58,7 @@ impl FunctionLowerer<'_> {
                 self.append_instruction(
                     block,
                     Instruction::Call {
+                        contract: None,
                         destination: buffer,
                         function: crate::abi::REALLOC_SYMBOL,
                         arguments: vec![zero, zero, align, capacity],
@@ -72,6 +73,7 @@ impl FunctionLowerer<'_> {
                 self.append_instruction(
                     block,
                     Instruction::Call {
+                        contract: None,
                         destination,
                         function: crate::abi::BYTES_TO_STRING_SYMBOL,
                         arguments: vec![buffer, length],
@@ -96,6 +98,7 @@ impl FunctionLowerer<'_> {
             self.append_instruction(
                 block,
                 Instruction::Call {
+                    contract: None,
                     destination,
                     function: provider.symbol,
                     arguments,

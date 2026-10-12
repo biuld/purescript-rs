@@ -66,6 +66,7 @@ impl FunctionLowerer<'_> {
             self.append_instruction(
                 block,
                 Instruction::Call {
+                    contract: None,
                     destination: raw,
                     function: import.symbol,
                     arguments: raw_arguments,

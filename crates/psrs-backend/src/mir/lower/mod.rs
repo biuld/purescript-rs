@@ -114,6 +114,7 @@ pub(super) fn lower_function(
     for plan in &lowerer.wit_calls {
         plan.verify(&function)?;
     }
+    super::control_contracts::verify_helper_calls(&function, Some(layout.representation_table()))?;
     tail::mark_tail(&mut function, target)?;
     wit::verify_function(&function, wit_imports)?;
     Ok(function)

@@ -129,9 +129,13 @@ pub(super) fn verify_assignments(
                 uses.push(*value);
             }
             AssignmentKind::DirectCall {
+                contract,
                 function,
                 arguments,
             } => {
+                table
+                    .verify_control_call(*function, *contract)
+                    .map_err(|message| assignment_error(assignment, message))?;
                 let Some(signature) = signatures.get(function) else {
                     return Err(assignment_error(
                         assignment,

@@ -392,6 +392,7 @@ fn verify_terminator(
             function: callee,
             arguments,
             span,
+            ..
         } => {
             super::call::tail::verify_return_call(
                 function,

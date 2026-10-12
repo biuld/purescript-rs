@@ -181,6 +181,7 @@ fn lowers_an_imported_call() {
                 id: BlockId(0),
                 parameters: Vec::new(),
                 instructions: vec![Instruction::Call {
+                    contract: None,
                     destination: ValueId(0),
                     function: callee,
                     arguments: Vec::new(),

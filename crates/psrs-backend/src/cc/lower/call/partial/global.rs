@@ -179,6 +179,7 @@ impl FunctionLowerer<'_> {
         nested_assignments.push(Assignment {
             destination: result,
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function,
                 arguments: call_arguments,
             },

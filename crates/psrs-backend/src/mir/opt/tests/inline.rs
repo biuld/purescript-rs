@@ -21,6 +21,7 @@ fn inlines_small_direct_functions_and_folds_the_result() {
                     span: span(),
                 },
                 Instruction::Call {
+                    contract: None,
                     destination: ValueId(1),
                     function: callee_symbol,
                     arguments: vec![ValueId(0)],
@@ -116,6 +117,7 @@ fn inlining_uses_the_callee_function_result_value() {
             id: BlockId(0),
             parameters: Vec::new(),
             instructions: vec![Instruction::Call {
+                contract: None,
                 destination: ValueId(0),
                 function: callee_symbol,
                 arguments: Vec::new(),

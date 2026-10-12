@@ -93,12 +93,14 @@ fn number_format_module() -> Module {
                         span: span(),
                     },
                     Instruction::Call {
+                        contract: None,
                         destination: ValueId(2),
                         function: crate::abi::REALLOC_SYMBOL,
                         arguments: vec![ValueId(3), ValueId(3), ValueId(4), ValueId(5)],
                         span: span(),
                     },
                     Instruction::Call {
+                        contract: None,
                         destination: ValueId(0),
                         function: crate::abi::NUMBER_TO_STRING_SYMBOL,
                         arguments: vec![ValueId(1), ValueId(2), ValueId(5)],

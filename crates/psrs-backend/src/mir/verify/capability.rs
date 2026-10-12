@@ -469,6 +469,7 @@ mod tests {
                     parameters: Vec::new(),
                     instructions: Vec::new(),
                     terminator: Some(mir::Terminator::ReturnCall {
+                        contract: None,
                         function: SymbolId::new(ModuleId(4), 1),
                         arguments: Vec::new(),
                         span,

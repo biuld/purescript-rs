@@ -128,6 +128,7 @@ impl Structurer<'_> {
                     function,
                     arguments,
                     span,
+                    ..
                 } => {
                     for argument in arguments {
                         self.load(body, *argument, *span)?;

@@ -311,9 +311,10 @@ pub(super) fn type_layout(
     let uses_control = module.types.iter().any(|ty| matches!(ty,
         Type::Constructor(TypeConstructor::User(id)) if *id == HirTypeId::CONTROL || *id == HirTypeId::RESUMPTION));
     let control_layout = uses_control.then(|| control::append(&mut representations, function_slot));
-    if let Some(control) = control_layout {
-        control_contracts::append(module, &mut representations, control)?;
-    }
+    let control_owner = match control_layout {
+        Some(control) => control_contracts::append(module, &mut representations, control)?,
+        None => None,
+    };
     Ok(TypeLayout {
         function_slot,
         protocols,
@@ -325,6 +326,7 @@ pub(super) fn type_layout(
         boxed_number_type,
         function_types,
         control_layout,
+        control_owner,
     })
 }
 
@@ -341,6 +343,8 @@ pub(super) struct TypeLayout {
     pub(super) boxed_integer_type: Option<ReprId>,
     pub(super) boxed_number_type: Option<ReprId>,
     pub(super) function_types: HashMap<TypeId, SignatureId>,
+    /// Source module of the first declaration that emits machine helpers.
+    pub(super) control_owner: Option<psrs_hir::ModuleId>,
     /// The shared frame representation for `Control f a` values.
     pub(super) control_layout: Option<control::ControlLayout>,
 }

@@ -58,6 +58,7 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     assignments.push(Assignment {
         destination: call_result,
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: external_symbol,
             arguments,
         },

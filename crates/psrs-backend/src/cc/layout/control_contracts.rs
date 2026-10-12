@@ -15,20 +15,28 @@ pub(super) fn append(
     module: &Module,
     table: &mut RepresentationTable,
     layout: ControlLayout,
-) -> Result<(), Vec<BackendError>> {
+) -> Result<Option<psrs_hir::ModuleId>, Vec<BackendError>> {
+    let mut origin = None::<usize>;
     let mut identities = Vec::<TypeId>::new();
     let mut pending = module
         .declarations
         .iter()
-        .map(|declaration| &declaration.value)
+        .enumerate()
+        .map(|(owner, declaration)| (owner, &declaration.value))
         .collect::<Vec<_>>();
-    while let Some(expression) = pending.pop() {
+    while let Some((owner, expression)) = pending.pop() {
         match &expression.kind {
             ExprKind::IntrinsicCall {
                 intrinsic,
                 arguments,
             } => {
                 if intrinsic.descriptor().category == psrs_hir::IntrinsicCategory::Control {
+                    if matches!(
+                        intrinsic,
+                        Intrinsic::ControlRun | Intrinsic::ControlOnce | Intrinsic::ControlCancel
+                    ) {
+                        origin = Some(origin.map_or(owner, |previous| previous.min(owner)));
+                    }
                     let proof = psrs_core::checked_control_contract(
                         module,
                         *intrinsic,
@@ -85,50 +93,56 @@ pub(super) fn append(
                         table.control_contracts.push(contract);
                     }
                 }
-                pending.extend(arguments);
+                pending.extend(arguments.iter().map(|value| (owner, value)));
             }
             ExprKind::Constructor { arguments, .. }
             | ExprKind::Array {
                 elements: arguments,
-            } => pending.extend(arguments),
-            ExprKind::Record { fields } => pending.extend(fields.iter().map(|(_, value)| value)),
+            } => pending.extend(arguments.iter().map(|value| (owner, value))),
+            ExprKind::Record { fields } => {
+                pending.extend(fields.iter().map(|(_, value)| (owner, value)))
+            }
             ExprKind::RecordUpdate { record, fields } => {
-                pending.push(record);
-                pending.extend(fields.iter().map(|(_, value)| value));
+                pending.push((owner, record));
+                pending.extend(fields.iter().map(|(_, value)| (owner, value)));
             }
-            ExprKind::FieldAccess { record, .. } => pending.push(record),
-            ExprKind::RepresentationCast { value, .. } => pending.push(value),
+            ExprKind::FieldAccess { record, .. } => pending.push((owner, record)),
+            ExprKind::RepresentationCast { value, .. } => pending.push((owner, value)),
             ExprKind::Application(left, right) => {
-                pending.push(left);
-                pending.push(right);
+                pending.push((owner, left));
+                pending.push((owner, right));
             }
-            ExprKind::Lambda { body, .. } => pending.push(body),
+            ExprKind::Lambda { body, .. } => pending.push((owner, body)),
             ExprKind::Let { bindings, body } => {
-                pending.extend(bindings.iter().map(|binding| &binding.value));
-                pending.push(body);
+                pending.extend(bindings.iter().map(|binding| (owner, &binding.value)));
+                pending.push((owner, body));
             }
             ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                pending.extend([
-                    condition.as_ref(),
-                    then_branch.as_ref(),
-                    else_branch.as_ref(),
-                ]);
+                pending.extend(
+                    [
+                        condition.as_ref(),
+                        then_branch.as_ref(),
+                        else_branch.as_ref(),
+                    ]
+                    .into_iter()
+                    .map(|value| (owner, value)),
+                );
             }
             ExprKind::Case {
                 scrutinee,
                 branches,
             } => {
-                pending.push(scrutinee);
-                pending.extend(branches.iter().map(|branch| &branch.value));
+                pending.push((owner, scrutinee));
+                pending.extend(branches.iter().map(|branch| (owner, &branch.value)));
             }
             _ => {}
         }
     }
-    Ok(())
+    Ok(origin.map(|index| module.declarations[index].symbol.module))
 }
 
 pub(in crate::cc) fn lookup(
@@ -249,16 +263,19 @@ fn implementation(layout: ControlLayout, operation: Intrinsic) -> ControlImpleme
         ControlRun => {
             return ControlImplementation::Call {
                 signature: layout.executor,
+                role: crate::cc::ControlHelperRole::Executor,
             };
         }
         ControlOnce => {
             return ControlImplementation::Call {
                 signature: layout.once,
+                role: crate::cc::ControlHelperRole::Once,
             };
         }
         ControlCancel => {
             return ControlImplementation::Call {
                 signature: layout.cancel,
+                role: crate::cc::ControlHelperRole::Cancel,
             };
         }
         _ => unreachable!("checked control operation"),

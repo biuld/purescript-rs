@@ -97,6 +97,7 @@ pub(crate) fn wide_flags_list_fixture() -> (cc::Module, ExternalBindings, Resolv
     assignments.push(Assignment {
         destination: result,
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE),
             arguments: vec![array],
         },
@@ -194,6 +195,7 @@ pub(crate) fn wide_flags_record_fixture() -> (cc::Module, ExternalBindings, Reso
     assignments.push(Assignment {
         destination: result,
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE),
             arguments: vec![array],
         },
@@ -309,6 +311,7 @@ pub(crate) fn wide_flags_variant_fixture() -> (cc::Module, ExternalBindings, Res
     assignments.push(Assignment {
         destination: result,
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE),
             arguments: vec![array],
         },

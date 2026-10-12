@@ -65,6 +65,8 @@ pub enum Instruction {
         span: TextRange,
     },
     Call {
+        /// Retained until a checked call conversion discharges its callee binding.
+        contract: Option<crate::cc::ControlHelperId>,
         destination: ValueId,
         function: SymbolId,
         arguments: Vec<ValueId>,

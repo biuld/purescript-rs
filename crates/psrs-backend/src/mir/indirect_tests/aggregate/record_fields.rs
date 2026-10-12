@@ -88,6 +88,7 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -319,6 +320,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
         Assignment {
             destination: ValueId(7),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(6)],
             },

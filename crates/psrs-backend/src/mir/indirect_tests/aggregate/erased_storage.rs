@@ -81,6 +81,7 @@ fn roundtrip(array: bool, include_protocol: bool) -> (cc::Module, ExternalBindin
     main.assignments.push(Assignment {
         destination: ValueId(3),
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: take,
             arguments: vec![ValueId(0)],
         },

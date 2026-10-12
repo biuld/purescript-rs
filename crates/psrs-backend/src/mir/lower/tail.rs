@@ -63,13 +63,14 @@ pub(in crate::mir) fn rewrite(
                 self_calls.push((block.id, arguments.clone(), *span));
             }
             Instruction::Call {
+                contract,
                 function: callee,
                 arguments,
                 span,
                 ..
             } => non_self.push((
                 block.id,
-                NonSelfCall::Direct(*callee),
+                NonSelfCall::Direct(*callee, *contract),
                 arguments.clone(),
                 *span,
             )),
@@ -106,7 +107,8 @@ pub(in crate::mir) fn rewrite(
     if target.tail_call {
         for (block_id, call, arguments, span) in non_self {
             let terminator = match call {
-                NonSelfCall::Direct(callee) => Terminator::ReturnCall {
+                NonSelfCall::Direct(callee, contract) => Terminator::ReturnCall {
+                    contract,
                     function: callee,
                     arguments,
                     span,
@@ -129,7 +131,7 @@ pub(in crate::mir) fn rewrite(
 }
 
 enum NonSelfCall {
-    Direct(psrs_hir::SymbolId),
+    Direct(psrs_hir::SymbolId, Option<crate::cc::ControlHelperId>),
     Reference(ValueId),
 }
 

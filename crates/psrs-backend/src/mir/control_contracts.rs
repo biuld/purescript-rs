@@ -2,6 +2,12 @@ use super::{Instruction, Module};
 use crate::BackendError;
 
 impl Module {
+    pub fn control_helpers(&self) -> &[crate::cc::ControlHelperContract] {
+        self.layout
+            .as_ref()
+            .map_or(&[], |layout| &layout.representation_table().control_helpers)
+    }
+
     /// Source contracts remain immutable and inspectable after physical layout.
     pub fn control_contracts(&self) -> &[crate::cc::ControlContract] {
         self.layout.as_ref().map_or(&[], |layout| {
@@ -12,6 +18,15 @@ impl Module {
 
 pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
     for function in &module.functions {
+        if let Err(mut failures) = verify_helper_calls(
+            function,
+            module
+                .layout
+                .as_ref()
+                .map(|layout| layout.representation_table()),
+        ) {
+            errors.append(&mut failures);
+        }
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             let Instruction::ControlEvidence {
                 arguments,
@@ -72,4 +87,54 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
             }
         }
     }
+}
+
+pub(super) fn verify_helper_calls(
+    function: &super::Function,
+    table: Option<&crate::cc::RepresentationTable>,
+) -> Result<(), Vec<BackendError>> {
+    for block in &function.blocks {
+        let calls = block
+            .instructions
+            .iter()
+            .filter_map(|instruction| match instruction {
+                Instruction::Call {
+                    function,
+                    contract,
+                    span,
+                    ..
+                } => Some((*function, *contract, *span)),
+                _ => None,
+            })
+            .chain(
+                block
+                    .terminator
+                    .iter()
+                    .filter_map(|terminator| match terminator {
+                        super::Terminator::ReturnCall {
+                            function,
+                            contract,
+                            span,
+                            ..
+                        } => Some((*function, *contract, *span)),
+                        _ => None,
+                    }),
+            );
+        for (callee, contract, span) in calls {
+            let check = match table {
+                Some(table) => table.verify_control_call(callee, contract),
+                None if contract.is_some() => {
+                    Err("control call has no predeclared helper contract")
+                }
+                None => Ok(()),
+            };
+            check.map_err(|message| {
+                vec![
+                    BackendError::invalid_ir("P9 MIR control verification", span, message)
+                        .with_module(function.symbol.module),
+                ]
+            })?;
+        }
+    }
+    Ok(())
 }

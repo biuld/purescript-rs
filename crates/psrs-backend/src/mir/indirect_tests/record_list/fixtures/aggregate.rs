@@ -88,6 +88,7 @@ pub(crate) fn flags_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(4),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(3)],
             },
@@ -185,6 +186,7 @@ pub(crate) fn handle_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(2),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(1)],
             },
@@ -312,6 +314,7 @@ pub(crate) fn tuple_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(4),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(3)],
             },
@@ -414,6 +417,7 @@ fn handle_result(result: &str) -> (cc::Module, ExternalBindings, Resolve) {
                 Assignment {
                     destination: ValueId(0),
                     kind: AssignmentKind::DirectCall {
+                        contract: None,
                         function: external_symbol,
                         arguments: Vec::new(),
                     },

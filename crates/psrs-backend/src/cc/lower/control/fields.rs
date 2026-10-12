@@ -121,6 +121,15 @@ impl FunctionLowerer<'_> {
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
+        let contract = self
+            .representations
+            .control_helpers
+            .iter()
+            .position(|helper| helper.function() == function)
+            .map(|index| crate::cc::ControlHelperId(index as u32))
+            .ok_or_else(|| {
+                control_error(span, "control call has no predeclared semantic helper")
+            })?;
         let signature = self
             .representations
             .signature(signature)
@@ -131,6 +140,7 @@ impl FunctionLowerer<'_> {
         assignments.push(Assignment {
             destination,
             kind: AssignmentKind::DirectCall {
+                contract: Some(contract),
                 function,
                 arguments,
             },

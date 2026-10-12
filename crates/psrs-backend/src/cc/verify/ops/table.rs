@@ -8,6 +8,19 @@ pub(crate) fn verify_table(
     table: &RepresentationTable,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
+    let mut roles = HashSet::new();
+    let mut helpers = HashSet::new();
+    for helper in &table.control_helpers {
+        if !roles.insert(helper.role())
+            || !helpers.insert(helper.function())
+            || table.signature(helper.signature()).is_none()
+        {
+            return Err(table_error(
+                span,
+                "control helper contract has a duplicate identity or missing signature",
+            ));
+        }
+    }
     for proof in &table.control_contracts {
         if proof.argument_identities().len() != proof.arguments().len()
             || std::iter::once(&proof.result_identity())

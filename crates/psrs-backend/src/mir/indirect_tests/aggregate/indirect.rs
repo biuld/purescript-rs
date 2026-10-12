@@ -131,6 +131,7 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
     assignments.push(Assignment {
         destination: result,
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: external_symbol,
             arguments,
         },

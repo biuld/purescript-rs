@@ -73,12 +73,20 @@ pub(super) fn verify(
             },
         ) if representation == actual && case == tag => fields,
         (
-            ControlImplementation::Call { signature },
+            ControlImplementation::Call { signature, role },
             AssignmentKind::DirectCall {
                 function,
                 arguments,
+                contract: Some(contract),
             },
-        ) if signatures.get(function) == table.signature(*signature) => arguments,
+        ) if signatures.get(function) == table.signature(*signature)
+            && table
+                .control_helpers
+                .get(contract.0 as usize)
+                .is_some_and(|helper| helper.role() == *role) =>
+        {
+            arguments
+        }
         _ => {
             return Err(assignment_error(
                 assignment,

@@ -238,6 +238,32 @@ does not prove a helper's implementation identity. Exact checkpoint ownership,
 replay activation and matched finish provenance must still be carried and
 verified; neither a well-shaped cast nor a quoted source type proves them.
 
+### Semantic helper call identities
+
+P8 plans the control helper symbols before lowering any function body. Each
+immutable helper contract binds one semantic role, a stable `SymbolId` and a
+predeclared signature. Roles are unique, and check/close remain distinct even
+though they have identical physical signatures. The planner retains the owning
+source declaration's module (the first run/once/cancel use) for synthesized helper diagnostics. Helper bodies
+may be emitted lazily; their identities and signatures may not be allocated late.
+
+Every direct machine-helper call carries its `ControlHelperId`. Common CC call
+verification rejects an absent contract, an unknown contract or a target different
+from the bound helper. The source operation witness also requires the expected
+executor/once/cancel role. Ordinary calls have no machine contract. P9 checks the
+same binding before choosing local/import call lowering and before converting a
+self tail call to a loop. MIR `Call` and `ReturnCall` retain the contract and use
+the same identity operation in verification, including after P10. Common inlining
+may discharge the call identity when it substitutes the body of that resolved
+callee; self loopification discharges it only after identity verification.
+These conversions add no control-specific optimization rule.
+
+This proves the callee binding of a checked call. It does not prove that a check
+uses the particular checkpoint required by its caller, that a close matches the
+correct finish frame, or that the bound helper body implements every lifecycle
+rule. Those argument, body and activation provenance obligations remain part of
+the complete machine verification contract.
+
 ### Alternatives
 
 - Moving old clause execution to the caller changes neither its source type nor

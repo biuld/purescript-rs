@@ -9,10 +9,12 @@ use std::rc::Rc;
 
 mod case;
 mod control_contract;
+mod control_helpers;
 pub use control_contract::{
     ControlContract, ControlContractId, ControlDomain, SourceTypeIdentityId,
     TypeConstructorIdentity, TypeIdentity,
 };
+pub use control_helpers::{ControlHelperContract, ControlHelperId, ControlHelperRole};
 mod convert;
 mod layout;
 mod lower;
@@ -109,6 +111,8 @@ pub enum AssignmentKind {
         value: ValueId,
     },
     DirectCall {
+        /// Required for predeclared machine helpers; absent for ordinary calls.
+        contract: Option<ControlHelperId>,
         function: SymbolId,
         arguments: Vec<ValueId>,
     },
@@ -320,7 +324,7 @@ pub(crate) fn lower_module_with_relations(
     // so this slice needs no `scalar_type` change.
     aggregate_types.insert(HirTypeId::CONTROL);
     aggregate_types.insert(HirTypeId::RESUMPTION);
-    let layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
+    let mut layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
     let mut constructor_tags = HashMap::new();
     let mut constructors_by_type: HashMap<HirTypeId, Vec<(SymbolId, u32)>> = HashMap::new();
     for constructor in &module.constructors {
@@ -432,6 +436,7 @@ pub(crate) fn lower_module_with_relations(
             (declaration.symbol, wrapper)
         })
         .collect::<HashMap<_, _>>();
+    let control_functions = lower::plan_control_helpers(&mut layout, &generated_symbols);
     let boundary = BoundaryEvidence::new(
         relations,
         &module,
@@ -450,7 +455,7 @@ pub(crate) fn lower_module_with_relations(
         boxed_integer_type: layout.boxed_integer_type,
         boxed_number_type: layout.boxed_number_type,
         control_layout: layout.control_layout,
-        control_functions: Rc::new(RefCell::new(None)),
+        control_functions: Rc::new(RefCell::new(control_functions)),
         array_types: &layout.array_types,
         record_types: &layout.record_types,
         constructor_tags: &constructor_tags,

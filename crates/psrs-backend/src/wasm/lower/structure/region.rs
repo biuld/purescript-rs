@@ -188,6 +188,7 @@ impl Structurer<'_> {
                 function,
                 arguments,
                 span,
+                ..
             } => {
                 self.emit_return_call(*function, arguments, *span, body)?;
             }

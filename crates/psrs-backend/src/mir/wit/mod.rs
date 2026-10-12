@@ -218,6 +218,7 @@ fn lower_concrete<L: WitCallLowerer>(
             lowerer.append_wit_instruction(
                 current,
                 Instruction::Call {
+                    contract: None,
                     destination,
                     function: crate::abi::BYTES_TO_STRING_SYMBOL,
                     arguments: vec![pointer, length],
@@ -270,6 +271,7 @@ fn lower_concrete<L: WitCallLowerer>(
                 lowerer.append_wit_instruction(
                     current,
                     Instruction::Call {
+                        contract: None,
                         destination: value,
                         function: import.symbol,
                         arguments: flat,
@@ -292,6 +294,7 @@ fn lower_concrete<L: WitCallLowerer>(
                 lowerer.append_wit_instruction(
                     current,
                     Instruction::Call {
+                        contract: None,
                         destination: value,
                         function: import.symbol,
                         arguments: flat,
@@ -313,6 +316,7 @@ fn lower_concrete<L: WitCallLowerer>(
             Some(ValueType::I32 | ValueType::F64) => lowerer.append_wit_instruction(
                 current,
                 Instruction::Call {
+                    contract: None,
                     destination,
                     function: import.symbol,
                     arguments: flat,
@@ -456,6 +460,7 @@ pub(super) fn free_buffer<L: WitCallLowerer>(
     lowerer.append_wit_instruction(
         current,
         Instruction::Call {
+            contract: None,
             destination: discarded,
             function: abi::REALLOC_SYMBOL,
             arguments: vec![pointer, length, align_value, zero],

@@ -52,6 +52,7 @@ fn rejects_a_direct_call_with_the_wrong_result_shape() {
         assignments: vec![Assignment {
             destination,
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: callee,
                 arguments: Vec::new(),
             },

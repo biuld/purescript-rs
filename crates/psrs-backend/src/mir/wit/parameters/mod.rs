@@ -210,6 +210,7 @@ pub(in crate::mir) fn lower_string<L: WitCallLowerer>(
     lowerer.append_wit_instruction(
         current,
         Instruction::Call {
+            contract: None,
             destination: prefix,
             function: crate::abi::STRING_TO_BYTES_SYMBOL,
             arguments: vec![argument],

@@ -131,6 +131,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
             assignments.push(Assignment {
                 destination,
                 kind: AssignmentKind::DirectCall {
+                    contract: None,
                     function,
                     arguments: Vec::new(),
                 },

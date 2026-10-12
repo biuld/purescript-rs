@@ -9,6 +9,7 @@ mod closure_protocol;
 mod coercion;
 mod control_contracts;
 mod control_costs;
+mod control_helper_contracts;
 mod data_function;
 mod data_tuple;
 mod declaration_calls;

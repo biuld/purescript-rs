@@ -169,6 +169,7 @@ impl FunctionLowerer<'_> {
                 self.append_instruction(
                     block,
                     Instruction::Call {
+                        contract: None,
                         destination: result,
                         function: *function,
                         arguments: vec![value],

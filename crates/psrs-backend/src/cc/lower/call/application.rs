@@ -121,6 +121,7 @@ impl ApplicationLowering for FunctionLowerer<'_> {
             assignments.push(Assignment {
                 destination: call_result,
                 kind: AssignmentKind::DirectCall {
+                    contract: None,
                     function,
                     arguments: values,
                 },

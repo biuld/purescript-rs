@@ -127,6 +127,7 @@ fn insert(
             result.push(Assignment {
                 destination: checked,
                 kind: K::DirectCall {
+                    contract: None,
                     function: checker,
                     arguments: vec![value, budget],
                 },
@@ -190,6 +191,7 @@ fn checker(symbol: SymbolId, boundary: ReprId, extent: ValueShape) -> Function {
         a(
             8,
             K::DirectCall {
+                contract: None,
                 function: symbol,
                 arguments: vec![ValueId(5), ValueId(7)],
             },

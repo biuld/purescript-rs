@@ -38,6 +38,11 @@ operation witnesses through optimized MIR. CC checks actual factory operands;
 CC/MIR reject a locally proven computation from an incompatible semantic domain.
 The checklist records focused structural and malformed-IR evidence and the
 remaining trusted producer boundaries.
+The continuation from `57e94257` predeclares semantic helper identities and
+retains them on CC/MIR calls and MIR tail calls. Signature-compatible check/close
+swaps and missing helper contracts are rejected; P9 validates identities before
+loopification. A mandatory Wasmtime run with tail calls disabled executes and
+counts 100,000 requests. Exact checkpoint/finish argument provenance is still open.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

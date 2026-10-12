@@ -57,6 +57,7 @@ impl FunctionLowerer<'_> {
                         self.append_instruction(
                             current,
                             Instruction::Call {
+                                contract: None,
                                 destination: assignment.destination,
                                 function: helper,
                                 arguments: vec![*value],
@@ -254,9 +255,20 @@ impl FunctionLowerer<'_> {
                     current = self.lower_array_assignment(current, assignment)?;
                 }
                 AssignmentKind::DirectCall {
+                    contract,
                     function,
                     arguments,
                 } => {
+                    self.layout
+                        .representation_table()
+                        .verify_control_call(*function, *contract)
+                        .map_err(|message| {
+                            vec![BackendError::invalid_ir(
+                                "P9 MIR lowering",
+                                assignment.span,
+                                message,
+                            )]
+                        })?;
                     if let Some(import) = self.wit_imports.get(function).cloned() {
                         current = self.lower_wit_call(&import, assignment, current)?;
                     } else if let Some(import) = self.runtime_imports.get(function).cloned() {
@@ -271,6 +283,7 @@ impl FunctionLowerer<'_> {
                         self.append_instruction(
                             current,
                             Instruction::Call {
+                                contract: *contract,
                                 destination: assignment.destination,
                                 function: *function,
                                 arguments: arguments.clone(),

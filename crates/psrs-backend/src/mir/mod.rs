@@ -148,6 +148,7 @@ pub enum Terminator {
     /// A direct tail call. The arguments are evaluated and control transfers to
     /// `function`, whose result becomes this function's result.
     ReturnCall {
+        contract: Option<crate::cc::ControlHelperId>,
         function: SymbolId,
         arguments: Vec<ValueId>,
         span: TextRange,

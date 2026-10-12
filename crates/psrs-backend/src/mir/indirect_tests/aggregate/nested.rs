@@ -80,6 +80,7 @@ pub(super) fn nested_variant_fixture() -> (cc::Module, ExternalBindings, Resolve
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -188,6 +189,7 @@ pub(super) fn nested_record_fixture() -> (cc::Module, ExternalBindings, Resolve)
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -354,6 +356,7 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
         Assignment {
             destination: ValueId(5),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(4)],
             },

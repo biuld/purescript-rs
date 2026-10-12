@@ -72,6 +72,7 @@ pub(super) fn wide_scalar_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -217,6 +218,7 @@ pub(super) fn wide_scalar_parameter_fixture() -> (cc::Module, ExternalBindings, 
         Assignment {
             destination: ValueId(3),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(2)],
             },
