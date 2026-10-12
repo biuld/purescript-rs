@@ -34,6 +34,11 @@ qualified, selective, or hidden, and exports can re-export imported
 declarations. Stable identities let later passes refer to declarations
 without repeating name lookup.
 
+The function arrow `(->)` is builtin. `(~>)` is an ordinary type-operator alias:
+bare and infix uses require a declaration or visible import, including the
+alias's target identity. Missing or hidden aliases report `UnknownName`; neither
+spelling silently becomes the builtin arrow.
+
 ## Model
 
 ```text

@@ -67,7 +67,7 @@ pub(in crate::resolver) fn builtin_type(name: &str) -> Option<BuiltinType> {
         "Row" => BuiltinType::Row,
         "Record" => BuiltinType::Record,
         "Array" => BuiltinType::Array,
-        "Function" | "->" | "~>" => BuiltinType::Function,
+        "Function" | "->" => BuiltinType::Function,
         _ => return None,
     })
 }

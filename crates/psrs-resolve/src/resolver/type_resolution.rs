@@ -24,21 +24,16 @@ impl Resolver {
                     // from `Prim`. Keep its builtin identity independent of the
                     // source-level implicit import rules for `Function`.
                     HirTypeKind::Constructor(builtin_type("->")?)
-                } else if name.text == "~>" {
-                    // `~>` is an ordinary type-operator alias: official Prelude
-                    // aliases it to `NaturalTransformation`, and a user module
-                    // may alias it to `Prim.Function`. A bare `(~>)` resolves
-                    // through the imported alias; only an unresolved `~>` falls
-                    // back to the function arrow.
-                    match self.type_fixities.get("~>").map(|fixity| fixity.target) {
-                        Some(hir::FixityTarget::Type(reference)) => {
-                            self.type_reference_kind(reference)
-                        }
-                        Some(hir::FixityTarget::Value(_)) => {
-                            unreachable!("type fixities target types")
-                        }
-                        None => HirTypeKind::Constructor(builtin_type("~>")?),
-                    }
+                } else if name
+                    .text
+                    .chars()
+                    .next()
+                    .is_some_and(|first| !first.is_alphabetic() && first != '_')
+                {
+                    // Symbolic names are type operators. Bare and infix uses
+                    // share alias lookup; an absent alias is a resolution error.
+                    let reference = self.lookup_type_operator_reference(&name.text, name.span)?;
+                    self.type_reference_kind(reference)
                 } else if is_uppercase(&name.text) {
                     let reference = self.lookup_type_name(&name.text, name.span)?;
                     self.type_reference_kind(reference)
@@ -103,16 +98,7 @@ impl Resolver {
         name: &str,
         span: TextRange,
     ) -> Option<hir::ResolvedTypeOperator> {
-        let reference = if let Some(fixity) = self.type_fixities.get(name) {
-            match fixity.target {
-                hir::FixityTarget::Type(reference) => reference,
-                hir::FixityTarget::Value(_) => unreachable!("type fixities target types"),
-            }
-        } else if let Some((qualifier, member)) = split_qualified(name) {
-            self.lookup_qualified_type(name, qualifier, member, span)?
-        } else {
-            self.lookup_type_name(name, span)?
-        };
+        let reference = self.lookup_type_operator_reference(name, span)?;
         let (associativity, precedence) = self
             .type_fixities
             .get(name)
@@ -124,6 +110,23 @@ impl Resolver {
             associativity,
             precedence,
         })
+    }
+
+    fn lookup_type_operator_reference(
+        &mut self,
+        name: &str,
+        span: TextRange,
+    ) -> Option<TypeReference> {
+        if let Some(fixity) = self.type_fixities.get(name) {
+            match fixity.target {
+                hir::FixityTarget::Type(reference) => Some(reference),
+                hir::FixityTarget::Value(_) => unreachable!("type fixities target types"),
+            }
+        } else if let Some((qualifier, member)) = split_qualified(name) {
+            self.lookup_qualified_type(name, qualifier, member, span)
+        } else {
+            self.lookup_type_name(name, span)
+        }
     }
 
     fn resolve_type_parameter(
