@@ -17,6 +17,19 @@ pub enum ControlHelperRole {
     Cancel,
 }
 
+impl ControlHelperRole {
+    pub(crate) const ALL: [Self; 8] = [
+        Self::Executor,
+        Self::CloneSequence,
+        Self::RebuildSequence,
+        Self::Start,
+        Self::Check,
+        Self::Close,
+        Self::Once,
+        Self::Cancel,
+    ];
+}
+
 /// A checked call identifies a particular helper, even when two helpers have
 /// the same physical signature. Only P8 planning publishes these bindings.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +52,22 @@ impl ControlHelperContract {
 }
 
 impl super::RepresentationTable {
+    pub(crate) fn control_sequence(&self) -> Option<super::ReprId> {
+        let helper = self
+            .control_helpers
+            .iter()
+            .find(|helper| helper.role == ControlHelperRole::CloneSequence)?;
+        let super::ValueShape::Reference(reference) =
+            *self.signature(helper.signature)?.parameters.first()?
+        else {
+            return None;
+        };
+        let super::RefShape::Repr(sequence) = reference.heap else {
+            return None;
+        };
+        Some(sequence)
+    }
+
     pub(crate) fn verify_control_call(
         &self,
         function: SymbolId,

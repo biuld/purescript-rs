@@ -5,6 +5,7 @@ use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
 
 mod adaptation;
+mod control_provenance;
 mod helpers;
 mod ops;
 mod scalar;
@@ -187,6 +188,7 @@ fn verify_function_inner(
         )]);
     }
     verify_capture_layout(function)?;
+    control_provenance::verify(function, representations)?;
     let mut available = function.parameters.iter().copied().collect::<HashSet<_>>();
     verify_assignments(
         &function.assignments,

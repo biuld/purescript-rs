@@ -10,6 +10,7 @@ use std::rc::Rc;
 mod case;
 mod control_contract;
 mod control_helpers;
+pub(crate) mod value_identity;
 pub use control_contract::{
     ControlContract, ControlContractId, ControlDomain, SourceTypeIdentityId,
     TypeConstructorIdentity, TypeIdentity,

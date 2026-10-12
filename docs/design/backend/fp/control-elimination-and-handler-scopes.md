@@ -264,6 +264,32 @@ correct finish frame, or that the bound helper body implements every lifecycle
 rule. Those argument, body and activation provenance obligations remain part of
 the complete machine verification contract.
 
+### Finish consumption ownership
+
+A finish record stores `(extent, remainingQueue, parent)`. Consuming it must close
+field zero and pass fields one and two from that same record to the next control
+execution step. A compatible boundary type cannot establish this relation.
+
+The shared `finish_relation` validates the record identity and logical field
+positions. CC reads actual variant projections and helper calls in the execution
+loop; it indexes definitions across nested assignment sequences and uses the
+shared identity-preserving reference operations. MIR reads actual struct
+projections, strips copies/reference casts, accounts for the tag-field offset,
+and reads the next direct/tail call or self-loop jump. It uses the immutable
+planned sequence schema and the bound execution helper identity, without matching
+function names. A recorded close requires its corresponding transition; a
+transition consuming a finish queue requires a preceding close. A shape-compatible
+check cannot substitute for that close, even if its own callee contract is valid.
+
+This checks finish consumers and preserves the relation after P10. It does not
+establish that every finish was created from the right context, that all replay
+activations have the intended ancestry, or that all checkpoint captures and
+checks refer to the proper source extent. Those producer, capture and activation
+obligations remain required for complete lifecycle provenance. A simultaneous
+rewrite removing both the close and all recognizable finish projections is not
+proved equivalent by this local relation check; complete execution-step evidence
+must still cover it.
+
 ### Alternatives
 
 - Moving old clause execution to the caller changes neither its source type nor

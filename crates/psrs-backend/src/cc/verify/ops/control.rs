@@ -1,8 +1,8 @@
 use super::super::helpers::{assignment_error, declared_shape};
 use crate::BackendError;
+use crate::cc::Signature;
 use crate::cc::control_contract::ControlImplementation;
 use crate::cc::{Assignment, AssignmentKind, RepresentationTable, ValueId, ValueShape};
-use crate::cc::{Signature, ValueConversion};
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
 
@@ -133,28 +133,11 @@ pub(super) fn verify(
     Ok(uses)
 }
 
-fn origin(mut value: ValueId, assignments: &[Assignment]) -> ValueId {
-    for _ in 0..assignments.len() {
-        let next = assignments
+fn origin(value: ValueId, assignments: &[Assignment]) -> ValueId {
+    crate::cc::value_identity::reference_origin(value, |value| {
+        assignments
             .iter()
             .find(|assignment| assignment.destination == value)
-            .and_then(|assignment| match &assignment.kind {
-                AssignmentKind::RepresentationCast { value, .. } => Some(*value),
-                AssignmentKind::AggregateConvert {
-                    value, conversion, ..
-                } if matches!(
-                    conversion.plan,
-                    ValueConversion::EraseReference | ValueConversion::RecoverReference { .. }
-                ) =>
-                {
-                    Some(*value)
-                }
-                _ => None,
-            });
-        match next {
-            Some(next) => value = next,
-            None => break,
-        }
-    }
-    value
+            .map(|assignment| &assignment.kind)
+    })
 }

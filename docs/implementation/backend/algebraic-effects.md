@@ -1039,3 +1039,57 @@ remeasured; component fingerprints, collection counts and maximum post-GC live
 bytes exactly match the preceding source-contract slice. Explicit upstream type
 comparison, package conformance and scoreboards are not rerun for this internal
 call-contract unit, and no measured gate number changes.
+
+
+### Finish consumer ownership (2026-10-12)
+
+This continuation starts from `df46f2d2`. Same-shaped boundaries could still be
+exchanged while keeping the correct close helper identity. A shared relation now
+checks actual finish consumption: the closed extent, restored queue and restored
+parent must be projections 0/1/2 of one immutable finish record. CC reads actual
+variant projections and execution calls; MIR reads actual struct projections and
+execution calls/tail calls/self-loop jumps. The schema comes from the predeclared
+sequence helper signature and physical layout, not function names or a new
+source intrinsic. Both directions are checked: a close needs the matching next
+step, and a step consuming a finish queue needs a preceding close.
+
+CC reference identity operations have one shared owner. Identity conversion,
+reference erasure/recovery and reference casts preserve an existing object's
+identity; mappings/adapters that construct another object do not. The finish
+verifier indexes definitions across nested CC sequences, while the existing
+source-contract consumer uses the same transparent-operation rules. MIR follows
+copies and casts, including the self-loop parameters produced by P9. No runtime
+instruction or representation changes are introduced by this verification unit.
+Incomplete nonempty helper registries and missing sequence schemas are errors.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Close the finish extent rather than its parent | `cc_rejects_closing_the_parent_instead_of_the_finish_extent`, `optimized_mir_rejects_closing_a_same_shaped_parent` | Focused Verified |
+| Restore the proper parent | `cc_rejects_restoring_the_closed_extent_instead_of_its_parent`, `optimized_mir_rejects_the_wrong_restored_parent` | Focused Verified |
+| Require all restored fields to come from the same record | `cc_rejects_a_parent_projected_from_another_finish_frame`, `optimized_mir_rejects_a_parent_from_a_different_finish_frame` | Focused Verified |
+| Require completion rather than a compatible check or omitted call | `cc_rejects_a_finish_disguised_as_a_valid_lifetime_check`, `optimized_mir_rejects_a_finish_without_a_close` | Focused Verified |
+| Accept identity-preserving transformations | `checked_reference_identity_aliases_preserve_finish_ownership`, real CC through the checked artifact pipeline | Focused Verified |
+| Establish complete lifecycle provenance | Correct finish production, checkpoint capture/check identity, fresh replay ancestry and full execution-step coverage remain unverified | Unverified |
+
+The consumer relation does not prove the origin of every finish record. A rewrite
+removing both completion and all recognizable finish projections also requires
+complete execution-step evidence; this unit does not claim that proof. Existing
+Core typing and trusted higher-order/imported producer boundaries remain as
+recorded above. Full AE/AC acceptance, foreign capture, caught-host-trap cleanup,
+pinned library comparison and remaining general allocation obligations stay open.
+
+Validation: all nine new driver tests pass, with required Wasmtime and real
+optimized MIR. `cargo fmt --all --check`, `git diff --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` pass. Mandatory workspace
+execution passes 435 backend tests, 95 Core tests, all 80 control integration
+tests and the existing cost probes. The nine failing targets and 175 failed test
+names exactly match `df46f2d2`, with no added or recovered names. This compares
+failure names, not all baseline causes. Logs:
+`/private/tmp/psrs-control-finish-structural.log`,
+`/private/tmp/psrs-control-finish-workspace.log`,
+`/private/tmp/psrs-control-finish-comparison.json`, and
+`/private/tmp/psrs-control-finish-clippy.log`. The six ancestry/GC workloads are
+remeasured; fingerprints, collection counts and maximum post-GC live bytes match
+the preceding helper slice. Explicit upstream type comparison, package
+conformance and scoreboards are not rerun for this internal invariant change.
+No measured gate number changes.

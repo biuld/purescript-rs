@@ -43,6 +43,11 @@ retains them on CC/MIR calls and MIR tail calls. Signature-compatible check/clos
 swaps and missing helper contracts are rejected; P9 validates identities before
 loopification. A mandatory Wasmtime run with tail calls disabled executes and
 counts 100,000 requests. Exact checkpoint/finish argument provenance is still open.
+The continuation from `df46f2d2` checks finish consumer ownership in CC and
+optimized MIR: close, restored queue and restored parent must use one finish
+record. A check or omitted close cannot replace completion. Nine new provenance
+and identity-alias tests pass. Finish production, checkpoint identity and replay
+activation ancestry still need their complete semantic proofs.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

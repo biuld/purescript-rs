@@ -21,6 +21,16 @@ pub(crate) fn verify_table(
             ));
         }
     }
+    if !table.control_helpers.is_empty()
+        && crate::cc::ControlHelperRole::ALL
+            .iter()
+            .any(|role| !roles.contains(role))
+    {
+        return Err(table_error(
+            span,
+            "control machine is missing a required semantic helper",
+        ));
+    }
     for proof in &table.control_contracts {
         if proof.argument_identities().len() != proof.arguments().len()
             || std::iter::once(&proof.result_identity())
