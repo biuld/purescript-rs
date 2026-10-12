@@ -100,7 +100,15 @@ fn rejects_an_unsaturated_foreign_data_constructor() {
 
 #[test]
 fn reports_a_partially_applied_function_synonym() {
-    let errors = check("module Main where\nnewtype N = N ((~>) Array)\n");
+    // `~>` aliases a type synonym; applying the bare operator to fewer
+    // arguments than the synonym's arity is `PartiallyAppliedSynonym`. The
+    // plain function arrow is a builtin constructor and is never this error.
+    let errors = check(
+        "module Main where\n\
+         type Natural f g = forall a. f a -> g a\n\
+         infixr 4 type Natural as ~>\n\
+         newtype N = N ((~>) Array)\n",
+    );
     assert!(
         codes(&errors).contains(&"PartiallyAppliedSynonym"),
         "{errors:?}"

@@ -23,9 +23,9 @@ impl Checker<'_> {
     /// is the case that matters: each of its arguments is checked against the
     /// parameter kind its class declares, and `(->)` applied to one argument is
     /// how a higher-kinded class parameter is written — `Functor ((->) r)` is
-    /// the standard library's own instance, which `purs` accepts. Read on its
-    /// own, that same argument is the function arrow partway applied, which is
-    /// the `PartiallyAppliedSynonym` of `failing/TypeSynonyms9.purs`.
+    /// the standard library's own instance, which `purs` accepts. The function
+    /// arrow is a builtin type constructor, not a synonym, so a partial
+    /// application of it is never a `PartiallyAppliedSynonym`.
     pub(super) fn kind_of_type_against(
         &mut self,
         ty: &hir::Type,
@@ -228,26 +228,15 @@ impl Checker<'_> {
         arguments: usize,
         span: TextRange,
     ) {
-        match &head.kind {
-            TypeKind::Named(id) => {
-                if let Some(arity) = self.synonym_arity.get(id)
-                    && arguments < *arity
-                {
-                    self.report(
-                        PARTIALLY_APPLIED_SYNONYM,
-                        span,
-                        "a type synonym must be fully applied",
-                    );
-                }
-            }
-            TypeKind::Constructor(BuiltinType::Function) if arguments < 2 => {
-                self.report(
-                    PARTIALLY_APPLIED_SYNONYM,
-                    span,
-                    "a type synonym must be fully applied",
-                );
-            }
-            _ => {}
+        if let TypeKind::Named(id) = &head.kind
+            && let Some(arity) = self.synonym_arity.get(id)
+            && arguments < *arity
+        {
+            self.report(
+                PARTIALLY_APPLIED_SYNONYM,
+                span,
+                "a type synonym must be fully applied",
+            );
         }
     }
 }

@@ -216,7 +216,11 @@ fn desugar_expr_inner(expression: Expr) -> Expr {
         },
         ExprKind::Typed { expression, ty } => ExprKind::Typed {
             expression: Box::new(desugar_expr(*expression)),
-            ty,
+            ty: types::desugar_type(ty),
+        },
+        ExprKind::TypeApplication { expression, ty } => ExprKind::TypeApplication {
+            expression: Box::new(desugar_expr(*expression)),
+            ty: types::desugar_type(ty),
         },
         ExprKind::Lambda { binder, body } => ExprKind::Lambda {
             binder,

@@ -263,3 +263,67 @@ constraint targets, and the other reference packages (`Run`, `Free`) plus the
 ordinary row library over `Prim.Control`. The earlier "first backend slice"
 closure-conversion message still covers genuinely unsupported shapes (for
 example open rows and unresolved type constructors); those remain real work.
+
+## Free/Run dependency closure (2026-10-12)
+
+The reference `Free` package imports `Control.Monad.Trans.Class` and
+`Data.CatList`, and its `Control.Monad.Free.Class` reaches
+`Control.Monad.Except.Trans`, which imports `Effect.Exception`. Those modules
+were not in the pinned package. The closure is now pinned at upstream tags:
+
+| Package | Tag | Commit |
+| --- | --- | --- |
+| `purescript-catenable-lists` | `v7.0.0` | `09abe1f4888bc00841ad2b59e56a9e7ce7ebd4ab` |
+| `purescript-transformers` | `v6.0.0` | `be72ab52357d9a665cbf93d73ba1c07c4b0957ee` |
+| `purescript-exceptions` | `v6.0.0` | `afab3c07c820bb49b6c5be50049db46a964a6161` |
+| `purescript-aff` (for Run) | `v7.1.0` | `6adec6ff048a7876f74c294c440374cd21342d39` |
+
+With those sources supplied unchanged next to the seven `purescript-free`
+modules and the entry `FreeMain.purs`, the Free closure has no missing module
+and reaches P5. Reproduce with `psrs build FreeMain.purs <free + catenable +
+transformers + exceptions sources>`; `free-files-list.txt` records the exact
+source set in the evidence root.
+
+Two real frontend defects blocked it and are fixed:
+
+1. A local `where`/`let` binding signature is elaborated as an
+   `ExprKind::Typed` node, and P4 desugaring recursed into the expression but
+   passed the written type through unchanged. A type operator chain in a local
+   signature therefore survived to kind checking as `UnloweredTypeOperator`
+   (`Control.Monad.Free`'s `go :: Free f ~> Free g`). `desugar_expr` now
+   desugars the type of both `Typed` and `TypeApplication`, matching the
+   top-level and pattern paths.
+2. A bare `(~>)` was unconditionally resolved to the builtin function arrow.
+   That made `(->) Unit` report `PartiallyAppliedSynonym` (breaking
+   `Control.Monad.Trampoline`'s `type Trampoline = Free ((->) Unit)`), while
+   the official `(~>) Array` diagnostic only matched by coincidence. A bare
+   `~>` now resolves through the imported type-operator alias (official Prelude
+   aliases it to `NaturalTransformation`; a user may alias it to
+   `Prim.Function`), and only an unresolved `~>` falls back to the arrow. The
+   function arrow is a builtin constructor and is never a partially applied
+   synonym inline. L3 kind agreement is unchanged at `PartiallyAppliedSynonym`
+   12/12, so `failing/TypeSynonyms9.purs` and `PASTrumpsKDNU2.purs` still agree.
+
+The next real blocker is **polymorphic local signatures** (rank-1 local
+generalization). `Data.CatList`'s recursive `where` `foldl :: forall b c. ...`
+and `Control.Monad.Free`'s `go :: Free f ~> Free g` both report `EscapedSkolem`
+and `TypesDoNotUnify` at the recursive use. The written `forall` is
+re-generalized against a rigid instantiation instead of being instantiated per
+use, so the local binding is effectively monomorphic. This is a typechecker
+slice, not a desugar or kind issue.
+
+Run additionally needs `Effect.Aff` and `Effect.Aff.Class`. Its closure pulls
+`refs`, `parallel`, and `datetime` on top of the modules above, and `Effect.Aff`
+execution itself is gate-blocked on native Effect, so Run cannot be completed in
+this pure source-migration track.
+
+Validation for these fixes:
+
+- Whole workspace with mandatory Wasmtime: the same four failing targets and 71
+  failed names as before the change, with no added or recovered names. Log:
+  `workspace-after-fixity.log`.
+- L2 resolution, L3 kind, and L4/L5 type scoreboards with annotations ran and
+  printed their reports; L3 `PartiallyAppliedSynonym` agreement is 12/12.
+- `cargo fmt --all --check` and
+  `cargo clippy --workspace --all-targets -- -D warnings`: passed. Regression
+  tests cover the local-signature desugar and the partial function arrow.

@@ -19,14 +19,29 @@ impl Resolver {
                     let reference =
                         self.lookup_qualified_type(&name.text, qualifier, member, name.span)?;
                     self.type_reference_kind(reference)
+                } else if name.text == "->" {
+                    // The function arrow is a type operator, not a name imported
+                    // from `Prim`. Keep its builtin identity independent of the
+                    // source-level implicit import rules for `Function`.
+                    HirTypeKind::Constructor(builtin_type("->")?)
+                } else if name.text == "~>" {
+                    // `~>` is an ordinary type-operator alias: official Prelude
+                    // aliases it to `NaturalTransformation`, and a user module
+                    // may alias it to `Prim.Function`. A bare `(~>)` resolves
+                    // through the imported alias; only an unresolved `~>` falls
+                    // back to the function arrow.
+                    match self.type_fixities.get("~>").map(|fixity| fixity.target) {
+                        Some(hir::FixityTarget::Type(reference)) => {
+                            self.type_reference_kind(reference)
+                        }
+                        Some(hir::FixityTarget::Value(_)) => {
+                            unreachable!("type fixities target types")
+                        }
+                        None => HirTypeKind::Constructor(builtin_type("~>")?),
+                    }
                 } else if is_uppercase(&name.text) {
                     let reference = self.lookup_type_name(&name.text, name.span)?;
                     self.type_reference_kind(reference)
-                } else if matches!(name.text.as_str(), "->" | "~>") {
-                    // Function arrows are type operators, not names imported
-                    // from `Prim`. Keep their builtin identity independent of
-                    // the source-level implicit import rules for `Function`.
-                    HirTypeKind::Constructor(builtin_type(&name.text)?)
                 } else {
                     HirTypeKind::Variable(name.text)
                 }
