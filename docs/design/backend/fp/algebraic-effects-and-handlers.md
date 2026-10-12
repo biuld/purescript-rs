@@ -374,8 +374,10 @@ does not reopen the deleted legacy runner path.
 
 1. **Reference-library acceptance.** Audit the pinned upstream Run/Free/Variant
    packages, accept the reference library on this target, and build the row-based
-   (`VariantF`) library over the closed prototype. No compile or runtime acceptance
-   has been measured for the reference library.
+   (`VariantF`) library over compiler Control. Representative unchanged Variant
+   and Free programs execute, and labelled deep/shallow Control wrappers have
+   focused behavior evidence. Complete reference-library/API acceptance remains
+   open; neither those programs nor the native prototype establish it.
 2. **Operation-row encoding.** Confirm the reference encoding (`VariantF` over an
    open row) is supported end to end, or record the compiler gap it exposes.
 3. **Scoped and higher-order effects, bracket/finalization.** These need their own

@@ -1,7 +1,8 @@
 # Delimited Control and Resumable Frames
 
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
-**Status:** Draft design. The mechanism is selected by
+**Status:** Selected design; contract v2 is partially implemented, complete
+acceptance remains outstanding. The mechanism is selected by
 [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md).
 **Prerequisites:** [DEC-03](../../../decision/DEC-03-purescript-faithful-type-system.md),
 [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md),
@@ -443,9 +444,14 @@ run(state):
             Resume(k, v)       -> state.current = k.install(v)
 ```
 
-Because the loop drives every step, the native Wasm stack does not grow with the
-depth of binds or with long request sequences. Deep recursion in direct style
-becomes bounded frame churn, the same way a self tail call becomes a loop. Using
+This is a schematic driver, not the exact constructor inventory. The implemented
+CC machine uses `Return`, `Perform`, `Bind`, `Handle`, `Resume` and `OwnedResume`,
+with explicit queues and source/target contexts.
+
+Because the loop drives control steps, the native Wasm stack does not grow with
+the depth of interpreted binds or with long machine request sequences. Ordinary
+recursive user callbacks are not converted into frames by this monadic lowering;
+their stack behavior follows ordinary call and tail-call lowering. Using
 `return_call`/`return_call_ref` for the tail positions of the emitted steps keeps
 the constant-stack property even where the machine calls into ordinary code.
 
@@ -513,10 +519,15 @@ stack slots for roots and owns the stack's lifetime
 
 Suspension cannot cross a non-suspendable host or foreign frame: a captured
 continuation that spans a canonical-ABI call or an in-progress WIT import cannot be
-resumed without that boundary's cooperation. The lowering rejects a conversion that
+resumed without that boundary's cooperation. The lowering must reject a conversion that
 would capture across such a boundary unless the boundary declares an explicit
 suspension protocol. A continuation also cannot retain a borrowed canonical-ABI
 buffer or a host-resource reference past the boundary's lifetime.
+
+The current explicit monadic lowering captures guest queue/context data, not
+native host frames. This does not discharge captured-resource lifetime checks or
+caught-host-trap cleanup. Those remain required acceptance obligations; no
+complete foreign-boundary verifier or recovery protocol is claimed here.
 
 ### The executor and the runtime boundary
 
@@ -688,7 +699,9 @@ rather than a documented expectation.
 
 ## Code map
 
-This is the design target, not a claim that these APIs exist yet:
+The source primitives and guest machine exist. This map states their owners and
+required responsibilities; it does not imply every verifier or foreign-boundary
+obligation is implemented.
 
 | Location | Intended responsibility |
 | --- | --- |
@@ -699,6 +712,23 @@ This is the design target, not a claim that these APIs exist yet:
 | Existing Core/CC/MIR lowering and optimizers | Compile the converted frames and the executor as ordinary higher-order code; preserve generic observable-call semantics |
 | `psrs-runtime` (software form) | GC heap, leaf primitives, trap, and linking; provides no continuation and must not learn the frame layout |
 | Runtime control owner, only if separately adopted | Stack-switching ABI, captured-root storage, lifecycle checks, and capability requirements |
+
+The implementation locations are `psrs-hir/src/intrinsic/registry.rs`, checked
+Core control contracts, `psrs-backend/src/cc/layout/control/`,
+`cc/lower/control/`, `cc/verify/control/` and `mir/control/`. Layout planning
+reserves nominal Control/Resumption carriers and all synthesized signatures
+before CC lowering freezes the representation table. Ordinary carrier parameters,
+results, captures and joins use these nominal representations; only explicit
+abstract user-payload/storage boundaries erase and recover values. The executor
+does not reconstruct a complete source type from erased data.
+
+The eight source primitives retain their identities, with `handle` identity 96
+and arity three under contract v2. The independent package/compiler contract is
+versioned as `control_protocol: 2`. Full row-library and reference-library
+acceptance remain distinct from the existing closed/open machine fixtures.
+Upstream `Free`/`Run` executes its ordinary library representation; it is not an
+alternative implementation of the compiler's Control machine, and the native
+Effect/ST prototype is not evidence that this topic is complete.
 
 No compiler-side operation registry, handler IR, or effect-specific solver is
 required. The runtime carries no continuation for the software form; runtime control
@@ -768,6 +798,11 @@ The source-to-target `handle` contract is selected by DEC-20; the separate `run`
 remains a closed fold. Migration, context-frame verification, replay activation
 identity and finalization coalescing require the evidence in the scope topic.
 The following remain open.
+
+Finish production/library migration with focused execution evidence, then close
+the complete structural and malformed-IR checks at the stable stage contracts.
+Complete delimited-control acceptance precedes native Effect/ST public migration.
+Required acceptance scope is unchanged by this implementation order.
 
 1. **Direct-style surface sugar.** Effect typing is out of scope (see
    [Scope](#scope)). A non-typed syntax that desugars to the monadic API is a

@@ -1,5 +1,49 @@
 # Control Reference-Library Migration Baseline
 
+## Review continuation and labelled Control rows
+
+The continuation from `06f8e79b` removes the unresolved `~>` arrow fallback.
+Bare and infix aliases now share lookup and require a declaration or visible
+import. Four new regression tests and existing operator tests pass: 20 focused
+tests with mandatory Wasmtime. Official `purs` rejects absent bare/infix and
+hidden aliases with `UnknownName` and accepts an explicit Function alias.
+The operator test module was split below 500 lines. The native prototype now
+checks the String read against `"b"`; its focused Wasmtime test passes. These
+changes do not advance native public migration ahead of delimited control.
+
+The selected design/code map is aligned with the existing nominal Control
+machine, immutable signature planning and explicit monadic capture boundary.
+It no longer attributes ordinary direct-style recursion to machine stack safety
+or describes existing source APIs as absent. Foreign capture and caught-host
+cleanup remain required, unverified obligations.
+
+The independent package `baf285f8acdccbeb4f3ff8e5315b153400e69f0d`, fingerprint
+`fnv1a64-v1:ecebcb4301e7039a`, adds every unchanged source module from
+Variant v8.0.0 and `PSRS.Control.Row`, with registered trusted-module inventory.
+The ordinary wrappers provide labelled injection, deep elimination, shallow
+residual preservation and an empty-row runner. Two public fixtures compile and
+execute to 42: deep forwarding/reinstallation observes counts 2/1; shallow escape
+observes counts 1/1. A nonempty residual row at `runPure` rejects in P5 with
+`TypesDoNotUnify`. Evidence is under `rows-deep-public/`, `rows-shallow-public/`
+and `rows-residual-final.json` in the existing temporary evidence root; final
+runtime reports are `rows-deep-final/run.json` and `rows-shallow-final/run.json`.
+The full source audit is 42 packages / 235 modules: 175 identical, 34 modified,
+26 target additions, no missing upstream modules or detected direct recursion.
+
+Pure reference Run is a separate migration obligation. The exact Parallel
+v6.0.0 (`85290dca837771ac4870071008c933d315ef678f`) and DateTime v6.0.0
+(`a6a0cf1b0324964ad1854bc3377ed8766ba90e6f`) pins resolve its missing Aff
+dependency imports. An explicit unchanged-source closure of 28 modules reaches
+kind checking; the first blocker is `PartiallyAppliedSynonym` for valid
+`STATE s + r` applications, not missing native Effect execution.
+`run-reference-closure-inventory.json`, `run-files-list.txt` and
+`run-pure-before.json` retain this evidence. The next owner to repair is synonym
+application normalization at the kind boundary; preserve the upstream source.
+
+Validation scope is focused by explicit user instruction. Full workspace tests,
+workspace clippy and complete ignored scoreboards were not rerun for this
+continuation. Existing full statuses and gate measurements remain unchanged.
+
 **Date:** 2026-10-12.
 
 **Starting compiler:** `7a6dae8985d39124a019bce7bd3b8b6a421c8166`, with an

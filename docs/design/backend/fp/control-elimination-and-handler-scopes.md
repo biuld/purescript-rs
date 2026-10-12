@@ -1,14 +1,14 @@
 # Control Elimination and Handler Scopes
 
 **Feature:** [F-02](../../../feature/F-02-portable-programs.md)  
-**Status:** Draft  
+**Status:** Selected contract v2; partially implemented, complete acceptance outstanding.
 **Prerequisites:** [Delimited control](delimited-control-and-resumable-frames.md),
 [CC IR](cc-ir.md), and [representation and evidence](representation-and-evidence.md).  
 **Summary:** Generalize the existing `Prim.Control.handle` to eliminate a source
 computation into a distinct target computation. Return and operation clauses run
 outside the source handler; ordinary library code chooses deep or shallow
 resumption. Dispatch scope and continuation lifetime are separate machine facts.
-[DEC-20](../../../decision/DEC-20-typed-control-elimination.md) records this draft
+[DEC-20](../../../decision/DEC-20-typed-control-elimination.md) records this selected
 API revision; the implementation checklist separates historical v1 evidence from
 focused v2 execution and the remaining verifier/foreign obligations.
 
@@ -69,6 +69,14 @@ separate ownership contract.
 ## Design
 
 ### Library derivations
+
+The independent package's `PSRS.Control.Row` instantiates these policies over
+unchanged pinned `VariantF`: `performAt` injects a labelled request,
+`handleDeepAt` eliminates that label and preserves the residual row,
+`handleShallowAt` retains the complete source row, and `runPure` requires the
+empty row. Projection uses the ordinary upstream `on` function. These wrappers
+introduce no compiler operation identity, union selector or extra intrinsic.
+They are a Control library, distinct from reference Run/Free acceptance.
 
 Below, `project` is a library Church-encoded split, and `pure` wraps the compiler
 return primitive. `Pair s a` abbreviates `{ _1 :: s, _2 :: a }`.
@@ -487,6 +495,12 @@ must still cover it.
    above. Normalization and context transitions use one iterative guest machine.
 
 ## Code map
+
+The source signature, immutable layout planning, guest executor and public
+deep/shallow wrappers are implemented. The table also includes required checks
+whose complete coverage is still open; local constructor/provenance checks do
+not prove the whole execution algorithm. Current implementation and runtime
+evidence are recorded in the acceptance checklist.
 
 | Owner | Required responsibility |
 | --- | --- |
