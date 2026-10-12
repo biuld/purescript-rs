@@ -40,6 +40,12 @@ impl Checker {
         if !depth.within_bound() {
             return None;
         }
+        // Instance contexts are created after the outer wanted-list fixed point.
+        // Improve every recursive obligation before exact given lookup or head
+        // selection, using the same dependencies as the outer worklist.
+        let mut improved = constraint.clone();
+        self.improve_one(&mut improved);
+        let constraint = &improved;
         let class_id = constraint.class_id;
         let arguments = constraint.arguments.clone();
         let rule = self.registered_primitive_rule(class_id);

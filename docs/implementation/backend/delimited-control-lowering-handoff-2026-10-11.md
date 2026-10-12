@@ -19,6 +19,16 @@ P5; its `foldableCons` constraint remains the next production blocker. Reference
 packages are not yet imported into the locked independent package, and full
 delimited-control acceptance remains outstanding.
 
+The continuation from `3d320e29` applies the existing functional-dependency
+improvement at the shared recursive constraint-search entry. The unchanged
+Variant closure now passes P5 and produces Core; the next rejection is P8 WIT
+conformance for the legacy `effectPure` declaration in the locked Prelude.
+Source-wide foreign conformance intentionally includes dormant declarations.
+The reference baseline records the reduced positive/negative official type
+comparison and a user-class dictionary program returning 42 in both official
+JS and Wasmtime. Native Effect ABI selection and complete library acceptance
+remain outstanding.
+
 This topic commit implements DEC-20 control contract v2. The compiler lock pins
 stdlib `5d523805c4e2096e68fab5a4f965f62b225ee2af` with content identity
 `fnv1a64-v1:a1e5a2f8f4157041`. All 81 control integration tests pass under default locked package

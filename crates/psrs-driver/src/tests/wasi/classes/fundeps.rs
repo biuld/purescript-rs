@@ -6,6 +6,8 @@
 
 use super::super::super::*;
 
+mod nested_context;
+
 const FUNCTIONAL_DEPENDENCY_SOURCE: &str = r#"
 module Main where
 

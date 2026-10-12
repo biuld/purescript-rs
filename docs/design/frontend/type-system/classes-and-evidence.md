@@ -164,6 +164,12 @@ solve(wanted, givens, instances):
     return Instance(candidate, context_evidence)
 ```
 
+Every recursive instance-context obligation enters the same functional-dependency
+improvement step before given lookup and head selection. The outer wanted-list
+fixed point cannot cover context obligations created later by instance selection.
+Improvement uses the obligation's captured givens, including superclass closure;
+exact given lookup does not independently unify unknown arguments.
+
 Head comparison distinguishes `Match`, `Apart`, and `Unknown`. Repeated head
 variables compare all wanted types they capture after dependency coverage is
 known. A structural occurs conflict such as `a` against `Array a` is Apart;
