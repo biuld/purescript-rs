@@ -10,6 +10,7 @@ pub(crate) mod cfg;
 mod control_checkpoints;
 mod control_contracts;
 mod control_provenance;
+mod control_replay;
 mod instruction;
 pub(crate) mod layout;
 mod literals;
@@ -19,6 +20,7 @@ pub mod opt;
 mod planner;
 mod reachable;
 mod runtime;
+mod value_identity;
 mod verify;
 mod wit;
 

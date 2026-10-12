@@ -1221,3 +1221,67 @@ Logs: `/private/tmp/psrs-checkpoint-structural-final.log`,
 `/private/tmp/psrs-checkpoint-clippy.log`. Explicit upstream type comparison,
 package conformance and suite scoreboards are not rerun for this internal
 invariant change. No measured gate number changes.
+
+
+## Saved finish replay and fresh activation ownership (2026-10-12)
+
+Starting point: compiler `f9e9e14e`, branch `feat/effect-handlers`, clean checkout.
+CC/MIR now check that clone traversal validates the current input finish's original
+extent before copying it, retaining the reverse accumulator and ancestry input.
+Callback nodes share their original input callback reference. Rebuild requires a
+fresh child extent with the current parent, a freshly allocated live status cell,
+the accumulated queue and previous active extent as restored state, and joint
+queue/activation/parent advancement. Its terminal product retains the accumulated
+queue and active extent. No runtime schema, source intrinsic or signature
+allocation is added.
+
+The CC verifier uses common scope checking to establish that local allocations
+are fresh on each recursive invocation. The MIR verifier uses shared reference
+identity, loop parameters and CFG dominance: a cell allocated in the preheader
+cannot be reused across rebuild iterations. Both fixed and filled one-element
+allocations are accepted. Replay rejects lifecycle writes, completion calls and
+dynamic callback invocation. Extra static inspection calls require a conservative
+closed set of read-only local bodies and static callees. Imported/missing bodies
+and allocating or writing bodies are unproven. MIR consults the ordinary effect
+summary; no cost-probe name receives an exception and no optimizer exemption is
+introduced.
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| Check the exact original saved finish extent | `cc_checks_original_saved_extent`, `mir_checks_original_saved_extent`, `cc_requires_saved_extent_check`, `mir_requires_saved_extent_check` | Focused Verified |
+| Share original callbacks and preserve queue accumulators | `cc_replay_must_share_the_original_callback`, `mir_replay_must_share_the_original_callback` | Focused Verified |
+| Create fresh activation objects with the current parent | `cc_rejects_reusing_an_activation`, `mir_rejects_reusing_an_activation`, `cc_checks_fresh_activation_parent`, `mir_checks_fresh_activation_parent` | Focused Verified |
+| Preserve restored active state and advance the new activation coherently | `cc_checks_restored_active_extent`, `mir_checks_restored_active_extent`, `cc_checks_activation_advance`, `mir_checks_activation_advance` | Focused Verified |
+| Initialize fresh live status on each rebuild iteration | `cc_requires_a_live_new_status`, `mir_requires_a_live_new_status`, `mir_rejects_status_allocation_before_the_rebuild_loop` | Focused Verified |
+| Keep traversal from completing original extents | `cc_replay_cannot_complete_a_saved_extent`, `mir_replay_cannot_complete_a_saved_extent`; a valid close callee/contract with the same signature cannot replace validation | Focused Verified |
+| Accept semantically valid allocation placement and forms | `allocation_before_dispatch_and_filled_storage_preserve_replay_identity`: checked CC to optimized artifact, mandatory Wasmtime, nested replay returns 42 with filled status allocation before dispatch | Focused Verified |
+| Preserve read-only inspection instrumentation | Existing actual ancestry/GC probes, through the checked CC-to-artifact pipeline | Focused Verified |
+
+The accepted nested replay source is shared with the existing scoped replay
+integration tests through a compiler-owned synthetic fixture; its source program
+is unchanged. These checks establish recognizable node relationships, not full
+algorithm equivalence when entire traversal/construction steps are removed.
+Initial dispatch/root seeding and all propagation relationships, source-context
+finish production, complete frame/context provenance, foreign capture,
+caught-host-trap cleanup, pinned library comparison and remaining general
+allocation obligations stay open. Full AE/AC acceptance remains unverified.
+
+Validation: all twenty new cases pass, including actual mandatory Wasmtime
+execution of the altered filled-status allocation path through nested multi-shot
+replay. Final `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace --no-fail-fast`
+passes 435 backend tests, 95 Core tests, all 81 control integration tests and the
+existing ancestry/GC and no-tail-call probes. Driver library results are 572
+passed and 162 failed. The same nine failing targets and 175 failed test names
+match `f9e9e14e`, with no added or recovered names; this compares names rather
+than every baseline cause. `cargo fmt --all --check`, `git diff --check` and final
+`cargo clippy --workspace --all-targets -- -D warnings` pass. Two test-helper lint
+repairs were followed by a rerun of all twenty new cases.
+
+The six measured ancestry/GC workloads retain the preceding checkpoint slice's
+exact component fingerprints, collection counts and maximum post-GC live bytes.
+Logs: `/private/tmp/psrs-replay-structural-final.log`,
+`/private/tmp/psrs-replay-workspace-final.log`,
+`/private/tmp/psrs-replay-comparison.json`, and
+`/private/tmp/psrs-replay-clippy-final.log`. Explicit upstream type comparison,
+package conformance and suite scoreboards are not rerun for this internal
+invariant change. No measured gate number changes.

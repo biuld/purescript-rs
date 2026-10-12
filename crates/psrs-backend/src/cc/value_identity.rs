@@ -23,7 +23,7 @@ pub(crate) fn reference_origin<'a>(
     value
 }
 
-fn transparent(conversion: &ValueConversion) -> bool {
+pub(crate) fn transparent(conversion: &ValueConversion) -> bool {
     match conversion {
         ValueConversion::Identity
         | ValueConversion::EraseReference

@@ -309,6 +309,44 @@ complete frame/context provenance still require their separate proofs. Ordinary
 user callback typing and imported producer boundaries retain their existing
 trusted contracts.
 
+### Saved finish replay and fresh activations
+
+Clone traversal preserves a saved finish extent from field zero of its current
+input finish, checking that exact extent before constructing the reversed copy.
+Its reverse accumulator and ancestry input are retained. Callback queue nodes
+reuse the original input callback reference and the current accumulator in both
+traversal and rebuild; replay does not clone or invoke those dynamic callbacks.
+
+Rebuild creates a child activation with its current parent input and a newly
+allocated, live one-element status cell. The finish restores the accumulated
+queue and previous active extent. The next rebuild step advances its queue,
+active extent and parent together to the new activation. The terminal replay
+product returns the accumulated queue and active extent. A new extent sharing an
+old cell, a closed initial status or an allocation outside the rebuild iteration
+cannot establish freshness.
+
+CC checks these actual constructions and transitions after common scope
+verification. A local allocation before the CC dispatch switch is still fresh on
+every recursive invocation. MIR repeats the relations over physical fields,
+reference identities and loop parameters, requiring status and extent allocations
+to dominate the finish and occur inside the current loop iteration. An allocation
+hoisted into the function preheader is insufficient. One-element `ArrayNew` and
+filled allocation forms with live initial status are both admitted.
+
+Replay cannot write lifecycle cells or call lifecycle completion. Additional
+static inspection calls may be accepted only when their local bodies and all
+transitive static callees are proved read-only, without dynamic calls or
+allocations. Missing and imported bodies remain unproven. MIR uses the common
+instruction effect owner for this summary; neither stage makes a name-based
+exception for a cost probe. This leaves ordinary trapping ancestry checks valid
+without admitting a shape-compatible close operation.
+
+These checks cover recognizable copy/rebuild nodes and transitions. They do not
+prove complete traversal if a rewrite removes an entire required step, all
+root/dispatch seeding and propagation relationships, finish production from its
+source context, or caught-host-trap cleanup. Those obligations remain part of
+complete lifecycle and execution-step verification.
+
 ### Finish consumption ownership
 
 A finish record stores `(extent, remainingQueue, parent)`. Consuming it must close

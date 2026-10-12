@@ -61,3 +61,30 @@ pub(crate) fn dispatch_checkpoint_relation(
         _ => Err("raw resumption must capture its current dispatch context checkpoint"),
     }
 }
+
+pub(crate) fn saved_finish_relation(
+    input: ValueId,
+    extent: Option<FinishProjection>,
+) -> Result<(), &'static str> {
+    if extent
+        != Some(FinishProjection {
+            owner: input,
+            field: 0,
+        })
+    {
+        return Err("replay must preserve the original saved finish extent");
+    }
+    Ok(())
+}
+
+pub(crate) fn replay_activation_relation(
+    previous_queue: ValueId,
+    previous_active: ValueId,
+    queue: ValueId,
+    restored_parent: ValueId,
+) -> Result<(), &'static str> {
+    if queue != previous_queue || restored_parent != previous_active {
+        return Err("replay finish must retain its accumulated queue and previous active extent");
+    }
+    Ok(())
+}

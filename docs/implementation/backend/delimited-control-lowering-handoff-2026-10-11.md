@@ -65,6 +65,15 @@ queue. MIR uses shared CFG dominance across dispatch-selection blocks. Eleven
 new malformed-IR/alias/ordering tests provide focused evidence. Complete saved
 finish validation, fresh replay activation ancestry and other lifecycle rules
 remain open.
+The continuation from `f9e9e14e` validates saved finish extents during clone
+traversal, callback sharing and fresh rebuild activations. The new status must
+be live and allocated in the current invocation/loop iteration; child ancestry,
+restored state, advancement and terminal replay products retain their required
+identities. Statically verified read-only inspection callees remain accepted.
+Twenty new cases include malformed CC/MIR and actual execution of nested replay
+with status allocation moved before dispatch and expressed as filled storage.
+Complete traversal, initial root/dispatch seeding, finish production and host
+cleanup still require their remaining proofs.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

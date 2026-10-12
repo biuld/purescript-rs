@@ -144,3 +144,51 @@ impl super::RepresentationTable {
         })
     }
 }
+
+#[derive(Clone, Copy)]
+pub(crate) struct ControlReplaySchema {
+    pub sequence: super::ReprId,
+    pub boundary: super::ReprId,
+    pub status: super::ReprId,
+    pub result: super::ReprId,
+}
+
+impl super::RepresentationTable {
+    pub(crate) fn control_replay_schema(&self) -> Option<ControlReplaySchema> {
+        let repr = |shape| match shape {
+            super::ValueShape::Reference(super::Reference {
+                heap: super::RefShape::Repr(id),
+                nullable: false,
+            }) => Some(id),
+            _ => None,
+        };
+        let signature = |role| {
+            self.signature(
+                self.control_helpers
+                    .iter()
+                    .find(|helper| helper.role() == role)?
+                    .signature(),
+            )
+        };
+        let sequence = self.control_sequence()?;
+        let boundary = repr(*signature(ControlHelperRole::Check)?.parameters.first()?)?;
+        let super::Representation::Variant { cases } = self.representation(boundary)? else {
+            return None;
+        };
+        let status = repr(*cases.iter().find(|case| case.tag == 1)?.fields.first()?)?;
+        if !matches!(
+            self.representation(status),
+            Some(super::Representation::Array {
+                element: super::ValueShape::Integer
+            })
+        ) {
+            return None;
+        }
+        Some(ControlReplaySchema {
+            sequence,
+            boundary,
+            status,
+            result: repr(signature(ControlHelperRole::CloneSequence)?.result)?,
+        })
+    }
+}

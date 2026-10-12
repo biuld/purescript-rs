@@ -129,3 +129,58 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
 pub(super) fn is_pure_and_total(instruction: &Instruction) -> bool {
     classify(instruction).is_pure_and_total()
 }
+
+/// Share the conservative call boundary with semantic IR verification.
+pub(in crate::mir) fn may_invoke(instruction: &Instruction) -> bool {
+    classify(instruction).may_call
+}
+
+/// Greatest closed set of local bodies without writes or dynamic calls.
+/// Static recursion is permitted; imported calls remain unproven.
+pub(in crate::mir) fn read_only_functions(
+    module: &crate::mir::Module,
+) -> std::collections::HashSet<psrs_hir::SymbolId> {
+    use crate::mir::Terminator;
+    use std::collections::{HashMap, HashSet};
+    let mut dependencies = HashMap::<psrs_hir::SymbolId, HashSet<psrs_hir::SymbolId>>::new();
+    for function in &module.functions {
+        let mut calls = HashSet::new();
+        let mut safe = true;
+        for block in &function.blocks {
+            for instruction in &block.instructions {
+                match instruction {
+                    Instruction::Call { function, .. } | Instruction::CallVoid { function, .. } => {
+                        calls.insert(*function);
+                    }
+                    _ if classify(instruction).may_call || classify(instruction).writes_memory => {
+                        safe = false;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            match &block.terminator {
+                Some(Terminator::ReturnCall { function, .. }) => {
+                    calls.insert(*function);
+                }
+                Some(Terminator::ReturnCallRef { .. }) => safe = false,
+                _ => {}
+            }
+        }
+        if safe {
+            dependencies.insert(function.symbol, calls);
+        }
+    }
+    let mut safe = dependencies.keys().copied().collect::<HashSet<_>>();
+    loop {
+        let previous = safe.clone();
+        safe.retain(|symbol| {
+            dependencies[symbol]
+                .iter()
+                .all(|callee| previous.contains(callee))
+        });
+        if safe == previous {
+            return safe;
+        }
+    }
+}

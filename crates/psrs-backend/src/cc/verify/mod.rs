@@ -7,8 +7,10 @@ use std::collections::{HashMap, HashSet};
 mod adaptation;
 mod control_checkpoints;
 mod control_provenance;
+mod control_replay;
 mod helpers;
 mod ops;
+mod read_only;
 mod scalar;
 mod variant;
 use helpers::{verify_capture_layout, verify_value_shape};
@@ -202,6 +204,7 @@ fn verify_function_inner(
         &function.name,
     )?;
     control_checkpoints::verify(function, representations)?;
+    control_replay::verify(function, representations, functions)?;
     if !available.contains(&function.result) {
         return Err(vec![BackendError::invalid_ir(
             "P8 CC verification",

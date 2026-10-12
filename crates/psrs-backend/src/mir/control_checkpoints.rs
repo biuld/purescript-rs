@@ -1,5 +1,5 @@
 //! Preserve checkpoint ownership after physical projection and loop conversion.
-use super::{Function, Instruction as I, Module, Terminator as T};
+use super::{Function, Instruction as I, Module};
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
 use crate::control_provenance::{
@@ -8,7 +8,9 @@ use crate::control_provenance::{
 use crate::types::{DefinedTypeId, ValueId};
 use std::collections::HashMap;
 
-type Definitions<'a> = HashMap<ValueId, &'a I>;
+use super::value_identity::{
+    Definitions, definitions, loop_parameters, reference_origin as origin,
+};
 
 pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
     let Some(layout) = &module.layout else { return };
@@ -82,16 +84,7 @@ fn verify_function(
     scope: DefinedTypeId,
     callable: DefinedTypeId,
 ) -> Result<(), &'static str> {
-    let definitions = function
-        .blocks
-        .iter()
-        .flat_map(|block| &block.instructions)
-        .filter_map(|instruction| {
-            instruction
-                .destination()
-                .map(|destination| (destination, instruction))
-        })
-        .collect::<Definitions<'_>>();
+    let definitions = definitions(function);
     let origin = |value| origin(value, &definitions);
     let dominators = super::cfg::dominators(function);
     let parameters = loop_parameters(function);
@@ -229,36 +222,6 @@ fn verify_function(
         }
     }
     Ok(())
-}
-
-fn loop_parameters(function: &Function) -> &[ValueId] {
-    let header = function
-        .blocks
-        .iter()
-        .find(|block| block.id == function.entry)
-        .and_then(|block| match &block.terminator {
-            Some(T::Jump {
-                target, arguments, ..
-            }) if arguments == &function.parameters => Some(*target),
-            _ => None,
-        });
-    function
-        .blocks
-        .iter()
-        .find(|block| Some(block.id) == header)
-        .map_or(&function.parameters, |block| &block.parameters)
-}
-
-fn origin(mut value: ValueId, definitions: &Definitions<'_>) -> ValueId {
-    for _ in 0..definitions.len() {
-        match definitions.get(&value).copied() {
-            Some(I::Copy { value: source, .. } | I::RefCast { value: source, .. }) => {
-                value = *source
-            }
-            _ => break,
-        }
-    }
-    value
 }
 
 fn capture(value: ValueId, definitions: &Definitions<'_>) -> Option<CaptureProjection> {

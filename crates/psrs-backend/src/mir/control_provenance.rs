@@ -54,16 +54,7 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
         {
             continue;
         }
-        let header = function
-            .blocks
-            .iter()
-            .find(|block| block.id == function.entry)
-            .and_then(|block| match &block.terminator {
-                Some(T::Jump {
-                    target, arguments, ..
-                }) if arguments == &function.parameters => Some(*target),
-                _ => None,
-            });
+        let header = super::value_identity::loop_header(function);
         for block in &function.blocks {
             for (index, instruction) in block.instructions.iter().enumerate() {
                 let I::Call {
@@ -216,44 +207,22 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
 }
 
 fn projection(
-    mut value: ValueId,
+    value: ValueId,
     function: &Function,
     finish_type: DefinedTypeId,
 ) -> Option<FinishProjection> {
-    let definitions = function
-        .blocks
-        .iter()
-        .flat_map(|block| &block.instructions)
-        .collect::<Vec<_>>();
-    for _ in 0..definitions.len() {
-        match definitions
-            .iter()
-            .find(|instruction| instruction.destination() == Some(value))?
-        {
-            I::Copy { value: source, .. } | I::RefCast { value: source, .. } => value = *source,
-            I::StructGet {
-                type_index,
-                field,
-                value: owner,
-                ..
-            } if *type_index == finish_type && *field > 0 => {
-                let mut owner = *owner;
-                for _ in 0..definitions.len() {
-                    match definitions
-                        .iter()
-                        .find(|instruction| instruction.destination() == Some(owner))
-                    {
-                        Some(I::Copy { value, .. } | I::RefCast { value, .. }) => owner = *value,
-                        _ => break,
-                    }
-                }
-                return Some(FinishProjection {
-                    owner,
-                    field: field - 1,
-                });
-            }
-            _ => return None,
-        }
+    let definitions = super::value_identity::definitions(function);
+    let origin = |value| super::value_identity::reference_origin(value, &definitions);
+    match definitions.get(&origin(value)).copied()? {
+        I::StructGet {
+            type_index,
+            field,
+            value: owner,
+            ..
+        } if *type_index == finish_type && *field > 0 => Some(FinishProjection {
+            owner: origin(*owner),
+            field: field - 1,
+        }),
+        _ => None,
     }
-    None
 }
