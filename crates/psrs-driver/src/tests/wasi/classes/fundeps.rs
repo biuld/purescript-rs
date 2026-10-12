@@ -7,6 +7,7 @@
 use super::super::super::*;
 
 mod nested_context;
+mod rows;
 
 const FUNCTIONAL_DEPENDENCY_SOURCE: &str = r#"
 module Main where

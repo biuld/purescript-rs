@@ -147,6 +147,18 @@ impl Checker {
         if self.infer_types_equal(&wanted, &source) {
             return false;
         }
+        // Row order is semantic, not the written extension spine. A known
+        // source can refine only the wanted row through the shared normalizer;
+        // unresolved source variables remain conservative as below.
+        if self.is_row(&wanted) && self.is_row(&source) && !self.has_flexible_variable(&source) {
+            if !self.has_flexible_variable(&wanted) {
+                self.report_fundep_conflict(&wanted, &source, span);
+                return false;
+            }
+            let substitutions_before = self.state.substitutions.len();
+            self.unify_rows(wanted, source, span);
+            return self.state.substitutions.len() != substitutions_before;
+        }
         match (&wanted, &source) {
             (InferType::Variable(variable), _) => {
                 if self.state.rigid.contains(variable) {

@@ -126,6 +126,14 @@ storage.
 
 Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Compiler-owned primitive evidence has an evidence-defined place in the search order: proof and relation rules run before direct given lookup; report rules run after it so a warning or unsolved report constraint can propagate through the enclosing declaration. For ordinary class constraints, search givens first, then superclass paths and candidate instances. Matching a given compares all resolved wanted arguments with the given's arguments without choosing values for unknowns. Instantiated superclass arguments follow the same equality rule. Functional dependencies may improve unknowns separately, using the declared dependency relation. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
 
+Row arguments use semantic row equality through the shared row normalizer,
+including field permutation and solved tails. Given lookup remains read-only;
+it never selects a value for an unknown argument. Functional-dependency
+improvement may refine a flexible wanted row against a known given source,
+including extending its tail with fields present in the source. It preserves
+rigid source variables, and an abstract source tail does not guarantee a missing
+field. Superclass contexts use the same improvement when recursively solved.
+
 The common instance recorder rejects a class-argument count mismatch with
 `ClassInstanceArityMismatch` before deriving or member inference. Derived
 known-class rules separately diagnose a supported rule's own arity contract

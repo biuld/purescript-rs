@@ -56,19 +56,24 @@ impl Checker {
             (InferType::Application(f1, a1), InferType::Application(f2, a2)) => {
                 self.infer_types_equal(&f1, &f2) && self.infer_types_equal(&a1, &a2)
             }
-            (InferType::RowEmpty, InferType::RowEmpty) => true,
-            (
-                InferType::RowExtend {
-                    label: l1,
-                    ty: t1,
-                    tail: r1,
-                },
-                InferType::RowExtend {
-                    label: l2,
-                    ty: t2,
-                    tail: r2,
-                },
-            ) => l1 == l2 && self.infer_types_equal(&t1, &t2) && self.infer_types_equal(&r1, &r2),
+            (left, right) if self.is_row(&left) && self.is_row(&right) => {
+                let span = TextRange::new(0, 0);
+                let (Ok(mut left), Ok(mut right)) = (
+                    self.normalize_row(left, span),
+                    self.normalize_row(right, span),
+                ) else {
+                    return false;
+                };
+                left.fields.sort_by(|a, b| a.0.cmp(&b.0));
+                right.fields.sort_by(|a, b| a.0.cmp(&b.0));
+                left.tail == right.tail
+                    && left.fields.len() == right.fields.len()
+                    && left
+                        .fields
+                        .iter()
+                        .zip(&right.fields)
+                        .all(|((ll, lt), (rl, rt))| ll == rl && self.infer_types_equal(lt, rt))
+            }
             _ => false,
         }
     }

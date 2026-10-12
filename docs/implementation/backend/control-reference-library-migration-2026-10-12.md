@@ -58,8 +58,21 @@ The current explicit closure omits the three Variant inputs now supplied by the
 pinned package (`run-files-current-list.txt`). `run-pure-after-kind.json` reaches
 term checking; `run-pure-after-elaboration.json` removes its alias diagnostics and
 leaves one `TypesDoNotUnify` at the unchanged `runMonadEffect` instance member.
-Pure Run remains incomplete. Its next blocker is consumption of given type
-relations during instance-member checking, not demonstrated Aff execution.
+That intermediate rejection is repaired by semantic row dependency improvement:
+the `runMonadAff` superclass obligation needs the given larger row to refine the
+`runMonadEffect` context's tail. Improvement and exact given comparison now use
+the shared row normalizer. The actual blocker was not a name-based Effect rule.
+
+`run-pure-after-row-fundep.json` compiles the unchanged reference closure with no
+diagnostics. A separate build and mandatory Wasmtime run execute `put 20`,
+`modify (+22)` and `get` to 42 (`run-pure-build.log`, `run-pure-runtime.json`).
+The functional-dependency group passes 11 focused tests, including superclass
+row refinement and rejection of a missing field. The final minimal row fixtures
+also pass separately. Official `purs` agrees on acceptance and the missing-field
+`TypesDoNotUnify`; its oracle projection removes only the target binding string
+from `Unsafe.Coerce`'s foreign declaration, preserving the signature.
+`row-fundep-official/summary.json` records that comparison. Full package import,
+source/API audit and broader handler/runtime acceptance remain outstanding.
 
 Validation scope is focused by explicit user instruction. Full workspace tests,
 workspace clippy and complete ignored scoreboards were not rerun for this

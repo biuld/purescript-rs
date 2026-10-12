@@ -730,12 +730,14 @@ Upstream `Free`/`Run` executes its ordinary library representation; it is not an
 alternative implementation of the compiler's Control machine, and the native
 Effect/ST prototype is not evidence that this topic is complete.
 
-The current pure Run migration resolves the unchanged Aff import closure and
-passes higher-order row-alias kind checking and signature expansion. It still
-rejects the `runMonadEffect` instance member in term checking. This is a frontend
-migration blocker; native Aff execution has not been demonstrated as a dependency
-of the pure entry. The [reference migration record](../../../implementation/backend/control-reference-library-migration-2026-10-12.md)
-keeps compilation, runtime evidence and remaining full acceptance separate.
+The current pure Run migration resolves the unchanged Aff import closure,
+checks higher-order row aliases through shared HIR expansion, and consumes given
+row dependencies when solving superclass contexts. The pure State program
+(`put`, `modify`, `get`, `evalState`, `extract`) compiles without diagnostics and
+executes to 42 under Wasmtime. This representative result does not establish
+complete package import, API coverage, Aff execution or Control-machine
+acceptance. The [reference migration record](../../../implementation/backend/control-reference-library-migration-2026-10-12.md)
+keeps those obligations separate.
 
 No compiler-side operation registry, handler IR, or effect-specific solver is
 required. The runtime carries no continuation for the software form; runtime control
