@@ -2,7 +2,7 @@
 
 use super::{FunctionLowerer, control_error};
 use crate::BackendError;
-use crate::cc::control_contract::ControlImplementation;
+use crate::cc::control::ControlImplementation;
 use crate::cc::payload::{PayloadPlanner, erased_shape};
 use crate::cc::{
     Assignment, ControlContractId, RefShape, Reference, Representation, ValueId, ValueShape,

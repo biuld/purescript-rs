@@ -5,10 +5,7 @@ use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
 
 mod adaptation;
-mod control_checkpoints;
-mod control_finish_creation;
-mod control_provenance;
-mod control_replay;
+mod control;
 mod helpers;
 mod ops;
 mod read_only;
@@ -192,7 +189,7 @@ fn verify_function_inner(
         )]);
     }
     verify_capture_layout(function)?;
-    control_provenance::verify(function, representations)?;
+    control::verify_before_assignments(function, representations)?;
     let mut available = function.parameters.iter().copied().collect::<HashSet<_>>();
     verify_assignments(
         &function.assignments,
@@ -204,9 +201,7 @@ fn verify_function_inner(
         function.span,
         &function.name,
     )?;
-    control_checkpoints::verify(function, representations)?;
-    control_finish_creation::verify(function, representations)?;
-    control_replay::verify(function, representations, functions)?;
+    control::verify_after_assignments(function, representations, functions)?;
     if !available.contains(&function.result) {
         return Err(vec![BackendError::invalid_ir(
             "P8 CC verification",

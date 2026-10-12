@@ -1,8 +1,8 @@
 //! Recheck lifecycle ownership after physical projection and loop conversion.
-use super::{Function, Instruction as I, Module, Terminator as T};
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
 use crate::control_provenance::{FinishProjection, finish_relation};
+use crate::mir::{Function, Instruction as I, Module, Terminator as T};
 use crate::types::{DefinedTypeId, ValueId};
 
 pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
@@ -54,7 +54,7 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
         {
             continue;
         }
-        let header = super::value_identity::loop_header(function);
+        let header = crate::mir::value_identity::loop_header(function);
         for block in &function.blocks {
             for (index, instruction) in block.instructions.iter().enumerate() {
                 let I::Call {
@@ -211,8 +211,8 @@ fn projection(
     function: &Function,
     finish_type: DefinedTypeId,
 ) -> Option<FinishProjection> {
-    let definitions = super::value_identity::definitions(function);
-    let origin = |value| super::value_identity::reference_origin(value, &definitions);
+    let definitions = crate::mir::value_identity::definitions(function);
+    let origin = |value| crate::mir::value_identity::reference_origin(value, &definitions);
     match definitions.get(&origin(value)).copied()? {
         I::StructGet {
             type_index,

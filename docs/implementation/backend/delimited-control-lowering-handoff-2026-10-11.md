@@ -87,6 +87,28 @@ Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.
 
+### Control module organization
+
+The continuation from `5b74e43b` groups related backend modules by their owning
+stage: `cc/control/` owns immutable source contracts and helper identities;
+`cc/layout/control/` predeclares machine layouts and quotes source contracts;
+`cc/verify/control/` checks helper bodies before and after assignment verification;
+`mir/control/` checks the retained evidence and physical helper bodies. The
+existing `cc/lower/control/` continues to own machine synthesis. Public CC/MIR
+APIs and verification order are preserved.
+
+Shared reference provenance, value identity, CFG and read-only analysis remain
+with their common owners. Source assignment checks remain in `cc/verify/ops/`.
+Independent integration test targets retain their Cargo test identities. This
+organization change does not discharge any outstanding semantic acceptance row.
+
+Validation: formatting and strict workspace clippy pass. The mandatory-Wasmtime
+workspace run passes all 435 backend tests and all 81 control integration tests.
+It retains exactly the same 175 failed test names across nine targets as the
+`5b74e43b` baseline; no failure name is added or recovered. Detailed workspace and
+comparison logs are `/private/tmp/psrs-control-organization-workspace.log` and
+`/private/tmp/psrs-control-organization-comparison.json`.
+
 ## Governing contracts
 
 - [DEC-19](../../decision/DEC-19-compiler-generated-resumable-frames.md) and

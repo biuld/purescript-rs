@@ -1,7 +1,7 @@
 //! Immutable source contracts checked by Core and quoted before representation
 //! erasure. No Core arena indices remain in the published CC evidence.
 
-use super::{ReprId, SignatureId};
+use crate::cc::{ReprId, SignatureId};
 use psrs_hir::{Intrinsic, TypeId, TypeVariableId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -60,14 +60,14 @@ pub struct ControlDomain {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ControlImplementation {
+pub(in crate::cc) enum ControlImplementation {
     Frame {
         representation: ReprId,
         case: u32,
     },
     Call {
         signature: SignatureId,
-        role: super::ControlHelperRole,
+        role: crate::cc::ControlHelperRole,
     },
 }
 
@@ -75,14 +75,14 @@ pub(super) enum ControlImplementation {
 /// Its fields are immutable to callers constructing or inspecting CC.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ControlContract {
-    pub(super) implementation: ControlImplementation,
-    pub(super) result_identity: SourceTypeIdentityId,
-    pub(super) argument_identities: Vec<SourceTypeIdentityId>,
-    pub(super) operation: Intrinsic,
-    pub(super) result: TypeIdentity,
-    pub(super) arguments: Vec<TypeIdentity>,
-    pub(super) source: Option<ControlDomain>,
-    pub(super) target: Option<ControlDomain>,
+    pub(in crate::cc) implementation: ControlImplementation,
+    pub(in crate::cc) result_identity: SourceTypeIdentityId,
+    pub(in crate::cc) argument_identities: Vec<SourceTypeIdentityId>,
+    pub(in crate::cc) operation: Intrinsic,
+    pub(in crate::cc) result: TypeIdentity,
+    pub(in crate::cc) arguments: Vec<TypeIdentity>,
+    pub(in crate::cc) source: Option<ControlDomain>,
+    pub(in crate::cc) target: Option<ControlDomain>,
 }
 
 impl ControlContract {

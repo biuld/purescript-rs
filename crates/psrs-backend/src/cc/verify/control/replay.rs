@@ -19,7 +19,7 @@ pub(super) fn verify(
         return Ok(());
     }
     let read_only = functions
-        .map(super::read_only::functions)
+        .map(super::super::read_only::functions)
         .unwrap_or_default();
     let schema = table
         .control_replay_schema()

@@ -8,15 +8,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 mod case;
-mod control_contract;
-mod control_helpers;
+mod control;
 pub(crate) mod value_identity;
-pub use control_contract::{
-    ControlContract, ControlContractId, ControlDomain, SourceTypeIdentityId,
-    TypeConstructorIdentity, TypeIdentity,
-};
-pub use control_helpers::{
-    ControlHelperContract, ControlHelperId, ControlHelperRole, ControlResumptionContract,
+pub use control::{
+    ControlContract, ControlContractId, ControlDomain, ControlHelperContract, ControlHelperId,
+    ControlHelperRole, ControlResumptionContract, SourceTypeIdentityId, TypeConstructorIdentity,
+    TypeIdentity,
 };
 mod convert;
 mod layout;

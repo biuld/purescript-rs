@@ -1,14 +1,14 @@
 //! Preserve checkpoint ownership after physical projection and loop conversion.
-use super::{Function, Instruction as I, Module};
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
 use crate::control_provenance::{
     CaptureProjection, checkpoint_capture_relation, dispatch_checkpoint_relation,
 };
+use crate::mir::{Function, Instruction as I, Module};
 use crate::types::{DefinedTypeId, ValueId};
 use std::collections::HashMap;
 
-use super::value_identity::{
+use crate::mir::value_identity::{
     Definitions, definitions, loop_parameters, reference_origin as origin,
 };
 
@@ -91,7 +91,7 @@ fn verify_function(
 ) -> Result<(), &'static str> {
     let definitions = definitions(function);
     let origin = |value| origin(value, &definitions);
-    let dominators = super::cfg::dominators(function);
+    let dominators = crate::mir::cfg::dominators(function);
     let parameters = loop_parameters(function);
     if function.symbol == executor && parameters.len() != 6 {
         return Err("control executor has an invalid parameter contract");
@@ -198,7 +198,7 @@ fn verify_function(
                         }
                     }
                     let parents =
-                        super::value_identity::incoming_values(function, origin(arguments[4]))
+                        crate::mir::value_identity::incoming_values(function, origin(arguments[4]))
                             .ok_or("replay parent must select its current dispatch context")?;
                     let mut seen = std::collections::HashSet::new();
                     for parent in parents {
@@ -276,10 +276,10 @@ fn capture(value: ValueId, definitions: &Definitions<'_>) -> Option<CaptureProje
 fn require_check(
     function: &Function,
     table: &crate::cc::RepresentationTable,
-    point: (super::BlockId, usize),
+    point: (crate::mir::BlockId, usize),
     checkpoint: ValueId,
     definitions: &Definitions<'_>,
-    dominators: &HashMap<super::BlockId, std::collections::HashSet<super::BlockId>>,
+    dominators: &HashMap<crate::mir::BlockId, std::collections::HashSet<crate::mir::BlockId>>,
 ) -> Result<(), &'static str> {
     let checked = function.blocks.iter().any(|block| {
         let prefix = if block.id == point.0 { &block.instructions[..point.1] }

@@ -1,5 +1,5 @@
-use super::{Instruction, Module};
 use crate::BackendError;
+use crate::mir::{Instruction, Module};
 
 impl Module {
     pub fn control_helpers(&self) -> &[crate::cc::ControlHelperContract] {
@@ -89,8 +89,8 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
     }
 }
 
-pub(super) fn verify_helper_calls(
-    function: &super::Function,
+pub(in crate::mir) fn verify_helper_calls(
+    function: &crate::mir::Function,
     table: Option<&crate::cc::RepresentationTable>,
 ) -> Result<(), Vec<BackendError>> {
     for block in &function.blocks {
@@ -111,7 +111,7 @@ pub(super) fn verify_helper_calls(
                     .terminator
                     .iter()
                     .filter_map(|terminator| match terminator {
-                        super::Terminator::ReturnCall {
+                        crate::mir::Terminator::ReturnCall {
                             function,
                             contract,
                             span,

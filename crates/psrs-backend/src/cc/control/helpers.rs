@@ -1,5 +1,5 @@
 //! Stable semantic identities of predeclared control-machine helpers.
-use super::SignatureId;
+use crate::cc::SignatureId;
 use psrs_hir::SymbolId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -34,9 +34,9 @@ impl ControlHelperRole {
 /// the same physical signature. Only P8 planning publishes these bindings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ControlHelperContract {
-    pub(super) role: ControlHelperRole,
-    pub(super) function: SymbolId,
-    pub(super) signature: SignatureId,
+    pub(in crate::cc) role: ControlHelperRole,
+    pub(in crate::cc) function: SymbolId,
+    pub(in crate::cc) signature: SignatureId,
 }
 
 impl ControlHelperContract {
@@ -51,18 +51,18 @@ impl ControlHelperContract {
     }
 }
 
-impl super::RepresentationTable {
-    pub(crate) fn control_sequence(&self) -> Option<super::ReprId> {
+impl crate::cc::RepresentationTable {
+    pub(crate) fn control_sequence(&self) -> Option<crate::cc::ReprId> {
         let helper = self
             .control_helpers
             .iter()
             .find(|helper| helper.role == ControlHelperRole::CloneSequence)?;
-        let super::ValueShape::Reference(reference) =
+        let crate::cc::ValueShape::Reference(reference) =
             *self.signature(helper.signature)?.parameters.first()?
         else {
             return None;
         };
-        let super::RefShape::Repr(sequence) = reference.heap else {
+        let crate::cc::RefShape::Repr(sequence) = reference.heap else {
             return None;
         };
         Some(sequence)
@@ -102,8 +102,8 @@ impl super::RepresentationTable {
 /// Its callable protocol excludes the hidden capture receiver parameter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ControlResumptionContract {
-    pub(super) function: SymbolId,
-    pub(super) signature: SignatureId,
+    pub(in crate::cc) function: SymbolId,
+    pub(in crate::cc) signature: SignatureId,
 }
 
 impl ControlResumptionContract {
@@ -117,23 +117,23 @@ impl ControlResumptionContract {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ControlCheckpointSchema {
-    pub computation: super::ReprId,
-    pub context: super::ReprId,
+    pub computation: crate::cc::ReprId,
+    pub context: crate::cc::ReprId,
 }
 
-impl super::RepresentationTable {
+impl crate::cc::RepresentationTable {
     pub(crate) fn control_checkpoint_schema(&self) -> Option<ControlCheckpointSchema> {
         let parameter = |role, index| {
             let helper = self
                 .control_helpers
                 .iter()
                 .find(|helper| helper.role() == role)?;
-            let super::ValueShape::Reference(reference) =
+            let crate::cc::ValueShape::Reference(reference) =
                 *self.signature(helper.signature())?.parameters.get(index)?
             else {
                 return None;
             };
-            let super::RefShape::Repr(repr) = reference.heap else {
+            let crate::cc::RefShape::Repr(repr) = reference.heap else {
                 return None;
             };
             Some(repr)
@@ -147,17 +147,17 @@ impl super::RepresentationTable {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ControlReplaySchema {
-    pub sequence: super::ReprId,
-    pub boundary: super::ReprId,
-    pub status: super::ReprId,
-    pub result: super::ReprId,
+    pub sequence: crate::cc::ReprId,
+    pub boundary: crate::cc::ReprId,
+    pub status: crate::cc::ReprId,
+    pub result: crate::cc::ReprId,
 }
 
-impl super::RepresentationTable {
+impl crate::cc::RepresentationTable {
     pub(crate) fn control_replay_schema(&self) -> Option<ControlReplaySchema> {
         let repr = |shape| match shape {
-            super::ValueShape::Reference(super::Reference {
-                heap: super::RefShape::Repr(id),
+            crate::cc::ValueShape::Reference(crate::cc::Reference {
+                heap: crate::cc::RefShape::Repr(id),
                 nullable: false,
             }) => Some(id),
             _ => None,
@@ -172,14 +172,14 @@ impl super::RepresentationTable {
         };
         let sequence = self.control_sequence()?;
         let boundary = repr(*signature(ControlHelperRole::Check)?.parameters.first()?)?;
-        let super::Representation::Variant { cases } = self.representation(boundary)? else {
+        let crate::cc::Representation::Variant { cases } = self.representation(boundary)? else {
             return None;
         };
         let status = repr(*cases.iter().find(|case| case.tag == 1)?.fields.first()?)?;
         if !matches!(
             self.representation(status),
-            Some(super::Representation::Array {
-                element: super::ValueShape::Integer
+            Some(crate::cc::Representation::Array {
+                element: crate::cc::ValueShape::Integer
             })
         ) {
             return None;

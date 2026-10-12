@@ -9,7 +9,6 @@ use std::collections::{HashMap, HashSet};
 mod aggregate;
 mod captures;
 pub(in crate::cc) mod control;
-pub(in crate::cc) mod control_contracts;
 mod declaration;
 mod functions;
 pub(crate) mod protocols;
@@ -322,7 +321,7 @@ pub(super) fn type_layout(
     let control_layout =
         uses_control.then(|| control::append(&mut representations, function_slot, &nominal_types));
     let control_owner = match control_layout {
-        Some(control) => control_contracts::append(module, &mut representations, control)?,
+        Some(control) => control::append_contracts(module, &mut representations, control)?,
         None => None,
     };
     Ok(TypeLayout {

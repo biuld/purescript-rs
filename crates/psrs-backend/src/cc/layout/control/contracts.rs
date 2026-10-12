@@ -1,8 +1,8 @@
 //! Quote the authoritative Core proof before the immutable CC table is frozen.
 
-use super::control::ControlLayout;
+use super::ControlLayout;
 use crate::BackendError;
-use crate::cc::control_contract::ControlImplementation;
+use crate::cc::control::ControlImplementation;
 use crate::cc::{
     ControlContract, ControlContractId, ControlDomain, RepresentationTable, SourceTypeIdentityId,
     TypeConstructorIdentity as C, TypeIdentity as T,
@@ -11,7 +11,7 @@ use psrs_core::{CheckedControlContract, ExprKind, Module, Type, TypeConstructor,
 use psrs_hir::Intrinsic;
 use std::collections::HashSet;
 
-pub(super) fn append(
+pub(in crate::cc::layout) fn append(
     module: &Module,
     table: &mut RepresentationTable,
     layout: ControlLayout,

@@ -1,15 +1,15 @@
 //! Check replay lifecycle allocations and transitions after loop conversion.
-use super::value_identity::{definitions, loop_header, loop_parameters, reference_origin};
-use super::{Function, Instruction as I, Module, Terminator as T};
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
 use crate::control_provenance::{
     FinishProjection, replay_activation_relation, saved_finish_relation,
 };
+use crate::mir::value_identity::{definitions, loop_header, loop_parameters, reference_origin};
+use crate::mir::{Function, Instruction as I, Module, Terminator as T};
 use crate::types::{DefinedTypeId, ValueId};
 use std::collections::{HashMap, HashSet};
 
-type Point = (super::BlockId, usize);
+type Point = (crate::mir::BlockId, usize);
 
 struct Schema {
     finish: DefinedTypeId,
@@ -67,7 +67,7 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
         status,
         result,
     };
-    let read_only = super::opt::effects::read_only_functions(module);
+    let read_only = crate::mir::opt::effects::read_only_functions(module);
     for (function, role) in functions {
         if let Err(message) = verify_function(function, role, table, &schema, &read_only) {
             errors.push(
@@ -119,12 +119,12 @@ fn verify_function(
                 })
         })
         .collect::<HashMap<_, _>>();
-    let dominators = super::cfg::dominators(function);
+    let dominators = crate::mir::cfg::dominators(function);
     for block in &function.blocks {
         for (index, instruction) in block.instructions.iter().enumerate() {
             let read_only_call = matches!(instruction,
                 I::Call { function, .. } | I::CallVoid { function, .. } if read_only.contains(function));
-            if super::opt::effects::may_invoke(instruction)
+            if crate::mir::opt::effects::may_invoke(instruction)
                 && !read_only_call
                 && !matches!(instruction, I::Call { contract: Some(id), .. }
                     if table.control_helpers.get(id.0 as usize).is_some_and(|helper|
@@ -446,7 +446,7 @@ fn verify_function(
 fn precedes(
     source: Point,
     target: Point,
-    dominators: &HashMap<super::BlockId, HashSet<super::BlockId>>,
+    dominators: &HashMap<crate::mir::BlockId, HashSet<crate::mir::BlockId>>,
 ) -> bool {
     if source.0 == target.0 {
         source.1 < target.1
@@ -462,7 +462,7 @@ fn fresh_iteration_allocation(
     allocation: ValueId,
     consumer: Point,
     points: &HashMap<ValueId, Point>,
-    dominators: &HashMap<super::BlockId, HashSet<super::BlockId>>,
+    dominators: &HashMap<crate::mir::BlockId, HashSet<crate::mir::BlockId>>,
 ) -> bool {
     let Some(point) = points.get(&allocation).copied() else {
         return false;

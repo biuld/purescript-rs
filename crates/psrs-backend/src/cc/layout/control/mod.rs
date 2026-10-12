@@ -1,5 +1,10 @@
 //! Predeclared representations for the persistent control abstract machine.
 
+mod contracts;
+
+pub(in crate::cc::layout) use contracts::append as append_contracts;
+pub(in crate::cc) use contracts::lookup;
+
 use crate::cc::payload::erased_shape;
 use crate::cc::{
     RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, SignatureId,
@@ -49,8 +54,8 @@ pub(in crate::cc) fn append(
     let context = table.reserve();
     let owner = nominal_types[&HirTypeId::RESUMPTION];
     let boundary = table.reserve();
-    let callback = super::protocols::array(table, erased);
-    let status = super::protocols::array(table, ValueShape::Integer);
+    let callback = crate::cc::layout::protocols::array(table, erased);
+    let status = crate::cc::layout::protocols::array(table, ValueShape::Integer);
     let callable = reference(RefShape::Closure(continuation));
     let queue = reference(RefShape::Repr(sequence));
     let extent = reference(RefShape::Repr(boundary));
@@ -118,7 +123,7 @@ pub(in crate::cc) fn append(
     );
     let replay = reference(RefShape::Repr(replay_result));
     let labels = vec!["_1".to_owned(), "_2".to_owned()];
-    let pair = super::protocols::record(table, &labels).unwrap_or_else(|| {
+    let pair = crate::cc::layout::protocols::record(table, &labels).unwrap_or_else(|| {
         let pair = table.reserve();
         table.set(
             pair,
@@ -217,8 +222,9 @@ mod tests {
     fn control_cells_reuse_existing_canonical_array_layouts() {
         let mut table = RepresentationTable::default();
         let erased = erased_shape();
-        let callback = super::super::protocols::array(&mut table, erased);
-        let status = super::super::protocols::array(&mut table, crate::cc::ValueShape::Integer);
+        let callback = crate::cc::layout::protocols::array(&mut table, erased);
+        let status =
+            crate::cc::layout::protocols::array(&mut table, crate::cc::ValueShape::Integer);
         let continuation = table.add_signature(Signature {
             parameters: vec![erased],
             result: erased,

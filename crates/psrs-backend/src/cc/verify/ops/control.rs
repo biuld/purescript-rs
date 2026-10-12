@@ -1,7 +1,7 @@
 use super::super::helpers::{assignment_error, declared_shape};
 use crate::BackendError;
 use crate::cc::Signature;
-use crate::cc::control_contract::ControlImplementation;
+use crate::cc::control::ControlImplementation;
 use crate::cc::{Assignment, AssignmentKind, RepresentationTable, ValueId, ValueShape};
 use psrs_hir::SymbolId;
 use std::collections::HashMap;

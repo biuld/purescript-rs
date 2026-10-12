@@ -84,7 +84,7 @@ impl FunctionLowerer<'_> {
         )
         .map_err(|message| control_error(expression.span, message))?;
         let contract =
-            crate::cc::layout::control_contracts::lookup(self.module, self.representations, &proof)
+            crate::cc::layout::control::lookup(self.module, self.representations, &proof)
                 .ok_or_else(|| {
                     control_error(
                         expression.span,
