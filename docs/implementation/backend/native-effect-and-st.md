@@ -69,7 +69,8 @@ Evidence:
 - `tests::native_representation::a_rank_n_heterogeneous_storage_and_host_program_runs`
   compiles the module set and an entry that allocates an `Int` cell and a
   `String` cell, writes both in place, reads both, reads the WASI monotonic
-  clock through a `Host` request, and returns `42`. The program uses `do`
+  clock through a `Host` request, and returns `42` only if the String read is
+  `"b"` and the Int read is `41`. The program uses `do`
   notation, so the `Functor`/`Bind`/`Apply`/`Applicative`/`Monad` instances are
   exercised too.
 - The whole workspace keeps the same four failing targets and 71 failed names

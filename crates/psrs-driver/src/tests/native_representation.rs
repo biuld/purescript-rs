@@ -165,8 +165,8 @@ program = do
   _ <- writeCell strs "b"
   stamp <- clockNow
   first <- readCell ints
-  _ <- readCell strs
-  if stamp >= 0 then pure (first + 1) else pure 0
+  second <- readCell strs
+  if stamp >= 0 && second == "b" then pure (first + 1) else pure 0
 
 main :: Int
 main = runNative program
