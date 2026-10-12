@@ -90,6 +90,15 @@ computation transition. Common MIR allocation ordering proves freshness within
 the current loop iteration. Twenty-three new tests cover malformed operands,
 preheader allocation rejection and accepted reference aliases. Complete dispatch
 selection, root seeding, entire-step deletion and host cleanup remain open.
+The continuation from `7789c5ce` checks Root initialization and normal completion.
+Start produces a fresh parentless live extent; Run installs it in both execution
+and dispatch, starts with an empty queue and closes it after execution, before
+publishing a result. MIR preserves the proof through Start inlining and checks
+all normal cleanup paths. Sequential runs cannot share extent/status storage;
+exclusive alternatives may share initialization. Twenty-four new cases include
+actual execution of modified exclusive-branch CC across two independent function
+invocations, returning 42. Full dispatch selection, source-witness deletion,
+arbitrary extra effects and caught-host-trap cleanup remain unverified.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

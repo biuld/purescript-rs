@@ -8,6 +8,114 @@
 use super::{BasicBlock, BlockId, Function, Terminator};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// Every normal path after `start` must cross a required instruction before a
+/// normal exit, checked publication, or another execution of `start`. Trapping
+/// paths are excluded; this does not establish caught-host-trap cleanup.
+pub(crate) fn normal_paths_cross(
+    function: &Function,
+    start: (BlockId, usize),
+    required: impl Fn(&super::Instruction) -> bool,
+    publication: impl Fn(&super::Instruction) -> bool,
+) -> bool {
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
+    if blocks
+        .get(&start.0)
+        .is_none_or(|block| start.1 >= block.instructions.len())
+    {
+        return false;
+    }
+    let mut pending = vec![(start.0, start.1 + 1)];
+    let mut seen = HashSet::new();
+    while let Some((id, index)) = pending.pop() {
+        if !seen.insert((id, index)) {
+            continue;
+        }
+        let Some(block) = blocks.get(&id) else {
+            return false;
+        };
+        let mut crossed = false;
+        for (offset, instruction) in block.instructions[index..].iter().enumerate() {
+            if required(instruction)
+                || matches!(instruction, super::Instruction::Unreachable { .. })
+            {
+                crossed = true;
+                break;
+            }
+            if (id, index + offset) == start || publication(instruction) {
+                return false;
+            }
+        }
+        if crossed {
+            continue;
+        }
+        match &block.terminator {
+            Some(Terminator::Trap { .. }) => {}
+            Some(
+                Terminator::Jump { .. } | Terminator::Branch { .. } | Terminator::Switch { .. },
+            ) => {
+                pending.extend(
+                    successors(block.terminator.as_ref().unwrap())
+                        .into_iter()
+                        .map(|id| (id, 0)),
+                );
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Can a later instruction be reached before the producer executes again?
+/// `None` denotes malformed point/edge metadata, not an empty path set.
+pub(crate) fn reachable_without(
+    function: &Function,
+    source: (BlockId, usize),
+    target: (BlockId, usize),
+    producer: (BlockId, usize),
+) -> Option<bool> {
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
+    for point in [source, target, producer] {
+        if point.1 >= blocks.get(&point.0)?.instructions.len() {
+            return None;
+        }
+    }
+    let mut pending = vec![(source.0, source.1 + 1)];
+    let mut seen = HashSet::new();
+    while let Some((id, index)) = pending.pop() {
+        if !seen.insert((id, index)) {
+            continue;
+        }
+        let block = blocks.get(&id)?;
+        let mut stopped = false;
+        for (offset, instruction) in block.instructions[index..].iter().enumerate() {
+            let point = (id, index + offset);
+            if point == producer || matches!(instruction, super::Instruction::Unreachable { .. }) {
+                stopped = true;
+                break;
+            }
+            if point == target {
+                return Some(true);
+            }
+        }
+        if !stopped {
+            pending.extend(
+                successors(block.terminator.as_ref()?)
+                    .into_iter()
+                    .map(|id| (id, 0)),
+            );
+        }
+    }
+    Some(false)
+}
+
 /// The successor blocks named by a terminator.
 pub(crate) fn successors(terminator: &Terminator) -> Vec<BlockId> {
     match terminator {

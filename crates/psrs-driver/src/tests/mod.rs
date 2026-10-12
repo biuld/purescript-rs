@@ -17,6 +17,7 @@ mod control_costs;
 mod control_finish_provenance;
 mod control_helper_contracts;
 mod control_replay_contracts;
+mod control_root;
 mod data_function;
 mod data_tuple;
 mod declaration_calls;

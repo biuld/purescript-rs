@@ -376,6 +376,33 @@ copy steps; deleting an entire required step still needs full execution-step
 coverage. Creating every source context with the right clauses and identities
 remains a separate producer obligation.
 
+### Root initialization and normal completion
+
+A checked Run factory starts with the canonical empty queue and a new root
+extent, installing a Root dispatch context containing that same extent. Start
+returns a freshly allocated parentless extent with a new one-element live status
+cell. Different sequential Run invocations must not share an extent or status
+cell. Mutually exclusive alternatives may share initialization within one
+invocation; recursion and loop iterations still require a new activation.
+
+Normal execution closes that root after the executor returns and before the
+checked Run result is published. A check, a close of another root, or a close
+before execution does not satisfy completion. CC checks the factory sequence and
+source witness, using branch identity to distinguish exclusive alternatives.
+MIR admits both a retained Start call and its inlined root/status allocations;
+common allocation ordering checks the current invocation/iteration. Common CFG
+analysis checks root reuse without reinitialization and requires a matching close
+on every normal path before publication, another invocation or a normal exit.
+The close can be distributed across several branches.
+
+These checks retain the source contract through Start inlining and ordinary
+reference copies/casts. They establish initialization operands and normal cleanup
+for surviving checked Run witnesses, not full execution-step equivalence. Extra
+effectful instructions, deletion of every source witness and full dispatch
+semantics require the remaining execution-step proof. Trapping paths are excluded
+from the normal completion proof; caught-host-trap cleanup still requires its
+separate host/runtime contract and execution evidence.
+
 ### Source context construction and entry
 
 Creating a scoped context retains return and operation clauses from fields zero

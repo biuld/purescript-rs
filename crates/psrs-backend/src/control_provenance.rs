@@ -151,3 +151,13 @@ pub(crate) fn context_tail_relation(
     }
     Ok(())
 }
+
+pub(crate) fn root_extent_relation(
+    execution: ValueId,
+    dispatch: ValueId,
+) -> Result<(), &'static str> {
+    if execution != dispatch {
+        return Err("control run must use the same fresh root extent for execution and dispatch");
+    }
+    Ok(())
+}

@@ -10,6 +10,7 @@ mod context_entry;
 mod finish_consumption;
 mod finish_creation;
 mod replay;
+mod root;
 
 pub(super) fn verify_before_assignments(
     function: &Function,
@@ -23,6 +24,7 @@ pub(super) fn verify_after_assignments(
     representations: &RepresentationTable,
     functions: Option<&HashMap<SymbolId, &Function>>,
 ) -> Result<(), Vec<BackendError>> {
+    root::verify(function, representations)?;
     checkpoints::verify(function, representations)?;
     finish_creation::verify(function, representations)?;
     context_entry::verify(function, representations)?;

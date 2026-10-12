@@ -1390,3 +1390,57 @@ Logs: `/private/tmp/psrs-context-entry-structural.log`,
 `/private/tmp/psrs-context-entry-clippy-final.log`. Separate pinned-package
 conformance commands and ignored suite scoreboards are not rerun for this
 internal invariant slice. No measured gate number changes.
+
+
+## Root initialization and normal completion (2026-10-12)
+
+Starting point: compiler `7789c5ce`, branch `feat/effect-handlers`, clean checkout.
+The root verifier consumes the checked Run witness and actual factory operands.
+Start produces a fresh parentless extent with a one-element live status; the Run
+factory starts with an empty queue and installs that same extent for execution
+and root dispatch. It closes its root after execution and before publication.
+MIR admits retained Start calls and inlined physical root/status construction,
+checking allocation dominance and current iteration freshness through the common
+owner shared with replay/context entry. Common CFG path operations prove normal
+cleanup and reject root or status reuse along a path without reinitialization.
+CC branch identity and MIR CFG reachability admit exclusive alternatives.
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| Root execution/dispatch share one fresh extent | Paired `rejects_incorrect_root_dispatch_extent` and `execution_extent` cases | Focused Verified |
+| Begin with an empty root queue | Paired `rejects_incorrect_root_queue` cases with a real pending finish | Focused Verified |
+| Start creates a fresh one-element live status | Paired `rejects_incorrect_root_start_status`; MIR checks actual inlined allocation | Focused Verified |
+| Close the same root after execution, before result publication | Paired missing/wrong/early close and check-instead-of-close cases | Focused Verified |
+| Complete cleanup on every normal path | Distributed-close positive test, skipped normal-branch negative test and trap-exclusion boundary test | Focused Verified |
+| Retain ownership across Start inlining and reference aliases | Actual optimized MIR cases and `physical_root_and_close_accept_reference_copies` | Focused Verified |
+| Separate sequential invocations, allow exclusive initialization | Paired sequential-root rejection, MIR sequential-status rejection; modified exclusive-branch CC compiled and executed twice, returning 42 | Focused Verified |
+
+All twenty-four new cases pass with mandatory Wasmtime. The executed exclusive
+fixture moves one Start from a branch to the enclosing function and uses it in
+both alternatives. Two calls to that function choose different branches and
+execute independently. This is value-sensitive runtime evidence for the admitted
+transformation, separate from malformed-IR rejection and CFG proof tests.
+
+The checks apply to surviving checked Run witnesses and recognizable Start
+production. They do not prove arbitrary extra effects, deletion of every source
+witness, complete dispatch/clause selection or caught-host-trap recovery. Foreign
+capture, pinned upstream package acceptance and general allocation accounting
+also remain open. No full AE/AC row is declared complete.
+
+Validation: mandatory-Wasmtime workspace execution passes 435 backend tests,
+95 Core tests and all 81 control integration tests. Driver library results are
+642 passed and 162 failed. The nine failing targets and all 175 failed test names
+exactly match `7789c5ce`; no name is added or recovered. This compares failed
+names, not every baseline cause. Final focused execution passes 131 control driver
+tests, including actual ancestry/GC and no-tail-call execution. The final focused
+run follows a test-fixture correction selecting the semantic Executor's physical
+Finish type rather than an arbitrary four-field constructor. Formatting,
+`git diff --check` and final strict workspace clippy pass.
+
+Logs: `/private/tmp/psrs-control-root-structural.log`,
+`/private/tmp/psrs-control-root-workspace.log`,
+`/private/tmp/psrs-control-root-comparison.json`,
+`/private/tmp/psrs-control-root-focused-final.log`, and
+`/private/tmp/psrs-control-root-clippy-final.log`. Separate pinned-package
+conformance commands and ignored suite scoreboards are not rerun for this
+internal invariant slice. No measured gate number changes.
