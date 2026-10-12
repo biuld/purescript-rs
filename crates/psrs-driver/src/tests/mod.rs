@@ -29,6 +29,7 @@ mod guard_coverage;
 mod intrinsic_contracts;
 mod let_constraints;
 mod library_foreign;
+mod local_signatures;
 mod number_abs;
 mod number_acos;
 mod number_asin;

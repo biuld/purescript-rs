@@ -279,10 +279,11 @@ were not in the pinned package. The closure is now pinned at upstream tags:
 | `purescript-aff` (for Run) | `v7.1.0` | `6adec6ff048a7876f74c294c440374cd21342d39` |
 
 With those sources supplied unchanged next to the seven `purescript-free`
-modules and the entry `FreeMain.purs`, the Free closure has no missing module
-and reaches P5. Reproduce with `psrs build FreeMain.purs <free + catenable +
-transformers + exceptions sources>`; `free-files-list.txt` records the exact
-source set in the evidence root.
+modules and the entry `FreeMain.purs`, the closure has no missing module, the
+unchanged sources compile, and the program executes under Wasmtime to `42`.
+Reproduce with `psrs build FreeMain.purs <free + catenable + transformers +
+exceptions sources>`; `free-files-list.txt` records the exact source set in the
+evidence root.
 
 Two real frontend defects blocked it and are fixed:
 
@@ -304,26 +305,49 @@ Two real frontend defects blocked it and are fixed:
    synonym inline. L3 kind agreement is unchanged at `PartiallyAppliedSynonym`
    12/12, so `failing/TypeSynonyms9.purs` and `PASTrumpsKDNU2.purs` still agree.
 
-The next real blocker is **polymorphic local signatures** (rank-1 local
+The next real blocker was **polymorphic local signatures** (rank-1 local
 generalization). `Data.CatList`'s recursive `where` `foldl :: forall b c. ...`
-and `Control.Monad.Free`'s `go :: Free f ~> Free g` both report `EscapedSkolem`
-and `TypesDoNotUnify` at the recursive use. The written `forall` is
-re-generalized against a rigid instantiation instead of being instantiated per
-use, so the local binding is effectively monomorphic. This is a typechecker
-slice, not a desugar or kind issue.
+and `Control.Monad.Free`'s `go :: Free f ~> Free g` both reported `EscapedSkolem`
+and `TypesDoNotUnify` at the recursive use: `infer_let_expression` predeclared
+every local binder with a fresh monomorphic metavariable, so the first recursive
+use bound that metavariable to an arrow before the written `forall` was unified,
+and the local binding was effectively monomorphic.
 
-Run additionally needs `Effect.Aff` and `Effect.Aff.Class`. Its closure pulls
-`refs`, `parallel`, and `datetime` on top of the modules above, and `Effect.Aff`
-execution itself is gate-blocked on native Effect, so Run cannot be completed in
-this pure source-migration track.
+An annotated local is now predeclared at its written type: `predeclared_local_scheme`
+elaborates the binding's `Typed` annotation (discarding a speculative elaboration
+that reports a diagnostic, so the ascription reports it once) and a recursive
+use instantiates that annotation. The final binding type still unifies with the
+ascription, which is alpha-equivalent for quantified annotations and keeps a
+wildcard annotation's unknown connected (so `failing/2534.purs` still reports
+`InfiniteType`).
 
-Validation for these fixes:
+With that fix the unchanged `purescript-free` sources compile and execute:
+`FreeMain.purs` over `Free Identity` returns `42` under Wasmtime. M4 type
+agreement rises from 38/49 to 39/50 (the wildcard case is measured and agrees
+again) and M5 stays 77/97; the whole workspace keeps the same four failing
+targets and 71 failed names with no added names.
 
+Two follow-ups remain in the evidence. Compiling `Control.Monad.Free` emits one
+`P8 closure conversion` warning at line 226 (`redundant case alternative is
+unreachable`) even though both `Return` and `Bind` are reachable and the
+program executes correctly; that is a coverage-analysis false positive exposed
+by the new closure, not a typechecking error. Run additionally needs `Effect.Aff`
+and `Effect.Aff.Class`; every `Run/*` module imports the `Run` top module, which
+imports `Effect.Aff`, so the package cannot even resolve without Aff. Aff's
+closure pulls `refs`, `parallel`, and `datetime` on top of the modules above, and
+`Effect.Aff` execution itself is gate-blocked on native Effect, so Run cannot be
+completed in this pure source-migration track.
+
+Validation for the closure, the frontend fixes, and the local-signature fix:
+
+- Unchanged Free sources build and execute to `42` under Wasmtime.
 - Whole workspace with mandatory Wasmtime: the same four failing targets and 71
-  failed names as before the change, with no added or recovered names. Log:
-  `workspace-after-fixity.log`.
-- L2 resolution, L3 kind, and L4/L5 type scoreboards with annotations ran and
-  printed their reports; L3 `PartiallyAppliedSynonym` agreement is 12/12.
+  failed names as before the changes, with no added names. Logs:
+  `workspace-after-fixity.log`, `workspace-after-localsig2.log`.
+- L2/L3/L4-L5 annotation scoreboards ran. L2 resolution 72/72, L3 kind 39/48
+  with `PartiallyAppliedSynonym` 12/12, M4 type agreement 39/50, M5 77/97, with
+  147 measured and 11 blocked-before-typecheck cases (unchanged set).
 - `cargo fmt --all --check` and
   `cargo clippy --workspace --all-targets -- -D warnings`: passed. Regression
-  tests cover the local-signature desugar and the partial function arrow.
+  tests cover the local-signature desugar, the partial function arrow, and the
+  recursive local signature.

@@ -18,7 +18,11 @@ impl Checker {
         let result = self.with_scope(|checker| {
             let mut binders = Vec::with_capacity(bindings.len());
             for binding in bindings {
-                let scheme = Scheme::monomorphic(checker.fresh());
+                // An annotated local is predeclared at its written type so a
+                // recursive use instantiates the annotation instead of a fresh
+                // metavariable that a first recursive use would bind to an
+                // arrow.
+                let scheme = checker.predeclared_local_scheme(binding);
                 checker
                     .scope
                     .locals
@@ -55,5 +59,33 @@ impl Checker {
         });
         self.scope.locals = previous_locals;
         result
+    }
+
+    /// The scheme a local binder is predeclared with. An explicit annotation is
+    /// elaborated here; an elaboration that reports a diagnostic is discarded so
+    /// the ascription reports it once. An unannotated local is monomorphic.
+    fn predeclared_local_scheme(&mut self, binding: &hir::LocalBinding) -> Scheme {
+        let Some(ty) = local_annotation(binding) else {
+            return Scheme::monomorphic(self.fresh());
+        };
+        let mut variables = self.scope.annotation_variables.clone();
+        let annotation = self.speculate(|checker| {
+            let errors_before = checker.state.errors.len();
+            let annotation = checker.elaborate_type(ty, &mut variables);
+            (checker.state.errors.len() == errors_before).then_some(annotation)
+        });
+        match annotation {
+            Some(annotation) => Scheme::monomorphic(annotation),
+            None => Scheme::monomorphic(self.fresh()),
+        }
+    }
+}
+
+/// The written type of an annotated local binding, which the resolver stores as
+/// a `Typed` wrapper on the binding value.
+fn local_annotation(binding: &hir::LocalBinding) -> Option<&hir::Type> {
+    match &binding.value.kind {
+        hir::ExprKind::Typed { ty, .. } => Some(ty),
+        _ => None,
     }
 }
