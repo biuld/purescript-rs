@@ -56,6 +56,16 @@ Steele (1978) and Appel (*Compiling with Continuations*, 1992) are the standard
 references. CC keeps captures explicit and ordered; the physical closure object
 is chosen later by [MIR](mir.md).
 
+Recursive local function groups use the same flattened callable contract as
+ordinary lambdas. When a written function body returns a closure before binding
+all arrow parameters, generated CC parameters feed the remaining closure call.
+Lambda and recursive-group lowering share that adaptation and use signatures
+reserved before lowering. Inert local aliases may participate in a recursive
+group and preserve its capture environment. A zero-binder recursive initializer
+that may call, trap or write still requires eager recursive-value support;
+current lowering rejects it rather than delaying its evaluation. The Core
+optimizer's conservative evaluation summary owns this distinction.
+
 **Evaluation order.** Because Core is strict, the order in which operands are
 evaluated is observable as soon as effects exist. CC makes Core's defined order
 explicit: `lower_value` lowers operands in source order and emits one `Assignment`

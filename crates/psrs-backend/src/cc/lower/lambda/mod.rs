@@ -10,10 +10,12 @@ use psrs_core::{Expr, ExprKind};
 use std::collections::HashMap;
 
 mod captures;
+mod eta;
 mod wrapper;
 
 pub(super) use captures::collect_captures;
 use captures::lambda_captures;
+pub(super) use eta::EtaApplication;
 pub(super) use wrapper::make_wrapper;
 
 pub(super) trait LambdaLowering {
@@ -213,36 +215,17 @@ impl LambdaLowering for FunctionLowerer<'_> {
                 .expect("an eta-expanded lambda has an interned signature");
             let body_signature =
                 body_signature.expect("an eta-expanded lambda has a body signature");
-            // Recover the erased function value into its closure shape so the
-            // indirect call can name the body signature.
-            let callable = if is_erased_reference(nested_result_type) {
-                let closure = nested.fresh(closure_value_type_for(body_signature));
-                nested_assignments.push(Assignment {
-                    destination: closure,
-                    kind: AssignmentKind::RepresentationCast {
-                        destination: closure,
-                        value: result,
-                        reference: Reference {
-                            nullable: false,
-                            heap: RefShape::Closure(body_signature),
-                        },
-                    },
-                    span: expression.span,
-                });
-                closure
-            } else {
-                result
-            };
-            let final_result = nested.fresh(signature_definition.result);
-            nested_assignments.push(Assignment {
-                destination: final_result,
-                kind: AssignmentKind::IndirectCall {
-                    function: callable,
+            let final_result = nested.apply_eta_result(
+                EtaApplication {
+                    value: result,
+                    shape: nested_result_type,
                     signature: body_signature,
                     arguments: extra_parameters,
+                    result_shape: signature_definition.result,
+                    span: expression.span,
                 },
-                span: expression.span,
-            });
+                &mut nested_assignments,
+            )?;
             (final_result, signature_definition.result)
         } else {
             (result, nested_result_type)

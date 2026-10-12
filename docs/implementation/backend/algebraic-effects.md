@@ -25,12 +25,14 @@ evidence needed to review it. Once the execution model and caller contract are
 stable, complete structural, malformed-IR and requirement-by-requirement
 verification. All acceptance obligations below remain required.
 
-The compiler and locked `PSRS.Control` wrappers already use contract v2. The
-current independent package does not provide `Run` or `Data.VariantF`; its public
-control fixtures and opaque official type comparison do not establish the pinned
-upstream integration. Prioritize the remaining production/library integration
-and runtime boundaries, then close verification gaps. Native Effect/ST follows
-complete delimited-control acceptance.
+The compiler and locked `PSRS.Control` wrappers use contract v2. The independent
+package now preserves every pinned Run/Free/Variant module and its dependency
+sources; the labelled Control row library uses `Data.Functor.Variant`. Focused
+State, Choose and combined Reader/State/Writer/Except programs execute with
+observable value/order checks. This establishes representative production
+migration evidence, not complete upstream API or foreign-runtime acceptance.
+Continue through the full machine, runtime-boundary and verification obligations
+below. Native Effect/ST follows complete delimited-control acceptance.
 
 The [reference-library migration baseline](control-reference-library-migration-2026-10-12.md)
 records the selected upstream revisions, the first unchanged-source compile
@@ -1464,3 +1466,33 @@ Logs: `/private/tmp/psrs-control-root-structural.log`,
 `/private/tmp/psrs-control-root-clippy-final.log`. Separate pinned-package
 conformance commands and ignored suite scoreboards are not rerun for this
 internal invariant slice. No measured gate number changes.
+
+
+## Complete reference-source import and representative execution (2026-10-12)
+
+Compiler continuation `6703863d` and `d2d489f5` repairs higher-order alias
+normalization and superclass row dependency refinement. The recursive closure
+adaptation and package pin accompany this record. The independent package
+`d6cf81105046e288e2e9cd9685f8cc47e960c988`, fingerprint
+`fnv1a64-v1:6eb134fa699297f4`, adds 70 byte-identical modules from the complete
+pinned reference packages and dependencies. Its full source audit records
+50 packages / 305 modules, with 245 identical, 34 modified and 26 target additions;
+no upstream module is omitted and no direct same-argument recursion is detected.
+Existing modifications remain separate fidelity obligations.
+
+The focused source, official kind/type comparisons and actual Wasmtime evidence
+are recorded in the [reference migration record](control-reference-library-migration-2026-10-12.md).
+Pure Run State returns 42; Choose checks both alternatives in order; the combined
+Reader/State/Writer/Except fixture returns 42 with exact log `"ab!"`. The final
+combined fixture has stable input and package hashes. Original Control row deep
+and shallow fixtures also execute to 42 after pinning; shallow uses the default
+lock without a development override. Aff, DateTime and exception FFI are not
+executed by these pure fixtures.
+
+Focused validation includes 38 kind tests, 11 functional-dependency tests,
+source Wasmtime cases for higher-order aliases and recursive closures, and five
+backend recursive-group tests including observable-initializer rejection.
+Formatting and local diff checks pass. Full workspace tests, workspace clippy
+and complete scoreboards were intentionally not rerun under the user's focused
+validation scope. Complete AE/AC statuses remain Unverified; no gate measurement
+is changed.

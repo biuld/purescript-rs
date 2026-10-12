@@ -496,3 +496,5 @@ fn value_shape(function: &Function, value: ValueId) -> Option<ValueShape> {
         .find(|declaration| declaration.id == value)
         .map(|declaration| declaration.ty)
 }
+
+mod initialization;

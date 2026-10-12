@@ -372,12 +372,13 @@ does not reopen the deleted legacy runner path.
 
 ## Open questions and future work
 
-1. **Reference-library acceptance.** Audit the pinned upstream Run/Free/Variant
-   packages, accept the reference library on this target, and build the row-based
-   (`VariantF`) library over compiler Control. Representative unchanged Variant
-   and Free programs execute, and labelled deep/shallow Control wrappers have
-   focused behavior evidence. Complete reference-library/API acceptance remains
-   open; neither those programs nor the native prototype establish it.
+1. **Reference-library acceptance.** Complete pinned Run/Free/Variant sources
+   and their dependency packages are imported unchanged. The ordinary labelled
+   VariantF library over Control has deep/shallow execution evidence; pure Run
+   State, Choose and combined Reader/State/Writer/Except programs also execute
+   with observable result/order checks. Complete API, foreign-runtime and
+   differential acceptance remains open; these results and the native prototype
+   do not establish it. See the [migration record](../../../implementation/backend/control-reference-library-migration-2026-10-12.md).
 2. **Operation-row encoding.** Confirm the reference encoding (`VariantF` over an
    open row) is supported end to end, or record the compiler gap it exposes.
 3. **Scoped and higher-order effects, bracket/finalization.** These need their own

@@ -4,7 +4,7 @@ use super::super::{
     ValueShape,
 };
 use super::FunctionLowerer;
-use super::lambda::{LambdaLowering, collect_captures};
+use super::lambda::{EtaApplication, LambdaLowering, collect_captures};
 use crate::BackendError;
 use psrs_core::{Binder, Binding, Expr, ExprKind};
 use psrs_hir::{LocalId, SymbolId};
@@ -144,13 +144,13 @@ impl FunctionLowerer<'_> {
                     "recursive local function has an unknown CC signature",
                 ));
             };
-            let (parameters, body) = peel_parameters(&binding.value, signature.parameters.len())
-                .ok_or_else(|| {
-                    lowering_error(
-                        binding.span,
-                        "recursive local function must bind every parameter in its CC signature",
-                    )
-                })?;
+            let (parameters, body) = peel_parameters(&binding.value, signature.parameters.len());
+            if parameters.is_empty() && !psrs_core::opt::evaluation_is_inert(&binding.value) {
+                return Err(lowering_error(
+                    binding.span,
+                    "observable recursive initializer requires eager recursive value support",
+                ));
+            }
             let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
             functions.push(RecursiveFunction {
                 binding,
@@ -190,6 +190,15 @@ impl FunctionLowerer<'_> {
             nested.locals.insert(binder.id, parameter);
             nested.local_types.insert(binder.id, binder.ty);
             parameters.push(parameter);
+        }
+
+        // Like ordinary lambdas, recursive closures expose their complete
+        // flattened signature even when the written body returns a function.
+        let mut extra_parameters = Vec::new();
+        for shape in &function.signature.parameters[function.parameters.len()..] {
+            let parameter = nested.fresh(*shape);
+            parameters.push(parameter);
+            extra_parameters.push(parameter);
         }
 
         let mut nested_assignments = Vec::new();
@@ -237,7 +246,31 @@ impl FunctionLowerer<'_> {
         }
 
         let result = nested.lower_value(function.body, &mut nested_assignments)?;
-        let result_type = scalar_shape(&nested, function.body.ty, function.body.span)?;
+        let body_shape = scalar_shape(&nested, function.body.ty, function.body.span)?;
+        let (result, result_type) = if extra_parameters.is_empty() {
+            (result, body_shape)
+        } else {
+            let body_signature =
+                function_type_signature(self.module, self.function_types, function.body.ty)
+                    .ok_or_else(|| {
+                        lowering_error(
+                            function.body.span,
+                            "recursive eta body has no runtime function type",
+                        )
+                    })?;
+            let result = nested.apply_eta_result(
+                EtaApplication {
+                    value: result,
+                    shape: body_shape,
+                    signature: body_signature,
+                    arguments: extra_parameters,
+                    result_shape: function.signature.result,
+                    span: function.body.span,
+                },
+                &mut nested_assignments,
+            )?;
+            (result, function.signature.result)
+        };
         if result_type != function.signature.result {
             return Err(lowering_error(
                 function.body.span,
@@ -301,17 +334,17 @@ fn recursive_captures(
     captures
 }
 
-fn peel_parameters(expression: &Expr, count: usize) -> Option<(Vec<&Binder>, &Expr)> {
+fn peel_parameters(expression: &Expr, count: usize) -> (Vec<&Binder>, &Expr) {
     let mut current = expression;
     let mut parameters = Vec::with_capacity(count);
     for _ in 0..count {
         let ExprKind::Lambda { binder, body } = &current.kind else {
-            return None;
+            break;
         };
         parameters.push(binder);
         current = body;
     }
-    Some((parameters, current))
+    (parameters, current)
 }
 
 fn emit_function_ref(

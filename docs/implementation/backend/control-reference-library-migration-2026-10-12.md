@@ -74,6 +74,55 @@ from `Unsafe.Coerce`'s foreign declaration, preserving the signature.
 `row-fundep-official/summary.json` records that comparison. Full package import,
 source/API audit and broader handler/runtime acceptance remain outstanding.
 
+
+## Complete reference-package import
+
+The independent package `d6cf81105046e288e2e9cd9685f8cc47e960c988`, fingerprint
+`fnv1a64-v1:6eb134fa699297f4`, now copies all 70 source modules, byte-for-byte, from Run,
+Free, catenable-lists, transformers, exceptions, Aff, Parallel and DateTime at the
+pins recorded in `reference-package-candidate-inventory.json`. All dependency
+imports resolve. A complete Node audit records 50 packages / 305 modules:
+245 identical, 34 modified, 26 target additions; no upstream module is missing
+and no direct same-argument recursion is detected. The existing 34 modifications
+remain separately reviewable and are not justified by this migration.
+
+The complete package's pure Run State entry compiles (`reference-package-before.json`).
+`RunChoose.purs` executes both alternatives and checks `[20, 22]` and length two;
+`run-choose-candidate/run.json` is accepted. `RunHandlers.purs` composes Reader
+local scopes, State updates, Writer censor/order and Except elimination, checking
+42 and `"ab!"`; `run-handlers-after-eta/run.json` is accepted with unchanged
+inputs and package fingerprint during that run.
+
+The first combined-handler build exposed CC's requirement that a recursive
+local function syntactically bind every flattened parameter. Recursive groups
+now use the shared lambda adaptation to call a returned closure with remaining
+CC parameters, including inert local recursive aliases. Two source Wasmtime
+cases cover branch-selected closures and shared captures. Five focused backend
+tests pass, including rejection of a trap-bearing recursive initializer whose
+evaluation cannot safely be deferred. Eager observable recursive values remain
+an explicit unsupported boundary.
+
+`run-handlers-final/run.json` replays the combined handler fixture on the final
+compiler with the initializer guard. Compilation and Wasmtime execution pass
+with exit 42, stable inputs and stable package content. The validated temporary
+package and the committed independent package have the same measured fingerprint;
+only their absolute roots differ. The compiler lock pins that committed revision.
+`run-choose-candidate/run.json` predates addition of the State case file; its input
+and library source content are unchanged, but its full package fingerprint is
+historical, so it is not represented as a final locked-package run.
+
+After pinning the committed package, the original labelled Control deep fixture
+passes compilation and mandatory Wasmtime with stable package/input hashes
+(`rows-deep-reference-lock/run.json`). The shallow fixture also builds with the
+development override removed, consuming the default lock, and executes to 42
+(`rows-shallow-locked.json`). These are integration checks of existing Control
+policies against the expanded package, not complete machine acceptance.
+
+The candidate retains the upstream foreign declarations. These pure programs do
+not execute Aff, DateTime or host exception FFI; importing their complete source
+and passing a source audit is not foreign-runtime acceptance. Full Control-machine
+acceptance and native Effect/ST migration remain separate outstanding work.
+
 Validation scope is focused by explicit user instruction. Full workspace tests,
 workspace clippy and complete ignored scoreboards were not rerun for this
 continuation. Existing full statuses and gate measurements remain unchanged.

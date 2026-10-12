@@ -735,8 +735,13 @@ checks higher-order row aliases through shared HIR expansion, and consumes given
 row dependencies when solving superclass contexts. The pure State program
 (`put`, `modify`, `get`, `evalState`, `extract`) compiles without diagnostics and
 executes to 42 under Wasmtime. This representative result does not establish
-complete package import, API coverage, Aff execution or Control-machine
-acceptance. The [reference migration record](../../../implementation/backend/control-reference-library-migration-2026-10-12.md)
+API coverage, Aff execution or Control-machine acceptance. A complete 70-module
+reference-package import also preserves the unchanged Run/Free dependency
+sources in the pinned independent stdlib. Choose and combined Reader/State/Writer/Except fixtures execute to 42;
+the latter checks local handler scope and Writer log order. CC recursively lifted
+functions now share ordinary lambda parameter adaptation. These results do not
+replace structural machine provenance, lifecycle, foreign capture or trap-cleanup
+verification. The [reference migration record](../../../implementation/backend/control-reference-library-migration-2026-10-12.md)
 keeps those obligations separate.
 
 No compiler-side operation registry, handler IR, or effect-specific solver is

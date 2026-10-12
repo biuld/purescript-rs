@@ -211,3 +211,5 @@ mod library_types;
 mod tail_calls;
 
 mod symbol_reflection;
+
+mod recursive_closures;
