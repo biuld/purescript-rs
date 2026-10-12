@@ -3,6 +3,8 @@ use crate::{add_layout, lex};
 use psrs_cst::{Declaration, ExprKind, PatternKind, TypeExprKind, ValueRhs};
 use psrs_span::SourceFile;
 
+mod qualified_patterns;
+
 #[test]
 fn parses_qualified_symbolic_operators_with_symbolic_dots_and_sections() {
     let module = parse("module Main where\na = 2 A... 5\nb = 4 Foo.Bar.-#- 10\nc = (_ A.!! 1)\nd = (2 A.: _)\ne = A.(..) 2 5\nf = A.(:) 2 []\n").unwrap();

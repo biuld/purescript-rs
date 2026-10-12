@@ -10,6 +10,14 @@ impl<'a> Parser<'a> {
         let mut operands = vec![first];
         let mut operators = Vec::new();
         loop {
+            if let Some((operator, _, tokens)) = self.qualified_operator() {
+                for _ in 0..tokens {
+                    self.bump();
+                }
+                operators.push(operator);
+                operands.push(self.parse_pattern_prefix()?);
+                continue;
+            }
             let operator = match &self.current().kind {
                 LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) if operator != "@" => {
                     operator.clone()
@@ -96,23 +104,24 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn starts_pattern_atom(&self) -> bool {
-        matches!(
-            &self.current().kind,
-            LayoutTokenKind::Raw(
-                RawTokenKind::LowerIdent(_)
-                    | RawTokenKind::UpperIdent(_)
-                    | RawTokenKind::Integer(_)
-                    | RawTokenKind::Number(_)
-                    | RawTokenKind::String(_)
-                    | RawTokenKind::Char(_)
-                    | RawTokenKind::LParen
-                    | RawTokenKind::LBracket
-                    | RawTokenKind::LBrace
-                    | RawTokenKind::As
-                    | RawTokenKind::Hiding
-                    | RawTokenKind::Role
+        self.qualified_operator().is_none()
+            && matches!(
+                &self.current().kind,
+                LayoutTokenKind::Raw(
+                    RawTokenKind::LowerIdent(_)
+                        | RawTokenKind::UpperIdent(_)
+                        | RawTokenKind::Integer(_)
+                        | RawTokenKind::Number(_)
+                        | RawTokenKind::String(_)
+                        | RawTokenKind::Char(_)
+                        | RawTokenKind::LParen
+                        | RawTokenKind::LBracket
+                        | RawTokenKind::LBrace
+                        | RawTokenKind::As
+                        | RawTokenKind::Hiding
+                        | RawTokenKind::Role
+                )
             )
-        )
     }
 
     pub(crate) fn parse_pattern_atom(&mut self) -> Result<Pattern, ParseError> {

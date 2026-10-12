@@ -1,5 +1,6 @@
 mod opaque_type;
 mod prim_type;
+mod qualified_patterns;
 mod sections;
 
 use super::*;

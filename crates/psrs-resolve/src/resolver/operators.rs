@@ -32,6 +32,7 @@ pub(super) fn merge_fixities(
                 hir::FixityNamespace::Value => &mut value_fixities,
                 hir::FixityNamespace::Type => &mut type_fixities,
             };
+            destination.insert(format!("{qualifier}.{}", fixity.operator), fixity.clone());
             destination.insert(format!("{qualifier}.({})", fixity.operator), fixity.clone());
         }
     }

@@ -10,6 +10,15 @@ sequencing, clause scope, library deep/shallow policies, and ownership/lifetime 
 
 ## Latest state
 
+The continuation from `7a6dae89` prioritizes production and library migration
+before expanding the complete structural verifier. The
+[reference-library baseline](control-reference-library-migration-2026-10-12.md)
+selects exact Run/Free/Variant release commits and repairs qualified constructor
+operator parsing and imported fixity lookup. Unchanged Variant source now reaches
+P5; its `foldableCons` constraint remains the next production blocker. Reference
+packages are not yet imported into the locked independent package, and full
+delimited-control acceptance remains outstanding.
+
 This topic commit implements DEC-20 control contract v2. The compiler lock pins
 stdlib `5d523805c4e2096e68fab5a4f965f62b225ee2af` with content identity
 `fnv1a64-v1:a1e5a2f8f4157041`. All 81 control integration tests pass under default locked package

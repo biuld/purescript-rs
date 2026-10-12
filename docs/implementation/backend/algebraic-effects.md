@@ -16,6 +16,26 @@ work. The `AC-*` obligations are **required**, not conditional: DEC-19 selected
 the generic control mechanism, implemented as compiler-generated resumable
 frames rather than target stack switching.
 
+## Execution order
+
+Complete production migration through source, checked Core, CC/MIR lowering and
+the independent standard-library callers before expanding the full structural
+verifier. Each migration slice includes the focused source-to-Wasm behavior
+evidence needed to review it. Once the execution model and caller contract are
+stable, complete structural, malformed-IR and requirement-by-requirement
+verification. All acceptance obligations below remain required.
+
+The compiler and locked `PSRS.Control` wrappers already use contract v2. The
+current independent package does not provide `Run` or `Data.VariantF`; its public
+control fixtures and opaque official type comparison do not establish the pinned
+upstream integration. Prioritize the remaining production/library integration
+and runtime boundaries, then close verification gaps. Native Effect/ST follows
+complete delimited-control acceptance.
+
+The [reference-library migration baseline](control-reference-library-migration-2026-10-12.md)
+records the selected upstream revisions, the first unchanged-source compile
+blocker and the compiler repairs needed to advance that boundary.
+
 | ID | Requirement | Required evidence | Status |
 | --- | --- | --- | --- |
 | AE-01 | Existing PureScript syntax and type system express computation rows and handlers | Pinned upstream source; official `purs` accept/reject comparison on positive and negative library cases | Unverified |
