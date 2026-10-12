@@ -85,6 +85,37 @@ pub(super) fn verify(
                         "replay traversal cannot invoke callbacks or mutate lifecycle cells",
                     ));
                 }
+                A::DirectCall {
+                    contract: Some(id),
+                    arguments,
+                    ..
+                } if role == Some(R::CloneSequence) => {
+                    let target = table
+                        .control_helpers
+                        .get(id.0 as usize)
+                        .map(|helper| helper.role());
+                    let valid = match target {
+                        Some(R::CloneSequence) => {
+                            arguments.len() == 5
+                                && origin(arguments[3]) == parameters[3]
+                                && origin(arguments[4]) == parameters[4]
+                        }
+                        Some(R::RebuildSequence) => {
+                            arguments.len() == 4
+                                && origin(arguments[0]) == parameters[2]
+                                && origin(arguments[1]) == parameters[1]
+                                && origin(arguments[2]) == parameters[3]
+                                && origin(arguments[3]) == parameters[4]
+                        }
+                        _ => true,
+                    };
+                    if !valid {
+                        return Err(error(
+                            function,
+                            "clone traversal must preserve its accumulators, active extent and parent",
+                        ));
+                    }
+                }
                 A::IndirectCall { .. } | A::RuntimeCall { .. } | A::FunctionRef { .. } => {
                     return Err(error(
                         function,
@@ -111,6 +142,34 @@ pub(super) fn verify(
                             function,
                             "replay must share the original callback and retain its accumulator",
                         ));
+                    }
+                    if role == Some(R::RebuildSequence) {
+                        let next = body[index + 1..]
+                            .iter()
+                            .find_map(|assignment| match &assignment.kind {
+                                A::DirectCall {
+                                    function: target,
+                                    arguments,
+                                    ..
+                                } if *target == function.symbol => Some(arguments),
+                                _ => None,
+                            })
+                            .ok_or_else(|| error(function, "callback rebuild has no transition"))?;
+                        if next.len() != 4
+                            || projection(next[0], 1)
+                                != Some(FinishProjection {
+                                    owner: parameters[0],
+                                    field: 1,
+                                })
+                            || origin(next[1]) != assignment.destination
+                            || origin(next[2]) != parameters[2]
+                            || origin(next[3]) != parameters[3]
+                        {
+                            return Err(error(
+                                function,
+                                "callback rebuild must preserve its active extent and parent",
+                            ));
+                        }
                     }
                 }
                 A::VariantNew {

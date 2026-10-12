@@ -145,6 +145,73 @@ pub(super) fn verify(
                         .get(contract.0 as usize)
                         .is_some_and(|helper| helper.role() == R::CloneSequence) =>
                 {
+                    if arguments.len() != 5 || origin(arguments[3]) != function.parameters[4] {
+                        return Err(error(
+                            function,
+                            "replay must start with its current execution extent",
+                        ));
+                    }
+                    for empty in &arguments[1..3] {
+                        if !matches!(definitions.get(&origin(*empty)).copied(), Some(A::VariantNew { representation, case: 0, fields, .. })
+                            if Some(*representation) == table.control_sequence() && fields.is_empty())
+                        {
+                            return Err(error(
+                                function,
+                                "replay must start with empty traversal accumulators",
+                            ));
+                        }
+                    }
+                    let Some(A::TagSwitch {
+                        value: tag,
+                        cases,
+                        default_value,
+                        ..
+                    }) = definitions.get(&origin(arguments[4])).copied()
+                    else {
+                        return Err(error(
+                            function,
+                            "replay parent must select its current dispatch context",
+                        ));
+                    };
+                    if !matches!(definitions.get(&origin(*tag)).copied(), Some(A::VariantTag { representation, value, .. })
+                        if *representation == schema.context && origin(*value) == function.parameters[5])
+                        || cases.len() != 2
+                        || !matches!(
+                            definitions.get(&origin(*default_value)).copied(),
+                            Some(A::Unreachable)
+                        )
+                    {
+                        return Err(error(
+                            function,
+                            "replay parent must select its current dispatch context",
+                        ));
+                    }
+                    let mut seen = std::collections::HashSet::new();
+                    for case in cases {
+                        let projection = match definitions.get(&origin(case.value)).copied() {
+                            Some(A::VariantGet {
+                                representation,
+                                case: selected,
+                                field,
+                                value,
+                                ..
+                            }) if *representation == schema.context
+                                && *selected as i32 == case.tag =>
+                            {
+                                Some((origin(*value), *selected, *field))
+                            }
+                            _ => None,
+                        };
+                        dispatch_checkpoint_relation(function.parameters[5], projection)
+                            .map_err(|message| error(function, message))?;
+                        seen.insert(case.tag);
+                    }
+                    if seen != std::collections::HashSet::from([0, 1]) {
+                        return Err(error(
+                            function,
+                            "replay parent must cover root and scoped dispatch contexts",
+                        ));
+                    }
                     let Some(saved) = arguments.first() else {
                         return Err(error(function, "replay has no saved queue"));
                     };

@@ -74,6 +74,15 @@ Twenty new cases include malformed CC/MIR and actual execution of nested replay
 with status allocation moved before dispatch and expressed as filled storage.
 Complete traversal, initial root/dispatch seeding, finish production and host
 cleanup still require their remaining proofs.
+The continuation from `b2dd6476` checks target-finish production from one source
+context and entry into its caller context, plus immutable finish reassociation
+with original extent/parent and append order. Replay seeding uses empty
+accumulators, the current execution extent and the dispatch context's ancestry
+parent. CC checks the root/scoped selector; MIR checks the join's incoming
+references. Traversal, handoff and callback rebuild preserve the required active,
+parent and accumulator identities. Twenty-three new cases include a valid SSA
+copy at the dispatch-parent join. Entire-step deletion, context-entry production,
+full selection/algorithm coverage and host cleanup remain open.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

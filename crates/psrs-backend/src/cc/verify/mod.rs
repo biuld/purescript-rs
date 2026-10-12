@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 mod adaptation;
 mod control_checkpoints;
+mod control_finish_creation;
 mod control_provenance;
 mod control_replay;
 mod helpers;
@@ -204,6 +205,7 @@ fn verify_function_inner(
         &function.name,
     )?;
     control_checkpoints::verify(function, representations)?;
+    control_finish_creation::verify(function, representations)?;
     control_replay::verify(function, representations, functions)?;
     if !available.contains(&function.result) {
         return Err(vec![BackendError::invalid_ir(

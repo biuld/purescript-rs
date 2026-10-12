@@ -45,8 +45,11 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
         layout.variant_index(schema.context, 0),
         layout.variant_index(schema.context, 1),
         layout.signature_index(raw.signature()),
+        table
+            .control_sequence()
+            .and_then(|sequence| layout.variant_index(sequence, 0).ok()),
     );
-    let (Ok(resume), Ok(root), Ok(scope), Ok(callable)) = types else {
+    let (Ok(resume), Ok(root), Ok(scope), Ok(callable), Some(empty)) = types else {
         errors.push(BackendError::invalid_ir(
             "P9 MIR control checkpoint",
             module.span,
@@ -64,6 +67,7 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
             root,
             scope,
             callable,
+            empty,
         ) {
             errors.push(
                 BackendError::invalid_ir("P9 MIR control checkpoint", function.span, message)
@@ -83,6 +87,7 @@ fn verify_function(
     root: DefinedTypeId,
     scope: DefinedTypeId,
     callable: DefinedTypeId,
+    empty: DefinedTypeId,
 ) -> Result<(), &'static str> {
     let definitions = definitions(function);
     let origin = |value| origin(value, &definitions);
@@ -181,6 +186,40 @@ fn verify_function(
                         .get(contract.0 as usize)
                         .is_some_and(|helper| helper.role() == R::CloneSequence) =>
                 {
+                    if arguments.len() != 5 || origin(arguments[3]) != parameters[4] {
+                        return Err("replay must start with its current execution extent");
+                    }
+                    for initial in &arguments[1..3] {
+                        if !matches!(definitions.get(&origin(*initial)).copied(), Some(I::StructNew { type_index, arguments, .. })
+                            if *type_index == empty && arguments.len() == 1
+                                && matches!(definitions.get(&origin(arguments[0])).copied(), Some(I::Constant { value: 0, .. })))
+                        {
+                            return Err("replay must start with empty traversal accumulators");
+                        }
+                    }
+                    let parents =
+                        super::value_identity::incoming_values(function, origin(arguments[4]))
+                            .ok_or("replay parent must select its current dispatch context")?;
+                    let mut seen = std::collections::HashSet::new();
+                    for parent in parents {
+                        let projection = match definitions.get(&origin(parent)).copied() {
+                            Some(I::StructGet {
+                                type_index,
+                                field,
+                                value,
+                                ..
+                            }) if *field > 0 && (*type_index == root || *type_index == scope) => {
+                                let case = u32::from(*type_index == scope);
+                                seen.insert(case);
+                                Some((origin(*value), case, field - 1))
+                            }
+                            _ => None,
+                        };
+                        dispatch_checkpoint_relation(parameters[5], projection)?;
+                    }
+                    if seen != std::collections::HashSet::from([0, 1]) {
+                        return Err("replay parent must cover root and scoped dispatch contexts");
+                    }
                     let saved = arguments.first().ok_or("replay has no saved queue")?;
                     let Some(I::StructGet {
                         type_index,

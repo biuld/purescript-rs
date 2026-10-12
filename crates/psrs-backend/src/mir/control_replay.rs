@@ -141,6 +141,7 @@ fn verify_function(
                 I::StructNew {
                     type_index,
                     arguments,
+                    destination,
                     ..
                 } if *type_index == schema.cons => {
                     let accumulator = parameters[if role == R::CloneSequence { 2 } else { 1 }];
@@ -156,6 +157,46 @@ fn verify_function(
                         return Err(
                             "replay must share the original callback and retain its accumulator",
                         );
+                    }
+                    if role == R::RebuildSequence {
+                        let next = block.instructions[index + 1..]
+                            .iter()
+                            .find_map(|instruction| match instruction {
+                                I::Call {
+                                    function: target,
+                                    arguments,
+                                    ..
+                                } if *target == function.symbol => Some(arguments.as_slice()),
+                                _ => None,
+                            })
+                            .or_else(|| match &block.terminator {
+                                Some(T::Jump {
+                                    target, arguments, ..
+                                }) if Some(*target) == loop_header(function) => {
+                                    Some(arguments.as_slice())
+                                }
+                                Some(T::ReturnCall {
+                                    function: target,
+                                    arguments,
+                                    ..
+                                }) if *target == function.symbol => Some(arguments.as_slice()),
+                                _ => None,
+                            })
+                            .ok_or("callback rebuild has no transition")?;
+                        if next.len() != 4
+                            || projection(next[0], schema.cons)
+                                != Some(FinishProjection {
+                                    owner: parameters[0],
+                                    field: 1,
+                                })
+                            || origin(next[1]) != *destination
+                            || origin(next[2]) != parameters[2]
+                            || origin(next[3]) != parameters[3]
+                        {
+                            return Err(
+                                "callback rebuild must preserve its active extent and parent",
+                            );
+                        }
                     }
                 }
                 I::StructNew {
@@ -310,6 +351,71 @@ fn verify_function(
                     return Err("replay must not mutate saved or fresh lifecycle cells");
                 }
                 _ => {}
+            }
+        }
+        if role == R::CloneSequence {
+            let calls = block
+                .instructions
+                .iter()
+                .filter_map(|instruction| match instruction {
+                    I::Call {
+                        contract: Some(id),
+                        arguments,
+                        ..
+                    } => Some((*id, arguments.as_slice())),
+                    _ => None,
+                })
+                .chain(
+                    block
+                        .terminator
+                        .iter()
+                        .filter_map(|terminator| match terminator {
+                            T::ReturnCall {
+                                contract: Some(id),
+                                arguments,
+                                ..
+                            } => Some((*id, arguments.as_slice())),
+                            _ => None,
+                        }),
+                );
+            for (id, arguments) in calls {
+                let valid = match table
+                    .control_helpers
+                    .get(id.0 as usize)
+                    .map(|helper| helper.role())
+                {
+                    Some(R::CloneSequence) => {
+                        arguments.len() == 5
+                            && origin(arguments[3]) == parameters[3]
+                            && origin(arguments[4]) == parameters[4]
+                    }
+                    Some(R::RebuildSequence) => {
+                        arguments.len() == 4
+                            && origin(arguments[0]) == parameters[2]
+                            && origin(arguments[1]) == parameters[1]
+                            && origin(arguments[2]) == parameters[3]
+                            && origin(arguments[3]) == parameters[4]
+                    }
+                    _ => true,
+                };
+                if !valid {
+                    return Err(
+                        "clone traversal must preserve its accumulators, active extent and parent",
+                    );
+                }
+            }
+            if let Some(T::Jump {
+                target, arguments, ..
+            }) = &block.terminator
+                && block.id != function.entry
+                && Some(*target) == loop_header(function)
+                && (arguments.len() != 5
+                    || origin(arguments[3]) != parameters[3]
+                    || origin(arguments[4]) != parameters[4])
+            {
+                return Err(
+                    "clone traversal must preserve its accumulators, active extent and parent",
+                );
             }
         }
         match &block.terminator {

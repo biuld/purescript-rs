@@ -52,3 +52,37 @@ pub(crate) fn loop_parameters(function: &Function) -> &[ValueId] {
         .find(|block| Some(block.id) == header)
         .map_or(&function.parameters, |block| &block.parameters)
 }
+
+/// Incoming values of a non-loop SSA join parameter. Unknown edges are not
+/// treated as a valid empty provenance set.
+pub(crate) fn incoming_values(function: &Function, value: ValueId) -> Option<Vec<ValueId>> {
+    let (block, index) = function.blocks.iter().find_map(|block| {
+        block
+            .parameters
+            .iter()
+            .position(|parameter| *parameter == value)
+            .map(|index| (block, index))
+    })?;
+    if Some(block.id) == loop_header(function) {
+        return None;
+    }
+    let mut incoming = Vec::new();
+    for predecessor in &function.blocks {
+        let Some(terminator) = &predecessor.terminator else {
+            continue;
+        };
+        if super::cfg::successors(terminator).contains(&block.id) {
+            let Terminator::Jump {
+                target, arguments, ..
+            } = terminator
+            else {
+                return None;
+            };
+            if *target != block.id {
+                return None;
+            }
+            incoming.push(*arguments.get(index)?);
+        }
+    }
+    (!incoming.is_empty()).then_some(incoming)
+}

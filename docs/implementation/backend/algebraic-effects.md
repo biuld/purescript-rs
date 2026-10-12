@@ -1285,3 +1285,62 @@ Logs: `/private/tmp/psrs-replay-structural-final.log`,
 `/private/tmp/psrs-replay-clippy-final.log`. Explicit upstream type comparison,
 package conformance and suite scoreboards are not rerun for this internal
 invariant change. No measured gate number changes.
+
+
+## Completion context creation and replay ancestry flow (2026-10-12)
+
+Starting point: compiler `b2dd6476`, branch `feat/effect-handlers`, clean checkout.
+CC/MIR now verify target finish production from the current scoped source context
+(extent, saved queue, parent) and target entry with the saved extent and caller
+context. Copying a finish during append reassociation retains its original extent
+and parent, appending the original remaining queue before the original append
+tail. Both returned-queue reassociation and handle normalization are covered by
+the same relation.
+
+Replay starts with empty traversal accumulators, the current execution extent
+and an ancestry parent selected from the current root/scoped dispatch context.
+CC checks the selector, projections and context identity. MIR reads actual SSA
+join incoming values through reference identities; unknown edges and empty
+provenance sets are not accepted. Clone back edges and handoff to rebuild retain
+active/parent state and accumulators, while callback rebuild retains the current
+active extent and parent. The entry preheader's original-parameter forwarding is
+distinct from iteration back edges. A generic join-source operation shares these
+SSA facts without adding runtime metadata or reconstructing source types.
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| Preserve the scoped source context's extent, queue and parent in a target finish | `cc_target_finish_uses_its_context_extent`, `mir_target_finish_uses_its_context_extent`, paired CC/MIR context-queue and context-parent tests | Focused Verified |
+| Enter the target in the saved caller context | `cc_target_finish_enters_its_caller_context`, `mir_target_finish_enters_its_caller_context` | Focused Verified |
+| Preserve original finish identity and append order during reassociation | `cc_finish_copy_preserves_its_parent`, `mir_finish_copy_preserves_its_parent`, `cc_finish_copy_preserves_append_order`, `mir_finish_copy_preserves_append_order` | Focused Verified |
+| Seed ancestry from current dispatch and active extent from current execution | `cc_replay_parent_comes_from_dispatch`, `mir_replay_parent_comes_from_dispatch`, paired current-active-extent tests | Focused Verified |
+| Start traversal with empty accumulators | `cc_replay_starts_with_empty_accumulators`, `mir_replay_starts_with_empty_accumulators` | Focused Verified |
+| Preserve ancestry through traversal and callback rebuild | Paired `clone_preserves_parent_during_traversal` and `callback_rebuild_preserves_parent` tests | Focused Verified |
+| Admit identity-preserving SSA transformations at the parent join | `dispatch_parent_join_accepts_reference_identity_copies`, optimized MIR with an added copy on an incoming edge | Focused Verified |
+
+These checks validate recognizable constructor and transition operands. They do
+not establish every context-entry constructor, correct clause selection, all
+algorithmic traversal steps or equivalence after an entire required step is
+removed. Complete frame/context and execution-step provenance, foreign capture,
+caught-host-trap cleanup, pinned upstream comparison and general allocation
+obligations remain open. No full AE/AC row is declared complete.
+
+Validation: all twenty-three new structural/malformed-IR cases pass, and the final
+focused control filter passes 84 driver tests with mandatory Wasmtime, including
+existing actual ancestry/GC and no-tail-call execution. Mandatory workspace
+execution passes 435 backend tests, 95 Core tests and all 81 control integration
+tests. Driver library results are 595 passed and 162 failed. The nine failing
+targets and 175 failed test names exactly match `b2dd6476`, with no added or
+recovered names; this compares names, not all baseline causes. `cargo fmt --all
+--check`, `git diff --check` and final `cargo clippy --workspace --all-targets --
+-D warnings` pass. A syntax-only lint repair to the existing jump guard was
+followed by the final focused rerun.
+
+The six measured ancestry/GC components retain the preceding replay slice's
+exact fingerprints, collection counts and maximum post-GC live bytes. Logs:
+`/private/tmp/psrs-context-structural.log`,
+`/private/tmp/psrs-context-focused-final.log`,
+`/private/tmp/psrs-context-workspace.log`,
+`/private/tmp/psrs-context-comparison.json`, and
+`/private/tmp/psrs-context-clippy-final.log`. Explicit upstream type comparison,
+package conformance and suite scoreboards are not rerun for this internal
+invariant change. No measured gate number changes.

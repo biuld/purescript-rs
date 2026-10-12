@@ -88,3 +88,22 @@ pub(crate) fn replay_activation_relation(
     }
     Ok(())
 }
+
+pub(crate) fn context_finish_relation(
+    context: ValueId,
+    extent: Option<FinishProjection>,
+    queue: Option<FinishProjection>,
+    parent: Option<FinishProjection>,
+) -> Result<(), &'static str> {
+    for (projection, field) in [(extent, 5), (queue, 2), (parent, 3)] {
+        if projection
+            != Some(FinishProjection {
+                owner: context,
+                field,
+            })
+        {
+            return Err("target finish must preserve its source context extent, queue and parent");
+        }
+    }
+    Ok(())
+}

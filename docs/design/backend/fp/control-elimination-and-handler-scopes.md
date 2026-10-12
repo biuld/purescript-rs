@@ -341,11 +341,40 @@ instruction effect owner for this summary; neither stage makes a name-based
 exception for a cost probe. This leaves ordinary trapping ancestry checks valid
 without admitting a shape-compatible close operation.
 
-These checks cover recognizable copy/rebuild nodes and transitions. They do not
-prove complete traversal if a rewrite removes an entire required step, all
-root/dispatch seeding and propagation relationships, finish production from its
-source context, or caught-host-trap cleanup. Those obligations remain part of
-complete lifecycle and execution-step verification.
+These checks cover recognizable copy/rebuild nodes and transitions. At replay
+entry, traversal starts with empty accumulators and the current execution extent;
+its ancestry parent comes from the current dispatch context. CC checks the
+root/scoped selector and both source projections. MIR checks every incoming
+value of the corresponding SSA join, preserving reference copies/casts and
+rejecting unknown or absent provenance. Clone traversal and handoff to rebuild
+preserve active/parent state and accumulators; rebuilding callback nodes preserves
+the current active extent and parent. The entry preheader forwards the original
+function parameters, while actual loop back edges retain the current loop state.
+
+These relations do not prove whole traversal if a rewrite removes an entire
+required step, full context-entry/dispatch selection semantics, or caught-host-trap
+cleanup. Those obligations remain part of complete lifecycle and execution-step
+verification.
+
+### Finish creation and reassociation
+
+A target-completion finish must take extent, saved queue and parent from fields
+five, two and three of the current scoped source context. Its execution step
+passes that finish, its saved extent and field four's caller context. Compatible
+execution extents, queue references or the current source context cannot replace
+these operands: target clauses run in the caller's dispatch context.
+
+A finish copied during append reassociation preserves extent and parent from one
+original finish. Its queue appends that finish's remaining queue before the
+original append tail, retaining both operands and their order. Both the returned
+value path and handle-queue normalization follow this relation.
+
+CC reads actual context/queue projections, constructors and calls through shared
+reference identity. MIR repeats the relations over physical case fields, copies,
+casts and loop/call transitions. These checks validate existing production and
+copy steps; deleting an entire required step still needs full execution-step
+coverage. Creating every source context with the right clauses and identities
+remains a separate producer obligation.
 
 ### Finish consumption ownership
 

@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) mod cfg;
 mod control_checkpoints;
 mod control_contracts;
+mod control_finish_creation;
 mod control_provenance;
 mod control_replay;
 mod instruction;
