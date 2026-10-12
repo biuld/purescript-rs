@@ -11,6 +11,7 @@ mod control_carriers;
 mod control_checkpoint_ordering;
 mod control_checkpoints;
 mod control_context_contracts;
+mod control_context_entry;
 mod control_contracts;
 mod control_costs;
 mod control_finish_provenance;

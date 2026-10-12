@@ -1,7 +1,7 @@
 //! Shared reference identity and loop parameter views for MIR consumers.
 use super::{BlockId, Function, Instruction, Terminator};
 use crate::types::ValueId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub(crate) type Definitions<'a> = HashMap<ValueId, &'a Instruction>;
 
@@ -85,4 +85,41 @@ pub(crate) fn incoming_values(function: &Function, value: ValueId) -> Option<Vec
         }
     }
     (!incoming.is_empty()).then_some(incoming)
+}
+
+pub(crate) type Point = (BlockId, usize);
+
+pub(crate) fn precedes(
+    source: Point,
+    target: Point,
+    dominators: &HashMap<crate::mir::BlockId, HashSet<crate::mir::BlockId>>,
+) -> bool {
+    if source.0 == target.0 {
+        source.1 < target.1
+    } else {
+        dominators
+            .get(&target.0)
+            .is_some_and(|set| set.contains(&source.0))
+    }
+}
+
+/// Prove that a producer dominates its consumer and executes inside the current
+/// loop iteration, excluding allocations reused from the entry preheader.
+/// Callers separately prove that the producer is the required allocation.
+pub(crate) fn fresh_iteration_allocation(
+    function: &Function,
+    allocation: ValueId,
+    consumer: Point,
+    points: &HashMap<ValueId, Point>,
+    dominators: &HashMap<crate::mir::BlockId, HashSet<crate::mir::BlockId>>,
+) -> bool {
+    let Some(point) = points.get(&allocation).copied() else {
+        return false;
+    };
+    precedes(point, consumer, dominators)
+        && loop_header(function).is_none_or(|header| {
+            dominators
+                .get(&point.0)
+                .is_some_and(|set| set.contains(&header))
+        })
 }

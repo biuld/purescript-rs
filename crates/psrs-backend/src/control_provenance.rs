@@ -107,3 +107,47 @@ pub(crate) fn context_finish_relation(
     }
     Ok(())
 }
+
+/// A scoped dispatch owns the clauses of the current Handle computation.
+pub(crate) fn context_clause_relation(
+    computation: ValueId,
+    return_clause: Option<FinishProjection>,
+    operation_clause: Option<FinishProjection>,
+) -> Result<(), &'static str> {
+    if return_clause
+        != Some(FinishProjection {
+            owner: computation,
+            field: 0,
+        })
+        || operation_clause
+            != Some(FinishProjection {
+                owner: computation,
+                field: 1,
+            })
+    {
+        return Err("source context must retain the current Handle return and operation clauses");
+    }
+    Ok(())
+}
+
+/// Tail scope entry removes one finish while sharing its completion boundary.
+pub(crate) fn context_tail_relation(
+    sequence: ValueId,
+    saved: Option<FinishProjection>,
+    parent: Option<FinishProjection>,
+    extent: Option<FinishProjection>,
+) -> Result<(), &'static str> {
+    for (projection, field) in [(saved, 1), (parent, 2), (extent, 0)] {
+        if projection
+            != Some(FinishProjection {
+                owner: sequence,
+                field,
+            })
+        {
+            return Err(
+                "tail source context must retain queue, parent and extent from its current finish",
+            );
+        }
+    }
+    Ok(())
+}

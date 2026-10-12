@@ -1344,3 +1344,49 @@ exact fingerprints, collection counts and maximum post-GC live bytes. Logs:
 `/private/tmp/psrs-context-clippy-final.log`. Explicit upstream type comparison,
 package conformance and suite scoreboards are not rerun for this internal
 invariant change. No measured gate number changes.
+
+
+## Source context construction and entry (2026-10-12)
+
+Starting point: compiler `a9d87844`, branch `feat/effect-handlers`, clean checkout.
+CC/MIR check actual scoped-context constructors and their following executor
+transitions. Shared stage-independent clause and tail-finish relations use the
+current Handle and current queue identities. Ordinary entry retains caller work
+outside capture and creates a child lifetime activation; tail entry preserves
+queue, extent and parent from one current finish. The transition enters the
+Handle body with an empty queue, preserving state/root handler and installing the
+new context and its extent. MIR allocation ordering and iteration freshness now
+have a common owner shared with replay checking.
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| Keep return/operation clauses from the current Handle | Paired `source_context_retains_clauses` malformed CC/MIR cases | Focused Verified |
+| Retain the current caller context | Paired `source_context_retains_current_caller`; paired accepted caller cast/copy tests | Focused Verified |
+| Retain current finish operands during tail entry | Paired `source_context_retains_tail_queue`, `tail_parent`, `tail_extent` cases | Focused Verified |
+| Enter the inner computation with an empty queue and new context/extent | Paired `source_context_retains_entry_body`, `entry_queue`, `entry_extent`, `entry_context` cases | Focused Verified |
+| Allocate a live one-element status inside the current iteration | Paired `source_context_retains_fresh_status`, plus `mir_source_context_status_is_allocated_inside_the_executor_loop` | Focused Verified |
+
+All twenty-three new structural cases pass. They check existing constructors and
+transitions; deleting every required entry step, full dispatch/branch selection,
+root seeding, arbitrary additional effects and complete frame/context provenance
+remain unverified. Foreign capture, caught-host-trap cleanup, pinned upstream
+acceptance and general allocation accounting also remain open. No full AE/AC row
+is declared complete; native Effect/ST follows complete delimited-control
+acceptance.
+
+Validation: `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace --no-fail-fast` passes
+435 backend tests, 95 Core tests and all 81 control integration tests. Driver
+library results are 618 passed and 162 failed. The nine failing targets and all
+175 failed test names exactly match `a9d87844`; no name is added or recovered.
+This compares failed names, not every baseline cause. A syntax-only test-helper
+lint repair is followed by a final mandatory-Wasmtime control filter: 107 driver
+tests pass, including ancestry/GC and no-tail-call execution. Formatting,
+`git diff --check` and final strict workspace clippy pass.
+
+Logs: `/private/tmp/psrs-context-entry-structural.log`,
+`/private/tmp/psrs-context-entry-workspace.log`,
+`/private/tmp/psrs-context-entry-comparison.json`,
+`/private/tmp/psrs-context-entry-focused-final.log`, and
+`/private/tmp/psrs-context-entry-clippy-final.log`. Separate pinned-package
+conformance commands and ignored suite scoreboards are not rerun for this
+internal invariant slice. No measured gate number changes.

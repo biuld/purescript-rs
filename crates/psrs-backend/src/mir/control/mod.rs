@@ -4,6 +4,7 @@ use crate::BackendError;
 use crate::mir::Module;
 
 mod checkpoints;
+mod context_entry;
 mod contracts;
 mod finish_consumption;
 mod finish_creation;
@@ -17,4 +18,5 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
     checkpoints::verify(module, errors);
     replay::verify(module, errors);
     finish_creation::verify(module, errors);
+    context_entry::verify(module, errors);
 }

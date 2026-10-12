@@ -376,6 +376,31 @@ copy steps; deleting an entire required step still needs full execution-step
 coverage. Creating every source context with the right clauses and identities
 remains a separate producer obligation.
 
+### Source context construction and entry
+
+Creating a scoped context retains return and operation clauses from fields zero
+and one of the current Handle computation, and retains the current dispatch
+context as its caller. Ordinary entry saves the current pending queue and current
+execution extent as parent, allocating a child extent with a new one-element live
+status cell. Tail entry instead removes one leading finish and shares its extent;
+saved queue, parent and extent must all come from that same current finish.
+
+The following executor transition preserves state and the root handler, enters
+field two of that Handle with an empty queue, and installs the newly constructed
+context and its extent. It must not enter the Handle again, execute caller work
+inside the source, or reuse the previous context/extent. CC checks nominal case
+fields and reference origins. MIR repeats those relations over physical fields,
+copies/casts and call/tail-call/loop transitions. Allocation dominance and the
+current loop iteration are checked through the same common MIR operation used
+by replay validation; an allocation reused from the entry preheader is invalid.
+
+These checks establish constructor operands and their associated transitions.
+They do not yet prove complete dispatch coverage, branch selection (including
+when tail coalescing is selected), root context seeding, or rejection after an
+entire required entry step is removed. Status initialization is checked; arbitrary
+extra effectful instructions and complete lifecycle flow require execution-step
+verification. Those obligations remain part of full context provenance.
+
 ### Finish consumption ownership
 
 A finish record stores `(extent, remainingQueue, parent)`. Consuming it must close

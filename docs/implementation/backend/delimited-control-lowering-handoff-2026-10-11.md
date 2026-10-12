@@ -83,6 +83,13 @@ references. Traversal, handoff and callback rebuild preserve the required active
 parent and accumulator identities. Twenty-three new cases include a valid SSA
 copy at the dispatch-parent join. Entire-step deletion, context-entry production,
 full selection/algorithm coverage and host cleanup remain open.
+The continuation from `a9d87844` checks scoped source-context construction and
+entry in CC/MIR: current Handle clauses, caller identity, ordinary saved work and
+fresh child activation, shared tail-finish provenance, and the empty-queue inner
+computation transition. Common MIR allocation ordering proves freshness within
+the current loop iteration. Twenty-three new tests cover malformed operands,
+preheader allocation rejection and accepted reference aliases. Complete dispatch
+selection, root seeding, entire-step deletion and host cleanup remain open.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

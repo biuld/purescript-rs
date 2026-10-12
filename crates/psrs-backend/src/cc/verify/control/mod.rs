@@ -6,6 +6,7 @@ use psrs_hir::SymbolId;
 use std::collections::HashMap;
 
 mod checkpoints;
+mod context_entry;
 mod finish_consumption;
 mod finish_creation;
 mod replay;
@@ -24,5 +25,6 @@ pub(super) fn verify_after_assignments(
 ) -> Result<(), Vec<BackendError>> {
     checkpoints::verify(function, representations)?;
     finish_creation::verify(function, representations)?;
+    context_entry::verify(function, representations)?;
     replay::verify(function, representations, functions)
 }

@@ -4,12 +4,13 @@ use crate::cc::ControlHelperRole as R;
 use crate::control_provenance::{
     FinishProjection, replay_activation_relation, saved_finish_relation,
 };
-use crate::mir::value_identity::{definitions, loop_header, loop_parameters, reference_origin};
+use crate::mir::value_identity::{
+    definitions, fresh_iteration_allocation, loop_header, loop_parameters, precedes,
+    reference_origin,
+};
 use crate::mir::{Function, Instruction as I, Module, Terminator as T};
-use crate::types::{DefinedTypeId, ValueId};
+use crate::types::DefinedTypeId;
 use std::collections::{HashMap, HashSet};
-
-type Point = (crate::mir::BlockId, usize);
 
 struct Schema {
     finish: DefinedTypeId,
@@ -441,36 +442,4 @@ fn verify_function(
         }
     }
     Ok(())
-}
-
-fn precedes(
-    source: Point,
-    target: Point,
-    dominators: &HashMap<crate::mir::BlockId, HashSet<crate::mir::BlockId>>,
-) -> bool {
-    if source.0 == target.0 {
-        source.1 < target.1
-    } else {
-        dominators
-            .get(&target.0)
-            .is_some_and(|set| set.contains(&source.0))
-    }
-}
-
-fn fresh_iteration_allocation(
-    function: &Function,
-    allocation: ValueId,
-    consumer: Point,
-    points: &HashMap<ValueId, Point>,
-    dominators: &HashMap<crate::mir::BlockId, HashSet<crate::mir::BlockId>>,
-) -> bool {
-    let Some(point) = points.get(&allocation).copied() else {
-        return false;
-    };
-    precedes(point, consumer, dominators)
-        && loop_header(function).is_none_or(|header| {
-            dominators
-                .get(&point.0)
-                .is_some_and(|set| set.contains(&header))
-        })
 }
