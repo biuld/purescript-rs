@@ -219,3 +219,47 @@ Native `Effect.pureE`, `Effect.bindE`, the loop/traversal foreigns and
 at P8 library linking. Restoring the official declarations is not their runtime
 implementation; native Effect/ST and full reference-library acceptance remain
 outstanding.
+
+## Reference-Variant compilation (2026-10-12)
+
+With `_crashWith` resolved, the unchanged Variant entry advanced past P8 library
+linking and stopped at `backend.cc.lower` with `aggregate and parameterized
+types are not supported by the first backend slice`. Tracing the failure showed
+it was not a general aggregate gap: `Data.Functor.Variant` declares
+`data VariantF :: Row (Type -> Type) -> Type -> Type` / `data VariantF f a` and
+`data UnknownF a`, all constructorless, and the layout pass rejected any user
+type that was neither an enum, an aggregate, a newtype, nor an opaque foreign
+type.
+
+A constructorless algebraic data declaration is uninhabited: no expression can
+build one, so its only values come from unchecked coercions (the upstream
+modules coerce `VariantFRep f a`, a newtype over a record, to and from
+`VariantF f a`). Such a type now uses the erased reference, exactly like a bare
+abstract type. The rule is deliberately narrower than "any type without a
+resolved layout": a type whose constructors were pruned by Core, or whose fields
+are not layoutable, still takes its own error path. `foreign import data` is
+excluded — a nullary foreign type is a resource handle and an applied one
+already uses the erased reference.
+
+Evidence:
+
+- The unchanged reference entry and its three unchanged upstream Variant modules
+  now pass diagnosis (`variant-uninhabited.json`) and execute under Wasmtime to
+  `42`. Before the fix the first blocker was the layout rejection; this is the
+  reference-library compile/execute milestone for the Variant package.
+- `cc::layout::tests::uninhabited` covers the bare and applied forms and checks
+  that a type with a constructor is not swallowed by the rule.
+- `tests::uninhabited::a_constructorless_data_type_round_trips_through_unsafe_coercion`
+  compiles and executes a self-contained coercion round-trip to `42`.
+- Backend unit tests: 438 passed. Driver unit tests: 742 passed / 68 failed,
+  with exactly the same 68 failure names as before the change, so no regression.
+- Whole workspace with mandatory Wasmtime: the same four failing targets and 71
+  failed names as before the change, with no added or recovered names. Log:
+  `workspace-after-variant.log`.
+
+The remaining groups are unchanged: native Effect/ST API execution, the
+`Effect`/WASI runtime fixtures, the CLI link/source-layout and residual
+constraint targets, and the other reference packages (`Run`, `Free`) plus the
+ordinary row library over `Prim.Control`. The earlier "first backend slice"
+closure-conversion message still covers genuinely unsupported shapes (for
+example open rows and unresolved type constructors); those remain real work.

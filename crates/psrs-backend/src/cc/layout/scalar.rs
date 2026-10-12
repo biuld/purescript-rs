@@ -1,6 +1,6 @@
 use super::{
-    function_type_signature, is_callable_type, layout_error, newtype_field_type,
-    primitive_shape_of, unquantified_type, user_type_id,
+    function_type_signature, is_callable_type, is_uninhabited_data_type, layout_error,
+    newtype_field_type, primitive_shape_of, unquantified_type, user_type_id,
 };
 use crate::BackendError;
 use crate::cc::{RefShape, Reference, ReprId, Signature, SignatureId, ValueShape};
@@ -86,6 +86,17 @@ pub(crate) fn declaration_shape(
                 result: ValueShape::Integer,
             })
         }
+        // A constructorless user data type is uninhabited: no expression builds
+        // one, so its values come only from unchecked coercions. It crosses the
+        // erased boundary like any other abstract type.
+        Some(Type::Constructor(TypeConstructor::User(id)))
+            if is_uninhabited_data_type(module, *id) =>
+        {
+            Ok(Signature {
+                parameters,
+                result: erased_reference(),
+            })
+        }
         Some(_) if module.is_record_type(ty) => {
             if module.record_is_open(ty).unwrap_or(false) {
                 Err(vec![BackendError::new(
@@ -130,6 +141,13 @@ pub(crate) fn declaration_shape(
                 // An applied foreign type is not a nullary handle. It has no
                 // constructors, so its value uses the erased reference until a
                 // later calling convention gives that type its own layout.
+                Ok(Signature {
+                    parameters,
+                    result: erased_reference(),
+                })
+            } else if is_uninhabited_data_type(module, type_id) {
+                // An applied constructorless algebraic type is uninhabited and
+                // only appears through unchecked coercions.
                 Ok(Signature {
                     parameters,
                     result: erased_reference(),
@@ -253,6 +271,13 @@ pub(crate) fn scalar_type(
         Some(Type::Constructor(TypeConstructor::User(id))) if module.opaque_ids.contains(id) => {
             Ok(ValueShape::Integer)
         }
+        // A constructorless user data type is uninhabited, so it has no
+        // concrete value to lay out beyond the erased reference.
+        Some(Type::Constructor(TypeConstructor::User(id)))
+            if is_uninhabited_data_type(module, *id) =>
+        {
+            Ok(erased_reference())
+        }
         Some(Type::Application(_, _)) if array_types.contains_key(&id) => {
             Ok(ValueShape::Reference(Reference {
                 nullable: false,
@@ -288,6 +313,9 @@ pub(crate) fn scalar_type(
                 )]);
             };
             if module.opaque_ids.contains(&type_id) {
+                return Ok(erased_reference());
+            }
+            if is_uninhabited_data_type(module, type_id) {
                 return Ok(erased_reference());
             }
             if enum_types.contains(&type_id) {

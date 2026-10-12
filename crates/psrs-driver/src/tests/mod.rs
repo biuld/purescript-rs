@@ -46,6 +46,7 @@ mod runtime_storage;
 mod scalars;
 mod semigroup;
 mod show;
+mod uninhabited;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
     let backend_input = crate::lower_main_to_cc(source).expect("Core should lower to CC");

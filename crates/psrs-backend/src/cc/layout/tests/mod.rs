@@ -9,6 +9,7 @@ use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId}
 
 mod opaque;
 mod records;
+mod uninhabited;
 
 fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
     let head = TypeId(types.len() as u32);

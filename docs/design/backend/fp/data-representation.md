@@ -468,6 +468,7 @@ must run fixtures of the following class:
 | Nullary data types | tag construction and tag comparison |
 | Field data types | construction, tag test, and field projection ([CC IR](cc-ir.md)) |
 | Newtypes | erased single-field construction and match |
+| Uninhabited data types | unchecked coercion round-trip through the erased reference |
 | Records | literal, field read, and update |
 | Arrays | literal, length, index, and update |
 | Closures | captured scalar/reference closures and higher-order calls |

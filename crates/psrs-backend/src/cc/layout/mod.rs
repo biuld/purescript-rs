@@ -153,6 +153,11 @@ fn layoutable_field_type_inner(
             let Some(type_id) = user_type_id(module, id) else {
                 return false;
             };
+            // An uninhabited applied data type is an erased reference, which a
+            // variant case may carry like any other referenced payload.
+            if is_uninhabited_data_type(module, type_id) {
+                return true;
+            }
             if !newtype_ids.contains(&type_id) {
                 return false;
             }
@@ -381,6 +386,19 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
             _ => return None,
         }
     }
+}
+
+/// A user `data` declaration with no constructors is uninhabited: no expression
+/// can build one, so its only values come from unchecked coercions. It therefore
+/// crosses the erased boundary like any other abstract type. Foreign data is
+/// excluded — a nullary foreign type is a resource handle with its own layout,
+/// and an applied foreign type is already handled as an erased reference.
+pub(super) fn is_uninhabited_data_type(module: &CoreModule, type_id: HirTypeId) -> bool {
+    !module.opaque_ids.contains(&type_id)
+        && !module
+            .constructors
+            .iter()
+            .any(|constructor| constructor.type_id == type_id)
 }
 
 /// Whether a Core type is a callable closure value: an ordinary function arrow
