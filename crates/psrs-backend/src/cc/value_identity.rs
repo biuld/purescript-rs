@@ -32,3 +32,36 @@ fn transparent(conversion: &ValueConversion) -> bool {
         _ => false,
     }
 }
+
+/// Index definitions across every nested assignment sequence, without guessing
+/// identities from spans or names.
+pub(crate) fn definitions(
+    body: &[super::Assignment],
+) -> std::collections::HashMap<ValueId, &AssignmentKind> {
+    let mut definitions = std::collections::HashMap::new();
+    let mut pending = vec![body];
+    while let Some(body) = pending.pop() {
+        for assignment in body {
+            definitions.insert(assignment.destination, &assignment.kind);
+            match &assignment.kind {
+                AssignmentKind::If {
+                    then_assignments,
+                    else_assignments,
+                    ..
+                } => {
+                    pending.extend([then_assignments.as_slice(), else_assignments.as_slice()]);
+                }
+                AssignmentKind::TagSwitch {
+                    cases,
+                    default_assignments,
+                    ..
+                } => {
+                    pending.extend(cases.iter().map(|case| case.assignments.as_slice()));
+                    pending.push(default_assignments);
+                }
+                _ => {}
+            }
+        }
+    }
+    definitions
+}

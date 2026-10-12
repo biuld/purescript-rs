@@ -15,7 +15,9 @@ pub use control_contract::{
     ControlContract, ControlContractId, ControlDomain, SourceTypeIdentityId,
     TypeConstructorIdentity, TypeIdentity,
 };
-pub use control_helpers::{ControlHelperContract, ControlHelperId, ControlHelperRole};
+pub use control_helpers::{
+    ControlHelperContract, ControlHelperId, ControlHelperRole, ControlResumptionContract,
+};
 mod convert;
 mod layout;
 mod lower;

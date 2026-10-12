@@ -1161,3 +1161,63 @@ is not the final validation result.
 `/private/tmp/psrs-nominal-clippy-final.log`. Explicit upstream type comparison,
 package conformance and suite scoreboards are not rerun for this internal layout
 change. No measured gate number changes.
+
+
+## Raw resumption checkpoint ownership (2026-10-12)
+
+Starting point: compiler `f3c5a138`, branch `feat/effect-handlers`, clean checkout.
+The existing capture contracts proved physical slot types; the raw resumption
+code target had no semantic binding, and compatible boundary references could
+not establish the identity of a checkpoint used by capture or check operations.
+P8 now reserves an immutable raw code-target/callable-protocol binding with its
+other control identities, before body lowering. It is distinct from direct-call
+helpers and does not introduce another source operation or signature allocation
+during lowering.
+
+CC and MIR verify actual raw closure factories against the executor queue and
+its root/scoped dispatch context checkpoint. The raw body returns a Resume of
+its input answer, saved queue slot zero and checkpoint slot one from the same
+receiver, after checking the captured checkpoint. Interpretation must use the
+current Resume frame's saved queue and check its saved checkpoint before clone
+traversal. MIR checks actual SSA captures and physical projections after loop
+conversion and optimization. The check must dominate the consumer; the common
+CFG dominator operation now serves both SSA and lifecycle verification.
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| Require a planned raw code binding | `cc_rejects_missing_raw_resumption_binding` | Focused Verified |
+| Capture the dispatch checkpoint rather than a compatible execution extent | `cc_rejects_capturing_execution_extent_as_dispatch_checkpoint`, `mir_rejects_capturing_execution_extent_as_dispatch_checkpoint` | Focused Verified |
+| Save the raw receiver's required queue/checkpoint slots | `cc_rejects_a_raw_frame_checkpoint_from_another_capture_slot`, `mir_rejects_a_raw_frame_checkpoint_from_another_capture_slot` | Focused Verified |
+| Check the saved checkpoint before raw construction | `cc_rejects_a_raw_frame_built_without_its_checkpoint_check`, `mir_rejects_a_raw_frame_built_without_its_checkpoint_check` | Focused Verified |
+| Check the current Resume frame's checkpoint before cloning its saved queue | `cc_rejects_replay_checking_current_extent_instead_of_saved_checkpoint`, `mir_rejects_replay_checking_current_extent_instead_of_saved_checkpoint`, `mir_rejects_a_correct_checkpoint_check_after_replay_has_started` | Focused Verified |
+| Preserve accepted identity aliases across lowering | `checked_checkpoint_reference_aliases_survive_physical_lowering`, checked CC through the artifact pipeline | Focused Verified |
+
+The raw body must retain its saved Resume result, so deleting both its check and
+construction cannot masquerade as a valid raw function. The replay check relation
+is focused on recognizable clone traversal from the current Resume frame; it
+does not establish all execution steps if a rewrite deletes that entire step.
+MIR trusts the immutable representation metadata produced by checked P8 and does
+not reconstruct source types. Saved finish validation inside clone traversal,
+finish production, fresh replay activation ancestry and complete context/frame
+provenance remain unverified. Foreign capture, caught-host-trap cleanup, pinned
+library comparison and general allocation obligations also remain open. Full
+AE/AC acceptance is not established by this unit.
+
+Validation: all eleven new driver tests pass, including the checked CC-to-artifact
+alias case and the optimized-MIR ordering rejection. Final mandatory Wasmtime
+workspace execution passes 435 backend tests, 95 Core tests, all 81 control
+integration tests and the existing ancestry/GC and no-tail-call probes. Driver
+library results are 552 passed and 162 failed. The nine failing targets and 175
+failed test names exactly match `f3c5a138`, with no added or recovered names; this
+compares names, not every baseline cause. `cargo fmt --all --check`,
+`git diff --check` and `cargo clippy --workspace --all-targets -- -D warnings`
+pass. The six ancestry/GC workloads retain the preceding carrier slice's exact
+component identities, collection counts and maximum post-GC live bytes, as
+expected for a verification-only change.
+
+Logs: `/private/tmp/psrs-checkpoint-structural-final.log`,
+`/private/tmp/psrs-checkpoint-workspace.log`,
+`/private/tmp/psrs-checkpoint-comparison.json`, and
+`/private/tmp/psrs-checkpoint-clippy.log`. Explicit upstream type comparison,
+package conformance and suite scoreboards are not rerun for this internal
+invariant change. No measured gate number changes.

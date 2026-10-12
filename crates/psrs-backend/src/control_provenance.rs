@@ -32,3 +32,32 @@ pub(crate) fn finish_relation(
     }
     Ok(())
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CaptureProjection {
+    pub receiver: ValueId,
+    pub slot: u32,
+}
+
+pub(crate) fn checkpoint_capture_relation(
+    receiver: ValueId,
+    queue: Option<CaptureProjection>,
+    checkpoint: Option<CaptureProjection>,
+) -> Result<(), &'static str> {
+    if queue != Some(CaptureProjection { receiver, slot: 0 })
+        || checkpoint != Some(CaptureProjection { receiver, slot: 1 })
+    {
+        return Err("raw resumption must save its own queue and checkpoint capture slots");
+    }
+    Ok(())
+}
+
+pub(crate) fn dispatch_checkpoint_relation(
+    context: ValueId,
+    projection: Option<(ValueId, u32, u32)>,
+) -> Result<(), &'static str> {
+    match projection {
+        Some((owner, 0, 0) | (owner, 1, 5)) if owner == context => Ok(()),
+        _ => Err("raw resumption must capture its current dispatch context checkpoint"),
+    }
+}

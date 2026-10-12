@@ -56,6 +56,15 @@ pass directly, callbacks adapt directly to the unary protocol, and user payloads
 use recursive erasure. The `once` result no longer erases and recovers its owner.
 Generic abstract storage still erases carriers at its explicit boundary. The
 checklist records structural and runtime evidence for this change separately.
+The continuation from `f3c5a138` predeclares the raw-resumption code binding and
+checks checkpoint identity across raw closure capture, Resume construction and
+interpretation. CC/MIR distinguish the dispatch checkpoint from a same-shaped
+execution extent; the raw body must check and save its own capture slots. Replay
+must check the checkpoint of the current Resume frame before cloning its saved
+queue. MIR uses shared CFG dominance across dispatch-selection blocks. Eleven
+new malformed-IR/alias/ordering tests provide focused evidence. Complete saved
+finish validation, fresh replay activation ancestry and other lifecycle rules
+remain open.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

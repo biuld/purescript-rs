@@ -5,6 +5,7 @@ use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
 
 mod adaptation;
+mod control_checkpoints;
 mod control_provenance;
 mod helpers;
 mod ops;
@@ -200,6 +201,7 @@ fn verify_function_inner(
         function.span,
         &function.name,
     )?;
+    control_checkpoints::verify(function, representations)?;
     if !available.contains(&function.result) {
         return Err(vec![BackendError::invalid_ir(
             "P8 CC verification",

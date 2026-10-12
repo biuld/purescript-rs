@@ -7,6 +7,7 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) mod cfg;
+mod control_checkpoints;
 mod control_contracts;
 mod control_provenance;
 mod instruction;

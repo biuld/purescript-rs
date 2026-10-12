@@ -368,6 +368,10 @@ pub(in crate::cc) fn plan_control_helpers(
         once: allocator.fresh(owner),
         cancel: allocator.fresh(owner),
     };
+    layout.representations.control_resumption = Some(crate::cc::ControlResumptionContract {
+        function: functions.resume,
+        signature: control.continuation,
+    });
     for (function, signature, role) in functions.contracts(control) {
         layout
             .representations

@@ -31,6 +31,34 @@ pub(crate) fn verify_table(
             "control machine is missing a required semantic helper",
         ));
     }
+    if !table.control_helpers.is_empty() {
+        let valid = table.control_resumption.as_ref().is_some_and(|resume| {
+            !helpers.contains(&resume.function())
+                && table.signature(resume.signature()).is_some()
+                && table.control_checkpoint_schema().is_some()
+                && table
+                    .control_helpers
+                    .iter()
+                    .find(|helper| helper.role() == crate::cc::ControlHelperRole::Once)
+                    .and_then(|helper| table.signature(helper.signature()))
+                    .and_then(|signature| signature.parameters.first())
+                    == Some(&crate::cc::ValueShape::Reference(crate::cc::Reference {
+                        nullable: false,
+                        heap: crate::cc::RefShape::Closure(resume.signature()),
+                    }))
+        });
+        if !valid {
+            return Err(table_error(
+                span,
+                "control machine has no valid raw resumption binding",
+            ));
+        }
+    } else if table.control_resumption.is_some() {
+        return Err(table_error(
+            span,
+            "raw resumption binding has no control helper schema",
+        ));
+    }
     for proof in &table.control_contracts {
         if proof.argument_identities().len() != proof.arguments().len()
             || std::iter::once(&proof.result_identity())

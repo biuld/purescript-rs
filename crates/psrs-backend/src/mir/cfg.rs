@@ -121,6 +121,71 @@ fn block_distances(by_id: &HashMap<BlockId, &BasicBlock>, entry: BlockId) -> Has
     distances
 }
 
+/// Block dominators shared by SSA and lifecycle verification.
+pub(crate) fn dominators(function: &Function) -> HashMap<BlockId, HashSet<BlockId>> {
+    let entry = function.entry;
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
+    let all = blocks.keys().copied().collect::<HashSet<_>>();
+    let mut predecessors = blocks
+        .keys()
+        .copied()
+        .map(|id| (id, HashSet::new()))
+        .collect::<HashMap<BlockId, HashSet<BlockId>>>();
+    for block in blocks.values() {
+        let Some(terminator) = &block.terminator else {
+            continue;
+        };
+        for successor in successors(terminator) {
+            if let Some(preds) = predecessors.get_mut(&successor) {
+                preds.insert(block.id);
+            }
+        }
+    }
+
+    let mut dominators = blocks
+        .keys()
+        .copied()
+        .map(|id| {
+            let initial = if id == entry {
+                HashSet::from([entry])
+            } else {
+                all.clone()
+            };
+            (id, initial)
+        })
+        .collect::<HashMap<_, _>>();
+    loop {
+        let mut changed = false;
+        for id in blocks.keys().copied().filter(|id| *id != entry) {
+            let mut next = all.clone();
+            if let Some(preds) = predecessors.get(&id) {
+                if preds.is_empty() {
+                    next.clear();
+                } else {
+                    for pred in preds {
+                        if let Some(pred_dominators) = dominators.get(pred) {
+                            next.retain(|candidate| pred_dominators.contains(candidate));
+                        }
+                    }
+                }
+            }
+            next.insert(id);
+            if dominators.get(&id) != Some(&next) {
+                dominators.insert(id, next);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    dominators
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

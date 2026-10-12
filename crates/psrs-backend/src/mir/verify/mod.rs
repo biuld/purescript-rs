@@ -34,6 +34,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
     super::control_contracts::verify(module, &mut errors);
     super::control_provenance::verify(module, &mut errors);
+    super::control_checkpoints::verify(module, &mut errors);
     verify_defined_types(module, &mut errors);
     let mut signatures = module
         .functions

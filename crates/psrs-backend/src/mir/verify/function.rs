@@ -109,7 +109,7 @@ pub(super) fn verify_function(
         }
     }
 
-    let dominators = compute_dominators(function.entry, &blocks);
+    let dominators = crate::mir::cfg::dominators(function);
     for block in &function.blocks {
         let mut available = block.parameters.iter().copied().collect::<HashSet<_>>();
         for instruction in &block.instructions {
@@ -193,71 +193,6 @@ fn value_available(
         && dominators
             .get(&block)
             .is_some_and(|set| set.contains(owner))
-}
-
-fn compute_dominators(
-    entry: BlockId,
-    blocks: &HashMap<BlockId, &BasicBlock>,
-) -> HashMap<BlockId, HashSet<BlockId>> {
-    let all = blocks.keys().copied().collect::<HashSet<_>>();
-    let mut predecessors = blocks
-        .keys()
-        .copied()
-        .map(|id| (id, HashSet::new()))
-        .collect::<HashMap<BlockId, HashSet<BlockId>>>();
-    for block in blocks.values() {
-        let Some(terminator) = &block.terminator else {
-            continue;
-        };
-        for successor in terminator_successors(terminator) {
-            if let Some(preds) = predecessors.get_mut(&successor) {
-                preds.insert(block.id);
-            }
-        }
-    }
-
-    let mut dominators = blocks
-        .keys()
-        .copied()
-        .map(|id| {
-            let initial = if id == entry {
-                HashSet::from([entry])
-            } else {
-                all.clone()
-            };
-            (id, initial)
-        })
-        .collect::<HashMap<_, _>>();
-    loop {
-        let mut changed = false;
-        for id in blocks.keys().copied().filter(|id| *id != entry) {
-            let mut next = all.clone();
-            if let Some(preds) = predecessors.get(&id) {
-                if preds.is_empty() {
-                    next.clear();
-                } else {
-                    for pred in preds {
-                        if let Some(pred_dominators) = dominators.get(pred) {
-                            next.retain(|candidate| pred_dominators.contains(candidate));
-                        }
-                    }
-                }
-            }
-            next.insert(id);
-            if dominators.get(&id) != Some(&next) {
-                dominators.insert(id, next);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-    dominators
-}
-
-fn terminator_successors(terminator: &Terminator) -> Vec<BlockId> {
-    crate::mir::cfg::successors(terminator)
 }
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {

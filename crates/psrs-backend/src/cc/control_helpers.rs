@@ -97,3 +97,50 @@ impl super::RepresentationTable {
         Ok(())
     }
 }
+
+/// The raw resumption code target is planned separately from direct-call helpers.
+/// Its callable protocol excludes the hidden capture receiver parameter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ControlResumptionContract {
+    pub(super) function: SymbolId,
+    pub(super) signature: SignatureId,
+}
+
+impl ControlResumptionContract {
+    pub fn function(&self) -> SymbolId {
+        self.function
+    }
+    pub fn signature(&self) -> SignatureId {
+        self.signature
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ControlCheckpointSchema {
+    pub computation: super::ReprId,
+    pub context: super::ReprId,
+}
+
+impl super::RepresentationTable {
+    pub(crate) fn control_checkpoint_schema(&self) -> Option<ControlCheckpointSchema> {
+        let parameter = |role, index| {
+            let helper = self
+                .control_helpers
+                .iter()
+                .find(|helper| helper.role() == role)?;
+            let super::ValueShape::Reference(reference) =
+                *self.signature(helper.signature())?.parameters.get(index)?
+            else {
+                return None;
+            };
+            let super::RefShape::Repr(repr) = reference.heap else {
+                return None;
+            };
+            Some(repr)
+        };
+        Some(ControlCheckpointSchema {
+            computation: parameter(ControlHelperRole::Executor, 2)?,
+            context: parameter(ControlHelperRole::Executor, 5)?,
+        })
+    }
+}

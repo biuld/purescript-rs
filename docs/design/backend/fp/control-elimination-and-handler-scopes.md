@@ -277,6 +277,38 @@ correct finish frame, or that the bound helper body implements every lifecycle
 rule. Those argument, body and activation provenance obligations remain part of
 the complete machine verification contract.
 
+### Raw resumption checkpoint ownership
+
+P8 also predeclares an immutable raw-resumption binding: its code target and
+unary callable protocol. It is separate from direct-call helper contracts because
+its hidden capture receiver is supplied by closure invocation. The binding must
+have the same callable protocol as stored callbacks, and cannot reuse a direct
+helper identity. Consumers identify this code by the binding, never by its name.
+
+The raw closure captures the current executor queue and the dispatch context's
+checkpoint: field zero of a root context or field five of a scoped context.
+The current execution extent alone is insufficient. Its body returns a Resume
+frame containing its input answer, capture slot zero's queue and capture slot
+one's checkpoint from its own receiver. It must check that captured checkpoint
+before constructing the frame. At interpretation, replay takes the saved queue
+from the current Resume frame and checks that same frame's saved checkpoint
+before starting clone traversal.
+
+CC verifies these actual captures, projections, factory operands and preceding
+calls. MIR repeats the relations over physical closure captures, case struct
+fields, reference aliases and loop parameters. Its checkpoint check must dominate
+the construction or clone call; checking the right reference in another path or
+after clone traversal has started is insufficient. SSA and lifecycle verification
+share the common CFG dominator operation. These relations use immutable planning
+evidence and add no runtime instructions.
+
+This establishes the raw capture/construction/interpretation chain, not every
+lifecycle operation. Finish production, validation of each saved finish extent
+during clone traversal, fresh replay ancestry, caught-host-trap cleanup and
+complete frame/context provenance still require their separate proofs. Ordinary
+user callback typing and imported producer boundaries retain their existing
+trusted contracts.
+
 ### Finish consumption ownership
 
 A finish record stores `(extent, remainingQueue, parent)`. Consuming it must close

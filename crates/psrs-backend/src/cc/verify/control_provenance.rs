@@ -24,22 +24,7 @@ pub(super) fn verify(
             "control executor has no checked sequence schema",
         )
     })?;
-    let mut definitions = HashMap::new();
-    let mut pending = vec![function.assignments.as_slice()];
-    while let Some(body) = pending.pop() {
-        for assignment in body {
-            definitions.insert(assignment.destination, &assignment.kind);
-            if let A::TagSwitch {
-                cases,
-                default_assignments,
-                ..
-            } = &assignment.kind
-            {
-                pending.extend(cases.iter().map(|case| case.assignments.as_slice()));
-                pending.push(default_assignments);
-            }
-        }
-    }
+    let definitions = crate::cc::value_identity::definitions(&function.assignments);
     let mut pending = vec![function.assignments.as_slice()];
     while let Some(body) = pending.pop() {
         for (index, assignment) in body.iter().enumerate() {

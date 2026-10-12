@@ -8,6 +8,8 @@ mod assertions;
 mod closure_protocol;
 mod coercion;
 mod control_carriers;
+mod control_checkpoint_ordering;
+mod control_checkpoints;
 mod control_contracts;
 mod control_costs;
 mod control_finish_provenance;
