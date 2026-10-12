@@ -2,7 +2,7 @@ use super::*;
 use psrs_hir::{BuiltinType, ModuleId};
 use std::collections::HashSet;
 
-mod synonyms;
+use super::synonyms;
 
 /// Infers representation roles for every data, newtype, and foreign-data type in a
 /// resolved program. Explicit annotations constrain the published roles and

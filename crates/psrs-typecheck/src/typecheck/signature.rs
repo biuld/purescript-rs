@@ -83,6 +83,11 @@ impl Checker {
         rigid: bool,
         quantified: &mut Vec<u32>,
     ) -> (Vec<ClassConstraint>, InferType) {
+        if let Some(expanded) = self.env.checked_kinds.expand_synonyms(ty)
+            && expanded != *ty
+        {
+            return self.elaborate_constraint_spine(&expanded, variables, rigid, quantified);
+        }
         match &ty.kind {
             hir::TypeKind::Forall {
                 variables: binders,
@@ -125,6 +130,13 @@ impl Checker {
         variables: &mut HashMap<String, InferType>,
         rigid_variables: bool,
     ) -> InferType {
+        // Substitute in HIR before elaborating arguments: a saturated outer
+        // alias may apply a partial alias argument or discard it altogether.
+        if let Some(expanded) = self.env.checked_kinds.expand_synonyms(ty)
+            && expanded != *ty
+        {
+            return self.elaborate_type_mode(&expanded, variables, rigid_variables);
+        }
         match &ty.kind {
             hir::TypeKind::Wildcard => self.fresh(),
             hir::TypeKind::Variable(name) => {

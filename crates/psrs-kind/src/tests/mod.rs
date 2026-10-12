@@ -9,6 +9,7 @@ mod declarations;
 mod instances;
 mod program;
 mod roles;
+mod synonyms;
 
 pub(super) fn check(source: &str) -> Vec<KindDiagnostic> {
     check_modules(&[resolve(source)])

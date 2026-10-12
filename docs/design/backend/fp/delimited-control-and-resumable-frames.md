@@ -730,6 +730,13 @@ Upstream `Free`/`Run` executes its ordinary library representation; it is not an
 alternative implementation of the compiler's Control machine, and the native
 Effect/ST prototype is not evidence that this topic is complete.
 
+The current pure Run migration resolves the unchanged Aff import closure and
+passes higher-order row-alias kind checking and signature expansion. It still
+rejects the `runMonadEffect` instance member in term checking. This is a frontend
+migration blocker; native Aff execution has not been demonstrated as a dependency
+of the pure entry. The [reference migration record](../../../implementation/backend/control-reference-library-migration-2026-10-12.md)
+keeps compilation, runtime evidence and remaining full acceptance separate.
+
 No compiler-side operation registry, handler IR, or effect-specific solver is
 required. The runtime carries no continuation for the software form; runtime control
 module names and entry-point signatures remain unselected until a target option is

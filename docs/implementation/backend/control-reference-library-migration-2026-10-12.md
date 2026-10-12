@@ -40,6 +40,27 @@ kind checking; the first blocker is `PartiallyAppliedSynonym` for valid
 `run-pure-before.json` retain this evidence. The next owner to repair is synonym
 application normalization at the kind boundary; preserve the upstream source.
 
+The current compiler repairs that boundary and term signature elaboration with
+one capture-avoiding HIR expander shared with role inference. Saturation is checked
+after substitution, while kinds are inferred from original arguments, including
+arguments discarded by an outer alias. Checked per-module environments retain
+imported alias templates. The focused kind suite passes 38 tests; two source tests
+cover higher-order application/discard and a row alias operator. The open record
+version is typecheck evidence only because generic open record layouts still
+reject at P8; the closed row version executes to 42 under mandatory Wasmtime,
+as does the higher-order application/discard fixture. Official `purs` and file
+diagnosis agree on repeated higher-order application (accepted), a partial alias
+remaining under a data constructor (`PartiallyAppliedSynonym`), and an incorrectly
+kinded discarded argument (`KindsDoNotUnify`); `row-synonym-kind/summary.json`
+records those comparisons.
+
+The current explicit closure omits the three Variant inputs now supplied by the
+pinned package (`run-files-current-list.txt`). `run-pure-after-kind.json` reaches
+term checking; `run-pure-after-elaboration.json` removes its alias diagnostics and
+leaves one `TypesDoNotUnify` at the unchanged `runMonadEffect` instance member.
+Pure Run remains incomplete. Its next blocker is consumption of given type
+relations during instance-member checking, not demonstrated Aff execution.
+
 Validation scope is focused by explicit user instruction. Full workspace tests,
 workspace clippy and complete ignored scoreboards were not rerun for this
 continuation. Existing full statuses and gate measurements remain unchanged.
@@ -344,7 +365,8 @@ Two real frontend defects blocked it and are fixed:
    the official `(~>) Array` diagnostic only matched by coincidence. A bare
    `~>` now resolves through the imported type-operator alias (official Prelude
    aliases it to `NaturalTransformation`; a user may alias it to
-   `Prim.Function`), and only an unresolved `~>` falls back to the arrow. The
+   `Prim.Function`), and no unresolved `~>` falls back to the arrow (corrected during the review
+   continuation above). The
    function arrow is a builtin constructor and is never a partially applied
    synonym inline. L3 kind agreement is unchanged at `PartiallyAppliedSynonym`
    12/12, so `failing/TypeSynonyms9.purs` and `PASTrumpsKDNU2.purs` still agree.
@@ -385,8 +407,10 @@ Run remains the outstanding reference package. It needs `Effect.Aff` and
 `Effect.Aff.Class`; every `Run/*` module imports the `Run` top module, which
 imports `Effect.Aff`, so the package cannot even resolve without Aff. Aff's
 closure pulls `refs`, `parallel`, and `datetime` on top of the modules above, and
-`Effect.Aff` execution itself is gate-blocked on native Effect, so Run cannot be
-completed in this pure source-migration track.
+actual `Effect.Aff` execution still requires target support. Pure Run source
+migration and pure handler execution must be attempted independently: importing
+Aff does not establish that a pure entry executes it. The continuation above
+records the current pure Run blocker.
 
 Validation for the closure, the frontend fixes, and the local-signature fix:
 
