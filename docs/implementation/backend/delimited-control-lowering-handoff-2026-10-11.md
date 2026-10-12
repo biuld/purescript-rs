@@ -12,7 +12,7 @@ sequencing, clause scope, library deep/shallow policies, and ownership/lifetime 
 
 This topic commit implements DEC-20 control contract v2. The compiler lock pins
 stdlib `5d523805c4e2096e68fab5a4f965f62b225ee2af` with content identity
-`fnv1a64-v1:a1e5a2f8f4157041`. All 80 control tests pass under default locked package
+`fnv1a64-v1:a1e5a2f8f4157041`. All 81 control integration tests pass under default locked package
 selection with mandatory Wasmtime; the official type comparison and nine public
 package fixtures are recorded in the v2 checklist. Historical sections below
 preserve prior checkpoints; the five-argument API belongs to those checkpoints.
@@ -48,6 +48,14 @@ optimized MIR: close, restored queue and restored parent must use one finish
 record. A check or omitted close cannot replace completion. Nine new provenance
 and identity-alias tests pass. Finish production, checkpoint identity and replay
 activation ancestry still need their complete semantic proofs.
+The continuation from `35dbdf9d` reserves nominal source carrier representations
+before signature and aggregate planning. Ordinary `Control`/`Resumption`
+parameters, results, captures and joins use the same computation/owner schema.
+Source operands follow the actual frame/helper storage roles: nominal carriers
+pass directly, callbacks adapt directly to the unary protocol, and user payloads
+use recursive erasure. The `once` result no longer erases and recovers its owner.
+Generic abstract storage still erases carriers at its explicit boundary. The
+checklist records structural and runtime evidence for this change separately.
 Full frame/context identity verification, general allocation bounds, foreign
 resources and caught-trap cleanup remain outstanding. Complete delimited-control
 acceptance precedes the requested native Effect/ST implementation.

@@ -319,12 +319,7 @@ pub(crate) fn lower_module_with_relations(
     }
     let newtype_ids = module.newtype_ids.iter().copied().collect();
     let enum_types = enum_type_ids(&module, &newtype_ids);
-    let mut aggregate_types = aggregate_type_ids(&module, &newtype_ids);
-    // `Prim.Control`'s `Control f a` is an opaque aggregate: the layout reserves
-    // its frame representation, and its shape is the erased aggregate reference
-    // so this slice needs no `scalar_type` change.
-    aggregate_types.insert(HirTypeId::CONTROL);
-    aggregate_types.insert(HirTypeId::RESUMPTION);
+    let aggregate_types = aggregate_type_ids(&module, &newtype_ids);
     let mut layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
     let mut constructor_tags = HashMap::new();
     let mut constructors_by_type: HashMap<HirTypeId, Vec<(SymbolId, u32)>> = HashMap::new();
@@ -343,6 +338,7 @@ pub(crate) fn lower_module_with_relations(
             &enum_types,
             &aggregate_types,
             &newtype_ids,
+            &layout.nominal_types,
             &layout.array_types,
             &layout.record_types,
             &layout.function_types,
@@ -404,6 +400,7 @@ pub(crate) fn lower_module_with_relations(
             &enum_types,
             &aggregate_types,
             &newtype_ids,
+            &layout.nominal_types,
             &layout.array_types,
             &layout.record_types,
             &layout.function_types,
@@ -453,6 +450,7 @@ pub(crate) fn lower_module_with_relations(
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
+        nominal_types: &layout.nominal_types,
         boxed_integer_type: layout.boxed_integer_type,
         boxed_number_type: layout.boxed_number_type,
         control_layout: layout.control_layout,

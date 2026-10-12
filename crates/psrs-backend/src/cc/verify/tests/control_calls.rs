@@ -62,7 +62,8 @@ fn control_helper_calls_reject_erased_and_cross_wired_machine_arguments() {
         parameters: vec![erased_shape()],
         result: erased_shape(),
     });
-    let layout = control::append(&mut table, continuation);
+    let nominal_types = control::reserve(&mut table);
+    let layout = control::append(&mut table, continuation, &nominal_types);
     for (id, argument, wrong) in [
         (
             layout.executor,
@@ -112,7 +113,8 @@ fn control_replay_result_cannot_be_declared_as_an_erased_user_pair() {
         parameters: vec![erased_shape()],
         result: erased_shape(),
     });
-    let layout = control::append(&mut table, continuation);
+    let nominal_types = control::reserve(&mut table);
+    let layout = control::append(&mut table, continuation, &nominal_types);
     let signature = table.signature(layout.clone_sequence).unwrap();
     let signatures = HashMap::from([(symbol(1), signature.clone())]);
     let mut function = call_fixture(signature);
@@ -134,7 +136,8 @@ fn mir_rejects_machine_call_arguments_with_swapped_queue_and_extent() {
         parameters: vec![erased_shape()],
         result: erased_shape(),
     });
-    let layout = control::append(&mut table, continuation);
+    let nominal_types = control::reserve(&mut table);
+    let layout = control::append(&mut table, continuation, &nominal_types);
     for (id, left, right) in [
         (layout.executor, 3, 4),
         (layout.clone_sequence, 0, 3),
@@ -185,7 +188,8 @@ fn raw_capture_module() -> Module {
         parameters: vec![erased_shape()],
         result: erased_shape(),
     });
-    let layout = control::append(&mut table, continuation);
+    let nominal_types = control::reserve(&mut table);
+    let layout = control::append(&mut table, continuation, &nominal_types);
     let span = TextRange::new(0, 1);
     let queue = reference(RefShape::Repr(layout.sequence));
     let boundary = reference(RefShape::Repr(layout.boundary));

@@ -16,12 +16,14 @@ pub(crate) fn declaration_shape(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
+    nominal_types: &HashMap<HirTypeId, ReprId>,
     array_types: &HashMap<TypeId, ReprId>,
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<Signature, Vec<BackendError>> {
     let call = super::declaration_call_parts(module, declaration)?;
     let ty = call.result;
+    let nominal_result = nominal_shape(module, ty, nominal_types);
     let parameters = call
         .parameters
         .into_iter()
@@ -33,12 +35,16 @@ pub(crate) fn declaration_shape(
                 enum_types,
                 aggregate_types,
                 newtype_ids,
+                nominal_types,
                 array_types,
                 record_types,
                 function_types,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    if let Some(result) = nominal_result {
+        return Ok(Signature { parameters, result });
+    }
     if is_callable_type(module, ty) {
         return Ok(Signature {
             parameters,
@@ -154,6 +160,7 @@ pub(crate) fn declaration_shape(
                         enum_types,
                         aggregate_types,
                         newtype_ids,
+                        nominal_types,
                         array_types,
                         record_types,
                         function_types,
@@ -179,6 +186,7 @@ pub(crate) fn declaration_shape(
                     enum_types,
                     aggregate_types,
                     newtype_ids,
+                    nominal_types,
                     array_types,
                     record_types,
                     function_types,
@@ -213,6 +221,7 @@ pub(crate) fn scalar_type(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
+    nominal_types: &HashMap<HirTypeId, ReprId>,
     array_types: &HashMap<TypeId, ReprId>,
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
@@ -223,6 +232,9 @@ pub(crate) fn scalar_type(
         return callable_value_shape(module, id, span, function_types);
     }
     let id = unquantified_type(module, id);
+    if let Some(shape) = nominal_shape(module, id, nominal_types) {
+        return Ok(shape);
+    }
     if let Some(shape) = primitive_shape_of(module, id) {
         return Ok(shape);
     }
@@ -293,6 +305,7 @@ pub(crate) fn scalar_type(
                     enum_types,
                     aggregate_types,
                     newtype_ids,
+                    nominal_types,
                     array_types,
                     record_types,
                     function_types,
@@ -318,6 +331,7 @@ pub(crate) fn scalar_type(
                 enum_types,
                 aggregate_types,
                 newtype_ids,
+                nominal_types,
                 array_types,
                 record_types,
                 function_types,
@@ -392,4 +406,16 @@ pub(in crate::cc) fn is_abstract_type(module: &CoreModule, mut id: TypeId) -> bo
         }
     }
     false
+}
+
+fn nominal_shape(
+    module: &CoreModule,
+    ty: TypeId,
+    nominal_types: &HashMap<HirTypeId, ReprId>,
+) -> Option<ValueShape> {
+    let repr = nominal_types.get(&user_type_id(module, ty)?)?;
+    Some(ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Repr(*repr),
+    }))
 }

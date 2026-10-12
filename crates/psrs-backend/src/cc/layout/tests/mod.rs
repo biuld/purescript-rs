@@ -151,6 +151,7 @@ fn bound_rank_n_record_fields_do_not_make_dictionary_layout_dependent() {
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
+            &HashMap::new(),
             &record_types,
             &HashMap::new(),
         )

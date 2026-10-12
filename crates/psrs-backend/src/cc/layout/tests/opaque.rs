@@ -36,6 +36,7 @@ fn an_applied_opaque_foreign_type_uses_the_erased_reference() {
         &HashMap::new(),
         &HashMap::new(),
         &HashMap::new(),
+        &HashMap::new(),
     )
     .expect("an applied opaque type should have a layout");
     assert!(signature.parameters.is_empty());

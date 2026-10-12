@@ -49,6 +49,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         enum_types: &ids,
         aggregate_types: &ids,
         newtype_ids: &ids,
+        nominal_types: &std::collections::HashMap::new(),
         boxed_integer_type: None,
         boxed_number_type: None,
         control_layout: None,

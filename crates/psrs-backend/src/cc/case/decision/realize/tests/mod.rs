@@ -142,6 +142,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
+        nominal_types: &std::collections::HashMap::new(),
         boxed_integer_type: None,
         boxed_number_type: None,
         control_layout: None,

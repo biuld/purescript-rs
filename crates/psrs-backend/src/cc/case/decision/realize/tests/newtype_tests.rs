@@ -131,6 +131,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
+        nominal_types: &std::collections::HashMap::new(),
         boxed_integer_type: None,
         boxed_number_type: None,
         control_layout: None,

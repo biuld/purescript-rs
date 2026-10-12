@@ -70,7 +70,8 @@ fn control_frames_reject_erased_or_wrong_machine_fields_in_cc() {
         parameters: vec![erased_shape()],
         result: erased_shape(),
     });
-    let layout = control::append(&mut table, continuation);
+    let nominal_types = control::reserve(&mut table);
+    let layout = control::append(&mut table, continuation, &nominal_types);
     for (representation, case, field, wrong) in [
         (layout.computation, 3, 1, shape(layout.boundary)),
         (layout.computation, 4, 2, shape(layout.sequence)),
@@ -103,7 +104,8 @@ fn control_frame_projection_cannot_silently_erase_checkpoint_identity() {
         parameters: vec![erased_shape()],
         result: erased_shape(),
     });
-    let layout = control::append(&mut table, continuation);
+    let nominal_types = control::reserve(&mut table);
+    let layout = control::append(&mut table, continuation, &nominal_types);
     let mut function = constructor(&table, layout.sequence, 3);
     let result = ValueId(function.values.len() as u32);
     function.values.push(ValueDecl {
@@ -139,7 +141,8 @@ fn mir_preserves_control_frame_fields_and_rejects_cross_wired_storage() {
         parameters: vec![erased_shape()],
         result: erased_shape(),
     });
-    let layout = control::append(&mut table, continuation);
+    let nominal_types = control::reserve(&mut table);
+    let layout = control::append(&mut table, continuation, &nominal_types);
     for (representation, case, left, right) in [
         (layout.computation, 3, 1, 2),
         (layout.sequence, 3, 0, 1),

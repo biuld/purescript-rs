@@ -185,19 +185,26 @@ fn cc_rejects_a_same_shape_body_from_the_target_domain() {
             _ => None,
         })
         .unwrap();
-    let argument = match &function.assignments[index].kind {
-        AssignmentKind::ControlEvidence { arguments, .. } => arguments[2],
+    let implementation = match &mut function.assignments[index].kind {
+        AssignmentKind::ControlEvidence {
+            arguments,
+            implementation,
+            ..
+        } => {
+            arguments[2] = target;
+            *implementation
+        }
         _ => unreachable!(),
     };
-    let erasure = function
+    let frame = function
         .assignments
         .iter_mut()
-        .find(|assignment| assignment.destination == argument)
+        .find(|assignment| assignment.destination == implementation)
         .unwrap();
-    let AssignmentKind::AggregateConvert { value, .. } = &mut erasure.kind else {
+    let AssignmentKind::VariantNew { fields, .. } = &mut frame.kind else {
         unreachable!()
     };
-    *value = target;
+    fields[2] = target;
     let errors = psrs_backend::cc::verify_module(&input.cc).unwrap_err();
     assert!(
         errors.iter().any(|error| error
@@ -213,19 +220,39 @@ fn cc_rejects_a_frame_that_does_not_save_the_proven_source_body() {
     let contracts = &input.cc.representations.control_contracts;
     let function = input.cc.functions.iter_mut().find(|function| function.assignments.iter().any(|assignment| matches!(&assignment.kind,
         AssignmentKind::ControlEvidence { contract, .. } if contracts[contract.0 as usize].operation() == psrs_hir::Intrinsic::ControlHandle))).unwrap();
-    let (implementation, other) = function
+    let implementation = function
         .assignments
         .iter()
         .find_map(|assignment| match &assignment.kind {
             AssignmentKind::ControlEvidence {
                 contract,
                 implementation,
-                arguments,
                 ..
             } if contracts[contract.0 as usize].operation()
                 == psrs_hir::Intrinsic::ControlHandle =>
             {
-                Some((*implementation, arguments[0]))
+                Some(*implementation)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let other = function
+        .assignments
+        .iter()
+        .find_map(|assignment| match &assignment.kind {
+            AssignmentKind::ControlEvidence { contract, .. }
+                if contracts[contract.0 as usize].operation()
+                    == psrs_hir::Intrinsic::ControlReturn
+                    && contracts[contract.0 as usize]
+                        .target()
+                        .is_some_and(|domain| {
+                            domain.answer
+                                == psrs_backend::cc::TypeIdentity::Constructor(
+                                    psrs_backend::cc::TypeConstructorIdentity::Boolean,
+                                )
+                        }) =>
+            {
+                Some(assignment.destination)
             }
             _ => None,
         })
@@ -238,16 +265,7 @@ fn cc_rejects_a_frame_that_does_not_save_the_proven_source_body() {
     let AssignmentKind::VariantNew { fields, .. } = &mut frame.kind else {
         unreachable!()
     };
-    let cast = fields[2];
-    let cast = function
-        .assignments
-        .iter_mut()
-        .find(|assignment| assignment.destination == cast)
-        .unwrap();
-    let AssignmentKind::RepresentationCast { value, .. } = &mut cast.kind else {
-        unreachable!()
-    };
-    *value = other;
+    fields[2] = other;
     let errors = psrs_backend::cc::verify_module(&input.cc).unwrap_err();
     assert!(
         errors.iter().any(|error| error

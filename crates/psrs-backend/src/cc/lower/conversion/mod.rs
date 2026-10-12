@@ -42,6 +42,7 @@ impl FunctionLowerer<'_> {
             self.enum_types,
             self.aggregate_types,
             self.newtype_ids,
+            self.nominal_types,
             self.array_types,
             self.record_types,
             self.function_types,

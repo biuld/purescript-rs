@@ -59,6 +59,7 @@ pub(super) fn lower_and_verify(
         enum_types: context.enum_types,
         aggregate_types: context.aggregate_types,
         newtype_ids: &newtype_ids,
+        nominal_types: &std::collections::HashMap::new(),
         boxed_integer_type: None,
         boxed_number_type: None,
         control_layout: None,

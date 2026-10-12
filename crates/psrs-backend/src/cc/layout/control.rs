@@ -6,6 +6,17 @@ use crate::cc::{
     ValueShape, VariantCase,
 };
 
+use psrs_hir::TypeId as HirTypeId;
+use std::collections::HashMap;
+
+/// Reserve builtin carriers before any source signature or aggregate layout.
+pub(in crate::cc) fn reserve(table: &mut RepresentationTable) -> HashMap<HirTypeId, ReprId> {
+    HashMap::from([
+        (HirTypeId::CONTROL, table.reserve()),
+        (HirTypeId::RESUMPTION, table.reserve()),
+    ])
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::cc) struct ControlLayout {
     pub computation: ReprId,
@@ -30,12 +41,13 @@ pub(in crate::cc) struct ControlLayout {
 pub(in crate::cc) fn append(
     table: &mut RepresentationTable,
     continuation: SignatureId,
+    nominal_types: &HashMap<HirTypeId, ReprId>,
 ) -> ControlLayout {
     let erased = erased_shape();
-    let computation = table.reserve();
+    let computation = nominal_types[&HirTypeId::CONTROL];
     let sequence = table.reserve();
     let context = table.reserve();
-    let owner = table.reserve();
+    let owner = nominal_types[&HirTypeId::RESUMPTION];
     let boundary = table.reserve();
     let callback = super::protocols::array(table, erased);
     let status = super::protocols::array(table, ValueShape::Integer);
@@ -211,7 +223,8 @@ mod tests {
             parameters: vec![erased],
             result: erased,
         });
-        let layout = append(&mut table, continuation);
+        let nominal_types = reserve(&mut table);
+        let layout = append(&mut table, continuation, &nominal_types);
         assert_eq!(layout.callback, callback);
         assert_eq!(layout.status, status);
         assert_eq!(

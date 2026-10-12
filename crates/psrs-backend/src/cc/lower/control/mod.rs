@@ -13,6 +13,7 @@ mod builder;
 mod executor;
 mod fields;
 mod lifetime;
+mod operands;
 mod owned;
 mod replay;
 mod scope;
@@ -90,10 +91,7 @@ impl FunctionLowerer<'_> {
                         "control use has no predeclared checked contract",
                     )
                 })?;
-        let fields = arguments
-            .iter()
-            .map(|argument| self.lower_array_element(argument, assignments))
-            .collect::<Result<Vec<_>, _>>()?;
+        let fields = self.lower_control_operands(contract, arguments, assignments)?;
         let (value, implementation) =
             self.lower_control_frame(expression, intrinsic, fields.clone(), ty, assignments)?;
         let destination = self.fresh(ty);
@@ -147,22 +145,13 @@ impl FunctionLowerer<'_> {
                 });
                 return Ok((unit, result));
             }
-            let conversion = self.recover_payload(ty, expression.span)?;
-            let source = builder::repr(layout.owner);
-            return Ok((
-                self.emit_conversion(
-                    result,
-                    source,
-                    ty,
-                    crate::cc::ValueConversion::Sequence(vec![
-                        crate::cc::ValueConversion::EraseReference,
-                        conversion,
-                    ]),
+            if ty != builder::repr(layout.owner) {
+                return Err(control_error(
                     expression.span,
-                    assignments,
-                ),
-                result,
-            ));
+                    "resumption result has no nominal owner shape",
+                ));
+            }
+            return Ok((result, result));
         }
         if intrinsic == Intrinsic::ControlRun {
             let functions = self.ensure_control_functions(layout, expression.span)?;

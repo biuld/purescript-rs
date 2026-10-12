@@ -372,6 +372,7 @@ fn scalar_shape(
         lowerer.enum_types,
         lowerer.aggregate_types,
         lowerer.newtype_ids,
+        lowerer.nominal_types,
         lowerer.array_types,
         lowerer.record_types,
         lowerer.function_types,

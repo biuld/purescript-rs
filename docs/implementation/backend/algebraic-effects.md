@@ -1093,3 +1093,71 @@ remeasured; fingerprints, collection counts and maximum post-GC live bytes match
 the preceding helper slice. Explicit upstream type comparison, package
 conformance and scoreboards are not rerun for this internal invariant change.
 No measured gate number changes.
+
+
+## Nominal source carrier entrance (2026-10-12)
+
+Starting point: compiler `35dbdf9d`, branch `feat/effect-handlers`, clean checkout.
+Source `Control` and `Resumption` previously used the abstract aggregate shape,
+and every primitive operand passed through array-element payload erasure before
+recovery into its actual field. `once` also erased and recovered its owner result.
+P8 now reserves both nominal carriers before source signatures and aggregate
+normalization. The common source-shape operation propagates those identities to
+parameters, results, records, arrays, constructor templates and closure captures.
+The schemas and helper contracts are filled before immutable body lowering.
+
+Operand lowering consumes the checked contract's actual frame/helper schema.
+Nominal computation and owner operands pass directly; callback adaptation targets
+the existing unary protocol directly; user payloads retain recursive erasure.
+`once` returns the nominal owner directly. Generic abstract storage legitimately
+retains its own erasure/recovery boundary. No source intrinsic or runtime type
+inference is added, and private mutable cell identity is preserved.
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| All eight primitive entrances use their declared operand roles | `all_eight_operations_use_nominal_carriers_and_direct_callable_protocols`; witnesses and actual factory operands are identical, and `once` returns its helper result directly | Focused Verified |
+| Ordinary carrier parameters, returns and joins retain the nominal shape | `ordinary_parameters_results_and_join_values_keep_the_carrier_shape`, including polymorphic `keep`, `retain` and branch-producing `choose` | Focused Verified |
+| Generic storage and higher-order calls compose with shared owner identity | `control_and_owner_cross_generic_storage_without_changing_identity`, mandatory Wasmtime, expected exit 42; generic `Box`, `apply`, record storage, request dispatch, owned resume and cancellation | Focused Verified |
+| Reject source carrier results weakened to abstract aggregates | `cc_rejects_weakening_a_source_computation_to_an_abstract_aggregate`, common CC witness verifier | Focused Verified |
+| Source-domain and frame-operand rejection survives removal of entrance casts | Existing malformed CC tests now substitute same-shaped computations directly, separately checking wrong source domain and disagreement between witness and saved frame body | Focused Verified |
+
+This removes the unconditional control-entrance round trip. It does not establish
+complete source provenance across every higher-order/imported producer, exact
+checkpoint/replay identity, foreign capture, caught-host-trap cleanup, upstream
+library acceptance or remaining general allocation requirements. Full AE/AC rows
+remain unverified.
+
+The six long ancestry/GC workloads are remeasured with the nominal entrance.
+Collection counts and maximum post-GC live bytes match the preceding finish
+slice; emitted component identities change. Each actual boundary allocation is
+still instrumented, and the independent non-tail depth probes retain their
+success/trap distinction. These are live-heap measurements, not exact total
+allocation or general-program bounds.
+
+| Workload | Requests | Collections | Maximum post-GC live bytes | Component identity |
+| --- | --- | --- | --- | --- |
+| deep | 1000 | 94 | 1408 | `fnv1a64-v1:278d489ba3f752ac` |
+| deep | 10000 | 941 | 1408 | `fnv1a64-v1:8fd6d2f9c4d55078` |
+| deep | 100000 | 9411 | 1472 | `fnv1a64-v1:ff662465ed856c1c` |
+| forwarded | 1000 | 393 | 1440 | `fnv1a64-v1:1c4e88a867b5987e` |
+| forwarded | 10000 | 3934 | 1440 | `fnv1a64-v1:3fb0dd7cdfd36c28` |
+| forwarded | 100000 | 39344 | 1440 | `fnv1a64-v1:7503867b1a999a07` |
+
+Validation: the three new structural/malformed-IR driver tests and one new
+runtime integration pass. Final `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+--no-fail-fast` passes all 435 backend tests, 95 Core tests, 81 control integration
+tests and the existing ancestry/GC and no-tail-call execution probes. Driver
+library results are 541 passed and 162 failed. The same nine failing targets and
+175 failed test names match `35dbdf9d`, with no added or recovered names. This
+compares failure names, not every baseline cause. The final run's doctest targets
+pass; an earlier concurrent build reported unavailable dependency artifacts and
+is not the final validation result.
+
+`cargo fmt --all --check` and `git diff --check` pass. Logs and comparison:
+`/private/tmp/psrs-nominal-new.log`,
+`/private/tmp/psrs-nominal-workspace-final.log`, and
+`/private/tmp/psrs-nominal-comparison.json`. Final
+`cargo clippy --workspace --all-targets -- -D warnings` passes; its log is
+`/private/tmp/psrs-nominal-clippy-final.log`. Explicit upstream type comparison,
+package conformance and suite scoreboards are not rerun for this internal layout
+change. No measured gate number changes.

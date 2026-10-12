@@ -16,11 +16,13 @@ pub(super) fn live_type_ids(module: &CoreModule) -> HashSet<TypeId> {
     reachable::live_type_ids(module)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn append_function_types(
     module: &CoreModule,
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
+    nominal_types: &HashMap<HirTypeId, ReprId>,
     array_types: &HashMap<TypeId, ReprId>,
     record_types: &HashMap<TypeId, ReprId>,
     representations: &mut RepresentationTable,
@@ -63,6 +65,7 @@ pub(super) fn append_function_types(
             enum_types,
             aggregate_types,
             newtype_ids,
+            nominal_types,
             array_types,
             record_types,
             &provisional_function_types,
@@ -108,6 +111,7 @@ pub(crate) fn function_signature(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
+    nominal_types: &HashMap<HirTypeId, ReprId>,
     array_types: &HashMap<TypeId, ReprId>,
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
@@ -121,6 +125,7 @@ pub(crate) fn function_signature(
             enum_types,
             aggregate_types,
             newtype_ids,
+            nominal_types,
             array_types,
             record_types,
             function_types,

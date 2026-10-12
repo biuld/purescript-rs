@@ -177,11 +177,24 @@ predeclared unary callable shape. Only user requests, answers and the mutable
 callback-cell contents use erased storage. A spent owner clears its callback
 slot with another erased reference while its integer status cell stays shared.
 
-The source carrier and user callback protocol use explicit reference casts to
-recover these existing machine objects before construction. This is not source
-payload recovery: adapting array contents here would copy a status cell and invalidate
-ownership/lifetime sharing. Projections produce their declared stored shape;
-erasure for a user callback is a separate conversion. CC verifies construction
+P8 reserves the nominal representations of `Control f a` and
+`Resumption f x a` before planning source signatures and aggregate fields. The
+shared source-shape owner maps these carriers to computation and owner references,
+including ordinary parameters, returned values, closure captures and joins.
+Planning fills the reserved schemas and declares helper signatures before body
+lowering; the representation table remains immutable during body lowering.
+
+Source control operands follow the predeclared frame or helper field schema.
+Computation and owner operands pass directly as nominal references. User
+callbacks are adapted directly to the unary callable protocol; user requests,
+answers and state use the payload owner's recursive erasure. `once` returns its
+nominal owner directly. An abstract generic storage slot still erases a carrier
+and recovers its representation at a checked use. This storage boundary does not
+reconstruct source request or answer types at runtime: those remain immutable
+compile-time evidence. Private status and callback cells use identity-preserving
+reference conversions; adapting their array contents would copy a shared cell
+and invalidate ownership/lifetime sharing. Projections produce their declared
+stored shape; erasure for a user callback is a separate conversion. CC verifies construction
 and projection shapes, and the target planner retains them as MIR struct field
 types, including recursive queue/context/extent references.
 
@@ -213,7 +226,7 @@ Core's rigid equality, including alpha-equivalence and its existing row relation
 CC does not implement another effect type checker.
 
 At each source erasure boundary, `ControlEvidence` connects the immutable
-contract to the represented result, original erased operands and actual frame
+contract to the represented result, operands in their declared storage roles and actual frame
 construction or helper call. CC checks the predeclared frame case/representation
 or helper signature and ordered operands through reference erasure/recovery
 aliases. Frame results must be the proven construction. When an operand comes

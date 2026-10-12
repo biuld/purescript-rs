@@ -45,6 +45,22 @@ pub(super) fn verify(
             "control evidence changes its runtime result shape",
         ));
     }
+    let carrier_shape = match proof.implementation {
+        ControlImplementation::Frame { representation, .. } => {
+            Some(super::super::helpers::repr_shape(representation))
+        }
+        ControlImplementation::Call {
+            signature,
+            role: crate::cc::ControlHelperRole::Once,
+        } => table.signature(signature).map(|signature| signature.result),
+        _ => None,
+    };
+    if carrier_shape.is_some_and(|shape| declared.get(value).copied() != Some(shape)) {
+        return Err(assignment_error(
+            assignment,
+            "control carrier result must retain its nominal representation",
+        ));
+    }
     let definition = assignments
         .iter()
         .find(|candidate| candidate.destination == *implementation)

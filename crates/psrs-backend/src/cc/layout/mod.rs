@@ -226,6 +226,14 @@ pub(super) fn type_layout(
         None
     };
 
+    let uses_control = module.types.iter().any(|ty| matches!(ty,
+        Type::Constructor(TypeConstructor::User(id)) if *id == HirTypeId::CONTROL || *id == HirTypeId::RESUMPTION));
+    let nominal_types = if uses_control {
+        control::reserve(&mut representations)
+    } else {
+        HashMap::new()
+    };
+
     // Reserve aggregate handles before signatures so closure types can refer
     // to them. Normalize afterward and rewrite signature references to the
     // canonical handles.
@@ -235,6 +243,7 @@ pub(super) fn type_layout(
         enum_types,
         aggregate_types,
         newtype_ids,
+        &nominal_types,
         &reserved_aggregates.arrays,
         &reserved_aggregates.records,
         &mut representations,
@@ -244,6 +253,7 @@ pub(super) fn type_layout(
         enum_types,
         aggregate_types,
         newtype_ids,
+        &nominal_types,
         function_layout.function_types,
         reserved_aggregates,
         &mut representations,
@@ -287,6 +297,7 @@ pub(super) fn type_layout(
                         enum_types,
                         aggregate_types,
                         newtype_ids,
+                        &nominal_types,
                         &array_types,
                         &record_types,
                         &function_types,
@@ -308,9 +319,8 @@ pub(super) fn type_layout(
         &function_types,
         module.span,
     )?;
-    let uses_control = module.types.iter().any(|ty| matches!(ty,
-        Type::Constructor(TypeConstructor::User(id)) if *id == HirTypeId::CONTROL || *id == HirTypeId::RESUMPTION));
-    let control_layout = uses_control.then(|| control::append(&mut representations, function_slot));
+    let control_layout =
+        uses_control.then(|| control::append(&mut representations, function_slot, &nominal_types));
     let control_owner = match control_layout {
         Some(control) => control_contracts::append(module, &mut representations, control)?,
         None => None,
@@ -322,6 +332,7 @@ pub(super) fn type_layout(
         array_types,
         record_types,
         constructor_types,
+        nominal_types,
         boxed_integer_type,
         boxed_number_type,
         function_types,
@@ -340,6 +351,7 @@ pub(super) struct TypeLayout {
     pub(super) array_types: HashMap<TypeId, ReprId>,
     pub(super) record_types: HashMap<TypeId, ReprId>,
     pub(super) constructor_types: HashMap<SymbolId, ReprId>,
+    pub(super) nominal_types: HashMap<HirTypeId, ReprId>,
     pub(super) boxed_integer_type: Option<ReprId>,
     pub(super) boxed_number_type: Option<ReprId>,
     pub(super) function_types: HashMap<TypeId, SignatureId>,

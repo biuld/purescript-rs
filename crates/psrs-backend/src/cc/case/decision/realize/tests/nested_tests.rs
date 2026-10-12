@@ -191,6 +191,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
+        nominal_types: &std::collections::HashMap::new(),
         boxed_integer_type: None,
         boxed_number_type: None,
         control_layout: None,
