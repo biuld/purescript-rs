@@ -25,6 +25,9 @@ fn assert_trapped_after_message(output: &std::process::Output, message: &str) {
 }
 
 /// The one `Unit` value, in both spellings the surface language has for it.
+///
+/// The runtime case needs a runner, so it keeps the target `Effect` sequence;
+/// the Core-shape case below is deliberately pure and never needs one.
 const UNIT_SOURCE: &str = r#"
 module Main where
 
@@ -46,13 +49,27 @@ main =
     let ignored = message in let ignoredToo = alsoUnit in 0
 "#;
 
+/// A pure use of the one `Unit` value in both spellings. It exercises only
+/// type checking and Core lowering, so it does not depend on a runner.
+const UNIT_CORE_SOURCE: &str = r#"
+module Main where
+
+import Prelude
+
+takesUnit :: Unit -> Int
+takesUnit _ = 7
+
+main :: Int
+main = takesUnit unit + takesUnit ()
+"#;
+
 #[test]
 fn the_unit_value_is_a_core_expression_rather_than_an_integer_literal() {
     // `Unit` has no payload and no constructor table here, so the value is a
     // compiler primitive. Core must name it as itself: lowering it to the
     // integer `0` would make a unit indistinguishable from an `Int` at every
     // later stage.
-    let core = lower_source_to_core("Main.purs", UNIT_SOURCE)
+    let core = lower_source_to_core("Main.purs", UNIT_CORE_SOURCE)
         .expect("typechecking and lowering `unit` into Core");
     let dump = format!("{core:#?}");
     assert!(

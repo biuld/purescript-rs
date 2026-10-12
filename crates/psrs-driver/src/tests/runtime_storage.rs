@@ -109,6 +109,23 @@ fn runtime_storage_trap_has_no_normal_return() {
 }
 
 #[test]
+fn partial_crash_with_reaches_the_storage_trap() {
+    // `Partial._crashWith` is an official JavaScript `foreign import` that
+    // throws. The target implements it with the checked non-returning storage
+    // trap, so a real library caller must never return a value for the absent
+    // result type.
+    let source = "module Main where\nimport Prelude\nimport Partial.Unsafe (unsafeCrashWith)\nmain :: Int\nmain = unsafeCrashWith \"boom\"\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("unreachable"),
+        "{output:?}"
+    );
+}
+
+#[test]
 fn runtime_storage_monomorphic_operands_use_the_same_array() {
     let source = r#"module Main where
 foreign import "psrs:runtime-storage#array_fill" filled :: Int -> Int -> Array Int

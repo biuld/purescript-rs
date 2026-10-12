@@ -158,3 +158,64 @@ Full ignored scoreboards, official reference-library execution, source audit
 and public package conformance were not rerun. Neither package lock nor D-04
 gate measurements change; full reference-library and delimited-control
 acceptance remain outstanding.
+
+## Official-source restoration and Partial crash contract (2026-10-12)
+
+The development package carried a target-only `Effect`, `runEffect`, `trap`,
+their `psrs:effect` foreign declarations and instances in `Prelude`. Official
+`purescript-prelude` owns none of them, and the compiler no longer implements
+the withdrawn `psrs:effect` protocol, so those declarations were both a source
+fidelity violation and dead. The package restores the official source contract
+first and lets the native Effect/ST design replace the withdrawn compiler
+protocol afterwards.
+
+- `lib/Prelude.purs`, `lib/Effect.purs` and `lib/Test/Assert.purs` are
+  byte-identical to their pinned upstream sources again. `Effect` returns to its
+  owning module; `Partial` now takes the checked non-returning storage trap for
+  `_crashWith` and keeps its public signature and exports.
+- `lib/WASI/*.purs` import `Effect (Effect)` because `Prelude` no longer supplies
+  that type.
+- The package commit is `407de2618ef2f5b43befc572bdc787d94287f1eb`, source
+  fingerprint `fnv1a64-v1:f29cc57fc1e691f4`. `stdlib.lock.json` is updated to
+  that revision and fingerprint; default locked consumption loads and passes.
+
+`Partial._crashWith` reaches `Partial.Unsafe.unsafeCrashWith` through the
+existing checked `psrs:runtime-storage#trap` operation. A focused program that
+reaches `unsafeCrashWith` compiles, links and guest-traps (`wasm unreachable`);
+the message has no Wasm trap payload and is not observable, which is the stated
+representation boundary rather than a fabricated result.
+
+With `_crashWith` resolved, the unchanged Variant entry advances past P8 library
+linking. Its next first blocker is P8 closure conversion:
+`aggregate and parameterized types are not supported by the first backend slice`
+(`variant-crashfix.json`). That is real remaining backend work, not an Effect
+or WIT failure, and no executable is produced for the reference entry yet.
+
+Eight driver unit tests had been failing only because their fixtures used the
+removed `Prelude.runEffect`/`Effect` API. They only resolve, typecheck or lower,
+so they are migrated to `import Effect (Effect)` with the computation as
+`main`. Two further fixtures that shadow the standard library were migrated for
+the same reason.
+
+Validation:
+
+- Driver unit-test target: 740 passed / 68 failed, against 731 / 77 for the
+  restoration candidate before the fixture migration. None of the eight added
+  failure names remain; the remaining failures are runtime Effect/WASI cases
+  blocked on native Effect execution or on the P8 closure-conversion slice.
+  Log: `driver-after-fixture-migration.log`.
+- Whole workspace with mandatory Wasmtime, default locked package:
+  `error: 4 targets failed` (CLI `link`, CLI `source_layout`, driver `--lib`,
+  driver `residual_constraints`) with 71 failed names, down from 80 for the
+  restoration candidate and with no added names. Log:
+  `workspace-after-lock-update.log`.
+- `cargo fmt --all --check`: passed. `cargo clippy --workspace --all-targets --
+  -D warnings`: passed. `npm test` in `psrs-stdlib`: 12 passed.
+- Default locked consumption (no `PSRS_STDLIB_ROOT`): the migrated tests and a
+  trivial program pass and report the new fingerprint.
+
+Native `Effect.pureE`, `Effect.bindE`, the loop/traversal foreigns and
+`Test.Assert.assertImpl` still have no target implementation and fail explicitly
+at P8 library linking. Restoring the official declarations is not their runtime
+implementation; native Effect/ST and full reference-library acceptance remain
+outstanding.

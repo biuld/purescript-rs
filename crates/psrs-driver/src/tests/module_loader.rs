@@ -119,14 +119,14 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
     }
     check_source(
         "Main.purs",
-        "module Main where\nimport Prelude\nimport WASI.Console\nimport WASI.Clock\nmain = let stamp = runEffect now in let action = runEffect (log \"ok\") in stamp\n",
+        "module Main where\nimport Prelude\nimport Effect (Effect)\nimport WASI.Console\nimport WASI.Clock\nmain :: Effect Int\nmain = do\n  _ <- now\n  log \"ok\"\n  pure 0\n",
     )
     .expect("the on-disk standard library should typecheck with a user module");
 }
 
 #[test]
 fn resolves_the_standard_library_closure_imported_by_a_wasi_program() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nimport WASI.Clock\nmain = let stamp = runEffect now in let action = runEffect (log \"ok\") in stamp\n";
+    let source = "module Main where\nimport Prelude\nimport Effect (Effect)\nimport WASI.Console\nimport WASI.Clock\nmain :: Effect Int\nmain = do\n  _ <- now\n  log \"ok\"\n  pure 0\n";
     let (sources, trusted_prefix) = crate::prelude::prepend(&[("Main.purs", source)])
         .expect("the standard library should load from disk");
     assert!(trusted_prefix > 0);
@@ -164,7 +164,7 @@ fn does_not_discover_a_user_module_shadowing_the_standard_library() {
     .unwrap();
     std::fs::write(
         &main,
-        "module Main where\nimport Prelude\nmain = runEffect (pure 1)\n",
+        "module Main where\nimport Prelude\nmain :: Int\nmain = 1\n",
     )
     .unwrap();
 
