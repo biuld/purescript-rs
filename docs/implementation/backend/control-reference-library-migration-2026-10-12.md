@@ -327,12 +327,18 @@ agreement rises from 38/49 to 39/50 (the wildcard case is measured and agrees
 again) and M5 stays 77/97; the whole workspace keeps the same four failing
 targets and 71 failed names with no added names.
 
-Two follow-ups remain in the evidence. Compiling `Control.Monad.Free` emits one
-`P8 closure conversion` warning at line 226 (`redundant case alternative is
-unreachable`) even though both `Return` and `Bind` are reachable and the
-program executes correctly; that is a coverage-analysis false positive exposed
-by the new closure, not a typechecking error. Run additionally needs `Effect.Aff`
-and `Effect.Aff.Class`; every `Run/*` module imports the `Run` top module, which
+Compiling `Control.Monad.Free` initially emitted one `P8 closure conversion`
+warning at line 226 (`redundant case alternative is unreachable`). The warning
+was type-correct but wrong in practice: `Free` stores `FreeView f Val Val`, so
+`Return`'s payload is the uninhabited `Val`, yet `fromView` builds `Return`
+values through `unsafeCoerce`. Coverage's `signature` treated a zero-constructor
+user type as a complete empty signature, so `Any` over it had no witness and the
+enclosing branch looked redundant. `signature` now leaves an uninhabited user
+type's shape unknown, like an abstract type, so the wildcard matrix handles it;
+the warning is gone and the program still returns `42`.
+
+Run remains the outstanding reference package. It needs `Effect.Aff` and
+`Effect.Aff.Class`; every `Run/*` module imports the `Run` top module, which
 imports `Effect.Aff`, so the package cannot even resolve without Aff. Aff's
 closure pulls `refs`, `parallel`, and `datetime` on top of the modules above, and
 `Effect.Aff` execution itself is gate-blocked on native Effect, so Run cannot be
@@ -343,11 +349,12 @@ Validation for the closure, the frontend fixes, and the local-signature fix:
 - Unchanged Free sources build and execute to `42` under Wasmtime.
 - Whole workspace with mandatory Wasmtime: the same four failing targets and 71
   failed names as before the changes, with no added names. Logs:
-  `workspace-after-fixity.log`, `workspace-after-localsig2.log`.
+  `workspace-after-fixity.log`, `workspace-after-localsig2.log`,
+  `workspace-after-coverage.log`.
 - L2/L3/L4-L5 annotation scoreboards ran. L2 resolution 72/72, L3 kind 39/48
   with `PartiallyAppliedSynonym` 12/12, M4 type agreement 39/50, M5 77/97, with
   147 measured and 11 blocked-before-typecheck cases (unchanged set).
 - `cargo fmt --all --check` and
   `cargo clippy --workspace --all-targets -- -D warnings`: passed. Regression
-  tests cover the local-signature desugar, the partial function arrow, and the
-  recursive local signature.
+  tests cover the local-signature desugar, the partial function arrow, the
+  recursive local signature, and the uninhabited-field coverage shape.

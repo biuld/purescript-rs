@@ -240,6 +240,14 @@ fn useful_array_any(
 fn signature(module: &Module, ty: TypeId) -> Option<Vec<Shape>> {
     let ty = crate::cc::layout::unquantified_type(module, ty);
     if let Some(type_id) = user_type_id(module, ty) {
+        // An uninhabited user type has no constructors, but unchecked coercions
+        // can still produce its values (the reference `Free` over `Val` builds
+        // `Return` values this way). Coverage must not treat it as a complete
+        // empty signature, so its shape is left unknown and the wildcard matrix
+        // handles it.
+        if crate::cc::layout::is_uninhabited_data_type(module, type_id) {
+            return None;
+        }
         return Some(
             module
                 .constructors
