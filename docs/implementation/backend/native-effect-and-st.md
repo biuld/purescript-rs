@@ -34,3 +34,84 @@ No runtime tests or differential cases were executed for this proposal. Record
 exact compiler/package identities, commands, results, and skips for subsequent
 evidence. Do not label a requirement Verified from this design text or a test
 that exercises the withdrawn implementation.
+
+## Representation prototype (2026-10-12)
+
+The first implementation step, "validate shared generic representation and typed
+requests", has a working prototype. It lives outside the package, as the
+implementation order requires, and is exercised by a compiler regression test
+so a future change cannot silently break the encoding.
+
+The prototype supplies a rank-N heterogeneous request functor and a free
+computation over it:
+
+```purescript
+type Methods next z =
+  { new   :: forall a. a -> (Cell a -> next) -> z
+  , read  :: forall a. Cell a -> (a -> next) -> z
+  , write :: forall a. Cell a -> a -> (Unit -> next) -> z
+  , abort :: forall a. a -> z
+  }
+
+newtype NativeF next = NativeF (forall z. Methods next z -> z)
+data Native f a = Return a | Suspend (f (Native f a))
+```
+
+`next` is the continuation result, so a request preserves the relationship
+between a cell's element type, the operand, and the continuation result without
+a GADT or an unsafe payload cast. `runNative` interprets one `Suspend` at a time
+and tail-calls the continuation, so interpretation runs in constant stack; cell
+storage uses the existing checked `arrayFill`/`arrayWrite`/`arrayIndex`
+primitives, and `abort` uses the checked storage trap.
+
+Evidence:
+
+- `tests::native_representation::a_rank_n_heterogeneous_storage_and_host_program_runs`
+  compiles the module set and an entry that allocates an `Int` cell and a
+  `String` cell, writes both in place, reads both, reads the WASI monotonic
+  clock through a `Host` request, and returns `42`. The program uses `do`
+  notation, so the `Functor`/`Bind`/`Apply`/`Applicative`/`Monad` instances are
+  exercised too.
+- The whole workspace keeps the same four failing targets and 71 failed names
+  with no added names (`workspace-after-native-proto.log`).
+
+### Host leaves
+
+A WIT import declared as `Effect X` cannot satisfy the ABI: `core_matches_result`
+compares the import's resolved result against its canonical result and does not
+unwrap `Effect`, so the checked `getStdin :: Effect InputStream` and its
+neighbours fail. A raw host leaf declared at its canonical result instead
+(`foreign import "wasi:clocks/monotonic-clock#now" clockNow :: Int`) validates
+and executes; the interpreter turns it into a `Host` request and performs the
+call. The prototype's `Host` family has one operation and the interpreter calls
+the raw leaf once per request.
+
+### Recorded blocker: result-role representationality
+
+The official `Effect` module declares `type role Effect representational`, and
+`ST.Global.toEffect` is `unsafeCoerce` under that contract, so the shared
+representation must infer a representational result role. The naive free monad
+`data Native f a = Return a | Suspend (f (Native f a))` does not: `a` sits inside
+`f`'s parameter, whose role is unknown at `Native`'s definition, so `a` is
+inferred **nominal**, and `type role Effect representational` over it is
+`RoleMismatch`.
+
+The direction is confirmed, not just hypothesised. Upstream `Free` erases its
+result type internally
+(`data Free f a = Free (FreeView f Val Val) (CatList (ExpF f))`), so `a` is
+phantom there; a `newtype Effect a = Effect (Free NativeF a)` with
+`type role Effect representational` type checks. The design's chosen
+`Run (native :: NativeF) a` is `Run (Free (VariantF r) a)`, so it inherits that
+representational result role. The work is therefore to express the storage and
+host requests over the `Free`/`Run` answer-indexed representation (whose
+`perform` carries the operation answer, not the continuation result), rather
+than over the naive continuation-passing free monad. That is the next design
+step; the public-module migration does not proceed on the nominal encoding, and
+the invalid role annotation is never forced.
+
+What the prototype does **not** do, and what the checklist still requires: there
+is no `ST` facade, region boundary, `ST.Global` conversion, safe mutable-array
+integration, or public-module migration, and no `Effect` module with the
+official role annotation or exports. Every checklist row remains Unverified
+except that NE-04's heterogeneous request typing now has prototype evidence for
+two element types.
