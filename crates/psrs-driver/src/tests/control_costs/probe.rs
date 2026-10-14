@@ -1,259 +1,227 @@
-//! Test-only probes inspect actual extent ancestry at allocation. They neither
-//! alter machine layouts nor expose a source intrinsic or runtime frame API.
-
-use psrs_backend::BackendInput;
-use psrs_backend::cc::{
-    Assignment, AssignmentKind as K, BinaryOp, Function, RefShape, ReprId, Representation, TagCase,
-    ValueDecl, ValueId, ValueShape,
+//! Observational guards instrument the final Wasm, after compiler verification.
+//! The deliberately trapping budget walk is not part of the control protocol.
+use psrs_backend::cc::ControlHelperRole as R;
+use psrs_backend::wasm::{Body, FuncType, Function, Op, TypeIndex};
+use psrs_backend::{
+    Stages,
+    types::{CompositeType, HeapType as MirHeap, ValueType},
 };
-use psrs_hir::SymbolId;
-use psrs_span::TextRange;
+use wasm_encoder::{HeapType, Instruction as I, RefType, ValType};
 
-pub(super) fn instrument(input: &mut BackendInput, limit: i32) -> usize {
-    let start = input
+pub(super) fn instrument(stages: &mut Stages, limit: i32) -> usize {
+    let check = stages
         .cc
-        .functions
+        .representations
+        .control_helpers
         .iter()
-        .find(|f| f.name == "control_start_boundary")
-        .unwrap();
-    let extent = start.result_type;
-    let ValueShape::Reference(reference) = extent else {
-        panic!("boundary reference")
-    };
-    let RefShape::Repr(boundary) = reference.heap else {
-        panic!("nominal boundary")
-    };
-    let Some(Representation::Variant { cases }) = input.cc.representations.representation(boundary)
-    else {
-        panic!("boundary variant")
-    };
-    assert_eq!(cases.len(), 2);
-    assert_eq!(cases[1].fields[1], extent);
-    let module = start.symbol.module;
-    let index = input
-        .cc
-        .functions
-        .iter()
-        .filter(|f| f.symbol.module == module)
-        .map(|f| f.symbol.index)
-        .max()
+        .find(|h| h.role() == R::Check)
         .unwrap()
-        + 1;
-    let symbol = SymbolId::new(module, index);
+        .function();
+    let helper = stages
+        .mir
+        .functions
+        .iter()
+        .find(|f| f.symbol == check)
+        .unwrap();
+    let parameter = helper
+        .values
+        .iter()
+        .find(|v| v.id == helper.parameters[0])
+        .unwrap()
+        .ty;
+    let ValueType::Ref(reference) = parameter else {
+        panic!("extent reference")
+    };
+    let MirHeap::Index(base) = reference.heap else {
+        panic!("extent type")
+    };
+    let cases = stages
+        .wasm
+        .type_defs
+        .iter()
+        .flat_map(|group| &group.0)
+        .enumerate()
+        .filter_map(|(index, ty)| {
+            if ty.supertype != Some(base) {
+                return None;
+            }
+            let CompositeType::Struct(fields) = &ty.composite else {
+                panic!("extent struct")
+            };
+            Some((fields.len(), index as u32))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let root = cases[&2];
+    let child = cases[&3];
+    let module = &mut stages.wasm;
+    let index = module.imports.len()
+        + module.functions.len()
+        + usize::from(module.entry.is_some())
+        + usize::from(module.realloc.is_some())
+        + module.helpers.len();
     let mut count = 0;
-    for function in &mut input.cc.functions {
+    for function in &mut module.functions {
+        let start = function.parameters.len() + function.locals.len();
+        // Nullable locals can hold the constructed non-null subtype. local.tee
+        // retains a nullable static type, so restore the original subtype after
+        // the observation before the production consumer reads it.
+        function
+            .locals
+            .extend([reference_type(root, true), reference_type(child, true)]);
         count += insert(
-            &mut function.assignments,
-            &mut function.values,
-            boundary,
-            extent,
-            symbol,
+            &mut function.body,
+            root,
+            child,
+            start as u32,
+            index as u32,
             limit,
         );
     }
-    input.cc.functions.push(checker(symbol, boundary, extent));
-    psrs_backend::cc::verify_module(&input.cc).expect("checked ancestry probes");
+    let type_index = TypeIndex(module.defined_type_count() + module.types.len() as u32);
+    let parameters = vec![reference_type(base.0, false), ValType::I32];
+    module.types.push(FuncType {
+        parameters: parameters.clone(),
+        results: vec![],
+    });
+    let span = module.span;
+    let body = vec![Op::Loop {
+        result: None,
+        span,
+        body: vec![
+            leaf(I::LocalGet(1)),
+            leaf(I::I32Const(0)),
+            leaf(I::I32LtS),
+            Op::If {
+                then_body: vec![leaf(I::Unreachable)],
+                else_body: vec![],
+                result: None,
+                span,
+            },
+            leaf(I::LocalGet(0)),
+            leaf(I::StructGet {
+                struct_type_index: base.0,
+                field_index: 0,
+            }),
+            leaf(I::I32Eqz),
+            Op::If {
+                then_body: vec![leaf(I::Return)],
+                else_body: vec![],
+                result: None,
+                span,
+            },
+            leaf(I::LocalGet(0)),
+            leaf(I::RefCastNonNull(HeapType::Concrete(child))),
+            leaf(I::StructGet {
+                struct_type_index: child,
+                field_index: 2,
+            }),
+            leaf(I::LocalSet(0)),
+            leaf(I::LocalGet(1)),
+            leaf(I::I32Const(1)),
+            leaf(I::I32Sub),
+            leaf(I::LocalSet(1)),
+            leaf(I::Br(0)),
+        ],
+    }];
+    module.helpers.push(Function {
+        symbol: psrs_hir::SymbolId::new(check.module, u32::MAX - 1),
+        name: "test_control_ancestry_probe".into(),
+        type_index,
+        parameters,
+        locals: vec![],
+        body,
+        span,
+    });
     count
 }
 
-fn insert(
-    body: &mut Vec<Assignment>,
-    values: &mut Vec<ValueDecl>,
-    boundary: ReprId,
-    extent: ValueShape,
-    checker: SymbolId,
-    limit: i32,
-) -> usize {
+fn reference_type(index: u32, nullable: bool) -> ValType {
+    ValType::Ref(RefType {
+        nullable,
+        heap_type: HeapType::Concrete(index),
+    })
+}
+fn leaf(instruction: I<'static>) -> Op {
+    Op::Leaf(instruction)
+}
+fn insert(body: &mut Body, root: u32, child: u32, local: u32, checker: u32, limit: i32) -> usize {
     let mut count = 0;
     let mut result = Vec::new();
-    for mut assignment in std::mem::take(body) {
-        match &mut assignment.kind {
-            K::If {
-                then_assignments,
-                else_assignments,
+    for mut op in std::mem::take(body) {
+        match &mut op {
+            Op::If {
+                then_body,
+                else_body,
                 ..
             } => {
-                count += insert(then_assignments, values, boundary, extent, checker, limit);
-                count += insert(else_assignments, values, boundary, extent, checker, limit);
+                count += insert(then_body, root, child, local, checker, limit);
+                count += insert(else_body, root, child, local, checker, limit);
             }
-            K::TagSwitch {
-                cases,
-                default_assignments,
-                ..
-            } => {
-                for case in cases {
-                    count += insert(
-                        &mut case.assignments,
-                        values,
-                        boundary,
-                        extent,
-                        checker,
-                        limit,
-                    );
-                }
-                count += insert(
-                    default_assignments,
-                    values,
-                    boundary,
-                    extent,
-                    checker,
-                    limit,
-                );
+            Op::Block { body, .. } | Op::Loop { body, .. } => {
+                count += insert(body, root, child, local, checker, limit)
             }
             _ => {}
         }
-        let probe = matches!(&assignment.kind, K::VariantNew { representation, .. } if *representation == boundary);
-        let value = assignment.destination;
-        let span = assignment.span;
-        result.push(assignment);
-        if probe {
+        let constructed = match &op {
+            Op::Leaf(I::StructNew(index)) if *index == root || *index == child => Some(*index),
+            _ => None,
+        };
+        result.push(op);
+        if let Some(index) = constructed {
             count += 1;
-            let next = values.iter().map(|v| v.id.0).max().unwrap() + 1;
-            let budget = ValueId(next);
-            let checked = ValueId(next + 1);
-            values.push(ValueDecl {
-                id: budget,
-                ty: ValueShape::Integer,
-            });
-            values.push(ValueDecl {
-                id: checked,
-                ty: extent,
-            });
-            result.push(Assignment {
-                destination: budget,
-                kind: K::Constant(limit),
-                span,
-            });
-            result.push(Assignment {
-                destination: checked,
-                kind: K::DirectCall {
-                    contract: None,
-                    function: checker,
-                    arguments: vec![value, budget],
-                },
-                span,
-            });
+            let slot = local + u32::from(index == child);
+            result.extend([
+                leaf(I::LocalTee(slot)),
+                leaf(I::LocalGet(slot)),
+                leaf(I::RefCastNonNull(HeapType::Concrete(index))),
+                leaf(I::I32Const(limit)),
+                leaf(I::Call(checker)),
+                leaf(I::RefCastNonNull(HeapType::Concrete(index))),
+            ]);
         }
     }
     *body = result;
     count
 }
 
-fn checker(symbol: SymbolId, boundary: ReprId, extent: ValueShape) -> Function {
-    let span = TextRange::new(0, 1);
-    let a = |id, kind| Assignment {
-        destination: ValueId(id),
-        kind,
-        span,
-    };
-    let values = [
-        extent,
-        ValueShape::Integer,
-        ValueShape::Integer,
-        ValueShape::Boolean,
-        ValueShape::Integer,
-        extent,
-        ValueShape::Integer,
-        ValueShape::Integer,
-        extent,
-        extent,
-        extent,
-        extent,
-        extent,
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(id, ty)| ValueDecl {
-        id: ValueId(id as u32),
-        ty,
-    })
-    .collect();
-    let child = vec![
-        a(
-            5,
-            K::VariantGet {
-                destination: ValueId(5),
-                representation: boundary,
-                case: 1,
-                field: 1,
-                value: ValueId(0),
-            },
-        ),
-        a(6, K::Constant(1)),
-        a(
-            7,
-            K::Primitive {
-                op: BinaryOp::IntSub,
-                left: ValueId(1),
-                right: ValueId(6),
-            },
-        ),
-        a(
-            8,
-            K::DirectCall {
-                contract: None,
-                function: symbol,
-                arguments: vec![ValueId(5), ValueId(7)],
-            },
-        ),
-    ];
-    Function {
-        symbol,
-        name: "test_control_ancestry_probe".into(),
-        parameters: vec![ValueId(0), ValueId(1)],
-        values,
-        assignments: vec![
-            a(2, K::Constant(0)),
-            a(
-                3,
-                K::Primitive {
-                    op: BinaryOp::IntGe,
-                    left: ValueId(1),
-                    right: ValueId(2),
-                },
-            ),
-            a(
-                12,
-                K::If {
-                    condition: ValueId(3),
-                    then_assignments: vec![
-                        a(
-                            4,
-                            K::VariantTag {
-                                destination: ValueId(4),
-                                representation: boundary,
-                                value: ValueId(0),
-                            },
-                        ),
-                        a(
-                            10,
-                            K::TagSwitch {
-                                value: ValueId(4),
-                                cases: vec![
-                                    TagCase {
-                                        tag: 0,
-                                        assignments: vec![],
-                                        value: ValueId(0),
-                                    },
-                                    TagCase {
-                                        tag: 1,
-                                        assignments: child,
-                                        value: ValueId(8),
-                                    },
-                                ],
-                                default_assignments: vec![a(9, K::Unreachable)],
-                                default_value: ValueId(9),
-                            },
-                        ),
-                    ],
-                    then_value: ValueId(10),
-                    else_assignments: vec![a(11, K::Unreachable)],
-                    else_value: ValueId(11),
-                },
-            ),
-        ],
-        result: ValueId(12),
-        result_type: extent,
-        span,
+/// Replace the program core module in the already assembled component. The
+/// observation adds only private locals/functions; imports/exports stay fixed.
+pub(super) fn component(stages: &Stages, core: &[u8]) -> Vec<u8> {
+    use wasm_encoder::Encode;
+    let source = &stages.artifact.wasm;
+    assert_eq!(&source[..8], b"\0asm\x0d\0\x01\0");
+    let mut result = source[..8].to_vec();
+    let mut offset = 8;
+    let mut replaced = 0;
+    while offset < source.len() {
+        let start = offset;
+        let id = source[offset];
+        offset += 1;
+        let mut length = 0usize;
+        let mut shift = 0;
+        loop {
+            let byte = source[offset];
+            offset += 1;
+            length |= usize::from(byte & 127) << shift;
+            if byte & 128 == 0 {
+                break;
+            }
+            shift += 7;
+        }
+        let end = offset + length;
+        if id == 1 {
+            replaced += 1;
+            result.push(id);
+            (core.len() as u32).encode(&mut result);
+            result.extend_from_slice(core);
+        } else {
+            result.extend_from_slice(&source[start..end]);
+        }
+        offset = end;
     }
+    assert_eq!(
+        replaced, 1,
+        "cost fixture must have one program core module"
+    );
+    result
 }

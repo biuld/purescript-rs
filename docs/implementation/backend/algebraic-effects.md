@@ -9,6 +9,8 @@ selects compiler-generated resumable frames as the generic handler/interruption
 mechanism.  
 **Date:** 2026-10-11.
 
+**Current continuation:** [Architecture review repairs, 2026-10-14](#architecture-review-repairs--2026-10-14).
+
 This checklist records the complete evidence required for implementation. Creating
 it does not resume the withdrawn State migration or select native Effect/ST
 representation. Compiler cleanup and runtime build-tool changes are separate
@@ -1496,3 +1498,214 @@ Formatting and local diff checks pass. Full workspace tests, workspace clippy
 and complete scoreboards were intentionally not rerun under the user's focused
 validation scope. Complete AE/AC statuses remain Unverified; no gate measurement
 is changed.
+
+## Execution-step provenance (2026-10-13)
+
+Starting point: compiler `6df8bfba`, with the dispatch/clause-selection draft
+already present and uncommitted. This continuation extends that draft in the
+current checkout. The independent package and compiler lock stay at `d6cf811`
+and `fnv1a64-v1:6eb134fa699297f4`.
+
+The scoped clause check previously quantified only over calls it found. Removing
+the entire call, or preserving the call while discarding its result, did not
+establish execution-step provenance. CC now follows each current-context scoped
+branch's actual result into the executor transition and back through the complete
+unary curry application. MIR follows real CFG exits and checks that each call
+dominates its consumer inside that scoped branch. The payload must be field zero
+of the current Return/Perform input. An operation's second argument is the
+predeclared raw resumption; the existing checkpoint verifier checks that factory's
+current queue and checkpoint captures. State and the root handler retain their
+identities. Ordinary CC availability and MIR SSA checks remain the owners of
+general definition/use validity.
+
+Bind/Resume transitions have corresponding shared operand relations. Bind must
+enter its own body, prepend its own callback and retain the current queue and
+execution extent. Resume must return its own saved answer, append the replayed
+queue before current pending work, and install the activation projected from that
+same checked CloneSequence result. Both preserve state, root handler and dispatch
+context. No representation, runtime instruction or library algorithm changes.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Required scoped application result | Paired `scoped_steps_require_the_clause_application_result`: Return/Perform, omitted call and discarded result | Focused Verified |
+| Current source answer/request | Paired `scoped_steps_consume_the_current_source_payload`: same-shaped state replaces the payload | Focused Verified |
+| Operation supplies raw continuation | Paired `operation_step_supplies_the_raw_resumption`: erased state replaces the continuation | Focused Verified |
+| Call executes on the scoped CFG path | `mir_scoped_step_cannot_use_a_clause_call_from_a_dead_block`: Return/Perform calls moved to unreachable blocks | Focused Verified |
+| Preserve interpreter environment | Paired `scoped_steps_preserve_state_and_root_handler`: Return/Perform environment replacements | Focused Verified |
+| Bind body/callback/queue identity | Paired `bind_requires_its_body_callback_and_queue`: three same-shaped replacements per IR | Focused Verified |
+| Resume answer/activation/queue identity | Paired `resume_requires_its_answer_replayed_extent_and_pending_queue`: four replacements per IR | Focused Verified |
+
+These 13 driver tests exercise 38 malformed-IR mutations. They accompany the
+existing source-to-target and reference-identity positives. This does not close
+all machine-step obligations: root handler application, queue callback consumption
+and complete normalization, owned execution/status updates and arbitrary extra
+observable work still need their complete proofs.
+
+The independent Node source inventory was rerun: 50 pinned packages / 305
+modules, decomposed into 245 identical, 34 modified and 26 target additions; no
+upstream modules are absent and no direct same-argument recursion is detected.
+This refresh does not approve the existing 34 adaptations. The library's
+`control-types.mjs` comparison passes all 17 positive/negative cases with official
+`purs`, explicitly using a type-only opaque control shim rather than a runtime
+implementation. Pinned upstream JS executes RunState, RunChoose and RunHandlers
+from 279 unchanged upstream source modules; each fixture's full value/order check
+returns 42. Evidence: `/private/tmp/psrs-control-completion/{audit,types,reference-js}/`.
+
+Foreign-boundary audit: canonical `own`/`borrow` descriptors live in the WIT/ABI
+owner (`abi/handles.rs`); physical handles lower to integers. The existing
+`mir/wit/handles.rs` checker handles explicit local drops/transfers, but does not
+publish resource lifetime evidence to guest closure/frame captures. Rejecting
+borrowed import results alone does not establish safe captured owned resources,
+alias validity or explicit unsupported-capture rejection. A shared capture
+contract must retain this evidence before ABI erasure. Caught host traps also
+have no completed instance cleanup/reentry protocol: the generated lifetime
+helpers handle normal guest completion, not host recovery. Both AC-04 and the
+recovery acceptance obligation remain Unverified. Neither an integer heuristic
+nor silently discarding an instance supplies the missing contract.
+
+Complete AE/AC statuses remain Unverified. General allocation/cost obligations,
+complete pinned API/differential acceptance and the final D-04 gate remeasurement
+remain required; native Effect/ST still follows that acceptance.
+
+### Validation of this continuation
+
+| Command / scope | Observed result |
+| --- | --- |
+| Final `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control` | 157 passed, no skips; includes all 13 new tests and existing value-sensitive control/cost execution |
+| Eleven mandatory control integration targets | 81 passed; the integrated run also executes them after the Bind/Resume slice |
+| Final locked-content public package batch | 14 accepted, including double-resume/cancel traps and the three Run fixtures |
+| Final `control-types.mjs` against official `purs` | 17 accepted comparisons, type-only control shim; no runtime placeholder |
+| Pinned upstream JS versus Wasmtime RunState/RunChoose/RunHandlers | All three execute their checks and return 42 on both targets |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace --no-fail-fast` | Four baseline failing test targets with the same 71 failed names as `workspace-after-variant.log`; no names added or recovered. Driver library: 780 passed / 68 failed at the integrated snapshot, before the final two environment-identity tests/guards |
+| Backend/driver doctests | The integrated run also reported missing dependency artifacts in two doctest targets during concurrent recompilation; a subsequent standalone `cargo test -p psrs-backend -p psrs-driver --doc` passes |
+| `cargo clippy --workspace --all-targets` | Completed; only the existing `psrs-kind` `let_and_return` warning |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Fails on that existing warning; not a clean strict result |
+| Formatting and local diff checks | Passed |
+
+The full workspace run tests the integrated Bind/Resume and required scoped
+application slice. The final state/root-handler guards and two matching tests
+were subsequently validated by the final 157-test control run and rebuilt-CLI
+public/type conformance batches. The entire workspace was not rerun after those
+last guards. Failure-name equivalence does not classify every baseline cause or
+make the checkout green. Ignored scoreboards and the full upstream differential
+target were not rerun, and no measured D-04 gate number or completion status was
+changed.
+
+Public Run compilation initially timed out at 180 seconds while broad tests ran;
+those failed attempts remain under `public/`. The rebuilt-CLI batch under
+`public-final/` uses 600 seconds per invocation and requires actual Wasmtime.
+Compilation completes in 113.282 / 146.639 / 188.610 seconds respectively for
+RunState / RunChoose / RunHandlers; each execution exits 42. This observation
+does not establish a general compilation-time bound or a root cause for the
+timeouts. Reports retain compiler, package, input and artifact identities.
+
+Final evidence: `/private/tmp/psrs-control-completion/{checkout.json,audit,types-final,public-final,reference-js,reference-differential.json}`;
+workspace/focused/clippy logs and the failure-name comparison use the
+`/private/tmp/psrs-control-completion-` prefix.
+
+
+## Review repairs — 2026-10-13
+
+Review exposed two accepted malformed-IR cases and one rejected equivalent form:
+CC could discard an outer Return dispatch result, MIR could construct a nominal
+Cons with the Empty tag, and an equivalent result join failed clause provenance.
+The repairs retain the existing machine model and use shared result identity,
+CFG region analysis and planned nominal layout evidence.
+
+| Requirement | Current evidence | Status |
+| --- | --- | --- |
+| Actual CC transition results reach normal exits | `cc_cannot_discard_outer_return_result` replaces the result of each of the six computation alternatives; all are rejected, including by `compile_cc` | Focused Verified |
+| Actual MIR return consumes the recursive transition result | `mir_executor_call_must_return_its_actual_result` accepts the returned call and rejects the same call followed by a return of state | Focused Verified |
+| Equivalent result joins preserve provenance | `cc_equivalent_scoped_result_join` and `cc_equivalent_switch_result_join` pass CC, MIR and artifact construction; the If fixture actually executes with Wasmtime and returns 43 | Focused Verified |
+| Every normal join alternative must forward the result | `cc_result_join_cannot_hide_a_discarded_alternative` rejects a join with a substituted state alternative | Focused Verified |
+| Planned nominal constructor tags agree with their physical case | `mir_wrong_machine_constructor_tag` rejects Cons with Empty's tag; four backend tests cover ordinary variants, direct/copy tags, equal and unequal constant joins, direct base construction and mutable tags | Focused Verified |
+
+CC checks returned expression alternatives, rather than arbitrary operands or
+mere presence of dispatches. MIR clause checks inspect actual terminators; normal
+join inputs and execution dominance are resolved within the current step, ending
+at the next executor loop header. Nominal tag checking belongs to the general
+MIR verifier and applies to every reachable planned variant representation,
+including ordinary data types. Standalone structural MIR without a planned
+nominal layout has no source case witness to validate.
+
+| Validation | Observed result |
+| --- | --- |
+| `cargo test -p psrs-backend --lib` | 444 passed |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control -- --nocapture` | 163 passed, no skips |
+| Eleven control integration targets, with `PSRS_REQUIRE_WASMTIME=1` | 81 passed, no skips |
+| `cargo clippy -p psrs-backend -p psrs-driver --all-targets` | Completed; only the existing `psrs-kind/src/check/synonyms.rs:174` warning |
+| The same Clippy scope with `-- -D warnings` | Blocked by that existing `let_and_return` warning |
+| `cargo fmt --all --check` and `git diff --check` | Passed |
+
+Evidence: `/private/tmp/psrs-control-review/fix-{backend-final,control-final,integration,clippy,clippy-strict}.log`.
+The previous full-workspace run is historical. This focused repair did not rerun
+workspace tests, workspace Clippy, scoreboards, the full upstream differential
+or the public package conformance batch. D-04 measurements and completion
+statuses were not changed. Complete root/queue/owned execution semantics,
+additional observable work, foreign capture and caught-host-trap recovery remain
+open; closing these review findings does not establish complete AE/AC acceptance.
+
+## Root/queue and owned verification review — 2026-10-14
+
+The current uncommitted implementation adds shared root/queue transition
+relations (`control/execution/`), ordered private-owner relations
+(`control/owned.rs`) and paired CC/MIR adapters. This supersedes the earlier
+statement that all root/queue/owned execution checks were still missing.
+
+| Obligation | Current implementation / evidence | Coverage |
+| --- | --- | --- |
+| Root handler state/request/raw arguments, one result pair, source queue abandonment and terminal state/answer | Paired `root_and_queue_steps_reject_same_shaped_substitutions`; `root_state_and_pending_callbacks_execute_in_order` executes with required Wasmtime, exit 43 | Focused Verified |
+| Cons operands, all Append-left normalization actions and Finish restoration | The same paired mutation tests cover 27 mutations each, including removed root/Cons actions and extra calls | Focused Verified |
+| Pending/Running/load/clear/application/Consumed/transition order | Paired `owned_execution_requires_the_complete_transfer`, 15 mutations each; paired Pending equality positives | Focused Verified |
+| Start/Once current private contents and cancellation order | CC publication/cancellation negatives pass; two intended MIR tests panic before mutation because optimized helper functions are absent | Partial; MIR rejection evidence incomplete |
+| Check/Close lifecycle body semantics | Replacing either body with identity is accepted by CC and MIR | Unverified; review R1 |
+| Absence of additional observable operations | Extra calls/array stores are checked on normal paths; extra MIR Store and TrapIf are accepted, and read-only calls do not prove total behavior | Unverified; review R2 |
+
+The [architecture review](delimited-control-architecture-review-2026-10-14.md)
+records exact owners, reproductions and required repairs. The mechanism design
+now states lifecycle-body and complete effect-accounting obligations explicitly;
+these are not claims of implemented coverage. Foreign resource capture,
+caught-host-trap cleanup/reentry and complete reference API acceptance remain
+open. All complete AE/AC statuses above remain Unverified.
+
+Fresh evidence: backend library **444 passed**; control driver library **173
+passed, 2 failed**; all eleven control integration targets **81 passed**, with
+Wasmtime required and no skips. Two temporary probes reproduce accepted malformed
+IR and were removed from the checkout. Logs/source:
+`/private/tmp/psrs-control-architecture-review-2026-10-14/`.
+Workspace tests/Clippy, scoreboards, the full upstream differential and package
+conformance were not rerun; prior results remain historical. This review changes
+documentation only and does not alter D-04 measurements or completion statuses.
+
+
+## Architecture review repairs — 2026-10-14
+
+R1–R3 from the [review](delimited-control-architecture-review-2026-10-14.md)
+are repaired in the dirty checkout. The earlier review table and its 173/2
+measurement are historical, not the current outcome. Complete AE/AC statuses
+remain Unverified; these rows record focused verification only.
+
+| Obligation | Permanent evidence | Coverage |
+| --- | --- | --- |
+| Check/Close bodies implement their own status and ancestry rules | `control_lifecycle_bodies` CC/MIR identity, status, guard, close-write and ancestry mutations; existing mandatory lifetime/replay runtime tests | Focused Verified |
+| Account for explicit operations across full Executor paths | `control_queue_steps::mir::effects` writes/TrapIf at normal return, default, preheader and Start; unused cast; failed Pending guard cannot write Running before trap | Focused Verified |
+| Extra CC calls and payload recovery cannot hide before dispatch or publication | `control_observable_paths` prefix/default/publication checks, unused recovery and no-write recursive call | Focused Verified |
+| Preserve equivalent ordinary joins | `control_result_provenance::cc_equivalent_switch_result_join` plus existing If and MIR join positives | Focused Verified |
+| Retained factory publication/cancellation negatives reach their assertions | Both former MIR fixture failures use `mir::lower_module` before generic inlining; corresponding CC cases remain | Focused Verified |
+| Recheck current physical private contents after inlining | `control_inlined_publication`: Start/Once status 0 writes pass, status 2 writes fail; existing exclusive-root/copy positives | Focused Verified |
+| Ancestry/cost observations do not weaken the machine verifier | Post-pipeline Wasm instrumentation, component validation, depth-sensitive negative and 1,000/10,000/100,000 request/GC observations | Focused Verified |
+
+The ordered event owner is `control/events.rs`; CC/MIR adapters retain actual
+casts, selected/rejected guards, effects and exits. The shared lifecycle relation
+owns Check/Close behavior, and source witnesses identify inlined Start/Once
+publication windows. Total-function summaries replace no-write exemptions and
+exclude recursive call SCCs, fallible operations and MIR CFG cycles. Checked
+source callback typing and ordinary SSA/layout legality remain explicit trust
+boundaries. Complete Clone/Rebuild/context step equivalence, foreign capture,
+caught-host-trap recovery and full reference-library acceptance remain open.
+
+Current focused evidence: **185 control driver tests passed**, all with required
+Wasmtime, and **81 control integration tests passed**, with no skips. Backend
+library tests pass **444**. The final workspace and lint results, their historical
+failure comparison and exact logs are recorded in the current handoff.
+Evidence root: `/private/tmp/psrs-control-repairs-2026-10-14/`.

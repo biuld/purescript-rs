@@ -230,32 +230,69 @@ fn block_distances(by_id: &HashMap<BlockId, &BasicBlock>, entry: BlockId) -> Has
 }
 
 /// Block dominators shared by SSA and lifecycle verification.
+///
+/// Dominance is only defined along paths from the entry. Blocks with no such
+/// path are excluded from the result so that an unreachable predecessor cannot
+/// shrink a reachable block's dominator set to nothing.
 pub(crate) fn dominators(function: &Function) -> HashMap<BlockId, HashSet<BlockId>> {
-    let entry = function.entry;
+    dominators_from(function, function.entry, None)
+}
+
+/// Reachability within a semantic region. `stop` belongs to the next region.
+pub(crate) fn reachable_from(
+    function: &Function,
+    entry: BlockId,
+    stop: Option<BlockId>,
+) -> HashSet<BlockId> {
     let blocks = function
         .blocks
         .iter()
         .map(|block| (block.id, block))
         .collect::<HashMap<_, _>>();
-    let all = blocks.keys().copied().collect::<HashSet<_>>();
-    let mut predecessors = blocks
-        .keys()
+    let mut reachable = HashSet::new();
+    let mut pending = vec![entry];
+    while let Some(id) = pending.pop() {
+        if Some(id) == stop || !reachable.insert(id) {
+            continue;
+        }
+        if let Some(terminator) = blocks.get(&id).and_then(|block| block.terminator.as_ref()) {
+            pending.extend(successors(terminator));
+        }
+    }
+    reachable
+}
+
+/// Dominance in the same CFG region used to resolve returned join values.
+pub(crate) fn dominators_from(
+    function: &Function,
+    entry: BlockId,
+    stop: Option<BlockId>,
+) -> HashMap<BlockId, HashSet<BlockId>> {
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
+    let reachable = reachable_from(function, entry, stop);
+    let all = reachable.iter().copied().collect::<HashSet<_>>();
+    let mut predecessors = reachable
+        .iter()
         .copied()
         .map(|id| (id, HashSet::new()))
         .collect::<HashMap<BlockId, HashSet<BlockId>>>();
-    for block in blocks.values() {
-        let Some(terminator) = &block.terminator else {
+    for id in &reachable {
+        let Some(terminator) = blocks.get(id).and_then(|block| block.terminator.as_ref()) else {
             continue;
         };
         for successor in successors(terminator) {
             if let Some(preds) = predecessors.get_mut(&successor) {
-                preds.insert(block.id);
+                preds.insert(*id);
             }
         }
     }
 
-    let mut dominators = blocks
-        .keys()
+    let mut dominators = reachable
+        .iter()
         .copied()
         .map(|id| {
             let initial = if id == entry {
@@ -268,7 +305,7 @@ pub(crate) fn dominators(function: &Function) -> HashMap<BlockId, HashSet<BlockI
         .collect::<HashMap<_, _>>();
     loop {
         let mut changed = false;
-        for id in blocks.keys().copied().filter(|id| *id != entry) {
+        for id in reachable.iter().copied().filter(|id| *id != entry) {
             let mut next = all.clone();
             if let Some(preds) = predecessors.get(&id) {
                 if preds.is_empty() {

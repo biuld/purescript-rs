@@ -228,6 +228,9 @@ pub struct RepresentationTable {
     /// Semantic helper bindings are fixed before any function body is lowered.
     pub control_helpers: Vec<super::ControlHelperContract>,
     pub control_resumption: Option<super::ControlResumptionContract>,
+    /// The closed-run pair is planned before payload erasure; consumers must
+    /// not reconstruct its nominal identity from record labels or field count.
+    pub control_result_pair: Option<ReprId>,
     /// Source control contracts are predeclared by layout, before lowering
     /// emits any factory or executor bodies.
     pub control_contracts: Vec<super::ControlContract>,

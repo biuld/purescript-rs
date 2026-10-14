@@ -1,7 +1,7 @@
 //! Target completion construction and finish copying after physical lowering.
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
-use crate::control_provenance::{FinishProjection, context_finish_relation};
+use crate::control::provenance::{FinishProjection, context_finish_relation};
 use crate::mir::value_identity::{definitions, loop_header, loop_parameters, reference_origin};
 use crate::mir::{Function, Instruction as I, Module, Terminator as T};
 use crate::types::DefinedTypeId;

@@ -47,6 +47,23 @@ impl PlannedLayout {
             .ok_or(LayoutError::UnknownField)
     }
 
+    /// Nominal case identity and its immutable physical tag initializer.
+    pub(crate) fn variant_tags(&self) -> impl Iterator<Item = (DefinedTypeId, i32)> + '_ {
+        self.variant_indices
+            .iter()
+            .map(|((_, tag), index)| (*index, *tag as i32))
+    }
+
+    pub(crate) fn variant_bases(&self) -> impl Iterator<Item = DefinedTypeId> + '_ {
+        self.repr_indices.iter().filter_map(|(repr, index)| {
+            matches!(
+                self.representation_table().representation(*repr),
+                Some(crate::cc::Representation::Variant { .. })
+            )
+            .then_some(*index)
+        })
+    }
+
     /// The stored field shapes of a variant case, before the tag field.
     pub(crate) fn variant_field(
         &self,

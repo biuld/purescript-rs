@@ -15,7 +15,9 @@ mod captures;
 mod function;
 mod instruction;
 mod subtype;
+pub(in crate::mir) use subtype::heap_subtype;
 mod util;
+mod variants;
 
 #[cfg(test)]
 mod tests;
@@ -34,6 +36,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
     super::control::verify(module, &mut errors);
     verify_defined_types(module, &mut errors);
+    variants::verify(module, &mut errors);
     let mut signatures = module
         .functions
         .iter()

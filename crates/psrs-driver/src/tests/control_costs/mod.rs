@@ -8,12 +8,23 @@ use std::process::Command;
 fn run(name: &str, template: &str, steps: i32, depth: i32, expected: i32) -> Option<Vec<u64>> {
     super::wasmtime_available()?;
     let source = template.replace("STEPS", &steps.to_string());
-    let mut input = crate::lower_main_to_cc(&source).expect("cost source compiles");
+    let mut stages =
+        crate::compile_main_stages(&source).expect("cost source compiles and verifies");
     assert!(
-        probe::instrument(&mut input, depth) > 0,
+        probe::instrument(&mut stages, depth) > 0,
         "no extent allocations inspected"
     );
-    let artifact = psrs_backend::compile_cc(input).expect("instrumented target compiles");
+    let core =
+        psrs_backend::wasm::encode_module(&stages.wasm).expect("instrumented target encodes");
+    let bytes = probe::component(&stages, &core);
+    wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
+        .validate_all(&bytes)
+        .expect("instrumented Wasm validates");
+    let artifact = psrs_backend::Artifact {
+        wasm: bytes,
+        wat: String::new(),
+        warnings: vec![],
+    };
     let prefix = std::env::temp_dir().join(format!("psrs-control-cost-{name}-{steps}-{depth}"));
     let wasm = prefix.with_extension("wasm");
     std::fs::write(prefix.with_extension("purs"), source).unwrap();
@@ -105,11 +116,29 @@ fn control_ancestry_probe_observes_independent_non_tail_extents() {
 }
 
 #[test]
-fn control_cost_pipeline_rejects_a_malformed_instrumented_input() {
+fn control_cost_pipeline_rejects_a_malformed_compiler_input() {
     let mut input = crate::lower_main_to_cc(&sources::DEEP.replace("STEPS", "1")).unwrap();
-    probe::instrument(&mut input, 2);
-    let checker = input.cc.functions.last_mut().unwrap();
-    checker.values[0].ty = psrs_backend::cc::ValueShape::Integer;
+    let symbol = input
+        .cc
+        .representations
+        .control_helpers
+        .iter()
+        .find(|h| h.role() == psrs_backend::cc::ControlHelperRole::Executor)
+        .unwrap()
+        .function();
+    let function = input
+        .cc
+        .functions
+        .iter_mut()
+        .find(|f| f.symbol == symbol)
+        .unwrap();
+    let parameter = function.parameters[2];
+    function
+        .values
+        .iter_mut()
+        .find(|v| v.id == parameter)
+        .unwrap()
+        .ty = psrs_backend::cc::ValueShape::Integer;
     let errors = psrs_backend::compile_cc(input).expect_err("CC must be rechecked before emission");
     assert!(
         errors.iter().any(|error| error.pass == "P8 CC verification"

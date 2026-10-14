@@ -3,7 +3,7 @@ use crate::BackendError;
 use crate::cc::{
     Assignment, AssignmentKind as A, ControlHelperRole as R, Function, RepresentationTable, ValueId,
 };
-use crate::control_provenance::{
+use crate::control::provenance::{
     CaptureProjection, checkpoint_capture_relation, dispatch_checkpoint_relation,
 };
 use std::collections::HashMap;

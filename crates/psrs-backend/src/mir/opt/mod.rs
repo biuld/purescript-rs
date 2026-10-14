@@ -2,7 +2,7 @@
 
 mod cfg;
 pub(in crate::mir) mod constants;
-pub(in crate::mir) mod effects;
+use super::effects;
 mod imports;
 mod inline;
 mod values;

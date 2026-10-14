@@ -214,7 +214,7 @@ impl FunctionLowerer<'_> {
             Intrinsic::ControlPerform => 1,
             Intrinsic::ControlBind => 2,
             Intrinsic::ControlHandle => 4,
-            Intrinsic::ControlResume => 6,
+            Intrinsic::ControlResume => 5,
             _ => return Err(control_error(expression.span, "not a control primitive")),
         };
         let destination = self.fresh(ty);

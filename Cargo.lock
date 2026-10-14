@@ -392,6 +392,8 @@ dependencies = [
  "psrs-typecheck",
  "serde",
  "serde_json",
+ "wasm-encoder",
+ "wasmparser",
 ]
 
 [[package]]

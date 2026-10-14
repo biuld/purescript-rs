@@ -41,8 +41,8 @@ impl Machine<'_> {
         sequence: ValueId,
         body: &mut Vec<Assignment>,
     ) -> ValueId {
-        let owner = self.field(computation, self.layout.computation, 6, 0, body);
-        let value = self.field(computation, self.layout.computation, 6, 1, body);
+        let owner = self.field(computation, self.layout.computation, 5, 0, body);
+        let value = self.field(computation, self.layout.computation, 5, 1, body);
         let callback = self.field(owner, self.layout.owner, 0, 0, body);
         let status = self.field(owner, self.layout.owner, 0, 1, body);
         self.guard_pending(status, body);

@@ -3,7 +3,7 @@ mod bindings;
 mod boundary;
 pub mod capability;
 pub mod cc;
-mod control_provenance;
+mod control;
 mod linking;
 pub mod mir;
 mod pipeline;

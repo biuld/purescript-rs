@@ -1,7 +1,9 @@
 //! Check source Handle entry over physical fields and executor loop transitions.
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
-use crate::control_provenance::{FinishProjection, context_clause_relation, context_tail_relation};
+use crate::control::provenance::{
+    FinishProjection, context_clause_relation, context_tail_relation,
+};
 use crate::mir::value_identity::{
     definitions, fresh_iteration_allocation, loop_header, loop_parameters, reference_origin,
 };

@@ -1,4 +1,4 @@
-//! Conservative local call summaries; imported and dynamic calls are unproven.
+//! Total local call summaries. Recursive cycles, reads and traps are unproven.
 use crate::cc::{AssignmentKind as A, Function};
 use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
@@ -31,25 +31,21 @@ pub(super) fn functions(functions: &HashMap<SymbolId, &Function>) -> HashSet<Sym
                     A::DirectCall { function, .. } => {
                         calls.insert(*function);
                     }
-                    // String literals allocate guest arrays and are excluded.
+                    A::Primitive {
+                        op: crate::cc::BinaryOp::IntQuot | crate::cc::BinaryOp::IntRem,
+                        ..
+                    } => {
+                        safe = false;
+                        break;
+                    }
                     A::Constant(_)
                     | A::NumberConstant(_)
                     | A::Primitive { .. }
                     | A::Unary { .. }
-                    | A::RepresentationCast { .. }
                     | A::RepresentationTest { .. }
-                    | A::VariantGet { .. }
-                    | A::VariantTag { .. }
-                    | A::ProductGet { .. }
-                    | A::ArrayGet { .. }
-                    | A::ArrayLen { .. }
-                    | A::ClosureGetCapture { .. }
                     | A::TagSwitch { .. }
                     | A::If { .. }
-                    | A::Unreachable
                     | A::ControlEvidence { .. } => {}
-                    A::AggregateConvert { conversion, .. }
-                        if crate::cc::value_identity::transparent(&conversion.plan) => {}
                     _ => {
                         safe = false;
                         break;
@@ -61,15 +57,16 @@ pub(super) fn functions(functions: &HashMap<SymbolId, &Function>) -> HashSet<Sym
             dependencies.insert(*symbol, calls);
         }
     }
-    let mut safe = dependencies.keys().copied().collect::<HashSet<_>>();
+    // Least fixed point excludes recursion: no-write recursive SCCs may diverge.
+    let mut safe = HashSet::new();
     loop {
-        let previous = safe.clone();
-        safe.retain(|symbol| {
-            dependencies[symbol]
-                .iter()
-                .all(|callee| previous.contains(callee))
-        });
-        if safe == previous {
+        let previous = safe.len();
+        for (symbol, calls) in &dependencies {
+            if calls.iter().all(|callee| safe.contains(callee)) {
+                safe.insert(*symbol);
+            }
+        }
+        if safe.len() == previous {
             return safe;
         }
     }

@@ -69,7 +69,6 @@ pub(in crate::cc) fn append(
             vec![frame, callable],
             vec![erased, queue, extent],
             vec![callable, callable, frame],
-            vec![], // Retired v1 Reenter tag; the executor rejects it.
             vec![reference(RefShape::Repr(owner)), erased],
         ],
     );
@@ -134,6 +133,7 @@ pub(in crate::cc) fn append(
         table.set_product_labels(pair, labels);
         pair
     });
+    table.control_result_pair = Some(pair);
     let executor = table.add_signature(Signature {
         parameters: vec![
             erased,

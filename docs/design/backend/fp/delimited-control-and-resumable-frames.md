@@ -23,11 +23,13 @@ acceptance checklist; full verifier and foreign-boundary obligations remain open
 
 ## Scope
 
-This document owns the generic control surface, its identity, the selective
-CPS/defunctionalization lowering, the frame representation and trampoline (the
-executor), the executor's boundary with the runtime, deep/shallow encoding, one-shot
-status, continuation lifetime and GC roots, foreign-call capture boundaries, and the
-comparison with native stack switching.
+This document owns the generic control surface, its identity, the design-space
+selection of a defunctionalized-frame lowering, the handler interface, the
+deep/shallow and one-shot API distinctions, continuation lifetime and GC roots,
+foreign-call capture boundaries, the comparison with native stack switching, and
+the migration path. The concrete machine that selection produces — its node
+inventory, per-layer representation, lowering and flat driver — is specified in
+[the control machine](control-machine.md).
 
 It does not own operation signatures, handlers, or rows — those are the
 [library-owned effects](algebraic-effects-and-handlers.md) this mechanism runs — nor
@@ -253,9 +255,13 @@ callback between the check and update. This is atomic with respect to re-entranc
 under the pinned single-threaded guest profile; it is not a cross-thread atomic
 protocol. Enabling shared guest execution requires a separate ownership design.
 
-The callback is stored in a private mutable reference slot and removed on
-consumption or cancellation. A retained spent owner does not retain that
-callback's captures. The executor's local reference roots a running callback.
+The callback is stored in a private mutable reference slot. After acquiring the
+owner, the executor loads the callback into a local GC root and clears the owner
+slot before invoking it; normal return then marks the owner Consumed.
+Cancellation also clears the slot. A retained running or spent owner therefore
+does not retain that callback through its slot. The executor's local reference
+roots a running callback. If invocation traps, the cleared owner remains Running;
+caught-trap recovery needs the separate cleanup contract and is not implemented.
 Existing unrestricted PureScript arrows remain multi-shot, and no optimization
 may silently replace them with an owner.
 
@@ -379,6 +385,10 @@ this case. The selected `handle` uses typed source and target contexts; `run`
 retains the closed state-fold convenience. Concrete state and open-union policy
 belong in the library, not compiler selectors.
 
+The concrete machine this selection produces — its node inventory, per-layer
+representation, lowering and flat driver — is specified in
+[the control machine](control-machine.md).
+
 #### Selective conversion
 
 Selectivity applies to checked control operations and their continuation/context
@@ -395,27 +405,6 @@ preserve strict argument evaluation, inert construction and observable execution
 separately. They may remove unused inert data, but may not erase, reorder or
 duplicate interpretation callbacks as though they were pure constructions.
 
-#### Frame construction
-
-The machine uses inert `Return`, `Perform`, `Bind`, raw `Resume`,
-`Handle(returnClause, operationClause, body)` and `OwnedResume` nodes. Pending
-continuations use immutable `Empty`, `Cons` and `Append` sequences. Raw resume
-checks checkpoint liveness, runs the saved sequence before its consumer queue,
-and does not automatically reinstall source dispatch. Capture excludes caller
-work. Abandonment clears the source queue from the driver; only explicit resume
-may run it. Persistent queues support replay without cloning user mutable data.
-
-Explicit heap contexts distinguish source normalization from target execution.
-A clause's target answer runs under enclosing dispatch with an extent-finish
-marker. The [scope contract](control-elimination-and-handler-scopes.md#machine-phases-and-scope)
-specifies context identities, capture provenance and finish boundaries.
-
-CC layout predeclares computation/context layouts and all executor/callback
-SignatureIds. Lowering synthesizes bodies using these declarations and cannot
-mutate the representation table. Checked source/target contract identities remain
-available for verification after payload erasure. The previous open-union
-`Handle`/`Reenter` executor is v1 implementation evidence, not this normative shape.
-
 #### Open elimination and residual forwarding
 
 The compiler receives opaque source requests and invokes the supplied operation
@@ -428,32 +417,6 @@ Forwarding suspends target execution. Capturing and replaying that target contex
 must preserve nested source checkpoint provenance and instantiate lifecycle
 frames per replay, as required by the scope contract. Shared guest context
 transitions avoid native recursion per handler or forwarded request.
-
-#### The trampoline
-
-A **trampoline** is the loop that runs the machine:
-
-```text
-run(state):
-    loop:
-        step = state.current
-        match step:
-            Return(v)          -> return v
-            Eval(frame)        -> state.current = frame.step(state)
-            Suspend(payload, k) -> state = call_handler(payload, k)
-            Resume(k, v)       -> state.current = k.install(v)
-```
-
-This is a schematic driver, not the exact constructor inventory. The implemented
-CC machine uses `Return`, `Perform`, `Bind`, `Handle`, `Resume` and `OwnedResume`,
-with explicit queues and source/target contexts.
-
-Because the loop drives control steps, the native Wasm stack does not grow with
-the depth of interpreted binds or with long machine request sequences. Ordinary
-recursive user callbacks are not converted into frames by this monadic lowering;
-their stack behavior follows ordinary call and tail-call lowering. Using
-`return_call`/`return_call_ref` for the tail positions of the emitted steps keeps
-the constant-stack property even where the machine calls into ordinary code.
 
 #### Deep and shallow handlers
 
@@ -528,49 +491,6 @@ The current explicit monadic lowering captures guest queue/context data, not
 native host frames. This does not discharge captured-resource lifetime checks or
 caught-host-trap cleanup. Those remain required acceptance obligations; no
 complete foreign-boundary verifier or recovery protocol is claimed here.
-
-### The executor and the runtime boundary
-
-The eliminator's driver — the trampoline of [The trampoline](#the-trampoline) — is the
-**executor**: the component that interprets `Control` data through typed contexts
-and dispatch clauses; closed `run` also threads explicit handler state. Where it lives is a design decision with a strict boundary.
-
-- **The executor is guest code.** It is a compiler-generated loop over the frame
-  representation, or a library function over a compiler-provided frame view. It runs
-  in the compiled program because it must call the guest handler and guest
-  continuations; a host function cannot call back into arbitrary guest closures
-  without an explicit boundary.
-- **The host runtime does not interpret frames.** `psrs-runtime` provides the GC heap
-  (where frames live), the leaf primitives a request may call (storage, host services,
-  trap), and linking. It does not inspect the frame layout, index frames, or own a
-  continuation. Nothing about the software representation crosses the host boundary.
-- **The runtime may provide a generic driver loop.** A runtime that loops calling a
-  guest "step" function is admissible, as long as it treats the step as opaque guest
-  code and learns nothing about the frame layout. This is optional; a guest-side loop
-  is the baseline.
-- **Under a native continuation the executor disappears.** With stack switching the
-  runtime captures and resumes the stack itself, so there is no software driver to
-  place ([Migration to native control](#migration-to-native-control)).
-
-The executor's contract:
-
-- Input: a `Control` value, a handler, and the initial handler state `s`.
-- Output: `(s, a)` for the closed `run`. Interpreting scoped `handle` changes
-  from source `Control u a` to target `Control g b`, with an explicit finish context.
-- It invokes the matching clause once at each source return/request boundary.
-  Nested source/target and forwarding transitions use the shared guest loop;
-  library callbacks return data rather than invoking a synchronous inner executor.
-- It preserves the [invariants](#invariants-and-verification): frame identity, capture
-  boundary, and one-shot status.
-
-What the compiler and the runtime each own:
-
-| Concern | Compiler (guest code) | Runtime (`psrs-runtime`) |
-| --- | --- | --- |
-| Continuation | frame objects and the executor loop | nothing for the software form; `cont` capture/resume for a native form |
-| GC roots | frames are GC objects, scanned by the GC | stack scanning only under a native form |
-| Leaf operations | ordinary calls to checked bindings | storage, host services, trap |
-| Frame layout | defines and verifies it | must not know it |
 
 ### Compiler CPS versus native stack switching
 
@@ -662,20 +582,8 @@ continuation to its operation clause. No callback runs during construction.
 The source clause returns target data; saved work executes only if it uses the
 raw continuation. Calling that continuation constructs a checked `Resume` node.
 
-### The executor loop
-
-Sequence normalization consumes `Bind`, `Return` and `Resume` iteratively.
-`Append(saved, consumer)` runs saved work first without mutating either sequence.
-Closed `run` supplies its state-fold clause and final result boundary. Scoped
-`handle` saves caller work, normalizes source work, removes source dispatch before
-calling either clause, and interprets the target answer under enclosing dispatch.
-An explicit finish context closes the extent only at target completion.
-
-The complete transition procedure is in
-[scope algorithms](control-elimination-and-handler-scopes.md#algorithms).
-Nested context transitions use the shared guest loop. User callbacks' arbitrary
-non-tail recursion remains outside the machine guarantee. Invalid tags or contract
-mismatches fail explicitly.
+The executor transition procedure and sequence replay are specified in
+[the control machine](control-machine.md#algorithms).
 
 ### Deep-handler reinstatement
 
@@ -706,21 +614,12 @@ obligation is implemented.
 | Location | Intended responsibility |
 | --- | --- |
 | `Prim.Control` owner | The abstract `Control f a` carrier and the `return`/`bind`/`perform`/`run`/`handle` primitives, with their checked schemes |
-| CC control lowering and MIR | Persistent sequencing and typed contexts below Typed Core; preserve library reinstatement, lifecycle provenance and one-shot status |
-| Executor (guest code) | The guest loop over typed source/target contexts, persistent queues and lifetime activations; closed run also threads fold state |
-| MIR verifier | Frame identity, capture boundary, continuation result-type, and suspension-observability checks |
 | Existing Core/CC/MIR lowering and optimizers | Compile the converted frames and the executor as ordinary higher-order code; preserve generic observable-call semantics |
-| `psrs-runtime` (software form) | GC heap, leaf primitives, trap, and linking; provides no continuation and must not learn the frame layout |
+| `psrs-runtime` (software form) | Checked guest leaves and linear-memory allocation; provides no continuation and must not learn the frame layout; frame GC belongs to the Wasm engine and linking to the compiler |
 | Runtime control owner, only if separately adopted | Stack-switching ABI, captured-root storage, lifecycle checks, and capability requirements |
 
-The implementation locations are `psrs-hir/src/intrinsic/registry.rs`, checked
-Core control contracts, `psrs-backend/src/cc/layout/control/`,
-`cc/lower/control/`, `cc/verify/control/` and `mir/control/`. Layout planning
-reserves nominal Control/Resumption carriers and all synthesized signatures
-before CC lowering freezes the representation table. Ordinary carrier parameters,
-results, captures and joins use these nominal representations; only explicit
-abstract user-payload/storage boundaries erase and recover values. The executor
-does not reconstruct a complete source type from erased data.
+The machine's implementation locations and responsibilities are in
+[the control machine](control-machine.md#code-map).
 
 The eight source primitives retain their identities, with `handle` identity 96
 and arity three under contract v2. The independent package/compiler contract is
@@ -760,8 +659,6 @@ explicitly adopted.
 - Reachable captured frames keep their values rooted; expiry follows the target
   extent and multi-shot resume does not consume the checkpoint; a continuation is never retained across a
   non-suspendable foreign boundary.
-- The trampoline drives every step, so execution is stack-safe independently of the
-  native stack; emitted tail positions use `return_call*`.
 - Closure conversion, adapters, and optimizations preserve evaluation behavior under
   ordinary IR contracts; they do not verify a private protocol.
 
@@ -775,7 +672,8 @@ the requirements.
 
 The [library-owned effects document](algebraic-effects-and-handlers.md#worked-example)
 defines the program `runPure (handleState 0 program)`. Under this mechanism it is a
-small frame chain. Tracing the trampoline:
+small frame chain; [the control machine](control-machine.md#worked-example) traces
+the individual driver steps.
 
 ```text
 run(handleState 0 program)
@@ -786,8 +684,8 @@ run(handleState 0 program)
 
 Each `put` and `get` performs an operation, builds a frame from the current point to
 the `handleState` delimiter, delivers it to the handler, and resumes through the
-trampoline. Depth of `do` binding does not grow the native stack. The library-level
-meaning of this program is in the
+machine's flat driver. Depth of `do` binding does not grow the native stack. The
+library-level meaning of this program is in the
 [library-owned effects document](algebraic-effects-and-handlers.md#worked-example).
 
 ## Boundaries and interfaces
@@ -797,9 +695,10 @@ the compiler adds no ambient effect inference. It is the only compiler-owned par
 the effects story; operations, rows, handlers, and the one-shot/multi-shot API are
 library code ([library-owned effects](algebraic-effects-and-handlers.md#ownership)).
 
-For the software form the runtime carries no continuation: the executor is guest code
-and `psrs-runtime` provides only the GC heap, leaf primitives, and trap
-([The executor and the runtime boundary](#the-executor-and-the-runtime-boundary)).
+For the software form the executor is guest code and frames live in the Wasm
+engine's GC heap. `psrs-runtime` supplies guest leaves and linear-memory
+allocation; host services use explicit bindings and linking belongs to the compiler
+([the control machine](control-machine.md#the-executor-and-the-runtime-boundary)).
 
 The baseline target profile does not gain stack switching through this design. A
 native resumption option requires a pinned target capability, an MIR/lowering

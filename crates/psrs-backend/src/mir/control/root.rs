@@ -1,7 +1,7 @@
 //! Root initialization and normal completion after physical lowering.
 use crate::BackendError;
 use crate::cc::{ControlHelperRole as R, RepresentationTable};
-use crate::control_provenance::root_extent_relation;
+use crate::control::provenance::root_extent_relation;
 use crate::mir::value_identity::{definitions, fresh_iteration_allocation, reference_origin};
 use crate::mir::{Function, Instruction as I, Module, Terminator as T};
 use crate::types::DefinedTypeId;

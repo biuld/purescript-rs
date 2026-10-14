@@ -1,7 +1,7 @@
 //! Check replay lifecycle allocations and transitions after loop conversion.
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
-use crate::control_provenance::{
+use crate::control::provenance::{
     FinishProjection, replay_activation_relation, saved_finish_relation,
 };
 use crate::mir::value_identity::{
@@ -68,9 +68,9 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
         status,
         result,
     };
-    let read_only = crate::mir::opt::effects::read_only_functions(module);
+    let total = crate::mir::effects::total_functions(module);
     for (function, role) in functions {
-        if let Err(message) = verify_function(function, role, table, &schema, &read_only) {
+        if let Err(message) = verify_function(function, role, table, &schema, &total) {
             errors.push(
                 BackendError::invalid_ir("P9 MIR control replay", function.span, message)
                     .with_module(function.symbol.module),
@@ -84,7 +84,7 @@ fn verify_function(
     role: R,
     table: &crate::cc::RepresentationTable,
     schema: &Schema,
-    read_only: &HashSet<psrs_hir::SymbolId>,
+    total: &HashSet<psrs_hir::SymbolId>,
 ) -> Result<(), &'static str> {
     let parameters = loop_parameters(function);
     if parameters.len() != if role == R::CloneSequence { 5 } else { 4 } {
@@ -123,10 +123,10 @@ fn verify_function(
     let dominators = crate::mir::cfg::dominators(function);
     for block in &function.blocks {
         for (index, instruction) in block.instructions.iter().enumerate() {
-            let read_only_call = matches!(instruction,
-                I::Call { function, .. } | I::CallVoid { function, .. } if read_only.contains(function));
-            if crate::mir::opt::effects::may_invoke(instruction)
-                && !read_only_call
+            let total_call = matches!(instruction,
+                I::Call { function, .. } | I::CallVoid { function, .. } if total.contains(function));
+            if crate::mir::effects::may_invoke(instruction)
+                && !total_call
                 && !matches!(instruction, I::Call { contract: Some(id), .. }
                     if table.control_helpers.get(id.0 as usize).is_some_and(|helper|
                         matches!(helper.role(), R::Check | R::CloneSequence | R::RebuildSequence)))

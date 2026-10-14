@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+pub(crate) mod branch_facts;
 mod case;
 mod control;
 pub(crate) mod value_identity;

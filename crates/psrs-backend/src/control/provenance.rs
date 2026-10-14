@@ -161,3 +161,73 @@ pub(crate) fn root_extent_relation(
     }
     Ok(())
 }
+
+/// Which clause a source computation step applies at its current delimiter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClauseKind {
+    Return,
+    Operation,
+}
+
+impl ClauseKind {
+    /// The scoped context field that holds this clause.
+    pub(crate) fn field(self) -> u32 {
+        match self {
+            Self::Return => 0,
+            Self::Operation => 1,
+        }
+    }
+
+    /// The source computation tag this clause step interprets.
+    pub(crate) fn source_tag(self) -> i32 {
+        match self {
+            Self::Return => 0,
+            Self::Operation => 1,
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::Return => "source return must apply its scoped return clause",
+            Self::Operation => "source operation must apply its scoped operation clause",
+        }
+    }
+}
+
+/// A source `Return` applies the scoped return clause (field zero); a source
+/// `Perform` applies the scoped operation clause (field one). The applied
+/// callable must be that clause projection of the current scoped context, not a
+/// boundary or another field of the same frame.
+pub(crate) fn clause_selection_relation(
+    kind: ClauseKind,
+    context: ValueId,
+    clause: Option<FinishProjection>,
+) -> Result<(), &'static str> {
+    if clause
+        != Some(FinishProjection {
+            owner: context,
+            field: kind.field(),
+        })
+    {
+        return Err(kind.message());
+    }
+    Ok(())
+}
+
+/// The first clause operand is the answer/request of the current source step.
+/// The stage verifier separately connects the complete application result to
+/// the next executor transition and proves that its calls execute on that path.
+pub(crate) fn clause_operand_relation(
+    input: ValueId,
+    payload: Option<FinishProjection>,
+) -> Result<(), &'static str> {
+    if payload
+        != Some(FinishProjection {
+            owner: input,
+            field: 0,
+        })
+    {
+        return Err("source clause must consume the current computation payload");
+    }
+    Ok(())
+}

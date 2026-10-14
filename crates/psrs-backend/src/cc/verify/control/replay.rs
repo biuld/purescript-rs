@@ -1,7 +1,7 @@
 //! Saved finish validation and fresh replay activation ownership.
 use crate::BackendError;
 use crate::cc::{AssignmentKind as A, ControlHelperRole as R, Function, RepresentationTable};
-use crate::control_provenance::{
+use crate::control::provenance::{
     FinishProjection, replay_activation_relation, saved_finish_relation,
 };
 
@@ -18,8 +18,8 @@ pub(super) fn verify(
     if !matches!(role, Some(R::CloneSequence | R::RebuildSequence)) {
         return Ok(());
     }
-    let read_only = functions
-        .map(super::super::read_only::functions)
+    let total = functions
+        .map(super::super::total::functions)
         .unwrap_or_default();
     let schema = table
         .control_replay_schema()
@@ -78,7 +78,7 @@ pub(super) fn verify(
                             R::Check | R::CloneSequence | R::RebuildSequence
                         )
                     })
-                    && !read_only.contains(target) =>
+                    && !total.contains(target) =>
                 {
                     return Err(error(
                         function,

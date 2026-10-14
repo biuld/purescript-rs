@@ -1,4 +1,4 @@
-//! Conservative instruction effect summaries used by dead-code elimination.
+//! Conservative instruction effect summaries shared by optimization and semantic verification.
 
 use crate::mir::Instruction;
 
@@ -135,9 +135,8 @@ pub(in crate::mir) fn may_invoke(instruction: &Instruction) -> bool {
     classify(instruction).may_call
 }
 
-/// Greatest closed set of local bodies without writes or dynamic calls.
-/// Static recursion is permitted; imported calls remain unproven.
-pub(in crate::mir) fn read_only_functions(
+/// Total local bodies: exclude fallible instructions, CFG cycles and recursive calls.
+pub(in crate::mir) fn total_functions(
     module: &crate::mir::Module,
 ) -> std::collections::HashSet<psrs_hir::SymbolId> {
     use crate::mir::Terminator;
@@ -145,14 +144,14 @@ pub(in crate::mir) fn read_only_functions(
     let mut dependencies = HashMap::<psrs_hir::SymbolId, HashSet<psrs_hir::SymbolId>>::new();
     for function in &module.functions {
         let mut calls = HashSet::new();
-        let mut safe = true;
+        let mut safe = acyclic(function);
         for block in &function.blocks {
             for instruction in &block.instructions {
                 match instruction {
                     Instruction::Call { function, .. } | Instruction::CallVoid { function, .. } => {
                         calls.insert(*function);
                     }
-                    _ if classify(instruction).may_call || classify(instruction).writes_memory => {
+                    _ if !is_pure_and_total(instruction) => {
                         safe = false;
                         break;
                     }
@@ -163,7 +162,7 @@ pub(in crate::mir) fn read_only_functions(
                 Some(Terminator::ReturnCall { function, .. }) => {
                     calls.insert(*function);
                 }
-                Some(Terminator::ReturnCallRef { .. }) => safe = false,
+                Some(Terminator::ReturnCallRef { .. } | Terminator::Trap { .. }) => safe = false,
                 _ => {}
             }
         }
@@ -171,16 +170,58 @@ pub(in crate::mir) fn read_only_functions(
             dependencies.insert(function.symbol, calls);
         }
     }
-    let mut safe = dependencies.keys().copied().collect::<HashSet<_>>();
+    let mut safe = HashSet::new();
     loop {
-        let previous = safe.clone();
-        safe.retain(|symbol| {
-            dependencies[symbol]
-                .iter()
-                .all(|callee| previous.contains(callee))
-        });
-        if safe == previous {
+        let previous = safe.len();
+        for (symbol, calls) in &dependencies {
+            if calls.iter().all(|callee| safe.contains(callee)) {
+                safe.insert(*symbol);
+            }
+        }
+        if safe.len() == previous {
             return safe;
         }
     }
+}
+
+fn acyclic(function: &crate::mir::Function) -> bool {
+    fn visit(
+        id: crate::mir::BlockId,
+        blocks: &std::collections::HashMap<crate::mir::BlockId, &crate::mir::BasicBlock>,
+        active: &mut std::collections::HashSet<crate::mir::BlockId>,
+        done: &mut std::collections::HashSet<crate::mir::BlockId>,
+    ) -> bool {
+        if done.contains(&id) {
+            return true;
+        }
+        if !active.insert(id) {
+            return false;
+        }
+        let Some(block) = blocks.get(&id) else {
+            return false;
+        };
+        let Some(terminator) = &block.terminator else {
+            return false;
+        };
+        if !crate::mir::cfg::successors(terminator)
+            .into_iter()
+            .all(|next| visit(next, blocks, active, done))
+        {
+            return false;
+        }
+        active.remove(&id);
+        done.insert(id);
+        true
+    }
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect();
+    visit(
+        function.entry,
+        &blocks,
+        &mut Default::default(),
+        &mut Default::default(),
+    )
 }

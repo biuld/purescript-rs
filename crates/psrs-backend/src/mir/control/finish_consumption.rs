@@ -1,7 +1,7 @@
 //! Recheck lifecycle ownership after physical projection and loop conversion.
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
-use crate::control_provenance::{FinishProjection, finish_relation};
+use crate::control::provenance::{FinishProjection, finish_relation};
 use crate::mir::{Function, Instruction as I, Module, Terminator as T};
 use crate::types::{DefinedTypeId, ValueId};
 

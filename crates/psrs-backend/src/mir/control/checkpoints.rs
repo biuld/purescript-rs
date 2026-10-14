@@ -1,7 +1,7 @@
 //! Preserve checkpoint ownership after physical projection and loop conversion.
 use crate::BackendError;
 use crate::cc::ControlHelperRole as R;
-use crate::control_provenance::{
+use crate::control::provenance::{
     CaptureProjection, checkpoint_capture_relation, dispatch_checkpoint_relation,
 };
 use crate::mir::{Function, Instruction as I, Module};

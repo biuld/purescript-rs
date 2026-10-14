@@ -1,7 +1,7 @@
 //! Check target completion records and immutable finish reassociation.
 use crate::BackendError;
 use crate::cc::{AssignmentKind as A, ControlHelperRole as R, Function, RepresentationTable};
-use crate::control_provenance::{FinishProjection, context_finish_relation};
+use crate::control::provenance::{FinishProjection, context_finish_relation};
 
 pub(super) fn verify(
     function: &Function,

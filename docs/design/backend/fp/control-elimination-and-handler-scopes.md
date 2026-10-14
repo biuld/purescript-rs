@@ -131,18 +131,21 @@ per handler or request:
 
 ```text
 Computation = Return | Perform | Bind | Resume | Handle(ret, op, body) | OwnedResume
-Sequence    = Empty | Cons | Append
-Context     = Source(contract, ret, op, sourceQueue, extent, caller)
-            | Target(contract, targetQueue, finishExtent, caller)
+Sequence    = Empty | Cons | Append | Finish(extent, rest, parent)
+Context     = Root(extent)
+            | Scoped(ret, op, callerQueue, callerExtent, callerContext, ownedExtent)
+Extent      = RootExtent(status) | ChildExtent(status, parent)
 ```
 
-A contract records the checked source request/answer domain and target
-request/answer domain. A source context captures only its source queue. Caller
-work is outside that capture. When a clause returns target data, its source
-dispatch is absent; the enclosing target dispatch handles fresh requests.
-An explicit finish marker retains the source extent until that target computation
-finishes with `b`, then supplies `b` to the saved caller queue. Returning `a`
-from the source is not equivalent to completing the target with `b`.
+A `Scoped` context captures only its source queue. Caller work is outside that
+capture. When a clause returns target data, its source dispatch is absent; the
+enclosing `Scoped`/`Root` context handles fresh requests. An explicit finish
+marker (`Finish` in the sequence) retains the source extent until that target
+computation finishes with `b`, then supplies `b` to the saved caller queue.
+Returning `a` from the source is not equivalent to completing the target with
+`b`. The runtime frames carry no contract field: the checked source/target
+domains are compile-time evidence. The concrete node fields are fixed in
+[the control machine](control-machine.md#the-continuation-machine).
 
 ### Lifetime and replay
 
@@ -430,11 +433,14 @@ current loop iteration are checked through the same common MIR operation used
 by replay validation; an allocation reused from the entry preheader is invalid.
 
 These checks establish constructor operands and their associated transitions.
-They do not yet prove complete dispatch coverage, branch selection (including
-when tail coalescing is selected), root context seeding, or rejection after an
-entire required entry step is removed. Status initialization is checked; arbitrary
-extra effectful instructions and complete lifecycle flow require execution-step
-verification. Those obligations remain part of full context provenance.
+They compose with the machine's dispatch coverage and checked Run root-seeding
+relations; those checks are owned separately rather than reconstructed here.
+Status initialization is checked. Complete branch equivalence, including the
+condition selecting tail coalescing, removal of a required entry, arbitrary
+extra effectful instructions and exceptional lifecycle flow still need complete
+execution-step evidence. See the
+[machine verification contract](control-machine.md#invariants-and-verification)
+and [current review](../../../implementation/backend/delimited-control-architecture-review-2026-10-14.md).
 
 ### Finish consumption ownership
 
@@ -458,9 +464,13 @@ establish that every finish was created from the right context, that all replay
 activations have the intended ancestry, or that all checkpoint captures and
 checks refer to the proper source extent. Those producer, capture and activation
 obligations remain required for complete lifecycle provenance. A simultaneous
-rewrite removing both the close and all recognizable finish projections is not
-proved equivalent by this local relation check; complete execution-step evidence
-must still cover it.
+rewrite removing both the close and all recognizable finish projections cannot
+be proved by this local relation alone. The shared queue execution relation now
+checks the selected Finish's operands and required-action coverage rejects
+removing its entire action. The separate lifecycle-body relation proves Close, and shared execution events
+check normal paths and the prefixes ending at failed guards. These relations
+compose with this local finish-consumer check; caught-host-trap recovery and
+complete acceptance remain separate obligations.
 
 ### Alternatives
 
@@ -521,12 +531,13 @@ finish frames and forged checkpoint ownership are errors. No stage adds effect
 inference, reinterprets operation spellings or mutates representation layout late.
 
 Required behavior includes clause and return-clause effects outside source
-dispatch; deep reinstatement; shallow escape with a truthful residual type;
-forwarding, abandonment and independent replay; caller work outside capture;
-expiry after target completion; liveness throughout clauses; replay of nested
-finish frames; one-shot reuse rejection; GC roots; long request sequences; and
-foreign-resource/host-trap cleanup. Type proofs and a rewrite model do not verify
-Wasm lifetime, GC, stack safety or foreign cleanup. The
+dispatch; a source return or operation applying the matching clause of its
+current scoped context; deep reinstatement; shallow escape with a truthful
+residual type; forwarding, abandonment and independent replay; caller work
+outside capture; expiry after target completion; liveness throughout clauses;
+replay of nested finish frames; one-shot reuse rejection; GC roots; long request
+sequences; and foreign-resource/host-trap cleanup. Type proofs and a rewrite
+model do not verify Wasm lifetime, GC, stack safety or foreign cleanup. The
 [implementation checklist](../../../implementation/backend/algebraic-effects.md)
 keeps these claims separate.
 

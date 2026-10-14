@@ -71,7 +71,7 @@ impl Machine<'_> {
         cases.push(arm(4, body, result));
         let mut body = Vec::new();
         let result = self.consume_owned(state, handler, computation, sequence, &mut body);
-        cases.push(arm(6, body, result));
+        cases.push(arm(5, body, result));
 
         let mut body = Vec::new();
         let result = self.switch(computation, self.layout.computation, cases, &mut body);

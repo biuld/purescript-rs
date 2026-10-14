@@ -3,7 +3,7 @@ use crate::BackendError;
 use crate::cc::{
     AssignmentKind as A, ControlHelperRole as R, Function, RepresentationTable, ValueId,
 };
-use crate::control_provenance::{FinishProjection, finish_relation};
+use crate::control::provenance::{FinishProjection, finish_relation};
 use std::collections::HashMap;
 
 pub(super) fn verify(

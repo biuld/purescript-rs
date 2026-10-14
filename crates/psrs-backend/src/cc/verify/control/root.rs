@@ -1,7 +1,7 @@
 //! Run factories establish one fresh root and close it before publishing a result.
 use crate::BackendError;
 use crate::cc::{AssignmentKind as A, ControlHelperRole as R, Function, RepresentationTable};
-use crate::control_provenance::root_extent_relation;
+use crate::control::provenance::root_extent_relation;
 use psrs_hir::Intrinsic;
 use std::collections::HashMap;
 

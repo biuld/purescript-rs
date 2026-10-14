@@ -259,7 +259,7 @@ fn implementation(layout: ControlLayout, operation: Intrinsic) -> ControlImpleme
         ControlPerform => 1,
         ControlBind => 2,
         ControlHandle => 4,
-        ControlResume => 6,
+        ControlResume => 5,
         ControlRun => {
             return ControlImplementation::Call {
                 signature: layout.executor,
