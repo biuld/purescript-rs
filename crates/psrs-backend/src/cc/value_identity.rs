@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Identity-preserving CC operations, shared by semantic evidence consumers.
 use super::{AssignmentKind, ValueConversion, ValueId};
 use std::collections::HashSet;

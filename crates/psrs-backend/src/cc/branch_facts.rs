@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Immutable variant tag facts on structured CC paths.
 use super::{AssignmentKind as A, ReprId, ValueId};
 use std::collections::HashMap;

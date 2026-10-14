@@ -15,8 +15,6 @@ pub(super) struct Machine<'a> {
     pub layout: ControlLayout,
     pub functions: ControlFunctions,
     pub span: TextRange,
-    pub context: Option<ValueId>,
-    pub boundary: Option<ValueId>,
 }
 
 pub(super) fn repr(id: ReprId) -> ValueShape {
@@ -42,8 +40,6 @@ impl<'a> Machine<'a> {
             layout,
             functions,
             span,
-            context: None,
-            boundary: None,
         }
     }
 
@@ -202,26 +198,6 @@ impl<'a> Machine<'a> {
             });
         }
         function
-    }
-
-    pub fn recur(
-        &mut self,
-        state: ValueId,
-        handler: ValueId,
-        computation: ValueId,
-        sequence: ValueId,
-        body: &mut Vec<Assignment>,
-    ) -> ValueId {
-        let function = self.functions.executor;
-        let arguments = vec![
-            state,
-            handler,
-            computation,
-            sequence,
-            self.boundary.unwrap(),
-            self.context.unwrap(),
-        ];
-        self.call(function, arguments, body)
     }
 
     pub fn call(

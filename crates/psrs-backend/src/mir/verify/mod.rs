@@ -15,7 +15,6 @@ mod captures;
 mod function;
 mod instruction;
 mod subtype;
-pub(in crate::mir) use subtype::heap_subtype;
 mod util;
 mod variants;
 

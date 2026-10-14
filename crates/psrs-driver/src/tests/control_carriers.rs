@@ -199,3 +199,107 @@ fn cc_rejects_weakening_a_source_computation_to_an_abstract_aggregate() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn cc_boundary_rejects_a_dropped_machine_dispatch_arm() {
+    let mut input = crate::lower_main_to_cc(SOURCE).unwrap();
+    let symbol = input
+        .cc
+        .representations
+        .control_helpers
+        .iter()
+        .find(|helper| helper.role() == ControlHelperRole::Executor)
+        .unwrap()
+        .function();
+    let function = input
+        .cc
+        .functions
+        .iter_mut()
+        .find(|function| function.symbol == symbol)
+        .unwrap();
+    let AssignmentKind::TagSwitch { cases, .. } =
+        &mut function.assignments.last_mut().unwrap().kind
+    else {
+        panic!("executor result must be a computation dispatch");
+    };
+    cases.retain(|case| case.tag != 1);
+    let errors = psrs_backend::cc::verify_module(&input.cc).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.pass == "P8 CC verification"),
+        "boundary check must reject a dropped machine arm: {errors:?}"
+    );
+}
+
+#[test]
+fn mir_boundary_rejects_a_dropped_machine_dispatch_arm() {
+    let input = crate::lower_main_to_cc(SOURCE).unwrap();
+    let (mut module, _) = psrs_backend::mir::lower_module(input.cc).unwrap();
+    let symbol = module
+        .control_helpers()
+        .iter()
+        .find(|helper| helper.role() == ControlHelperRole::Executor)
+        .unwrap()
+        .function();
+    let function = module
+        .functions
+        .iter_mut()
+        .find(|function| function.symbol == symbol)
+        .unwrap();
+    let mut dropped = false;
+    for block in &mut function.blocks {
+        if let Some(psrs_backend::mir::Terminator::Switch { cases, .. }) = &mut block.terminator
+            && cases.len() > 2
+        {
+            cases.pop();
+            dropped = true;
+            break;
+        }
+    }
+    assert!(dropped, "executor must contain a machine dispatch switch");
+    let errors = psrs_backend::mir::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.pass == "P9 MIR verification"),
+        "MIR boundary check must reject a dropped machine arm: {errors:?}"
+    );
+}
+
+#[test]
+fn mir_boundary_rejects_a_changed_external_tail_target() {
+    let input = crate::lower_main_to_cc(SOURCE).unwrap();
+    let (mut module, _) = psrs_backend::mir::lower_module(input.cc).unwrap();
+    let clone = module
+        .control_helpers()
+        .iter()
+        .find(|helper| helper.role() == ControlHelperRole::CloneSequence)
+        .unwrap()
+        .function();
+    let function = module
+        .functions
+        .iter_mut()
+        .find(|function| function.symbol == clone)
+        .unwrap();
+    let mut changed = false;
+    for block in &mut function.blocks {
+        if let Some(psrs_backend::mir::Terminator::ReturnCall {
+            function: target, ..
+        }) = &mut block.terminator
+            && *target != clone
+        {
+            *target = clone;
+            changed = true;
+            break;
+        }
+    }
+    assert!(changed, "clone must tail-call rebuild");
+    let errors = psrs_backend::mir::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.pass == "P9 MIR verification"),
+        "MIR boundary check must reject a changed tail target: {errors:?}"
+    );
+}

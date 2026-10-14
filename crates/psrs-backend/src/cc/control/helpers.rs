@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Stable semantic identities of predeclared control-machine helpers.
 use crate::cc::SignatureId;
 use psrs_hir::SymbolId;

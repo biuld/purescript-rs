@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::BackendError;
 use crate::mir::{Instruction, Module};
 

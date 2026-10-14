@@ -3,7 +3,7 @@
 use super::builder::{Machine, repr};
 use super::executor::arm;
 use crate::cc::{Assignment, AssignmentKind, Function, TagCase, ValueId, ValueShape};
-use crate::control::schema::{ExtentCase, extent as e};
+use crate::control::schema::ExtentCase;
 
 impl Machine<'_> {
     pub(super) fn integer(&mut self, n: i32, body: &mut Vec<Assignment>) -> ValueId {
@@ -145,75 +145,57 @@ impl Machine<'_> {
     }
 
     pub(super) fn start_boundary(mut self) -> Function {
+        let program = super::plan::start_boundary();
+        super::plan::verify_plan(&program).expect("start_boundary plan must be well-formed");
         let mut body = Vec::new();
-        let result = self.new_boundary(None, &mut body);
+        let result = self.expand(&program, &mut Vec::new(), &[], &mut body);
+        let representations = self.lower.representations;
         let symbol = self.functions.start;
-        self.finish(symbol, "control_start_boundary", vec![], body, result)
+        let function = self.finish(symbol, "control_start_boundary", vec![], body, result);
+        super::plan::check_boundary(&function, representations, &program)
+            .expect("start_boundary boundary check must pass");
+        function
     }
 
     pub(super) fn boundary_check(mut self) -> Function {
         let boundary = self.lower.fresh(repr(self.layout.boundary));
-        let mut cases = Vec::new();
-        for case in ExtentCase::ALL {
-            let mut branch = Vec::new();
-            let cell = self.field(
-                boundary,
-                self.layout.boundary,
-                case.tag(),
-                e::STATUS,
-                &mut branch,
-            );
-            self.guard_pending(cell, &mut branch);
-            let result = if case == ExtentCase::Root {
-                boundary
-            } else {
-                let parent = self.field(
-                    boundary,
-                    self.layout.boundary,
-                    case.tag(),
-                    e::PARENT,
-                    &mut branch,
-                );
-                self.check_boundary(parent, &mut branch)
-            };
-            cases.push(arm(case.tag(), branch, result));
-        }
+        let params = [boundary];
+        let program = super::plan::boundary_check();
+        super::plan::verify_plan(&program).expect("boundary_check plan must be well-formed");
         let mut body = Vec::new();
-        let result = self.switch(boundary, self.layout.boundary, cases, &mut body);
+        let result = self.expand(&program, &mut Vec::new(), &params, &mut body);
+        let representations = self.lower.representations;
         let symbol = self.functions.check;
-        self.finish(
+        let function = self.finish(
             symbol,
             "control_check_boundary",
             vec![boundary],
             body,
             result,
-        )
+        );
+        super::plan::check_boundary(&function, representations, &program)
+            .expect("boundary_check boundary check must pass");
+        function
     }
 
     pub(super) fn boundary_close(mut self) -> Function {
         let boundary = self.lower.fresh(repr(self.layout.boundary));
-        let mut cases = Vec::new();
-        for case in ExtentCase::ALL {
-            let mut branch = Vec::new();
-            let cell = self.field(
-                boundary,
-                self.layout.boundary,
-                case.tag(),
-                e::STATUS,
-                &mut branch,
-            );
-            self.set_status(cell, 1, &mut branch);
-            cases.push(arm(case.tag(), branch, boundary));
-        }
+        let params = [boundary];
+        let program = super::plan::boundary_close();
+        super::plan::verify_plan(&program).expect("boundary_close plan must be well-formed");
         let mut body = Vec::new();
-        let result = self.switch(boundary, self.layout.boundary, cases, &mut body);
+        let result = self.expand(&program, &mut Vec::new(), &params, &mut body);
+        let representations = self.lower.representations;
         let symbol = self.functions.close;
-        self.finish(
+        let function = self.finish(
             symbol,
             "control_close_boundary",
             vec![boundary],
             body,
             result,
-        )
+        );
+        super::plan::check_boundary(&function, representations, &program)
+            .expect("boundary_close boundary check must pass");
+        function
     }
 }

@@ -6,7 +6,6 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
-pub(crate) mod branch_facts;
 pub(crate) mod cfg;
 mod control;
 mod effects;

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Shared CFG edge analysis for MIR.
 //!
 //! MIR terminators carry no structuring hint: `Branch` has no `merge_block`,

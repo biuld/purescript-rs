@@ -1,7 +1,9 @@
 //! Observational guards instrument the final Wasm, after compiler verification.
 //! The deliberately trapping budget walk is not part of the control protocol.
 use psrs_backend::cc::ControlHelperRole as R;
-use psrs_backend::wasm::{Body, FuncType, Function, Op, TypeIndex};
+use psrs_backend::wasm::{
+    Body, FuncType, Function, Global, GlobalIndex, GlobalInit, Op, TypeIndex,
+};
 use psrs_backend::{
     Stages,
     types::{CompositeType, HeapType as MirHeap, ValueType},
@@ -181,6 +183,59 @@ fn insert(body: &mut Body, root: u32, child: u32, local: u32, checker: u32, limi
         }
     }
     *body = result;
+    count
+}
+
+/// Count replay invocations by incrementing a private global at each
+/// `CloneSequence`/`RebuildSequence` entry and trapping once it exceeds
+/// `budget`. The smallest budget that does not trap is therefore the number of
+/// replay invocations, measured independently of the extent ancestry bound.
+pub(super) fn instrument_replay(stages: &mut Stages, budget: i32) -> usize {
+    let symbol = |role| {
+        stages
+            .cc
+            .representations
+            .control_helpers
+            .iter()
+            .find(|helper| helper.role() == role)
+            .expect("control helper")
+            .function()
+    };
+    let clone = symbol(R::CloneSequence);
+    let rebuild = symbol(R::RebuildSequence);
+    let module = &mut stages.wasm;
+    let global = module.globals.len() as u32;
+    module.globals.push(Global {
+        index: GlobalIndex(global),
+        mutable: true,
+        ty: ValType::I32,
+        init: GlobalInit::I32(0),
+    });
+    let mut count = 0;
+    for function in &mut module.functions {
+        if function.symbol != clone && function.symbol != rebuild {
+            continue;
+        }
+        let span = function.span;
+        let mut prefix = vec![
+            leaf(I::GlobalGet(global)),
+            leaf(I::I32Const(1)),
+            leaf(I::I32Add),
+            leaf(I::GlobalSet(global)),
+            leaf(I::GlobalGet(global)),
+            leaf(I::I32Const(budget)),
+            leaf(I::I32GtS),
+            Op::If {
+                then_body: vec![leaf(I::Unreachable)],
+                else_body: vec![],
+                result: None,
+                span,
+            },
+        ];
+        prefix.extend(std::mem::take(&mut function.body));
+        function.body = prefix;
+        count += 1;
+    }
     count
 }
 

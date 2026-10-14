@@ -9,12 +9,15 @@ use psrs_core::Expr;
 use psrs_hir::{Intrinsic, SymbolId};
 use psrs_span::TextRange;
 
+pub(crate) use plan::{Family, Shape};
+
 mod builder;
 mod executor;
 mod fields;
 mod lifetime;
 mod operands;
 mod owned;
+mod plan;
 mod replay;
 mod scope;
 use builder::Machine;
@@ -290,26 +293,12 @@ impl FunctionLowerer<'_> {
         let mut resume = Machine::new(self.child_lowerer(), layout, functions, span);
         let receiver = resume.lower.fresh(super::lambda::closure_value_type());
         let value = resume.lower.fresh(erased_shape());
+        let params = [receiver, value];
+        let program = plan::raw_resume();
+        plan::verify_plan(&program).expect("raw resume plan must be well-formed");
         let mut assignments = Vec::new();
-        let saved = resume.capture(
-            receiver,
-            0,
-            builder::repr(layout.sequence),
-            &mut assignments,
-        );
-        let boundary = resume.capture(
-            receiver,
-            1,
-            builder::repr(layout.boundary),
-            &mut assignments,
-        );
-        resume.check_boundary(boundary, &mut assignments);
-        let result = resume.node(
-            layout.computation,
-            crate::control::schema::ComputationCase::Resume.tag(),
-            vec![value, saved, boundary],
-            &mut assignments,
-        );
+        let result = resume.expand(&program, &mut Vec::new(), &params, &mut assignments);
+        let representations = resume.lower.representations;
         let resume = resume.finish(
             functions.resume,
             "control_resume",
@@ -317,6 +306,8 @@ impl FunctionLowerer<'_> {
             assignments,
             result,
         );
+        plan::check_boundary(&resume, representations, &program)
+            .expect("raw resume boundary check must pass");
         self.verify_synthesized(&resume)?;
         self.generated.push(resume);
         let executor = Machine::new(self.child_lowerer(), layout, functions, span).executor();
@@ -395,4 +386,95 @@ pub(in crate::cc) fn plan_control_helpers(
             });
     }
     Some(functions)
+}
+
+/// Re-check a generated machine body against its checked plan. This is the
+/// replaced recognizer's entry point: it runs on the emitted CC at the module
+/// verification boundary and rejects any body whose dispatch or outcome
+/// disagrees with the construction plan.
+pub(crate) fn verify_boundary(
+    function: &crate::cc::Function,
+    table: &crate::cc::RepresentationTable,
+) -> Result<(), &'static str> {
+    match plan_for_symbol(function.symbol, table) {
+        Some(plan) => plan::check_boundary(function, table, &plan),
+        None => Ok(()),
+    }
+}
+
+/// The checked plan shape for a machine function symbol, if it is one.
+pub(crate) fn plan_shape_for(
+    symbol: psrs_hir::SymbolId,
+    table: &crate::cc::RepresentationTable,
+) -> Option<plan::Shape> {
+    plan_for_symbol(symbol, table).map(|plan| plan::shape_of(&plan))
+}
+
+fn plan_for_symbol(
+    symbol: psrs_hir::SymbolId,
+    table: &crate::cc::RepresentationTable,
+) -> Option<plan::PlanExec> {
+    use crate::cc::ControlHelperRole as R;
+    let role = table
+        .control_helpers
+        .iter()
+        .find(|helper| helper.function() == symbol)
+        .map(|helper| helper.role());
+    let resumption = table
+        .control_resumption
+        .as_ref()
+        .is_some_and(|raw| raw.function() == symbol);
+    Some(match role {
+        Some(R::Executor) => plan::executor(),
+        Some(R::CloneSequence) => plan::clone_sequence(),
+        Some(R::RebuildSequence) => plan::rebuild_sequence(),
+        Some(R::Start) => plan::start_boundary(),
+        Some(R::Check) => plan::boundary_check(),
+        Some(R::Close) => plan::boundary_close(),
+        Some(R::Once) => plan::once(),
+        Some(R::Cancel) => plan::cancel(),
+        None if resumption => plan::raw_resume(),
+        None => return None,
+    })
+}
+
+/// The external helper symbols a machine function tail-calls, per its plan.
+///
+/// Self tail calls are loopified into loop back-edges by P9, so they are
+/// excluded; the MIR boundary check compares the rest against actual
+/// `ReturnCall` targets.
+pub(crate) fn plan_external_targets(
+    symbol: psrs_hir::SymbolId,
+    table: &crate::cc::RepresentationTable,
+) -> Option<std::collections::HashSet<psrs_hir::SymbolId>> {
+    use crate::cc::ControlHelperRole;
+    fn collect(exec: &plan::PlanExec, out: &mut std::collections::HashSet<ControlHelperRole>) {
+        match exec {
+            plan::PlanExec::Steps { next, .. } => collect(next, out),
+            plan::PlanExec::Switch { arms, .. } => {
+                for (_, arm) in arms {
+                    collect(arm, out);
+                }
+            }
+            plan::PlanExec::Advance { .. } => {
+                out.insert(ControlHelperRole::Executor);
+            }
+            plan::PlanExec::Tail { role, .. } => {
+                out.insert(*role);
+            }
+            _ => {}
+        }
+    }
+    let plan = plan_for_symbol(symbol, table)?;
+    let mut wanted = std::collections::HashSet::new();
+    collect(&plan, &mut wanted);
+    let mut targets = std::collections::HashSet::new();
+    for role in wanted {
+        if let Some(helper) = table.control_helper(role)
+            && helper.function() != symbol
+        {
+            targets.insert(helper.function());
+        }
+    }
+    Some(targets)
 }

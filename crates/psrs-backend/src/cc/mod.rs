@@ -17,6 +17,7 @@ pub use control::{
     ControlHelperRole, ControlResumptionContract, SourceTypeIdentityId, TypeConstructorIdentity,
     TypeIdentity,
 };
+pub(crate) use lower::{Family, Shape, plan_external_targets, plan_shape_for};
 mod convert;
 mod layout;
 mod lower;

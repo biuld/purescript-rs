@@ -28,6 +28,7 @@ mod string_bytes;
 mod symbols;
 use call::ApplicationLowering;
 pub(super) use control::plan_control_helpers;
+pub(crate) use control::{Family, Shape, plan_external_targets, plan_shape_for, verify_boundary};
 pub(in crate::cc) use conversion::VariantFieldConversion;
 use global::GlobalLowering;
 use lambda::LambdaLowering;

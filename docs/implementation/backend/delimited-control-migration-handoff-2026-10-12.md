@@ -1,17 +1,19 @@
 # Handoff: Delimited Control Migration and Remaining Acceptance
 
-**Updated:** 2026-10-14, after repairs for architecture review R1–R3.
+**Updated:** 2026-10-15, after the construction-boundary migration and the
+retirement of the per-IR machine recognizers.
 The filename keeps its original date; this file is the current snapshot.
-The subsequent [lowering design review](delimited-control-lowering-review-2026-10-14.md)
-reviews the committed implementation at `1e24e5d5`. Its construction/proof-boundary
-proposal is unimplemented; review that boundary before extending the recognizers.
+The [lowering design review](delimited-control-lowering-review-2026-10-14.md)
+proposal is now implemented for construction: see §10 for the current
+architecture, the retired recognizers, the assurance tradeoff and the precise
+next actions. Sections 1–9 are history.
 **Objective:** Complete delimited control, then implement native Effect/ST.
-**Status:** R1–R3 are repaired in implementation and permanent tests, included
-in the local checkpoint commit containing this handoff.
-Check/Close bodies, full Executor/lifecycle/factory paths, explicit observable operations,
-reference refinements and retained/inlined publication contents now have checked
-relations. Complete AE/AC acceptance remains outstanding; workspace validation
-and the known Effect migration baseline are reported separately below.
+**Status:** Current snapshot. The lowering review's construction boundary is
+implemented: the named schema, action inventory and checked plan own machine
+construction, and the per-IR recognizers are **retired**, replaced by CC/MIR
+boundary checks (§10). R1–R3 repairs remain in permanent tests. Complete AE/AC
+acceptance and the operand-level boundary/translation-validator gaps remain
+outstanding (§10 "Next actions").
 
 The [architecture review and repair evidence](delimited-control-architecture-review-2026-10-14.md#repair-evidence-2026-10-14)
 records ownership, regressions, and the moved Wasm ancestry observation.
@@ -237,53 +239,17 @@ in §8. Foreign capture,
 caught-host-trap recovery and complete AE/AC acceptance remain open. Earlier full
 workspace evidence is historical and was not refreshed in this review.
 
-## 4. What the machine verifiers check now
+## 4. Machine verification after recognizer retirement
 
-CC (`cc/verify/control/`) and MIR (`mir/control/`) select the following
-checks by their retained helper/source roles:
+The historical per-IR recognizers that earlier revisions of this file described
+(`cc/verify/control/*`, `mir/control/*`, and the shared `control/` relations)
+have been **retired**. Machine semantics now live in the checked construction
+plan (`cc/lower/control/plan/`) and are re-checked by boundary validators at
+`cc::verify_module` and `mir::verify_module`. Generic IR verification still
+checks operands, types, layout, casts and CFG.
 
-- **dispatch** (`dispatch.rs`): dispatch covers exactly the live alternatives;
-  default traps; projections match the proven selected case; the result
-  originates from the current input's dispatch (CC); MIR additionally requires an
-  immutable `i32` tag field, the current helper input selector, and that the input
-  dispatch dominates every invoke/return/backedge (entry preheader initialization
-  excepted).
-- **clause selection** (`clauses.rs`): a source `Return` applies the scoped
-  return clause; a source `Perform` applies the scoped operation clause.
-- **scoped execution** (`clauses.rs`): the next computation is the full
-  application result, the first argument is the current source payload and an
-  operation supplies its raw resumption. MIR also checks execution dominance;
-  both retain state/root handler identity.
-- **Bind/Resume steps** (`steps.rs`): current frame operands, queue composition,
-  and replayed queue/activation identity on the actual transition.
-
-Additional current checks:
-
-- **root/queue execution** (`execution.rs`): the complete root handler call,
-  paired result fields, queue abandonment, terminal state/answer, Cons consumption,
-  all four Append-left actions, Finish restoration and required-action coverage.
-- **normal-path operation accounting**: CC `execution/effects.rs`, MIR
-  `traces.rs` and shared `control/execution/observables.rs` check required dynamic
-  applications and selected static helper calls, and reject extra calls/array
-  stores. The repaired event contract accounts for explicit traps, other writes and
-  refinements as well; exceptional paths terminate before work after a failed
-  guard. See the repair evidence for precise trust boundaries.
-- **owned execution** (`owned.rs`): Pending guard, Running, load, clear, one
-  callback, Consumed and transition order, with current owner/answer/result
-  identities. Equality guards have positive CC and MIR tests.
-- **initialization/cancellation** (`initialization.rs`): current private contents
-  at publication, including intervening writes, and cancellation order. CC
-  and MIR negatives execute on retained helpers; separate optimized-MIR
-  publication mutations cover physical Start/Once cells after inlining.
-
-Shared relations live in `control/{provenance,dispatch,steps,owned}.rs` and
-`control/execution/`; CC and MIR fact propagation lives in `cc/branch_facts.rs`
-and `mir/branch_facts.rs`. `Check`/`Close` callee binding is checked, but their
-lifecycle bodies are now verified separately by shared `control/lifecycle.rs`
-and paired adapters. `control/events.rs` owns ordered events; per-IR refinement
-checks justify narrowing recovery. A total-function summary replaces the former
-no-write exemption. MIR additionally rechecks inlined Start/Once publication
-windows from their physical allocations and source witnesses.
+See §10 for the current boundary checks, the assurance tradeoff, and the precise
+remaining work. Sections 5–9 are retained as history.
 
 ## 5. Historical validation (before the 2026-10-14 review)
 
@@ -308,6 +274,10 @@ fail for that reason. Full workspace runs, ignored scoreboards, and upstream
 focused-validation instruction.
 
 ## 6. Remaining work and recommended continuation
+
+Historical (pre-review). The current remaining work is stated in **§10, "Next
+actions for a new agent"**; this section is retained for the acceptance-audit
+context it records.
 
 Follow the user's order and validation limits: work in the current checkout,
 keep changes focused, and do not run global validation after each small fix.
@@ -481,7 +451,139 @@ persistence.
 
 Fresh required-Wasmtime control baseline: **185 passed, 0 failed, 0 ignored**.
 Log: `/private/tmp/psrs-control-lowering-review-2026-10-14-baseline.log`.
-No new full workspace or acceptance measurement was made. The next action is to
-resolve the schema/action inventory and proof-discharge decision, then implement
-the Bind/Return/Cons vertical slice under the review's migration gates. Existing
-R1–R3 repairs and all remaining AE/AC obligations remain in force.
+No new full workspace or acceptance measurement was made. The next action at the
+time was to resolve the schema/action inventory and proof-discharge decision,
+then implement the Bind/Return/Cons vertical slice under the review's migration
+gates. **§10 records that resolution: the schema, action inventory and checked
+plan are implemented and the recognizers retired.** Existing R1–R3 repairs and
+all remaining AE/AC obligations remain in force.
+
+## 10. Construction-boundary migration (2026-10-14)
+
+[DEC-21](../../decision/DEC-21-control-machine-construction-boundary.md) now
+fixes the construction/verification boundary: P8 checks a named construction
+plan and expands it to ordinary CC; ordinary P9/P10 transformations are trusted
+under IR-invariant and behavior evidence.
+
+The migration's first stages are implemented. `crates/psrs-backend/src/control/schema.rs`
+names every machine carrier, case, field and helper role, and
+`cc/control/schema.rs` freezes one module's placement (`RepresentationTable::control_schema`)
+and checks it against those names. Layout, generation and verification consume
+the names instead of positional offsets; the old role-from-signature inference
+is removed. The executor's ad-hoc coverage set became a named `ActionId`
+registry whose complete inventory must be observed.
+
+The flat driver is now *built* from a checked transition program:
+`cc/lower/control/plan/` describes each transition's selected cases,
+projections, ordered operations and terminal outcome, checks dispatch coverage,
+allocation arity and the action inventory, then expands it to ordinary CC.
+`Machine` no longer carries implicit `context`/`boundary` state or a `recur`
+shortcut; `Advance` names all six state components.
+
+The helper bodies and the raw-resume closure adapter are now plan-built too:
+`clone_sequence`, `rebuild_sequence`, `start`, `check`, `close`, `once`,
+`cancel` and `resume` are constructed from checked plans in `plan/helpers.rs`.
+Every machine body is therefore described once and expanded to ordinary CC. The
+plan module is split by responsibility and each file stays under the 500-line
+limit. An independent bounded model (`plan/model.rs`, test-gated) recovers the
+plan's terminal trace for every case-refinement path — the executor and each
+helper body — and compares it against a table written directly from the
+operational semantics, so a dropped, duplicated or mis-routed transition fails
+the comparison. Cost evidence keeps the dimensions separate: the extent ancestry
+probe measures finish/ancestor depth, while a replay counter probe
+(`probe::instrument_replay`, a private global incremented at each
+`CloneSequence`/`RebuildSequence` entry) measures replay invocations.
+`replay_invocations_grow_with_requests_at_fixed_ancestry` shows replay work grows
+with requests while the ancestry bound stays at 2. The integration targets keep
+the ordinary-path cases explicit: reference aliases, partial applications, and
+top-level function wrappers used as callbacks through the handle protocol
+(`control_scoped_runtime::callback_wrapper_and_adapter_run_through_ordinary_paths`).
+
+The P8 **boundary checker** (`plan/boundary.rs`) reconstructs the emitted
+function's machine dispatch/outcome shape and compares it with the checked
+plan's shape when each machine body is constructed. The plan is hand-built from
+the semantics and the emitter is a generic expander, so an expander defect
+(dropped arm, wrong tag, wrong terminal) fails the boundary instead of reaching
+the generic CC verifiers; those still own operand semantics.
+
+### Recognizer retirement (Gate 6)
+
+Per the instruction to land the replacement wholesale, the CC and MIR machine
+semantic recognizers are removed:
+
+- `cc/verify/control/*` (dispatch, execution, root, clauses, checkpoints, replay,
+  owned, lifecycle, initialization, exits, refinements, context_entry,
+  finish_creation/consumption, steps) is deleted; `cc::verify_module` now calls
+  `cc::lower::verify_boundary` on each function instead.
+- `mir/control/*` machine recognizers are deleted; only the helper call binding
+  contract remains and module-level MIR machine verification is a no-op.
+- The shared `control/` relation layer (`dispatch`, `provenance`, `steps`,
+  `owned`, `events`, `lifecycle` and the `execution` relations) is deleted. Only
+  the named `schema` and the flat-driver `ActionId` inventory remain.
+
+Replacement evidence: the named schema and checked construction plan own the
+machine semantics ([DEC-21](../../decision/DEC-21-control-machine-construction-boundary.md));
+the boundary checker re-checks each emitted body's dispatch/outcome against the
+plan at `cc::verify_module`; and a MIR boundary checker (`mir/control/boundary.rs`)
+re-checks each machine function at `mir::verify_module`: its dispatch arm set and
+its non-self tail-call targets must match the plan. Self tail calls are loopified
+into loop back-edges, so the plan's self targets are excluded and the check
+compares only external helper `ReturnCall`s. Generic IR verification still
+checks operands, types, layout, casts and CFG.
+`control_carriers::cc_boundary_rejects_a_dropped_machine_dispatch_arm`,
+`mir_boundary_rejects_a_dropped_machine_dispatch_arm` and
+`mir_boundary_rejects_a_changed_external_tail_target` show the replacements
+reject a dropped machine arm and a changed tail target. The backend, focused control, and eleven
+integration runtime targets pass.
+
+Assurance tradeoff, stated plainly: the removed recognizers also rejected
+arbitrary mutations injected after construction (wrong field, aliased source,
+extra store or trap). With them gone, such IR-valid mutations are no longer
+rejected, and the negative driver tests that exercised them were removed
+together with their modules. This is the "trust semantics-preserving transforms"
+branch of DEC-21 taken to its end: the construction boundary, the CC and MIR
+dispatch-arm boundary checks, and generic IR validity are the assurance. The
+boundary checks cover dispatch coverage, not operand semantics; a translation
+validator proving every optimizer intermediate preserves machine semantics
+remains open, as do full AE/AC, foreign-boundary and reference-library
+obligations.
+
+Validation performed: `cargo fmt --all --check`; `cargo clippy -p psrs-backend
+--all-targets`; `cargo test -p psrs-backend --lib` (454 passed); the eleven
+control integration targets (value/order/lifetime/GC/stack, required Wasmtime,
+82 passed); and
+`PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control`
+(10 passed, 0 failed). `cargo test --workspace` has only the pre-existing,
+unrelated `psrs-cli --test link` failure (`P3 resolve: unknown name runEffect`).
+
+### Next actions for a new agent
+
+The review's construction and enumeration work is landed. The remaining
+assurance gap is operand-level and cross-optimization validation:
+
+1. **Operand-level CC boundary check (highest value).** `plan/boundary.rs`
+   compares only the dispatch/outcome shape. Extend it to replay the plan's
+   `Op` sequence and compare projections/allocations/calls against the emitted
+   CC destinations, so an IR-valid operand mutation injected after construction
+   is rejected again. Start from `plan/ir.rs` (`Op`, `Operand`, `Cursor`),
+   `plan/expand.rs` (the emitter to correlate against) and `plan/boundary.rs`.
+   Add positive coverage (the 454 backend and 82 integration tests) and a
+   negative that mutates a projected field/index and expects rejection.
+2. **MIR operand-level check.** `mir/control/boundary.rs` compares dispatch arms
+   and external tail-call targets; a field/index mutation at MIR is not caught.
+   If (1) lands, extend the same idea over the physical layout
+   (`mir/layout`, `mir/value_identity`).
+3. **Translation validator.** No pass-level proof or transformation-aware
+   certificate establishes that optimization preserves machine semantics;
+   `mir/opt` re-verifies each intermediate with the dispatch-only boundary plus
+   generic IR validity. If a stronger claim is required, amend
+   [DEC-21](../../decision/DEC-21-control-machine-construction-boundary.md) and
+   record the trust boundary.
+4. **Acceptance obligations are unchanged.** Full AE/AC, foreign-boundary and
+   reference-library requirements remain open; this migration closes none of
+   them.
+
+Do not treat the removed negative driver tests as covered: they were deleted
+with their recognizer modules. They remain recoverable for re-expression, e.g.
+`git show 01f7e66c:crates/psrs-driver/src/tests/` (or the commit before the
+retirement). Re-express them against the operand-level boundary if it is added.

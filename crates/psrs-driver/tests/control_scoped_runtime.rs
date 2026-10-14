@@ -178,3 +178,32 @@ main = if intEq result._2._1 100000 then result._2._2 else 0
         42,
     );
 }
+
+#[test]
+fn callback_wrapper_and_adapter_run_through_ordinary_paths() {
+    // `bump` and `apply` are top-level functions referenced as values, so the
+    // compiler eta-expands wrappers for them; `partial` is a partial
+    // application kept as a callable value; `clause` is a source callback the
+    // handle protocol adapts to the uniform erased ABI.
+    check(
+        "scoped-callback-adapter",
+        r"
+bump :: Int -> Int
+bump n = intAdd n 1
+apply :: forall a b. (a -> b) -> a -> b
+apply f x = f x
+partial :: Int -> Int
+partial = apply bump
+ret :: Int -> C.Control Op Boolean
+ret n = C.return (intEq (partial n) 43)
+clause :: forall x. Op x -> (x -> C.Control Op Int) -> C.Control Op Boolean
+clause op raw = C.return false
+finish :: C.Control Op Int -> C.Control Op Boolean
+finish = C.handle ret clause
+root :: forall x. Int -> Op x -> (x -> C.Control Op Boolean) -> { _1 :: Int, _2 :: C.Control Op Boolean }
+root s (Op label k) raw = { _1: s, _2: raw (k 0) }
+main = if (C.run 0 root (finish (C.return 42)))._2 then 42 else 0
+",
+        42,
+    );
+}

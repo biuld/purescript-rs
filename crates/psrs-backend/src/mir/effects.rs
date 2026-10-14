@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Conservative instruction effect summaries shared by optimization and semantic verification.
 
 use crate::mir::Instruction;

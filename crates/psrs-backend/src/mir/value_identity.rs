@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Shared reference identity and loop parameter views for MIR consumers.
 use super::{BlockId, Function, Instruction, Terminator};
 use crate::types::ValueId;

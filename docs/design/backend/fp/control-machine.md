@@ -4,8 +4,11 @@
 **Status:** Draft design. The node inventory, lowering and flat driver match the
 implementation; complete verifier and lifecycle acceptance remains outstanding.
 The [lowering review](../../../implementation/backend/delimited-control-lowering-review-2026-10-14.md)
-identifies unresolved architecture boundaries. The proposed construction plan
-below is a review target, not an implemented or accepted replacement pipeline.
+identified unresolved architecture boundaries. [DEC-21](../../../decision/DEC-21-control-machine-construction-boundary.md)
+now fixes the construction/verification boundary. The named schema, action
+registry and checked plan are implemented for every machine body, and the
+CC/MIR machine-semantic recognizers are retired; the boundary checker and
+generic IR verification replace them. Complete AE/AC acceptance remains open.
 The mechanism is selected by
 [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md).
 **Prerequisites:** [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md),
@@ -303,55 +306,58 @@ The generated symbols are ordinary functions with predeclared signatures, so
 their calls are checked by identity and lowered like any other call. Nothing in
 this pipeline recognizes a concrete effect, operation or handler.
 
-### Construction and verification boundary under review
+### Construction and verification boundary
 
-The current lowering immediately expands machine actions to ordinary CC. The
-CC and MIR machine verifiers then recover their meaning from projections,
-calls, casts, aliases, dispatch paths and private-cell writes. Shared relations
-reduce duplication, but this still couples semantic checking to the instruction
-forms surviving optimization. A source `ControlEvidence` witness proves a
-primitive's construction contract; it is not a complete executor-step proof.
+[DEC-21](../../../decision/DEC-21-control-machine-construction-boundary.md)
+fixes this boundary. The named schema, the action registry and the checked
+flat-driver plan are implemented: `control/schema.rs` names every carrier, case,
+field and helper role; `cc/control/schema.rs` freezes one module's placement and
+checks it against those names; and `cc/lower/control/plan.rs` *builds* the flat
+driver from a checked transition program that is expanded to ordinary CC.
+`check` independently verifies that every dispatch uses only declared cases and
+that every required flat-driver action is present before a body is emitted.
 
-The recommended design target is a **checked machine construction plan** inside
-P8. It is a temporary, effect-agnostic input to code generation, not a new
-whole-program IR family, a runtime interpreter, or a source effect system:
+The helper bodies and the raw-resume closure adapter (`clone_sequence`,
+`rebuild_sequence`, `start`, `check`, `close`, `once`, `cancel`, `resume`) are
+built from the same checked plans, so replay, lifecycle, the factories and the
+raw-resume entry no longer emit interleaved hand-written branches. The CC/MIR
+machine-semantic recognizers are retired; the boundary checker and generic IR
+verification replace them. The plan contract is:
 
 1. One schema owns named node cases, named fields, helper roles and fixed
    signatures. Layout planning assigns representations to this schema; consumers
    do not infer semantic roles from helper parameter offsets.
 2. A transition program states selected cases, projections, ordered actions and
-   one terminal outcome (`Advance`, `Publish` or `Reject`). Advancing supplies a
-   complete named executor state; a branch cannot silently inherit mutable
-   builder state. Every required case has an action, including rejection.
-3. The plan checks operand roles, queue composition, checkpoint/activation
-   provenance, freshness, callback application and effect order before emission.
-   It retains Core's checked domain identities at source/callback boundaries.
-4. Expansion emits ordinary CC against the immutable layout. A boundary checker
-   compares emitted actions and actual exits against the checked plan, accounting
-   for guards and exceptional prefixes. Merely tagging generated code with an
-   action ID does not validate its body. Semantic rules and the emitter must
-   remain independently testable; generating both from one unchecked template
-   would only duplicate a bug.
+   one terminal outcome (`Advance` or `Publish`). Advancing supplies a complete
+   named executor state; a branch cannot silently inherit mutable builder state.
+   Every required case has an action.
+3. The plan checks its dispatch coverage, allocation arity and action inventory
+   before emission. Generic IR verification still checks operands, types,
+   layout, casts and CFG.
+4. Expansion emits ordinary CC against the immutable layout. The boundary
+   checker then re-checks the emitted body's dispatch and outcome against the
+   plan at module verification; tagging generated code with an action ID alone
+   would not validate it. Semantic rules and the emitter remain independently
+   testable rather than generated from one unchecked template.
 5. P9 translates checked CC to physical MIR under its ordinary representation,
    capture, CFG and loopification contracts. Each fact is either explicitly
    discharged at expansion or retained for the P9 checks; no stale certificate
    may authorize modified instructions.
 
-The proof boundary after expansion needs an explicit decision. The recommendation
-is to trust the semantics-preserving ordinary P9/P10 transformations, validate
-their output IR invariants, and test their preservation of machine behavior.
-This places them in the compiler's trusted implementation, as for ordinary
-closures and mutable data. It does **not** prove optimized program equivalence
-from SSA/layout validity. Requiring independent semantic validation after every
-transform instead requires a transformation-aware certificate or a complete
-translation validator; local helper identities and shape recognition cannot
-claim that guarantee.
+The proof boundary after expansion is decided: the semantics-preserving ordinary
+P9/P10 transformations are trusted, their output IR invariants are validated, and
+their preservation of machine behavior is tested. This places them in the
+compiler's trusted implementation, as for ordinary closures and mutable data. It
+does **not** prove optimized program equivalence from SSA/layout validity.
+Requiring independent semantic validation after every transform would instead
+require a transformation-aware certificate or a complete translation validator;
+local helper identities and shape recognition cannot claim that guarantee.
 
-This recommendation changes verification architecture, not the selected runtime
-semantics. Existing CC/MIR semantic checks remain in force during migration.
-Before removing any check, map its positive and malformed-IR cases to the new
-boundary, identify the newly trusted transformation, and run the corresponding
-optimized Wasm behavior tests. The [review and migration gates](../../../implementation/backend/delimited-control-lowering-review-2026-10-14.md)
+This changes verification architecture, not the selected runtime semantics. The
+machine-semantic recognizers are retired and the boundary checker replaces them
+for construction; arbitrary IR-valid mutations injected after construction are
+no longer rejected, which the optimizer and negative-test layers must account
+for. The [review and migration gates](../../../implementation/backend/delimited-control-lowering-review-2026-10-14.md)
 record the alternatives and required evidence. No blanket helper exemption,
 inliner restriction, or narrowed AE/AC requirement closes this decision.
 
@@ -777,9 +783,11 @@ enters the target under the caller's context.
 
 ## Open questions and future work
 
-- Resolve the [construction/verification boundary](#construction-and-verification-boundary-under-review)
-  before expanding shape-recovery checks. The temporary plan, explicit action
-  coverage and proof discharge are proposed work, not current implementation.
+- The [construction/verification boundary](#construction-and-verification-boundary)
+  is implemented: every machine body runs from the checked plan, the
+  recognizers are retired, and both CC and MIR dispatch-arm boundary checks
+  replace them. A translation validator proving optimizer preservation, and
+  operand-level rejection of IR-valid mutations after construction, remain open.
 - Audit full machine acceptance beyond the repaired lifecycle and observable-step
   checks, including all required reference-library and cost evidence. Focused
   verification does not establish complete AE/AC acceptance.
