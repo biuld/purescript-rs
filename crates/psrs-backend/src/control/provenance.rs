@@ -1,4 +1,5 @@
 //! Stage-independent ownership relations for the control machine.
+use crate::control::schema::{ContextCase, computation, context, sequence};
 use crate::types::ValueId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,17 +16,17 @@ pub(crate) fn finish_relation(
     parent: Option<FinishProjection>,
 ) -> Result<(), &'static str> {
     let extent = extent
-        .filter(|projection| projection.field == 0)
+        .filter(|projection| projection.field == sequence::FINISH_EXTENT)
         .ok_or("control finish must close its frame's extent, not another boundary")?;
     if queue
         != Some(FinishProjection {
             owner: extent.owner,
-            field: 1,
+            field: sequence::FINISH_REST,
         })
         || parent
             != Some(FinishProjection {
                 owner: extent.owner,
-                field: 2,
+                field: sequence::FINISH_PARENT,
             })
     {
         return Err("control finish must restore the queue and parent from the same frame");
@@ -57,7 +58,13 @@ pub(crate) fn dispatch_checkpoint_relation(
     projection: Option<(ValueId, u32, u32)>,
 ) -> Result<(), &'static str> {
     match projection {
-        Some((owner, 0, 0) | (owner, 1, 5)) if owner == context => Ok(()),
+        Some((owner, case, field))
+            if owner == context
+                && ((case == ContextCase::Root.tag() && field == context::ROOT_EXTENT)
+                    || (case == ContextCase::Scoped.tag() && field == context::SCOPED_EXTENT)) =>
+        {
+            Ok(())
+        }
         _ => Err("raw resumption must capture its current dispatch context checkpoint"),
     }
 }
@@ -69,7 +76,7 @@ pub(crate) fn saved_finish_relation(
     if extent
         != Some(FinishProjection {
             owner: input,
-            field: 0,
+            field: sequence::FINISH_EXTENT,
         })
     {
         return Err("replay must preserve the original saved finish extent");
@@ -95,7 +102,11 @@ pub(crate) fn context_finish_relation(
     queue: Option<FinishProjection>,
     parent: Option<FinishProjection>,
 ) -> Result<(), &'static str> {
-    for (projection, field) in [(extent, 5), (queue, 2), (parent, 3)] {
+    for (projection, field) in [
+        (extent, context::SCOPED_EXTENT),
+        (queue, context::SCOPED_SAVED),
+        (parent, context::SCOPED_PARENT),
+    ] {
         if projection
             != Some(FinishProjection {
                 owner: context,
@@ -117,12 +128,12 @@ pub(crate) fn context_clause_relation(
     if return_clause
         != Some(FinishProjection {
             owner: computation,
-            field: 0,
+            field: context::SCOPED_RETURN,
         })
         || operation_clause
             != Some(FinishProjection {
                 owner: computation,
-                field: 1,
+                field: context::SCOPED_OPERATION,
             })
     {
         return Err("source context must retain the current Handle return and operation clauses");
@@ -137,7 +148,11 @@ pub(crate) fn context_tail_relation(
     parent: Option<FinishProjection>,
     extent: Option<FinishProjection>,
 ) -> Result<(), &'static str> {
-    for (projection, field) in [(saved, 1), (parent, 2), (extent, 0)] {
+    for (projection, field) in [
+        (saved, crate::control::schema::sequence::FINISH_REST),
+        (parent, crate::control::schema::sequence::FINISH_PARENT),
+        (extent, crate::control::schema::sequence::FINISH_EXTENT),
+    ] {
         if projection
             != Some(FinishProjection {
                 owner: sequence,
@@ -173,16 +188,16 @@ impl ClauseKind {
     /// The scoped context field that holds this clause.
     pub(crate) fn field(self) -> u32 {
         match self {
-            Self::Return => 0,
-            Self::Operation => 1,
+            Self::Return => context::SCOPED_RETURN,
+            Self::Operation => context::SCOPED_OPERATION,
         }
     }
 
     /// The source computation tag this clause step interprets.
     pub(crate) fn source_tag(self) -> i32 {
         match self {
-            Self::Return => 0,
-            Self::Operation => 1,
+            Self::Return => crate::control::schema::ComputationCase::Return.tag() as i32,
+            Self::Operation => crate::control::schema::ComputationCase::Perform.tag() as i32,
         }
     }
 
@@ -224,7 +239,7 @@ pub(crate) fn clause_operand_relation(
     if payload
         != Some(FinishProjection {
             owner: input,
-            field: 0,
+            field: computation::PAYLOAD,
         })
     {
         return Err("source clause must consume the current computation payload");

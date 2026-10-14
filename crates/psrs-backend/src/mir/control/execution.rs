@@ -1,7 +1,7 @@
 //! Discharge physical CFG exits into the shared root and persistent queue rules.
 use crate::BackendError;
 use crate::cc::{ControlHelperRole as R, ReprId};
-use crate::control::execution::{self, Coverage, Operands, Schema};
+use crate::control::execution::{self, ActionRegistry, Operands, Schema};
 use crate::mir::layout::PlannedLayout;
 use crate::mir::value_identity::{
     Definitions, definitions, loop_header, loop_parameters, path_origin,
@@ -166,7 +166,7 @@ pub(super) fn verify(module: &Module, errors: &mut Vec<BackendError>) {
                 .control_replay_schema()
                 .ok_or("execution has no status schema")?
                 .status;
-            let mut coverage = Coverage::default();
+            let mut coverage = ActionRegistry::default();
             for exit in exits {
                 let view = View {
                     definitions: &definitions,

@@ -4,6 +4,7 @@
 use super::builder::{Machine, repr};
 use super::executor::arm;
 use crate::cc::{Assignment, AssignmentKind, Function, ValueId};
+use crate::control::schema::{SequenceCase, sequence as q};
 
 impl Machine<'_> {
     /// Flatten into a reversed heap sequence with an explicit traversal stack.
@@ -16,51 +17,94 @@ impl Machine<'_> {
         let mut cases = Vec::new();
         let mut body = Vec::new();
         let mut empty_cases = Vec::new();
-        for tag in 0..4 {
+        for case in SequenceCase::ALL {
             let mut branch = Vec::new();
-            let result = if tag == 0 {
+            let result = if case == SequenceCase::Empty {
                 self.replay_call(
                     self.functions.rebuild_sequence,
                     vec![reversed, todo, active, parent],
                     &mut branch,
                 )
-            } else {
+            } else if case == SequenceCase::Append {
                 // The traversal stack is built exclusively from Append nodes.
-                if tag == 2 {
-                    let next = self.field(todo, self.layout.sequence, 2, 0, &mut branch);
-                    let rest = self.field(todo, self.layout.sequence, 2, 1, &mut branch);
-                    self.replay_call(
-                        self.functions.clone_sequence,
-                        vec![next, rest, reversed, active, parent],
-                        &mut branch,
-                    )
-                } else {
-                    self.emit(repr(self.layout.replay_result), &mut branch, |_| {
-                        AssignmentKind::Unreachable
-                    })
-                }
+                let next = self.field(
+                    todo,
+                    self.layout.sequence,
+                    case.tag(),
+                    q::APPEND_LEFT,
+                    &mut branch,
+                );
+                let rest = self.field(
+                    todo,
+                    self.layout.sequence,
+                    case.tag(),
+                    q::APPEND_RIGHT,
+                    &mut branch,
+                );
+                self.replay_call(
+                    self.functions.clone_sequence,
+                    vec![next, rest, reversed, active, parent],
+                    &mut branch,
+                )
+            } else {
+                self.emit(repr(self.layout.replay_result), &mut branch, |_| {
+                    AssignmentKind::Unreachable
+                })
             };
-            empty_cases.push(arm(tag, branch, result));
+            empty_cases.push(arm(case.tag(), branch, result));
         }
         let result = self.switch(todo, self.layout.sequence, empty_cases, &mut body);
-        cases.push(arm(0, body, result));
-        for tag in [1, 2, 3] {
+        cases.push(arm(SequenceCase::Empty.tag(), body, result));
+        for case in [
+            SequenceCase::Cons,
+            SequenceCase::Append,
+            SequenceCase::Finish,
+        ] {
             let mut branch = Vec::new();
-            let (next, todo, reversed) = if tag == 2 {
-                let left = self.field(queue, self.layout.sequence, 2, 0, &mut branch);
-                let right = self.field(queue, self.layout.sequence, 2, 1, &mut branch);
-                let todo = self.node(self.layout.sequence, 2, vec![right, todo], &mut branch);
+            let (next, todo, reversed) = if case == SequenceCase::Append {
+                let left = self.field(
+                    queue,
+                    self.layout.sequence,
+                    case.tag(),
+                    q::APPEND_LEFT,
+                    &mut branch,
+                );
+                let right = self.field(
+                    queue,
+                    self.layout.sequence,
+                    case.tag(),
+                    q::APPEND_RIGHT,
+                    &mut branch,
+                );
+                let todo = self.node(
+                    self.layout.sequence,
+                    SequenceCase::Append.tag(),
+                    vec![right, todo],
+                    &mut branch,
+                );
                 (left, todo, reversed)
             } else {
-                let payload = self.field(queue, self.layout.sequence, tag, 0, &mut branch);
-                let rest = self.field(queue, self.layout.sequence, tag, 1, &mut branch);
-                let fields = if tag == 1 {
+                let payload = self.field(
+                    queue,
+                    self.layout.sequence,
+                    case.tag(),
+                    q::CONS_HEAD,
+                    &mut branch,
+                );
+                let rest = self.field(
+                    queue,
+                    self.layout.sequence,
+                    case.tag(),
+                    q::CONS_TAIL,
+                    &mut branch,
+                );
+                let fields = if case == SequenceCase::Cons {
                     vec![payload, reversed]
                 } else {
                     self.check_boundary(payload, &mut branch);
                     vec![payload, reversed, parent]
                 };
-                let reversed = self.node(self.layout.sequence, tag, fields, &mut branch);
+                let reversed = self.node(self.layout.sequence, case.tag(), fields, &mut branch);
                 (rest, todo, reversed)
             };
             let result = self.replay_call(
@@ -68,7 +112,7 @@ impl Machine<'_> {
                 vec![next, todo, reversed, active, parent],
                 &mut branch,
             );
-            cases.push(arm(tag as i32, branch, result));
+            cases.push(arm(case.tag(), branch, result));
         }
         let mut body = Vec::new();
         let result = self.switch(queue, self.layout.sequence, cases, &mut body);
@@ -91,24 +135,45 @@ impl Machine<'_> {
         let mut cases = Vec::new();
         let mut branch = Vec::new();
         let result = self.replay_result(result_queue, active, &mut branch);
-        cases.push(arm(0, branch, result));
-        for tag in [1, 3] {
+        cases.push(arm(SequenceCase::Empty.tag(), branch, result));
+        for case in [SequenceCase::Cons, SequenceCase::Finish] {
             let mut branch = Vec::new();
-            let payload = self.field(reversed, self.layout.sequence, tag, 0, &mut branch);
-            let rest = self.field(reversed, self.layout.sequence, tag, 1, &mut branch);
-            let (fields, active) = if tag == 1 {
+            let payload = self.field(
+                reversed,
+                self.layout.sequence,
+                case.tag(),
+                q::CONS_HEAD,
+                &mut branch,
+            );
+            let rest = self.field(
+                reversed,
+                self.layout.sequence,
+                case.tag(),
+                q::CONS_TAIL,
+                &mut branch,
+            );
+            let (fields, active) = if case == SequenceCase::Cons {
                 (vec![payload, result_queue], active)
             } else {
                 let extent = self.new_boundary(Some(parent), &mut branch);
                 (vec![extent, result_queue, active], extent)
             };
-            let next = self.node(self.layout.sequence, tag, fields, &mut branch);
+            let next = self.node(self.layout.sequence, case.tag(), fields, &mut branch);
             let result = self.replay_call(
                 self.functions.rebuild_sequence,
-                vec![rest, next, active, if tag == 3 { active } else { parent }],
+                vec![
+                    rest,
+                    next,
+                    active,
+                    if case == SequenceCase::Finish {
+                        active
+                    } else {
+                        parent
+                    },
+                ],
                 &mut branch,
             );
-            cases.push(arm(tag as i32, branch, result));
+            cases.push(arm(case.tag(), branch, result));
         }
         let mut body = Vec::new();
         let result = self.switch(reversed, self.layout.sequence, cases, &mut body);

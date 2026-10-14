@@ -1,8 +1,6 @@
 //! One-shot execution is an ordered transfer of private owner storage.
 use super::execution::{Operands, Schema};
-use crate::cc::{
-    ControlHelperRole, RefShape, ReprId, Representation, RepresentationTable, ValueShape,
-};
+use crate::cc::{ReprId, Representation, RepresentationTable, ValueShape};
 use crate::types::ValueId;
 
 pub(crate) struct OwnedSchema {
@@ -13,38 +11,12 @@ pub(crate) struct OwnedSchema {
 
 impl OwnedSchema {
     pub fn checked(table: &RepresentationTable) -> Result<Self, &'static str> {
-        let repr = |value| match value {
-            ValueShape::Reference(reference) if !reference.nullable => match reference.heap {
-                RefShape::Repr(repr) => Some(repr),
-                _ => None,
-            },
-            _ => None,
-        };
-        let once = table
-            .control_helpers
-            .iter()
-            .find(|helper| helper.role() == ControlHelperRole::Once)
-            .ok_or("owned execution has no Once contract")?;
-        let owner = repr(
-            table
-                .signature(once.signature())
-                .ok_or("owned execution has no Once signature")?
-                .result,
-        )
-        .ok_or("owned execution has no owner representation")?;
-        let Some(Representation::Variant { cases }) = table.representation(owner) else {
-            return Err("owned execution has no owner fields");
-        };
-        let fields = cases
-            .iter()
-            .find(|case| case.tag == 0)
-            .filter(|case| case.fields.len() == 2)
-            .ok_or("owned execution has no owner fields")?;
-        let callback = repr(fields.fields[0]).ok_or("owned execution has no callback cell")?;
-        let status = repr(fields.fields[1]).ok_or("owned execution has no status cell")?;
-        if !matches!(table.representation(callback), Some(Representation::Array { element }) if *element == crate::cc::payload::erased_shape())
+        let schema = table
+            .control_schema()
+            .ok_or("owned execution has no checked machine placement")?;
+        if !matches!(table.representation(schema.callback), Some(Representation::Array { element }) if *element == crate::cc::payload::erased_shape())
             || !matches!(
-                table.representation(status),
+                table.representation(schema.status),
                 Some(Representation::Array {
                     element: ValueShape::Integer
                 })
@@ -53,9 +25,9 @@ impl OwnedSchema {
             return Err("owned execution has invalid private storage");
         }
         Ok(Self {
-            owner,
-            callback,
-            status,
+            owner: schema.owner,
+            callback: schema.callback,
+            status: schema.status,
         })
     }
 }

@@ -3,6 +3,9 @@
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)
 **Status:** Draft design. The node inventory, lowering and flat driver match the
 implementation; complete verifier and lifecycle acceptance remains outstanding.
+The [lowering review](../../../implementation/backend/delimited-control-lowering-review-2026-10-14.md)
+identifies unresolved architecture boundaries. The proposed construction plan
+below is a review target, not an implemented or accepted replacement pipeline.
 The mechanism is selected by
 [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md).
 **Prerequisites:** [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md),
@@ -38,8 +41,10 @@ machine those stages produce, consume, or leave untouched.
 
 ## Background
 
-A defunctionalized continuation is the continuation represented as data rather
-than as a closure or a captured native stack. The
+A defunctionalized sequencing spine represents pending composition as data.
+User callbacks remain ordinary closures; their bodies and captures are not
+defunctionalized. This is an explicit monadic machine, not a selective CPS
+conversion of arbitrary functions that might suspend. The
 [design space](delimited-control-and-resumable-frames.md#design-space) of
 delimited control selects a **frame chain** — inert nodes linked by an explicit
 pending sequence — driven by a **compiler-generated loop** rather than by tail
@@ -124,9 +129,10 @@ and where completion returns to. It is a two-case node.
 in place. `Scoped` is a `handle` delimiter: its clauses run in the caller's
 context, and the delimiter's own extent bounds the captured continuation.
 
-**Lifetime extent.** One extent per delimiter, plus one for each replayed
-activation. The extent is a two-case node over a one-element mutable status
-cell.
+**Lifetime extent.** A delimiter normally allocates one extent; eligible tail
+delimiters share a finalization group's extent. Replayed Finish activations
+allocate fresh extents. The extent is a two-case node over a one-element mutable
+status cell.
 
 | Tag | Node | Fields |
 | --- | --- | --- |
@@ -170,13 +176,59 @@ unchanged. `handler` is the `run` clause, `once`/`cancel` are the one-shot API,
 and `start`/`check`/`close` manage extent lifetime. [The flat driver](#the-flat-driver)
 defines how these are used.
 
+### State relations before representation erasure
+
+The six executor parameters are related, not six independently interchangeable
+values. A step has one current computation domain and answer type, a queue
+accepting that answer, and a dispatch context accepting the queue's final answer.
+A `Scoped` context additionally relates that source domain to its target domain,
+saved caller queue and caller context. Core owns these source type relationships;
+erasing their runtime representation does not make unrelated queues or clauses
+interchangeable. The machine cannot recover those relationships from tags.
+
+For the ordinary callback portion of a queue, write `Q_f(a, b)` for work taking
+an `a` to a final `b` through computations in domain `f`:
+
+```text
+Empty                     : Q_f(a, a)
+Cons(k : a -> Control f c,
+     rest : Q_f(c, b))     : Q_f(a, b)
+Append(Q_f(a, c), Q_f(c,b)): Q_f(a, b)
+Finish(e, Q_f(a,b), p)    : Q_f(a, b) with an additional lifetime obligation
+```
+
+These are logical indices, not extra runtime fields or a new effect solver.
+Finish/replay also require the extent relationships below; the type indices
+alone do not establish lifetime safety. A raw continuation captures the current
+source queue and its source checkpoint, excluding the caller queue. Its result
+remains in that source domain; only an explicit library `handle` reinstalls
+source dispatch.
+
+Three lifetime roles must stay distinct even when their physical representation
+is identical:
+
+| Role | Meaning | Where it comes from |
+| --- | --- | --- |
+| Execution extent | Activation to restore when current work completes | Current executor extent; may change during replay |
+| Dispatch checkpoint | Lifetime of the current source delimiter | Root field 0 or Scoped field 5 |
+| Saved checkpoint | Lifetime checked when invoking/interpreting a raw resume | Captured with its queue; stored in Resume field 2 |
+
+Replay retains the saved checkpoint, starts from the current execution extent,
+and parents fresh activation extents under the current dispatch checkpoint.
+Reusing the execution extent as the checkpoint is invalid in general. Tail
+finish coalescing is permitted only by the completion-equivalence rule in the
+[scope contract](control-elimination-and-handler-scopes.md#lifetime-and-replay);
+matching field shapes alone is insufficient.
+
 ## Design
 
 ### Representation across IR layers
 
-The same machine value has a different encoding at each layer. No layer recovers
-a machine value from an erased source payload, and no layer reconstructs a source
-type from a machine node.
+The same machine value has a different encoding at each layer. No layer guesses
+a machine role from an arbitrary erased source payload or reconstructs a source
+type from a machine node. The uniform callback ABI does erase intermediate
+results; recovering a computation or result pair there requires its checked
+callable/use contract. Direct machine fields retain their nominal shapes.
 
 **Core.** `Control f a` and `Resumption f a b` are opaque nominal carriers
 (`CONTROL`, `RESUMPTION`); the eight operations stay intrinsic calls. Each
@@ -250,6 +302,58 @@ bodies can only consume the plan:
 The generated symbols are ordinary functions with predeclared signatures, so
 their calls are checked by identity and lowered like any other call. Nothing in
 this pipeline recognizes a concrete effect, operation or handler.
+
+### Construction and verification boundary under review
+
+The current lowering immediately expands machine actions to ordinary CC. The
+CC and MIR machine verifiers then recover their meaning from projections,
+calls, casts, aliases, dispatch paths and private-cell writes. Shared relations
+reduce duplication, but this still couples semantic checking to the instruction
+forms surviving optimization. A source `ControlEvidence` witness proves a
+primitive's construction contract; it is not a complete executor-step proof.
+
+The recommended design target is a **checked machine construction plan** inside
+P8. It is a temporary, effect-agnostic input to code generation, not a new
+whole-program IR family, a runtime interpreter, or a source effect system:
+
+1. One schema owns named node cases, named fields, helper roles and fixed
+   signatures. Layout planning assigns representations to this schema; consumers
+   do not infer semantic roles from helper parameter offsets.
+2. A transition program states selected cases, projections, ordered actions and
+   one terminal outcome (`Advance`, `Publish` or `Reject`). Advancing supplies a
+   complete named executor state; a branch cannot silently inherit mutable
+   builder state. Every required case has an action, including rejection.
+3. The plan checks operand roles, queue composition, checkpoint/activation
+   provenance, freshness, callback application and effect order before emission.
+   It retains Core's checked domain identities at source/callback boundaries.
+4. Expansion emits ordinary CC against the immutable layout. A boundary checker
+   compares emitted actions and actual exits against the checked plan, accounting
+   for guards and exceptional prefixes. Merely tagging generated code with an
+   action ID does not validate its body. Semantic rules and the emitter must
+   remain independently testable; generating both from one unchecked template
+   would only duplicate a bug.
+5. P9 translates checked CC to physical MIR under its ordinary representation,
+   capture, CFG and loopification contracts. Each fact is either explicitly
+   discharged at expansion or retained for the P9 checks; no stale certificate
+   may authorize modified instructions.
+
+The proof boundary after expansion needs an explicit decision. The recommendation
+is to trust the semantics-preserving ordinary P9/P10 transformations, validate
+their output IR invariants, and test their preservation of machine behavior.
+This places them in the compiler's trusted implementation, as for ordinary
+closures and mutable data. It does **not** prove optimized program equivalence
+from SSA/layout validity. Requiring independent semantic validation after every
+transform instead requires a transformation-aware certificate or a complete
+translation validator; local helper identities and shape recognition cannot
+claim that guarantee.
+
+This recommendation changes verification architecture, not the selected runtime
+semantics. Existing CC/MIR semantic checks remain in force during migration.
+Before removing any check, map its positive and malformed-IR cases to the new
+boundary, identify the newly trusted transformation, and run the corresponding
+optimized Wasm behavior tests. The [review and migration gates](../../../implementation/backend/delimited-control-lowering-review-2026-10-14.md)
+record the alternatives and required evidence. No blanket helper exemption,
+inliner restriction, or narrowed AE/AC requirement closes this decision.
 
 ### Capture and frame construction
 
@@ -465,12 +569,14 @@ shared input:
 ```text
 cloneSequence(queue, todo, reversed, active, parent):
     # `todo` is a LIFO stack of pending Append right-halves.
-    while todo is Append(left, right):
-        todo = right; queue = left
-    if todo is not Empty: trap
     match queue:
         Empty:
-            return rebuildSequence(reversed, todo, active, parent)
+            match todo:
+                Empty:
+                    return rebuildSequence(reversed, Empty, active, parent)
+                Append(next, rest):
+                    return cloneSequence(next, rest, reversed, active, parent)
+                otherwise: trap
         Cons(k, rest):
             return cloneSequence(rest, todo, Cons(k, reversed), active, parent)
         Finish(e, rest, _):
@@ -497,6 +603,15 @@ one-shot owners are shared, never rebuilt, so replay does not re-run or clone
 user mutable data. Only lifecycle activating nodes are instantiated, and the
 fresh-parent chain stays finite even when the same sequence is replayed
 repeatedly.
+
+The traversal stack is popped only after the current queue is exhausted.
+For `Append(Cons(k, Empty), Cons(h, Empty))`, traversal must visit `k` before
+`h`; popping `todo` before inspecting `queue` would skip `k`. Flattening preserves
+the occurrence order of both callbacks and Finish markers. Replay currently
+walks and rebuilds the captured sequence even when it contains no Finish;
+persistence permits sharing but does not by itself make replay constant-time.
+Cost claims must separate saved-sequence length, Finish count, ancestry depth,
+native stack, allocation churn and retained heap.
 
 ## Code map
 
@@ -662,6 +777,9 @@ enters the target under the caller's context.
 
 ## Open questions and future work
 
+- Resolve the [construction/verification boundary](#construction-and-verification-boundary-under-review)
+  before expanding shape-recovery checks. The temporary plan, explicit action
+  coverage and proof discharge are proposed work, not current implementation.
 - Audit full machine acceptance beyond the repaired lifecycle and observable-step
   checks, including all required reference-library and cost evidence. Focused
   verification does not establish complete AE/AC acceptance.

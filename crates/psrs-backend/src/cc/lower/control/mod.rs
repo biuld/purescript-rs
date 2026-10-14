@@ -210,13 +210,14 @@ impl FunctionLowerer<'_> {
             ));
         }
         let case = match intrinsic {
-            Intrinsic::ControlReturn => 0,
-            Intrinsic::ControlPerform => 1,
-            Intrinsic::ControlBind => 2,
-            Intrinsic::ControlHandle => 4,
-            Intrinsic::ControlResume => 5,
+            Intrinsic::ControlReturn => crate::control::schema::ComputationCase::Return,
+            Intrinsic::ControlPerform => crate::control::schema::ComputationCase::Perform,
+            Intrinsic::ControlBind => crate::control::schema::ComputationCase::Bind,
+            Intrinsic::ControlHandle => crate::control::schema::ComputationCase::Handle,
+            Intrinsic::ControlResume => crate::control::schema::ComputationCase::OwnedResume,
             _ => return Err(control_error(expression.span, "not a control primitive")),
-        };
+        }
+        .tag();
         let destination = self.fresh(ty);
         let fields = self.control_fields(
             layout.computation,
@@ -305,7 +306,7 @@ impl FunctionLowerer<'_> {
         resume.check_boundary(boundary, &mut assignments);
         let result = resume.node(
             layout.computation,
-            3,
+            crate::control::schema::ComputationCase::Resume.tag(),
             vec![value, saved, boundary],
             &mut assignments,
         );
@@ -371,6 +372,17 @@ pub(in crate::cc) fn plan_control_helpers(
     layout.representations.control_resumption = Some(crate::cc::ControlResumptionContract {
         function: functions.resume,
         signature: control.continuation,
+    });
+    layout.representations.control_schema = Some(crate::cc::ControlSchema {
+        computation: control.computation,
+        sequence: control.sequence,
+        context: control.context,
+        extent: control.boundary,
+        status: control.status,
+        owner: control.owner,
+        callback: control.callback,
+        result_pair: control.pair,
+        replay_result: control.replay_result,
     });
     for (function, signature, role) in functions.contracts(control) {
         layout

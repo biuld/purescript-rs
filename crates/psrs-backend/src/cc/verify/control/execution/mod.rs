@@ -5,7 +5,7 @@ use crate::cc::value_identity::{definitions, reference_origin, transparent};
 use crate::cc::{
     AssignmentKind as A, ControlHelperRole as R, Function, ReprId, RepresentationTable, ValueId,
 };
-use crate::control::execution::{self, Coverage, Facts, Operands, Schema};
+use crate::control::execution::{self, ActionRegistry, Facts, Operands, Schema};
 
 pub(super) struct View<'a> {
     pub(super) definitions: Definitions<'a>,
@@ -134,7 +134,7 @@ pub(super) fn verify(
                 .ok_or("execution has no raw resumption contract")?
                 .function(),
         };
-        let mut coverage = Coverage::default();
+        let mut coverage = ActionRegistry::default();
         walk(
             function,
             &schema,
@@ -161,7 +161,7 @@ fn walk(
     value: ValueId,
     facts: Facts,
     active: &mut std::collections::HashSet<ValueId>,
-    coverage: &mut Coverage,
+    coverage: &mut ActionRegistry,
 ) -> Result<(), &'static str> {
     if !active.insert(value) {
         return Err("execution result path is cyclic");

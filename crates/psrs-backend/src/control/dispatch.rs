@@ -1,4 +1,6 @@
 //! Required dispatch alternatives of the control machine, independent of IR.
+use crate::control::schema::{ComputationCase, ContextCase, SequenceCase};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Carrier {
     Computation,
@@ -7,13 +9,40 @@ pub(crate) enum Carrier {
     Reverse,
 }
 
+const COMPUTATION_TAGS: [i32; 6] = [
+    ComputationCase::Return.tag() as i32,
+    ComputationCase::Perform.tag() as i32,
+    ComputationCase::Bind.tag() as i32,
+    ComputationCase::Resume.tag() as i32,
+    ComputationCase::Handle.tag() as i32,
+    ComputationCase::OwnedResume.tag() as i32,
+];
+
+const QUEUE_TAGS: [i32; 4] = [
+    SequenceCase::Empty.tag() as i32,
+    SequenceCase::Cons.tag() as i32,
+    SequenceCase::Append.tag() as i32,
+    SequenceCase::Finish.tag() as i32,
+];
+
+const CONTEXT_TAGS: [i32; 2] = [
+    ContextCase::Root.tag() as i32,
+    ContextCase::Scoped.tag() as i32,
+];
+
+const REVERSE_TAGS: [i32; 3] = [
+    SequenceCase::Empty.tag() as i32,
+    SequenceCase::Cons.tag() as i32,
+    SequenceCase::Finish.tag() as i32,
+];
+
 impl Carrier {
     pub(crate) fn tags(self) -> &'static [i32] {
         match self {
-            Self::Computation => &[0, 1, 2, 3, 4, 5],
-            Self::Queue => &[0, 1, 2, 3],
-            Self::Context => &[0, 1],
-            Self::Reverse => &[0, 1, 3],
+            Self::Computation => &COMPUTATION_TAGS,
+            Self::Queue => &QUEUE_TAGS,
+            Self::Context => &CONTEXT_TAGS,
+            Self::Reverse => &REVERSE_TAGS,
         }
     }
 

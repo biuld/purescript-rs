@@ -15,9 +15,7 @@ impl Schema {
             .control_replay_schema()
             .ok_or("lifecycle has no checked extent schema")?;
         let check = table
-            .control_helpers
-            .iter()
-            .find(|h| h.role() == R::Check)
+            .control_helper(R::Check)
             .ok_or("lifecycle has no Check contract")?
             .function();
         Ok(Self {

@@ -3,6 +3,7 @@
 use super::builder::{Machine, repr};
 use super::executor::arm;
 use crate::cc::{Assignment, AssignmentKind, Function, TagCase, ValueId, ValueShape};
+use crate::control::schema::{ExtentCase, extent as e};
 
 impl Machine<'_> {
     pub(super) fn integer(&mut self, n: i32, body: &mut Vec<Assignment>) -> ValueId {
@@ -119,8 +120,8 @@ impl Machine<'_> {
     ) -> ValueId {
         let cell = self.new_status(body);
         let (case, fields) = match parent {
-            Some(parent) => (1, vec![cell, parent]),
-            None => (0, vec![cell]),
+            Some(parent) => (ExtentCase::Scoped.tag(), vec![cell, parent]),
+            None => (ExtentCase::Root.tag(), vec![cell]),
         };
         self.node(self.layout.boundary, case, fields, body)
     }
@@ -153,17 +154,29 @@ impl Machine<'_> {
     pub(super) fn boundary_check(mut self) -> Function {
         let boundary = self.lower.fresh(repr(self.layout.boundary));
         let mut cases = Vec::new();
-        for case in 0..2 {
+        for case in ExtentCase::ALL {
             let mut branch = Vec::new();
-            let cell = self.field(boundary, self.layout.boundary, case, 0, &mut branch);
+            let cell = self.field(
+                boundary,
+                self.layout.boundary,
+                case.tag(),
+                e::STATUS,
+                &mut branch,
+            );
             self.guard_pending(cell, &mut branch);
-            let result = if case == 0 {
+            let result = if case == ExtentCase::Root {
                 boundary
             } else {
-                let parent = self.field(boundary, self.layout.boundary, case, 1, &mut branch);
+                let parent = self.field(
+                    boundary,
+                    self.layout.boundary,
+                    case.tag(),
+                    e::PARENT,
+                    &mut branch,
+                );
                 self.check_boundary(parent, &mut branch)
             };
-            cases.push(arm(case as i32, branch, result));
+            cases.push(arm(case.tag(), branch, result));
         }
         let mut body = Vec::new();
         let result = self.switch(boundary, self.layout.boundary, cases, &mut body);
@@ -180,11 +193,17 @@ impl Machine<'_> {
     pub(super) fn boundary_close(mut self) -> Function {
         let boundary = self.lower.fresh(repr(self.layout.boundary));
         let mut cases = Vec::new();
-        for case in 0..2 {
+        for case in ExtentCase::ALL {
             let mut branch = Vec::new();
-            let cell = self.field(boundary, self.layout.boundary, case, 0, &mut branch);
+            let cell = self.field(
+                boundary,
+                self.layout.boundary,
+                case.tag(),
+                e::STATUS,
+                &mut branch,
+            );
             self.set_status(cell, 1, &mut branch);
-            cases.push(arm(case as i32, branch, boundary));
+            cases.push(arm(case.tag(), branch, boundary));
         }
         let mut body = Vec::new();
         let result = self.switch(boundary, self.layout.boundary, cases, &mut body);

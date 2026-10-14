@@ -228,6 +228,10 @@ pub struct RepresentationTable {
     /// Semantic helper bindings are fixed before any function body is lowered.
     pub control_helpers: Vec<super::ControlHelperContract>,
     pub control_resumption: Option<super::ControlResumptionContract>,
+    /// The frozen named placement of the machine schema. Planning fixes it once;
+    /// consumers read named carriers from it instead of inferring a role from a
+    /// helper signature offset. `None` means this module does not use control.
+    pub control_schema: Option<super::ControlSchema>,
     /// The closed-run pair is planned before payload erasure; consumers must
     /// not reconstruct its nominal identity from record labels or field count.
     pub control_result_pair: Option<ReprId>,

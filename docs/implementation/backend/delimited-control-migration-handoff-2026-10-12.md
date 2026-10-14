@@ -2,6 +2,9 @@
 
 **Updated:** 2026-10-14, after repairs for architecture review R1–R3.
 The filename keeps its original date; this file is the current snapshot.
+The subsequent [lowering design review](delimited-control-lowering-review-2026-10-14.md)
+reviews the committed implementation at `1e24e5d5`. Its construction/proof-boundary
+proposal is unimplemented; review that boundary before extending the recognizers.
 **Objective:** Complete delimited control, then implement native Effect/ST.
 **Status:** R1–R3 are repaired in implementation and permanent tests, included
 in the local checkpoint commit containing this handoff.
@@ -454,3 +457,31 @@ final tree; full workspace was not repeated for those last changes. Event prefix
 comparisons resolve observed input operands through each path's aliases while
 retaining instruction result IDs, so a shared join cannot disguise another
 cell/source or cast definition.
+
+## 9. Lowering architecture review checkpoint (2026-10-14)
+
+The implementation checkpoint is `1e24e5d5`. The subsequent documentation-only
+review leaves Rust, the target profile and the locked package unchanged. Its
+uncommitted diff comprises the lowering review, the machine design corrections,
+the checklist link and this handoff update.
+
+The review identifies early expansion followed by semantic reconstruction,
+positional schema duplication, manually composed action coverage, and an
+unresolved proof boundary around generic optimization. It recommends a temporary
+checked P8 construction plan, with an independently checked expansion boundary
+and explicit downstream trust accounting. This recommendation is not a selected
+new pipeline and does not authorize removing existing semantic checks.
+
+`control-machine.md` now distinguishes computation/queue/context relationships
+and execution/dispatch/saved extent roles. Its replay pseudocode now pops the
+traversal stack only when the current queue is empty, matching the code rather
+than skipping a saved left queue. The review also separates sequencing
+defunctionalization from arbitrary function conversion and replay cost from
+persistence.
+
+Fresh required-Wasmtime control baseline: **185 passed, 0 failed, 0 ignored**.
+Log: `/private/tmp/psrs-control-lowering-review-2026-10-14-baseline.log`.
+No new full workspace or acceptance measurement was made. The next action is to
+resolve the schema/action inventory and proof-discharge decision, then implement
+the Bind/Return/Cons vertical slice under the review's migration gates. Existing
+R1–R3 repairs and all remaining AE/AC obligations remain in force.

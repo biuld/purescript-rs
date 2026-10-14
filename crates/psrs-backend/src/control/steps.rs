@@ -1,5 +1,6 @@
 //! Operand identities required by the inert Bind and raw Resume transitions.
 use super::provenance::FinishProjection;
+use crate::control::schema::computation;
 use crate::types::ValueId;
 
 pub(crate) fn bind_relation(
@@ -12,12 +13,12 @@ pub(crate) fn bind_relation(
     if inner
         != Some(FinishProjection {
             owner: input,
-            field: 0,
+            field: computation::BIND_INNER,
         })
         || callback
             != Some(FinishProjection {
                 owner: input,
-                field: 1,
+                field: computation::BIND_CONTINUATION,
             })
         || tail != queue
     {
@@ -33,7 +34,7 @@ pub(crate) fn resume_answer_relation(
     if answer
         != Some(FinishProjection {
             owner: input,
-            field: 0,
+            field: computation::RESUME_VALUE,
         })
     {
         return Err("Resume must return its current saved answer");

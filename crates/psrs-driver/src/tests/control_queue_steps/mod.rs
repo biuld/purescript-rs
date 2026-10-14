@@ -99,14 +99,14 @@ fn mir_root_and_queue_steps_reject_same_shaped_substitutions() {
 }
 
 #[test]
-fn execution_requires_the_layout_owned_result_pair() {
+fn execution_requires_the_placed_machine_schema() {
     let mut input = crate::lower_main_to_cc(SOURCE).unwrap();
-    input.cc.representations.control_result_pair = None;
+    input.cc.representations.control_schema = None;
     let errors = psrs_backend::cc::verify_module(&input.cc).unwrap_err();
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("execution has no planned result pair")),
+            .contains("control helpers have no placed machine schema")),
         "{errors:?}"
     );
 }

@@ -31,6 +31,9 @@ pub(crate) fn verify_table(
             "control machine is missing a required semantic helper",
         ));
     }
+    if let Err(message) = table.verify_control_schema() {
+        return Err(table_error(span, message));
+    }
     if !table.control_helpers.is_empty() {
         let valid = table.control_resumption.as_ref().is_some_and(|resume| {
             !helpers.contains(&resume.function())

@@ -255,11 +255,11 @@ fn ty(module: &Module, id: TypeId, visiting: &mut HashSet<TypeId>) -> Option<T> 
 fn implementation(layout: ControlLayout, operation: Intrinsic) -> ControlImplementation {
     use Intrinsic::*;
     let case = match operation {
-        ControlReturn => 0,
-        ControlPerform => 1,
-        ControlBind => 2,
-        ControlHandle => 4,
-        ControlResume => 5,
+        ControlReturn => crate::control::schema::ComputationCase::Return,
+        ControlPerform => crate::control::schema::ComputationCase::Perform,
+        ControlBind => crate::control::schema::ComputationCase::Bind,
+        ControlHandle => crate::control::schema::ComputationCase::Handle,
+        ControlResume => crate::control::schema::ComputationCase::OwnedResume,
         ControlRun => {
             return ControlImplementation::Call {
                 signature: layout.executor,
@@ -279,7 +279,8 @@ fn implementation(layout: ControlLayout, operation: Intrinsic) -> ControlImpleme
             };
         }
         _ => unreachable!("checked control operation"),
-    };
+    }
+    .tag();
     ControlImplementation::Frame {
         representation: layout.computation,
         case,

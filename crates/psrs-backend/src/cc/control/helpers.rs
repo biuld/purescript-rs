@@ -53,19 +53,7 @@ impl ControlHelperContract {
 
 impl crate::cc::RepresentationTable {
     pub(crate) fn control_sequence(&self) -> Option<crate::cc::ReprId> {
-        let helper = self
-            .control_helpers
-            .iter()
-            .find(|helper| helper.role == ControlHelperRole::CloneSequence)?;
-        let crate::cc::ValueShape::Reference(reference) =
-            *self.signature(helper.signature)?.parameters.first()?
-        else {
-            return None;
-        };
-        let crate::cc::RefShape::Repr(sequence) = reference.heap else {
-            return None;
-        };
-        Some(sequence)
+        Some(self.control_schema()?.sequence)
     }
 
     pub(crate) fn verify_control_call(
@@ -123,24 +111,10 @@ pub(crate) struct ControlCheckpointSchema {
 
 impl crate::cc::RepresentationTable {
     pub(crate) fn control_checkpoint_schema(&self) -> Option<ControlCheckpointSchema> {
-        let parameter = |role, index| {
-            let helper = self
-                .control_helpers
-                .iter()
-                .find(|helper| helper.role() == role)?;
-            let crate::cc::ValueShape::Reference(reference) =
-                *self.signature(helper.signature())?.parameters.get(index)?
-            else {
-                return None;
-            };
-            let crate::cc::RefShape::Repr(repr) = reference.heap else {
-                return None;
-            };
-            Some(repr)
-        };
+        let schema = self.control_schema()?;
         Some(ControlCheckpointSchema {
-            computation: parameter(ControlHelperRole::Executor, 2)?,
-            context: parameter(ControlHelperRole::Executor, 5)?,
+            computation: schema.computation,
+            context: schema.context,
         })
     }
 }
@@ -155,29 +129,9 @@ pub(crate) struct ControlReplaySchema {
 
 impl crate::cc::RepresentationTable {
     pub(crate) fn control_replay_schema(&self) -> Option<ControlReplaySchema> {
-        let repr = |shape| match shape {
-            crate::cc::ValueShape::Reference(crate::cc::Reference {
-                heap: crate::cc::RefShape::Repr(id),
-                nullable: false,
-            }) => Some(id),
-            _ => None,
-        };
-        let signature = |role| {
-            self.signature(
-                self.control_helpers
-                    .iter()
-                    .find(|helper| helper.role() == role)?
-                    .signature(),
-            )
-        };
-        let sequence = self.control_sequence()?;
-        let boundary = repr(*signature(ControlHelperRole::Check)?.parameters.first()?)?;
-        let crate::cc::Representation::Variant { cases } = self.representation(boundary)? else {
-            return None;
-        };
-        let status = repr(*cases.iter().find(|case| case.tag == 1)?.fields.first()?)?;
+        let schema = self.control_schema()?;
         if !matches!(
-            self.representation(status),
+            self.representation(schema.status),
             Some(crate::cc::Representation::Array {
                 element: crate::cc::ValueShape::Integer
             })
@@ -185,10 +139,10 @@ impl crate::cc::RepresentationTable {
             return None;
         }
         Some(ControlReplaySchema {
-            sequence,
-            boundary,
-            status,
-            result: repr(signature(ControlHelperRole::CloneSequence)?.result)?,
+            sequence: schema.sequence,
+            boundary: schema.extent,
+            status: schema.status,
+            result: schema.replay_result,
         })
     }
 }

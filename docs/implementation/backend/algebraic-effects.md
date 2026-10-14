@@ -10,6 +10,9 @@ mechanism.
 **Date:** 2026-10-11.
 
 **Current continuation:** [Architecture review repairs, 2026-10-14](#architecture-review-repairs--2026-10-14).
+The subsequent [lowering architecture review](delimited-control-lowering-review-2026-10-14.md)
+records a proposed construction/proof boundary and migration gates. It does not
+change requirement statuses or replace existing implementation evidence.
 
 This checklist records the complete evidence required for implementation. Creating
 it does not resume the withdrawn State migration or select native Effect/ST

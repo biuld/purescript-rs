@@ -11,6 +11,7 @@ pub(crate) mod branch_facts;
 mod case;
 mod control;
 pub(crate) mod value_identity;
+pub(crate) use control::ControlSchema;
 pub use control::{
     ControlContract, ControlContractId, ControlDomain, ControlHelperContract, ControlHelperId,
     ControlHelperRole, ControlResumptionContract, SourceTypeIdentityId, TypeConstructorIdentity,
