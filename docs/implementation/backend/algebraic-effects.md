@@ -1840,7 +1840,7 @@ Executed this turn:
 | AE-08 | 100,000-step bind, request and deep sequences under Wasmtime | None |
 | AE-09 | Ignored results, traps, callbacks; ordinary optimizer; no control exemption | None |
 | AE-10 | Lock fingerprint matches `stdlib.lock.json`; 70 unchanged Run/Free/… modules | The 34 historical target adaptations stay separately reviewed |
-| AE-11 | None | Native host IO and public Effect/ST facades |
+| AE-11 | Phantom-Free Effect/ST prototype with `toEffect` execution (`tests::native_representation`, 2026-10-16) | Official Effect/ST source, host IO facades, region isolation |
 | AC-01 | DEC-19; `control_surface` eight operations | None |
 | AC-02 | Closed/open/scoped/owned execution; no silent stack-switch fallback | None |
 | AC-03 | One-shot, cancel, re-entrant reject, expired raw, non-resuming abandonment | None |

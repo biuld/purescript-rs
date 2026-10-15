@@ -1,6 +1,6 @@
 # Handoff: Delimited Control Migration and Remaining Acceptance
 
-**Updated:** 2026-10-15. The filename keeps its original date; this file is the
+**Updated:** 2026-10-16. The filename keeps its original date; this file is the
 current snapshot. **§15 is the current progress.** Sections 1–14 are history:
 §10 is the construction-boundary migration, §§11–12 the operand-level CC
 boundary and immutable planning, §13 the bounded model, and §14 the optimized
@@ -17,8 +17,11 @@ on optimized Wasm. The 185 historical recognizer tests have owners in
 [the retired-regression document](delimited-control-retired-regressions.md).
 That audit does not close gates 4 and 6 by count alone. AE-01–AE-10 and
 AC-01–AC-05 are Verified. AE-11 native host IO and public Effect/ST facades
-remain open. D-04 scoreboard numbers were not remeasured. A translation
-validator is an explicit further assurance choice, not current work. The
+remain open; the 2026-10-16 prototype uses a phantom-result free monad so
+Effect/ST can declare official roles, and `ST.Global.toEffect` executes one
+heterogeneous storage-and-clock program. D-04 scoreboard numbers were not
+remeasured. A translation validator is an explicit further assurance choice,
+not current work. The
 [architecture proof-owner audit](delimited-control-architecture-review-2026-10-14.md#current-proof-owners-2026-10-15)
 and the
 [lowering implementation audit](delimited-control-lowering-review-2026-10-14.md#implementation-audit-2026-10-15)
@@ -1185,15 +1188,16 @@ modified MIR.
 | R1 | Check/Close bodies are named helper plans plus the restored lifecycle CC mutations. |
 | R2 | The P8 boundary accounts for ordered operations, failed guards and recovery casts. The four observable CC tests remain. |
 | R3 | Live helpers are required by the inventory. The retired inlined Start/Once/Cancel publication negatives still need an explicit construction or transform owner. |
-| AE/AC | AE-01–AE-10 and AC-01–AC-05 Verified; AE-11 Unverified. D-04 measurements unchanged. |
+| AE/AC | AE-01–AE-10 and AC-01–AC-05 Verified; AE-11 Unverified. Phantom-Free Effect/ST prototype with `toEffect` execution is in `tests::native_representation`. D-04 measurements unchanged. |
 | Foreign and traps | P8 rejects opaque host-handle captures in control callbacks. Canonical nested `borrow<T>` is an unsupported capture. A trap aborts the instance; the artifact has no Control cleanup export. Complete AC-04 buffer-lifetime evidence remains open. |
 
 ### Next actions
 
 1. Treat the 185-name mapping as an audit, not gate closure. Do not restore
    machine recognizers.
-2. AE-11 and public native Effect/ST facades. Remeasure D-04 only when that
-   work's validation runs.
+2. AE-11: keep the prototype outside the package; next is safe ST constructors,
+   region-escape negatives, then official Effect/ST source adapters. Remeasure
+   D-04 only when that work's validation runs.
 3. Leave DEC-21's trust boundary in place. A pass-level translation validator
    requires an amendment of that decision before implementation.
 
