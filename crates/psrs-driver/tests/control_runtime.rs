@@ -197,6 +197,34 @@ main = if intEq result._1.count 1 then result._2.answer else 1
 }
 
 #[test]
+fn collection_preserves_array_and_string_captures_across_suspension() {
+    execute_gc(
+        "buffer-gc",
+        r#"module Main where
+import Prim.Control as C
+data Op next = Op (Int -> next)
+data Noise next = Noise (Int -> next)
+handler :: forall x. Int -> Op x -> (x -> C.Control Op Int) -> { _1 :: Int, _2 :: C.Control Op Int }
+handler s (Op k) cont = let churn = C.run 0 noiseHandler (noise 4000) in { _1: intAdd s churn._1, _2: cont (k 0) }
+noiseHandler :: forall x. Int -> Noise x -> (x -> C.Control Noise Int) -> { _1 :: Int, _2 :: C.Control Noise Int }
+noiseHandler s (Noise k) cont = { _1: intAdd s 1, _2: cont (k s) }
+noise :: Int -> C.Control Noise Int
+noise n = if intEq n 0 then C.return 0 else C.bind (C.perform (Noise \x -> x)) (\_ -> noise (intSub n 1))
+program :: C.Control Op Int
+program = let numbers = [40, 2]
+              text = stringToBytes (numberToString 10.0)
+          in C.bind (C.perform (Op \x -> x)) (\_ -> C.return (if intEq (arrayLength text) 0 then 0 else intAdd (arrayIndex numbers 0) (arrayLength numbers)))
+main :: Int
+main = (C.run 0 handler program)._2
+"#,
+    );
+}
+
+fn execute_gc(name: &str, source: &str) {
+    control_support::execute_with_gc(name, source, 42);
+}
+
+#[test]
 fn function_answers_use_the_shared_callable_protocol() {
     execute(
         "function",

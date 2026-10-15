@@ -14,7 +14,7 @@ pub(super) fn instrument(stages: &mut Stages, limit: i32) -> usize {
     let check = stages
         .cc
         .representations
-        .control_helpers
+        .control_helpers()
         .iter()
         .find(|h| h.role() == R::Check)
         .unwrap()
@@ -146,6 +146,24 @@ fn reference_type(index: u32, nullable: bool) -> ValType {
 fn leaf(instruction: I<'static>) -> Op {
     Op::Leaf(instruction)
 }
+
+fn counter(global: u32, budget: i32, span: psrs_span::TextRange) -> Body {
+    vec![
+        leaf(I::GlobalGet(global)),
+        leaf(I::I32Const(1)),
+        leaf(I::I32Add),
+        leaf(I::GlobalSet(global)),
+        leaf(I::GlobalGet(global)),
+        leaf(I::I32Const(budget)),
+        leaf(I::I32GtS),
+        Op::If {
+            then_body: vec![leaf(I::Unreachable)],
+            else_body: vec![],
+            result: None,
+            span,
+        },
+    ]
+}
 fn insert(body: &mut Body, root: u32, child: u32, local: u32, checker: u32, limit: i32) -> usize {
     let mut count = 0;
     let mut result = Vec::new();
@@ -195,7 +213,7 @@ pub(super) fn instrument_replay(stages: &mut Stages, budget: i32) -> usize {
         stages
             .cc
             .representations
-            .control_helpers
+            .control_helpers()
             .iter()
             .find(|helper| helper.role() == role)
             .expect("control helper")
@@ -217,24 +235,104 @@ pub(super) fn instrument_replay(stages: &mut Stages, budget: i32) -> usize {
             continue;
         }
         let span = function.span;
-        let mut prefix = vec![
-            leaf(I::GlobalGet(global)),
-            leaf(I::I32Const(1)),
-            leaf(I::I32Add),
-            leaf(I::GlobalSet(global)),
-            leaf(I::GlobalGet(global)),
-            leaf(I::I32Const(budget)),
-            leaf(I::I32GtS),
-            Op::If {
-                then_body: vec![leaf(I::Unreachable)],
-                else_body: vec![],
-                result: None,
-                span,
-            },
-        ];
+        let mut prefix = counter(global, budget, span);
         prefix.extend(std::mem::take(&mut function.body));
         function.body = prefix;
         count += 1;
+    }
+    count
+}
+
+/// Observe each loopified dispatch iteration, including self-tail backedges.
+/// Optional `ordinal` selects one replay activation by its Clone entry; it
+/// remains selected across Clone/Rebuild tail loops and their helper transfer.
+pub(super) fn instrument_replay_steps(
+    stages: &mut Stages,
+    budget: i32,
+    ordinal: Option<i32>,
+) -> usize {
+    let plan = stages
+        .cc
+        .representations
+        .control_plan()
+        .expect("planned control machine");
+    let clone = plan.helper(R::CloneSequence).unwrap().function();
+    let rebuild = plan.helper(R::RebuildSequence).unwrap().function();
+    let module = &mut stages.wasm;
+    let global = module.globals.len() as u32;
+    for index in [global, global + 1] {
+        module.globals.push(Global {
+            index: GlobalIndex(index),
+            mutable: true,
+            ty: ValType::I32,
+            init: GlobalInit::I32(0),
+        });
+    }
+    let mut helpers = 0;
+    for function in &mut module.functions {
+        if function.symbol != clone && function.symbol != rebuild {
+            continue;
+        }
+        let prefix = if let Some(ordinal) = ordinal {
+            vec![
+                leaf(I::GlobalGet(global + 1)),
+                leaf(I::I32Const(ordinal)),
+                leaf(I::I32Eq),
+                Op::If {
+                    then_body: counter(global, budget, function.span),
+                    else_body: vec![],
+                    result: None,
+                    span: function.span,
+                },
+            ]
+        } else {
+            counter(global, budget, function.span)
+        };
+        let loops = instrument_loops(&mut function.body, &prefix);
+        assert_eq!(
+            loops, 1,
+            "replay observation requires one loopified dispatch header per helper, got {loops} in {:?}",
+            function.symbol
+        );
+        if function.symbol == clone {
+            let mut entry = vec![
+                leaf(I::GlobalGet(global + 1)),
+                leaf(I::I32Const(1)),
+                leaf(I::I32Add),
+                leaf(I::GlobalSet(global + 1)),
+            ];
+            entry.extend(std::mem::take(&mut function.body));
+            function.body = entry;
+        }
+        helpers += 1;
+    }
+    assert_eq!(
+        helpers, 2,
+        "both replay helpers must survive the verified pipeline"
+    );
+    helpers
+}
+
+fn instrument_loops(body: &mut Body, prefix: &Body) -> usize {
+    let mut count = 0;
+    for op in body {
+        match op {
+            Op::Loop { body, .. } => {
+                count += 1 + instrument_loops(body, prefix);
+                let mut observed = prefix.clone();
+                observed.extend(std::mem::take(body));
+                *body = observed;
+            }
+            Op::Block { body, .. } => count += instrument_loops(body, prefix),
+            Op::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                count += instrument_loops(then_body, prefix) + instrument_loops(else_body, prefix);
+            }
+            _ => {}
+        }
     }
     count
 }

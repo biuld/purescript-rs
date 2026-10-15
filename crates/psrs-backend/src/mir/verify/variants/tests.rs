@@ -9,8 +9,8 @@ use psrs_span::TextRange;
 
 fn constructor(tag: i32, copy: bool) -> Module {
     let span = TextRange::new(0, 1);
-    let table = RepresentationTable {
-        representations: vec![Representation::Variant {
+    let table = RepresentationTable::from_parts(
+        vec![Representation::Variant {
             cases: vec![
                 VariantCase {
                     tag: 7,
@@ -22,8 +22,9 @@ fn constructor(tag: i32, copy: bool) -> Module {
                 },
             ],
         }],
-        ..Default::default()
-    };
+        Default::default(),
+        Default::default(),
+    );
     let layout = PlannedLayout::plan(&table, TargetCapabilities::default()).unwrap();
     let type_index = layout.variant_index(crate::cc::ReprId(0), 7).unwrap();
     let result_type = ValueType::Ref(RefType {

@@ -7,8 +7,7 @@ pub(in crate::cc) use contracts::lookup;
 
 use crate::cc::payload::erased_shape;
 use crate::cc::{
-    RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, SignatureId,
-    ValueShape, VariantCase,
+    ReprId, Representation, RepresentationTable, Signature, SignatureId, ValueShape, VariantCase,
 };
 
 use psrs_hir::TypeId as HirTypeId;
@@ -29,6 +28,7 @@ pub(in crate::cc) struct ControlLayout {
     pub pair: ReprId,
     pub continuation: SignatureId,
     pub executor: SignatureId,
+    pub run: SignatureId,
     pub context: ReprId,
     pub clone_sequence: SignatureId,
     pub rebuild_sequence: SignatureId,
@@ -56,71 +56,7 @@ pub(in crate::cc) fn append(
     let boundary = table.reserve();
     let callback = crate::cc::layout::protocols::array(table, erased);
     let status = crate::cc::layout::protocols::array(table, ValueShape::Integer);
-    let callable = reference(RefShape::Closure(continuation));
-    let queue = reference(RefShape::Repr(sequence));
-    let extent = reference(RefShape::Repr(boundary));
-    let frame = reference(RefShape::Repr(computation));
-    set_cases(
-        table,
-        computation,
-        vec![
-            vec![erased],
-            vec![erased],
-            vec![frame, callable],
-            vec![erased, queue, extent],
-            vec![callable, callable, frame],
-            vec![reference(RefShape::Repr(owner)), erased],
-        ],
-    );
-    set_cases(
-        table,
-        sequence,
-        vec![
-            vec![],
-            vec![callable, queue],
-            vec![queue, queue],
-            vec![extent, queue, extent],
-        ],
-    );
-    set_cases(
-        table,
-        context,
-        vec![
-            vec![extent],
-            vec![
-                callable,
-                callable,
-                queue,
-                extent,
-                reference(RefShape::Repr(context)),
-                extent,
-            ],
-        ],
-    );
-    set_cases(
-        table,
-        owner,
-        vec![vec![
-            reference(RefShape::Repr(callback)),
-            reference(RefShape::Repr(status)),
-        ]],
-    );
-    set_cases(
-        table,
-        boundary,
-        vec![
-            vec![reference(RefShape::Repr(status))],
-            vec![reference(RefShape::Repr(status)), extent],
-        ],
-    );
     let replay_result = table.reserve();
-    table.set(
-        replay_result,
-        Representation::Product {
-            fields: vec![queue, extent],
-        },
-    );
-    let replay = reference(RefShape::Repr(replay_result));
     let labels = vec!["_1".to_owned(), "_2".to_owned()];
     let pair = crate::cc::layout::protocols::record(table, &labels).unwrap_or_else(|| {
         let pair = table.reserve();
@@ -133,49 +69,99 @@ pub(in crate::cc) fn append(
         table.set_product_labels(pair, labels);
         pair
     });
-    table.control_result_pair = Some(pair);
-    let executor = table.add_signature(Signature {
-        parameters: vec![
-            erased,
-            callable,
-            frame,
-            queue,
-            extent,
-            reference(RefShape::Repr(context)),
-        ],
-        result: erased,
-    });
-    let clone_sequence = table.add_signature(Signature {
-        parameters: vec![queue, queue, queue, extent, extent],
-        result: replay,
-    });
-    let rebuild_sequence = table.add_signature(Signature {
-        parameters: vec![queue, queue, extent, extent],
-        result: replay,
-    });
-    let start = table.add_signature(Signature {
-        parameters: vec![],
-        result: extent,
-    });
-    let boundary_check = table.add_signature(Signature {
-        parameters: vec![extent],
-        result: extent,
-    });
-    let owner_shape = reference(RefShape::Repr(owner));
-    let once = table.add_signature(Signature {
-        parameters: vec![callable],
-        result: owner_shape,
-    });
-    let cancel = table.add_signature(Signature {
-        parameters: vec![owner_shape],
-        result: owner_shape,
-    });
+    let schema = crate::cc::ControlSchema {
+        computation,
+        sequence,
+        context,
+        extent: boundary,
+        status,
+        owner,
+        callback,
+        result_pair: pair,
+        replay_result,
+    };
+    let shape = |kind| schema.shape(kind, continuation);
+    use crate::control::schema::{
+        ComputationCase, ContextCase, ControlHelperRole as R, ExtentCase, FieldKind, OwnerCase,
+        SequenceCase,
+    };
+    for (repr, cases) in [
+        (
+            computation,
+            ComputationCase::ALL
+                .iter()
+                .map(|case| (case.tag(), case.fields()))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            sequence,
+            SequenceCase::ALL
+                .iter()
+                .map(|case| (case.tag(), case.fields()))
+                .collect(),
+        ),
+        (
+            context,
+            ContextCase::ALL
+                .iter()
+                .map(|case| (case.tag(), case.fields()))
+                .collect(),
+        ),
+        (
+            owner,
+            OwnerCase::ALL
+                .iter()
+                .map(|case| (case.tag(), case.fields()))
+                .collect(),
+        ),
+        (
+            boundary,
+            ExtentCase::ALL
+                .iter()
+                .map(|case| (case.tag(), case.fields()))
+                .collect(),
+        ),
+    ] {
+        table.set(
+            repr,
+            Representation::Variant {
+                cases: cases
+                    .into_iter()
+                    .map(|(tag, fields)| VariantCase {
+                        tag,
+                        fields: fields.iter().map(|kind| shape(*kind)).collect(),
+                    })
+                    .collect(),
+            },
+        );
+    }
+    table.set(
+        replay_result,
+        Representation::Product {
+            fields: vec![shape(FieldKind::Sequence), shape(FieldKind::Extent)],
+        },
+    );
+    let mut signature = |role: R| {
+        table.add_signature(Signature {
+            parameters: role.parameters().iter().map(|kind| shape(*kind)).collect(),
+            result: shape(role.result()),
+        })
+    };
+    let executor = signature(R::Executor);
+    let run = signature(R::Run);
+    let clone_sequence = signature(R::CloneSequence);
+    let rebuild_sequence = signature(R::RebuildSequence);
+    let start = signature(R::Start);
+    let boundary_check = signature(R::Check);
+    let once = signature(R::Once);
+    let cancel = signature(R::Cancel);
     ControlLayout {
         computation,
         sequence,
         pair,
         continuation,
         executor,
+        run,
         context,
         clone_sequence,
         rebuild_sequence,
@@ -189,29 +175,6 @@ pub(in crate::cc) fn append(
         cancel,
         replay_result,
     }
-}
-
-fn reference(heap: RefShape) -> ValueShape {
-    ValueShape::Reference(Reference {
-        nullable: false,
-        heap,
-    })
-}
-
-fn set_cases(table: &mut RepresentationTable, id: ReprId, fields: Vec<Vec<ValueShape>>) {
-    table.set(
-        id,
-        Representation::Variant {
-            cases: fields
-                .into_iter()
-                .enumerate()
-                .map(|(tag, fields)| VariantCase {
-                    tag: tag as u32,
-                    fields,
-                })
-                .collect(),
-        },
-    );
 }
 
 #[cfg(test)]

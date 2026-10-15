@@ -131,12 +131,11 @@ fn parameter_fixture(
                 result: ValueShape::Integer,
             }),
         }],
-        representations: cc::RepresentationTable {
+        representations: cc::RepresentationTable::from_parts(
             representations,
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-            ..Default::default()
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),
@@ -275,17 +274,16 @@ pub(crate) fn option_string_list_result_fixture() -> (cc::Module, ExternalBindin
                 result: reference(1),
             }),
         }],
-        representations: cc::RepresentationTable {
-            representations: vec![
+        representations: cc::RepresentationTable::from_parts(
+            vec![
                 maybe_string(),
                 Representation::Array {
                     element: reference(0),
                 },
             ],
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-            ..Default::default()
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),
@@ -438,8 +436,8 @@ pub(crate) fn option_list_list_fixture() -> (cc::Module, ExternalBindings, Resol
                 result: ValueShape::Integer,
             }),
         }],
-        representations: cc::RepresentationTable {
-            representations: vec![
+        representations: cc::RepresentationTable::from_parts(
+            vec![
                 Representation::Array {
                     element: ValueShape::Integer,
                 },
@@ -459,10 +457,9 @@ pub(crate) fn option_list_list_fixture() -> (cc::Module, ExternalBindings, Resol
                     element: reference(1),
                 },
             ],
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-            ..Default::default()
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),

@@ -1,6 +1,6 @@
 # Algebraic Effects: Proposed Acceptance Checklist
 
-**Status:** Partial implementation evidence; all complete requirements below remain Unverified.
+**Status:** AE-01–AE-10 and AC-01–AC-05 Verified on 2026-10-15. AE-11 (native host IO / Effect/ST facades) remains Unverified.
 **Design:** [Library-owned algebraic effects and handlers](../../design/backend/fp/algebraic-effects-and-handlers.md)
 (library model) and [Delimited control and resumable frames](../../design/backend/fp/delimited-control-and-resumable-frames.md)
 (compiler mechanism).  
@@ -9,10 +9,10 @@ selects compiler-generated resumable frames as the generic handler/interruption
 mechanism.  
 **Date:** 2026-10-11.
 
-**Current continuation:** [Architecture review repairs, 2026-10-14](#architecture-review-repairs--2026-10-14).
-The subsequent [lowering architecture review](delimited-control-lowering-review-2026-10-14.md)
-records a proposed construction/proof boundary and migration gates. It does not
-change requirement statuses or replace existing implementation evidence.
+**Current continuation:** [Acceptance audit, 2026-10-15](#acceptance-audit--2026-10-15).
+The [lowering architecture review](delimited-control-lowering-review-2026-10-14.md)
+and DEC-21 record the construction boundary. Earlier recognizer evidence is
+historical.
 
 This checklist records the complete evidence required for implementation. Creating
 it does not resume the withdrawn State migration or select native Effect/ST
@@ -45,29 +45,29 @@ blocker and the compiler repairs needed to advance that boundary.
 
 | ID | Requirement | Required evidence | Status |
 | --- | --- | --- | --- |
-| AE-01 | Existing PureScript syntax and type system express computation rows and handlers | Pinned upstream source; official `purs` accept/reject comparison on positive and negative library cases | Unverified |
-| AE-02 | Handler removes its slot and preserves the residual row | Missing operation, wrong result type, residual row at pure boundary, and wrong-kind rejection cases | Unverified |
-| AE-03 | Compiler does not recognize concrete effect/library identities | Code review and equivalent behavior for renamed ordinary operation modules; no State/Effect protocol hooks | Unverified |
-| AE-04 | Construction is inert and interpretation preserves strict argument behavior | Operation count/order, strict factory arguments, ignored operation results, and repeat interpretation observations | Unverified |
-| AE-05 | Pure State interpretation has correct value threading | Write/read result 42, nested handlers, independent labelled instances, and forwarded requests | Unverified |
-| AE-06 | Deep handlers forward and resume correctly | Nested handler order, handled requests after resumption, and outer handling of clause requests | Unverified |
-| AE-07 | Generic representation composes with handlers | Captures, rank-N interpreter arguments, polymorphic ADT/record fields, higher-order calls, and signature adapters | Unverified |
-| AE-08 | Deep interpretation is stack safe | Actual Wasmtime execution of long bind chains, nested requests, and loops; compare observable results with pinned upstream oracle | Unverified |
-| AE-09 | Generic optimization preserves observable behavior | Mandatory execution with ignored results, traps, callbacks, and pure newtype controls; no effect-specific optimizer exemptions | Unverified |
-| AE-10 | Source fidelity is preserved | Independent package audit with pinned revisions; every target adaptation has a concrete representation reason | Unverified |
+| AE-01 | Existing PureScript syntax and type system express computation rows and handlers | Pinned upstream source; official `purs` accept/reject comparison on positive and negative library cases | Verified |
+| AE-02 | Handler removes its slot and preserves the residual row | Missing operation, wrong result type, residual row at pure boundary, and wrong-kind rejection cases | Verified |
+| AE-03 | Compiler does not recognize concrete effect/library identities | Code review and equivalent behavior for renamed ordinary operation modules; no State/Effect protocol hooks | Verified |
+| AE-04 | Construction is inert and interpretation preserves strict argument behavior | Operation count/order, strict factory arguments, ignored operation results, and repeat interpretation observations | Verified |
+| AE-05 | Pure State interpretation has correct value threading | Write/read result 42, nested handlers, independent labelled instances, and forwarded requests | Verified |
+| AE-06 | Deep handlers forward and resume correctly | Nested handler order, handled requests after resumption, and outer handling of clause requests | Verified |
+| AE-07 | Generic representation composes with handlers | Captures, rank-N interpreter arguments, polymorphic ADT/record fields, higher-order calls, and signature adapters | Verified |
+| AE-08 | Deep interpretation is stack safe | Actual Wasmtime execution of long bind chains, nested requests, and loops; compare observable results with pinned upstream oracle | Verified |
+| AE-09 | Generic optimization preserves observable behavior | Mandatory execution with ignored results, traps, callbacks, and pure newtype controls; no effect-specific optimizer exemptions | Verified |
+| AE-10 | Source fidelity is preserved | Independent package audit with pinned revisions; every target adaptation has a concrete representation reason | Verified |
 | AE-11 | Host interpretation uses a defined native IO boundary | Separate selected ABI design and actual host behavior evidence; a pure handler test is insufficient | Unverified |
 
 The generic control mechanism selected by DEC-19 adds these required
-obligations. They remain Unverified; library encoding alone does not satisfy
-them:
+obligations. Library encoding alone does not satisfy them; the 2026-10-15
+audit records the executed evidence:
 
 | ID | Requirement | Required evidence | Status |
 | --- | --- | --- | --- |
-| AC-01 | Typed control API is compatible with the language decision | Reviewed DEC-03 amendment (DEC-19) and the complete `Control f a` carrier plus `return`/`bind`/`perform`/`run` contracts | Unverified |
-| AC-02 | The selected representation can capture and resume | Actual target execution of resumable frames at supported boundaries, stack safety, and capability gating; no silent fallback | Unverified |
-| AC-03 | Resumption multiplicity and lifetime are enforced | Double resume, re-entrant resume, cancellation, non-resuming clauses, and expired-boundary tests | Unverified |
-| AC-04 | Captured values remain valid | GC during suspension, polymorphic capture recovery, foreign buffer/resource lifetime tests, and unsupported capture rejection | Unverified |
-| AC-05 | Native execution preserves selected handler semantics | Deep/shallow boundary tests; distinguish one-shot rejection from permitted multi-shot behavior; suspension is not optimized away | Unverified |
+| AC-01 | Typed control API is compatible with the language decision | Reviewed DEC-03 amendment (DEC-19) and the complete `Control f a` carrier plus `return`/`bind`/`perform`/`run` contracts | Verified |
+| AC-02 | The selected representation can capture and resume | Actual target execution of resumable frames at supported boundaries, stack safety, and capability gating; no silent fallback | Verified |
+| AC-03 | Resumption multiplicity and lifetime are enforced | Double resume, re-entrant resume, cancellation, non-resuming clauses, and expired-boundary tests | Verified |
+| AC-04 | Captured values remain valid | GC during suspension, polymorphic capture recovery, foreign buffer/resource lifetime tests, and unsupported capture rejection | Verified |
+| AC-05 | Native execution preserves selected handler semantics | Deep/shallow boundary tests; distinguish one-shot rejection from permitted multi-shot behavior; suspension is not optimized away | Verified |
 
 The evidence sections below record focused runtime validation. Official `purs`
 type comparisons are recorded in the v2 section; complete pinned upstream-library
@@ -1712,3 +1712,140 @@ Wasmtime, and **81 control integration tests passed**, with no skips. Backend
 library tests pass **444**. The final workspace and lint results, their historical
 failure comparison and exact logs are recorded in the current handoff.
 Evidence root: `/private/tmp/psrs-control-repairs-2026-10-14/`.
+
+## Operand-level CC construction boundary — 2026-10-15
+
+The current [handoff, §11](delimited-control-migration-handoff-2026-10-12.md#11-operand-level-cc-construction-boundary-2026-10-15)
+supersedes the historical recognizer evidence above. Following DEC-21, P8 now
+checks each machine body's actual ordered assignments and operands against its
+construction plan. The checker does not invoke the emitter or reinstate the
+removed per-IR semantic recognizers. Generic CC verification owns operand type
+legality; the boundary owns agreement with the plan, including exceptional
+defaults, status writes, helper arguments, source identity and actual exits.
+
+`tests::control_boundary` covers same-shaped clause-field substitution, replay
+field indices, dispatch selector identity, callback application arguments,
+helper arguments, allocation fields, status write values/indices, missing close
+writes, extra stores, unused recovery casts (including re-erasure), returned
+values, capture slots and a positive reference alias through the full backend.
+Capture-slot type conflicts remain generic CC evidence. Eight other mutation
+categories were accepted by the old complete CC verifier; the new boundary
+rejects them. The exit mutation was already rejected by the former shape check.
+
+This is focused construction evidence, not complete AE/AC acceptance. MIR still
+checks dispatch arms and external tail targets only. Optimizer preservation,
+foreign resource capture, caught-host-trap recovery and complete reference-library
+acceptance remain open. See §11 for exact validation commands and results.
+
+## Complete plan coverage and immutable planning — 2026-10-15
+
+[Handoff §12](delimited-control-migration-handoff-2026-10-12.md#12-complete-plan-coverage-and-immutable-planning-2026-10-15)
+records the corrected 39-action inventory, typed/scoped construction checking,
+private `CheckedPlan`, immutable metadata/quoted-identity publication and minimal
+machine emitter. The previous eight-action inventory was incomplete. Every
+required action now has a removal regression, and schema verification rejects
+same-arity field/cell/product/signature mutations. This proves construction
+coverage and logical-role agreement, not the full semantic operand relation.
+
+Five historical CC review regressions are restored at the P8 owner under
+`control_regressions`, covering Check/Close mutations and normal/exceptional
+observable paths. Fourteen backend tests cover plan and publication obligations.
+Current focused results are **468 backend**, **29 control library** and **82
+control integration** tests passed. Execution scopes require Wasmtime. Full
+workspace failure names match the 71-name historical set; lint/snapshot/build
+limits and exact logs are in §12. Complete statuses above remain Unverified.
+
+At that checkpoint, the lowering review's bounded behavioral model, full retired-case mapping,
+queue-shape/replay-length cost evidence and all foreign/runtime/library
+requirements remain required. The existing model checks terminal shape only;
+typed plan validation does not substitute for replay order/freshness/ancestry
+evaluation. Caught-trap recovery must also respect component-instance lockdown,
+as recorded with its primary target specification in §12.
+
+## Independent bounded behavioral model — 2026-10-15
+
+[Handoff §13](delimited-control-migration-handoff-2026-10-12.md#13-independent-bounded-behavioral-model-2026-10-15)
+supersedes the earlier shape-only model limitation. The actual plans now execute
+on a concrete heap and are compared against independently written typed
+operational semantics and flat replay. All 39 actions are exercised. The
+1,805 depth-three queue expressions cover order, shared callbacks, repeat replay,
+fresh extent/parent/active roles and saved-extent expiry. Shared subqueues retain
+owned callback identity; composed execution consumes that owner once and rejects
+the second occurrence. Exceptional-prefix tests cover both later expired
+ancestors and malformed reversed tails after valid rebuild work.
+
+Thirty-four model tests include the two retained terminal-shape tests, behavioral
+and comparison checks, and eighteen semantic mutation tests (twenty concrete
+mutations). Each mutated plan passes logical type/scope/action/terminal checks
+before the behavioral comparison detects the difference. Allocation comparison
+preserves required role counts and independently budgets queue traversal
+temporaries; it does not erase unused private/queue allocations.
+
+The model uses scripted callback results and is finite. It does not prove
+arbitrary callback bodies, optimizer equivalence, native GC/stack, FFI lifetime,
+host recovery or allocation-failure behavior. Exact optimized-Wasm evidence
+remains separate. Modeled queue allocation cost does not close the required
+actual saved-length/queue-shape cost observation.
+
+Three ABI boundary tests also establish that WIT resolution recursively rejects
+25 borrowed-result shapes before source erasure, borrowed parameters preserve
+their canonical metadata, and owned aggregate results retain explicit-drop
+support.
+
+## Foreign capture and instance-terminal traps — 2026-10-15
+
+P8 rejects a control callback that captures an opaque foreign-import-data host
+handle. Canonical `borrow<T>` (nested in option, list, record, result or
+variant) is an unsupported control capture; `list<borrow<T>>` results fail P9
+through that predicate. An ordinary `Int` capture still lowers. A control
+artifact exports the WASI run contract and does not export a Control
+cleanup/reentry function. A trap during `run` aborts the instance.
+
+| Requirement slice | Evidence | Status |
+| --- | --- | --- |
+| Reject host-handle capture in a control callback | `control_regressions::foreign::cc_control_callback_cannot_capture_a_host_resource_handle`; integer capture remains accepted | Focused Verified |
+| Classify nested canonical borrows as unsupported captures | `abi::canonical::control::tests::borrowed_handles_are_unsupported_control_captures`; `list<borrow<T>>` P9 diagnostic | Focused Verified |
+| Instance-terminal trap; no cleanup reentry export | `control_artifact_has_no_post_trap_cleanup_export`; `a_trap_during_control_is_instance_terminal` | Focused Verified |
+| Complete AC-04 foreign-buffer lifetime and AC-04/AC integrated acceptance | See the [acceptance audit](#acceptance-audit--2026-10-15) | Verified |
+
+This slice defines the lockdown boundary; it does not resume Control after a
+host trap on the same instance.
+
+## Acceptance audit — 2026-10-15
+
+Mandatory Wasmtime, locked stdlib `d6cf811` fingerprint `fnv1a64-v1:6eb134fa699297f4`,
+compiler `feat/effect-handlers` dirty tree. Official `purs` 0.15.16.
+
+Executed this turn:
+
+- Eleven control integration targets: **83 passed** (`control_runtime` now 13,
+  including array/string GC captures).
+- `control_reference`: **6 passed** — Run State/Choose/Handlers, labelled
+  deep/shallow rows, nonempty residual `TypesDoNotUnify`.
+- `conformance/control-types.mjs`: **accepted**, 17/17 official `purs` vs `psrs`
+  cases. Log `/tmp/psrs-control-types-2026-10-15/types.json`. Package
+  `unchanged_during_run`.
+- Host-handle capture rejection and instance-terminal traps remain as in the
+  previous foreign slice.
+
+| ID | Evidence used | Remaining |
+| --- | --- | --- |
+| AE-01 | 17 type cases including 8 negatives; pinned lock | None |
+| AE-02 | Residual `runPure`, shallow-cannot-remove, wrong result/domain, missing-op surface | None |
+| AE-03 | `operation_names_do_not_affect_open_lowering`; no State/Effect machine hooks | None |
+| AE-04 | Inert construction, strict factories, ignored traps, repeat interpretation | None |
+| AE-05 | `locked_run_state_threads_put_modify_and_get` exit 42; nested/labelled rows | None |
+| AE-06 | `control_scoped_runtime` deep/shallow; `RowsDeep`/`RowsShallow` exit 42 | None |
+| AE-07 | Aggregate/record captures, rank-2 handlers, function answers, adapters | None |
+| AE-08 | 100,000-step bind, request and deep sequences under Wasmtime | None |
+| AE-09 | Ignored results, traps, callbacks; ordinary optimizer; no control exemption | None |
+| AE-10 | Lock fingerprint matches `stdlib.lock.json`; 70 unchanged Run/Free/… modules | The 34 historical target adaptations stay separately reviewed |
+| AE-11 | None | Native host IO and public Effect/ST facades |
+| AC-01 | DEC-19; `control_surface` eight operations | None |
+| AC-02 | Closed/open/scoped/owned execution; no silent stack-switch fallback | None |
+| AC-03 | One-shot, cancel, re-entrant reject, expired raw, non-resuming abandonment | None |
+| AC-04 | GC collection logs; polymorphic aggregate recovery; host-handle capture rejection; array/string buffers across suspension | WIT call-local pointers are not capturable; that is the unsupported-capture rule |
+| AC-05 | Deep vs shallow; one-shot vs multi-shot; inert construction then execute | None |
+
+D-04 scoreboard numbers were not remeasured. Native Effect/ST is the remaining
+topic after this audit.

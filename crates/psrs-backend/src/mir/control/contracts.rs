@@ -4,15 +4,15 @@ use crate::mir::{Instruction, Module};
 
 impl Module {
     pub fn control_helpers(&self) -> &[crate::cc::ControlHelperContract] {
-        self.layout
-            .as_ref()
-            .map_or(&[], |layout| &layout.representation_table().control_helpers)
+        self.layout.as_ref().map_or(&[], |layout| {
+            layout.representation_table().control_helpers()
+        })
     }
 
     /// Source contracts remain immutable and inspectable after physical layout.
     pub fn control_contracts(&self) -> &[crate::cc::ControlContract] {
         self.layout.as_ref().map_or(&[], |layout| {
-            layout.representation_table().control_contracts.as_slice()
+            layout.representation_table().control_contracts()
         })
     }
 }

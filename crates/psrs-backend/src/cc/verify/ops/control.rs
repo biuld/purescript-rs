@@ -23,7 +23,7 @@ pub(super) fn verify(
         unreachable!()
     };
     let proof = table
-        .control_contracts
+        .control_contracts()
         .get(contract.0 as usize)
         .ok_or_else(|| {
             assignment_error(
@@ -97,7 +97,7 @@ pub(super) fn verify(
             },
         ) if signatures.get(function) == table.signature(*signature)
             && table
-                .control_helpers
+                .control_helpers()
                 .get(contract.0 as usize)
                 .is_some_and(|helper| helper.role() == *role) =>
         {
@@ -131,7 +131,7 @@ pub(super) fn verify(
             .find(|candidate| candidate.destination == origin)
         {
             let producer = table
-                .control_contracts
+                .control_contracts()
                 .get(contract.0 as usize)
                 .ok_or_else(|| {
                     assignment_error(assignment, "control operand has no checked source contract")

@@ -1,19 +1,29 @@
 # Handoff: Delimited Control Migration and Remaining Acceptance
 
-**Updated:** 2026-10-15, after the construction-boundary migration and the
-retirement of the per-IR machine recognizers.
-The filename keeps its original date; this file is the current snapshot.
-The [lowering design review](delimited-control-lowering-review-2026-10-14.md)
-proposal is now implemented for construction: see §10 for the current
-architecture, the retired recognizers, the assurance tradeoff and the precise
-next actions. Sections 1–9 are history.
+**Updated:** 2026-10-15. The filename keeps its original date; this file is the
+current snapshot. **§15 is the current progress.** Sections 1–14 are history:
+§10 is the construction-boundary migration, §§11–12 the operand-level CC
+boundary and immutable planning, §13 the bounded model, and §14 the optimized
+Wasm replay measurements. Those sections still use the 39-action inventory from
+before `Run` joined the registry.
 **Objective:** Complete delimited control, then implement native Effect/ST.
-**Status:** Current snapshot. The lowering review's construction boundary is
-implemented: the named schema, action inventory and checked plan own machine
-construction, and the per-IR recognizers are **retired**, replaced by CC/MIR
-boundary checks (§10). R1–R3 repairs remain in permanent tests. Complete AE/AC
-acceptance and the operand-level boundary/translation-validator gaps remain
-outstanding (§10 "Next actions").
+**Status:** [DEC-21](../../decision/DEC-21-control-machine-construction-boundary.md)
+is implemented. The named schema, a 40-action inventory and checked plans own
+construction. Per-IR machine recognizers stay retired. The CC boundary checks
+ordered operands; the MIR boundary checks dispatch arms and external tail
+targets. R1–R3 have current P8 owners in permanent tests. The bounded model
+compares all 40 actions, and §14 records saved-length and queue-shape traversal
+on optimized Wasm. The 185 historical recognizer tests have owners in
+[the retired-regression document](delimited-control-retired-regressions.md).
+That audit does not close gates 4 and 6 by count alone. AE-01–AE-10 and
+AC-01–AC-05 are Verified. AE-11 native host IO and public Effect/ST facades
+remain open. D-04 scoreboard numbers were not remeasured. A translation
+validator is an explicit further assurance choice, not current work. The
+[architecture proof-owner audit](delimited-control-architecture-review-2026-10-14.md#current-proof-owners-2026-10-15)
+and the
+[lowering implementation audit](delimited-control-lowering-review-2026-10-14.md#implementation-audit-2026-10-15)
+remain the review-to-owner tables. §15 records where the code has moved past
+the 39-action text inside §§12–13.
 
 The [architecture review and repair evidence](delimited-control-architecture-review-2026-10-14.md#repair-evidence-2026-10-14)
 records ownership, regressions, and the moved Wasm ancestry observation.
@@ -556,12 +566,12 @@ control integration targets (value/order/lifetime/GC/stack, required Wasmtime,
 (10 passed, 0 failed). `cargo test --workspace` has only the pre-existing,
 unrelated `psrs-cli --test link` failure (`P3 resolve: unknown name runEffect`).
 
-### Next actions for a new agent
+### Next actions after the construction migration (historical)
 
 The review's construction and enumeration work is landed. The remaining
 assurance gap is operand-level and cross-optimization validation:
 
-1. **Operand-level CC boundary check (highest value).** `plan/boundary.rs`
+1. **Operand-level CC boundary check (implemented in §11).** `plan/boundary.rs`
    compares only the dispatch/outcome shape. Extend it to replay the plan's
    `Op` sequence and compare projections/allocations/calls against the emitted
    CC destinations, so an IR-valid operand mutation injected after construction
@@ -587,3 +597,620 @@ Do not treat the removed negative driver tests as covered: they were deleted
 with their recognizer modules. They remain recoverable for re-expression, e.g.
 `git show 01f7e66c:crates/psrs-driver/src/tests/` (or the commit before the
 retirement). Re-express them against the operand-level boundary if it is added.
+
+## 11. Operand-level CC construction boundary (2026-10-15)
+
+Starting point: `708d65a0dcd3cee840c3426f04f7386780fdb6e4`, branch
+`feat/effect-handlers`, clean checkout. The locked stdlib is unchanged. This
+continuation implements §10's first next action under DEC-21; it does not restore
+the retired recognizers or claim an optimizer equivalence proof.
+
+`cc/lower/control/plan/boundary/` now independently walks the plan and each
+emitted CC assignment sequence. Each `Op` binds its actual destination into the
+plan environment. Projections check representation, case, index and source;
+allocations check their actual fields; curried calls check every callee and
+argument; helper calls check the role's symbol and contract; captures check
+slots and planned carrier shape. Guards, reads, status writes, callback clears,
+dispatch selectors, trapping defaults and actual returned values are checked in
+execution order. Extra or missing operations fail even when unused.
+
+Reference casts preserve identity and generic CC verification checks their
+legality. Erasure and same-shape aliases are total. A recovery cast must directly
+feed the next checked operation or actual exit: unused recovery, re-erasure of
+unused recovery, and moving callback recovery before its callback-clear write
+are rejected. This prevents treating a potentially trapping cast as invisible
+work. The check runs both immediately after construction and at ordinary CC
+module verification, and does not call the emitter.
+
+The source fixture reaches P8 successfully. Before the change,
+`PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control` passes
+**10** tests. Running the first ten new negative tests against the original
+shape-only boundary reproduces **eight accepted mutation categories**: clause
+and product indices, helper and allocation arguments, status writes,
+missing close stores, extra stores and unused recovery casts. The returned-value
+mutation was already rejected by the shape checker; conflicting capture-slot
+types were already rejected by generic CC verification. The restored new
+boundary rejects the eight gaps. Additional tests cover selector identity,
+clause arguments, recovery ordering, and a legal reference alias through the
+full backend. `tests::control_boundary` contains fourteen tests; one test each
+covers both status-write mutations and both unused-recovery forms.
+
+| Validation | Observed result |
+| --- | --- |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control` | 24 passed, no failures or skips |
+| The eleven control integration targets below, required Wasmtime | 82 passed, no failures or skips |
+| `cargo test -p psrs-backend --lib` | 454 passed |
+| `cargo fmt --all --check`; `git diff --check` | Passed |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Blocked by the existing `psrs-kind/src/check/synonyms.rs:174` `let_and_return` warning |
+| `cargo clippy --workspace --all-targets -- -D warnings -A clippy::let_and_return` | Passed |
+
+Runtime command:
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver \
+  --test control_surface --test control_scoped_surface \
+  --test control_owned_surface --test control_primitive_values \
+  --test control_runtime --test control_open_runtime \
+  --test control_scoped_runtime --test control_scoped_replay \
+  --test control_lifetime --test control_owned_runtime \
+  --test control_carrier_runtime
+```
+
+`cargo test --workspace --no-fail-fast` completes with **71 failed test names**,
+identical to the retained 2026-10-14 `workspace-final.log`: no added or recovered
+names. Targets are CLI `link`, CLI `source_layout`, driver library (645 passed /
+68 failed) and driver `residual_constraints`. The source-layout findings are in
+unchanged files. This is a historical name-set comparison, not a fresh
+clean-checkout before/after measurement. Backend/driver rustdoc also reports
+E0463 dependency-artifact errors in that run. Standalone
+`cargo test -p psrs-backend -p psrs-driver --doc` passes (zero doctest examples
+in either crate); this is separate build evidence.
+
+The integrated workspace snapshot precedes the final capture-shape check,
+recovery-order enforcement and four added tests. The final focused 24-test run,
+backend run, eleven integration targets, formatting and lint checks cover the
+final implementation. The complete workspace was not repeated for those last
+changes. No ignored scoreboard, full upstream differential or package
+conformance rerun was performed; D-04 measurements and complete AE/AC statuses
+are unchanged.
+
+Evidence: `/private/tmp/psrs-control-operand-{baseline,before-negative,negative,focused-final,integration-final,backend-final,workspace,clippy,clippy-final,fmt,doctest}.log`
+and `/private/tmp/psrs-control-operand-workspace-comparison.json`. The
+`before-negative` run temporarily restores the original boundary and then
+restores the new implementation; it is deliberately failing reproduction
+evidence, not a current test failure.
+
+Current next actions:
+
+1. **MIR operand-level validation.** `mir/control/boundary.rs` still checks only
+   dispatch arms and external tail targets. CC rejection tests do not prove that
+   physical MIR field/argument mutations are rejected. Preserve DEC-21's
+   explicit P9/P10 trust boundary while choosing a transformation-aware check;
+   do not rebuild a second ad-hoc machine recognizer.
+2. **Optimizer preservation.** No translation validator establishes equivalence
+   across generic optimization. Retain actual optimized runtime evidence and
+   keep this assurance limit explicit.
+3. **Complete acceptance.** Continue the full AE/AC audit, foreign resource
+   capture, caught-host-trap cleanup and pinned reference-library evidence.
+   Implement native Effect/ST only after complete delimited-control acceptance.
+
+Changes remain uncommitted. No pushes, PRs or remote changes were made.
+
+## 12. Complete plan coverage and immutable planning (2026-10-15)
+
+The active objective includes both 2026-10-14 architecture and lowering reviews,
+and complete delimited-control acceptance. §11 is one completed construction
+slice, not the end of that objective. The [lowering review audit](delimited-control-lowering-review-2026-10-14.md#implementation-audit-2026-10-15)
+and [architecture proof-owner audit](delimited-control-architecture-review-2026-10-14.md#current-proof-owners-2026-10-15)
+now distinguish historical recognizer evidence from current owners and open work.
+
+### Corrected construction contracts
+
+The previous inventory covered only eight root/queue actions despite describing
+itself as complete. `control/execution/` now enumerates **39** independent named
+selection paths and terminal roles: Executor 20, Clone 7, Rebuild 4, Check 2,
+Close 2, Start/Once/Cancel/raw resume one each. Plan checking rejects missing,
+duplicate, extra and wrong-terminal actions. Every dispatch covers its complete
+family; Rebuild's Append arm explicitly rejects. Unknown physical tags still
+reach trapping defaults. A permanent negative test removes each of the 39 actions.
+
+Before a plan can become a private immutable `CheckedPlan`, the checker validates
+logical operand roles, parameter and temporary bounds, branch-local scope,
+source-specific case refinement, field/index domains, allocation/call arity,
+capture protocol and lifecycle status domains. Only a `CheckedPlan` can enter
+the emitter. Tests reach the intended rejection owner; the arity test mutates a
+complete valid Once plan rather than failing an unrelated inventory check first.
+
+`control/schema.rs` owns representation-neutral field types and helper signatures.
+Layout planning consumes those types, and module verification checks actual
+fields, private array element types, result/replay products and helper signatures
+against them. Equal arity alone no longer establishes schema agreement.
+
+`FrozenControlPlan` privately owns the helper/source-contract bindings, quoted
+source identities, resumption and schema placement. Consumers use read-only
+queries and named role lookup. Publication validates before freezing, rejects
+duplicate roles/callable identities and repeated publication, and rolls back a
+failed candidate. Ordinary mutable layout fixtures use
+`RepresentationTable::from_parts`; ordinary instructions remain mutable and
+subject to validation. Four permanent tests cover publication, retry/rollback,
+completeness/uniqueness and same-arity layout/signature mutations.
+
+The machine emitter no longer owns a `FunctionLowerer`: it has an immutable
+representation table, its own value declarations, planned layout, helper symbols
+and source span. `ControlEmitter` shares checked reference adaptation with source
+factories. Source environments and mutable planning are not available to helper
+emission. Symbol planning and named queries live in `control/planning.rs`.
+
+### Restored review regressions and remaining model gap
+
+`tests::control_regressions` re-expresses the historical CC lifecycle test and
+all four CC observable-path tests at the P8 construction boundary: eight
+Check/Close mutations; prefix/default extra calls; extra publication checks;
+unused recovery; and a potentially diverging no-write recursive call. The five
+tests lower live sources, perform their mutations and reach rejection assertions;
+none skips a missing function. Historical diagnostic names are replaced with
+the current P8 owner.
+
+An inventory of all 185 test names at `01f7e66c` initially found 179 missing names,
+including 77 MIR and 102 CC/source names. Five CC tests are now restored. These
+are name comparisons, not semantic coverage measurements: renamed replacements
+can cover old cases, and retained names alone do not prove equivalent coverage.
+The exact remaining mapping is an acceptance obligation, not closed by counts.
+Inventory: `/private/tmp/psrs-control-retired-test-inventory.json`.
+
+At this checkpoint (superseded by §13), `plan/model.rs` compared only selected case paths and terminal
+classes. It does not evaluate operands, persistent queue order, replay freshness
+or ancestry. The new typed plan checks do not turn it into a behavioral model.
+Implement the independent bounded behavioral model required by L4/gate 5 next.
+
+### Validation and continuation
+
+| Final validation | Observed result |
+| --- | --- |
+| `cargo test -p psrs-backend --lib` | 468 passed |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control` | 29 passed, no failures or skips |
+| Eleven control integration targets, §11's command, required Wasmtime | 82 passed, no failures or skips |
+| `cargo fmt --all --check`; `git diff --check`; local documentation link targets | Passed |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Fails only on the existing `psrs-kind/src/check/synonyms.rs:174` `let_and_return` warning |
+| `cargo clippy --workspace --all-targets -- -D warnings -A clippy::let_and_return` | Passed |
+| `cargo test --workspace --no-fail-fast` | 71 failed test names, identical to the retained 2026-10-14 name set; no additions/recoveries |
+
+The final workspace library result is **654 passed / 68 failed** for the driver.
+The other failing test targets remain CLI `link`, CLI `source_layout` and driver
+`residual_constraints`. As before, this compares names against historical
+evidence, not a fresh clean-checkout baseline. Backend/driver rustdoc reports
+E0463 dependency-artifact errors in that integrated run; standalone
+`cargo test -p psrs-backend -p psrs-driver --doc` is recorded separately.
+The final rollback test's additional nonempty source-identity assertions were
+checked by a separate four-test publication run after the workspace build;
+production code did not change after that workspace snapshot.
+
+Evidence: `/private/tmp/psrs-control-complete-{workspace-final,control-final,clippy-strict,clippy-final,fmt,doctest}.log`,
+`/private/tmp/psrs-control-complete-workspace-comparison.json`,
+`/private/tmp/psrs-control-frozen-{backend-final,integration-final,publication-final}.log`
+and `/private/tmp/psrs-control-restored-review-regressions.log`. The focused
+construction baseline was nine passing plan tests at this turn's starting tree,
+recorded in `/private/tmp/psrs-control-complete-plan-baseline.log`. No ignored
+scoreboard, full upstream differential or package conformance run was performed;
+D-04 measurements and complete AE/AC statuses are unchanged. Source and lock
+identities remain those of §11; changes remain uncommitted. No remote operations
+or standard-library edits were performed.
+
+The next actions at this checkpoint were: (1) independent bounded operational model; (2) complete retired
+case-to-owner mapping and corresponding construction/transform regressions;
+(3) queue-shape/replay-length cost evidence; (4) foreign lifetime and caught-trap
+cleanup/reentry contracts and actual execution; (5) pinned library and complete
+AE/AC integrated acceptance. DEC-21 already selects trusted ordinary transforms;
+do not silently replace that decision with a second ad-hoc MIR recognizer or
+claim that generic SSA/layout validity proves optimizer equivalence. A stronger
+translation validator remains an explicit separate assurance choice.
+
+Design input for the remaining trap boundary: the Component Model's
+[component invariants](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#component-invariants)
+define lockdown after a trap, preventing observation through reentry into that
+component instance. Recovery design and execution must account for this target
+rule; do not assume an embedder can catch a canonical-ABI trap and invoke a guest
+cleanup export on the same instance. This records a required constraint, not a
+completed cleanup/recovery implementation or a reduction of the acceptance scope.
+
+## 13. Independent bounded behavioral model (2026-10-15)
+
+This continuation preserves the dirty checkout from §12 and implements the
+bounded operational-model requirement in lowering-review L4/migration gate 5.
+It adds test/model evidence; production lowering, machine representation and
+the locked package are unchanged by this slice. Complete goal acceptance remains
+open across both reviews and the AE/AC checklist.
+
+### Independent execution and comparison
+
+`cc/lower/control/plan/model/` replaces the former shape-only model file. The
+old terminal tables remain as explicitly named structural tests. New components:
+
+- `interpret.rs` and `operations.rs` execute the **actual** plans, resolving
+  parameters, temporary values, selected cases, projections, calls, allocations
+  and state transitions on a concrete heap. Self helper tails are trampolined.
+- `reference/` directly matches typed computation/queue/context/extent/owner
+  values. It does not inspect a plan, Op, Cursor, emitter or production field
+  offset constants. Replay specifies a flat list of callback/Finish occurrences
+  rather than constructing the plan's traversal stack and reversed nodes.
+- `compare.rs` checks returned/published/advanced results, all original object
+  contents, original value identity, fresh-reference aliasing and ordered status
+  reads/writes, callback loads/clears and applications. Fresh IDs are compared
+  bijectively, not by structural equality that could hide shared/reused cells.
+- Allocation roles must agree. The flat replay model independently budgets the
+  temporary queue nodes it does not construct; extra private or queue allocations
+  cannot silently disappear behind fresh-ID normalization. Invalid model inputs
+  and exhausted evaluation budgets never count as matching executions.
+
+All **39** named actions are executed and compared, including rejection arms.
+The finite tests cover both contexts, all queue heads, target completion and
+Finish coalescing, Bind/Resume provenance, pending/consumed/cancelled owners,
+callback traps, raw invocation, ancestor expiry and unknown tags. Distinct values
+represent root state, current execution extent, dispatch checkpoint and saved
+restore parent, so same-shaped substitutions remain observable.
+
+The queue generator enumerates **1,805 expressions through depth 3**, with two
+shared callback identities, Finish markers and independent Append subtrees.
+Each is checked for successful replay, repeat replay with disjoint fresh
+activations, unchanged source objects and rejection when a saved Finish expires.
+Callback order/sharing, unique fresh extents, active result and fresh-parent chain
+are asserted independently of graph comparison. Exact modeled queue allocation
+count is `2 * (Cons + Finish occurrences) + Append occurrences`.
+
+Additional composition tests drive left/right Bind chains through depth 15 to
+publication; compose bounded Resume with both dispatch contexts and a distinct
+saved checkpoint; abandon source work while completing scoped target/caller
+work; and replay an actually shared subqueue containing an owned callback twice.
+Both occurrences retain the same owner: its first transfer consumes it and the
+second is rejected. Distinct later expired Finish extents/ancestors are checked
+before rebuilding, and malformed/unknown reversed tails retain the valid prefix
+allocation while never publishing a replay result.
+
+Eighteen semantic mutation tests exercise **20 concrete mutations**. Every
+mutated plan still passes logical type/scope/action/terminal checking before
+behavioral comparison rejects it. Cases include swapped clauses or state fields,
+wrong callback arguments, wrong Finish restore/Handle caller extent, Bind
+reentering itself, lost Append-left work, consumer-first Resume, wrong replay
+parent or reused checkpoint, wrong replay result, incorrect one-shot phases or
+callback clearing, cancelled/consumed confusion, reopening expired extents,
+omitted raw checks, and extra status/extent/queue allocations. This demonstrates
+behavioral evidence beyond shape checking rather than simply adding positives.
+
+Scope is explicit: scripted callback results and raw-resume closures are model
+inputs, not an interpreter for arbitrary PureScript functions. The model does
+not prove optimizer equivalence, native GC/stack behavior, FFI ownership, host
+cleanup or behavior under allocation failure. Mandatory optimized target tests
+and the original complete acceptance obligations remain required.
+
+### Borrowed-result boundary audit
+
+The audit initially tested whether nested borrowed results bypassed the ABI's
+top-level guard. Actual `wit_parser::Resolve::push_str` rejects them recursively
+before import publication. A probe that unwraps that failed resolution is not
+evidence of malformed import acceptance. No duplicate borrow checker or compiler
+ownership type was added.
+
+`abi::tests::borrowed_results` now tests the actual boundary: **25** nested WIT
+result forms must reach the borrowed-result diagnostic (not a syntax error),
+six legal borrowed parameter forms retain their canonical ownership metadata,
+and six owned result forms remain supported with callable explicit drops.
+These are rejection/metadata claims, not foreign resource execution or complete
+capture-lifetime acceptance. DEC-14's library-owned explicit-drop discipline and
+the remaining foreign/trap obligations are unchanged.
+
+### Evidence and next work
+
+The construction baseline passed 19 plan tests on the starting dirty tree.
+The completed model passes 34 tests, including the two retained terminal-shape
+tests. Three additional ABI tests cover the borrowed-result audit.
+
+| Final validation | Observed result |
+| --- | --- |
+| Backend library, in final workspace run | 503 passed |
+| `cargo test -p psrs-backend --lib cc::lower::control::plan::model` | 34 passed, no failures; `behavior-prefixes.log` |
+| `cargo test -p psrs-backend --lib abi::tests::borrowed_results` | 3 passed, no failures |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control` | 29 passed, no failures or skips |
+| Eleven control integration targets, §11's command, required Wasmtime | 82 passed, no failures or skips |
+| `cargo test --workspace --no-fail-fast` | Same 71 failed test names as §12; no additions or recoveries |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Blocked by the existing `psrs-kind:174` `let_and_return` warning |
+| `cargo clippy --workspace --all-targets -- -D warnings -A clippy::let_and_return` | Passed |
+| `cargo fmt --all --check`; `git diff --check`; local documentation link targets | Passed |
+
+The final integrated driver library result remains **654 passed / 68 failed**.
+The failing test targets remain CLI `link`, CLI `source_layout`, driver library
+and driver `residual_constraints`. This compares against the immediately
+preceding goal-turn final workspace log, not a fresh clean-checkout baseline.
+Rustdoc passes in this final integrated run; it does not reproduce the earlier
+dependency-artifact errors. Standalone backend/driver doctests also pass (zero
+examples). The earlier intermediate workspace run is not the final snapshot.
+
+Evidence: `/private/tmp/psrs-control-behavior-{baseline,prefixes,control,integration,workspace-final,clippy-strict,clippy-final,fmt,doctest}.log`,
+`/private/tmp/psrs-control-behavior-workspace-comparison.json` and
+`/private/tmp/psrs-control-borrow-result-final.log`. The temporary
+`borrow-result-before.log` is retained as audit evidence of a wrong probe
+boundary, not a before/after compiler-fix comparison. No ignored scoreboard,
+full upstream differential or package conformance rerun was performed; D-04
+measurements and complete AE/AC statuses are unchanged. All final Rust changes
+are included in the final workspace/lint snapshot.
+
+Continue with the full retired-case mapping and construction/transform
+regressions, actual saved-length/queue-shape traversal cost observations,
+foreign capture and caught-trap cleanup/reentry, pinned library comparisons and
+complete AE/AC acceptance. `control_costs::probe::instrument_replay` currently
+increments outside the loopified helper bodies; its entry count does not measure
+per-node replay work. The model's allocation formula is not a substitute for the
+required optimized-Wasm observation. Native Effect/ST retains the original
+post-delimited-control order.
+
+No commits, pushes, PRs, package edits or remote changes were made.
+
+## 14. Optimized Wasm replay traversal costs (2026-10-15)
+
+This slice closes the saved-length/queue-shape observation gap in §13 and L5.
+The dirty checkout and all earlier changes are preserved. It does not close
+full delimited-control acceptance or the retired-test mapping obligation.
+
+### Observation boundary and functional checks
+
+`control_costs::probe::instrument_replay_steps` instruments the final structured
+Wasm after the normal verified compiler pipeline. A private counter increments
+at each Clone/Rebuild loop header, including self-tail backedges. The probe
+requires both named helpers and exactly one loop per helper; changed target
+structure fails the test rather than silently skipping an observation. The
+existing entry counter remains separate. An optional Clone activation ordinal
+isolates the second replay while preserving its Clone-to-Rebuild transfer.
+
+Each source checks request count and the noncommutative callback recurrence
+`value := 3 * value + callbackIndex`, including its final value. The run result
+is passed once into a checking function: separate references to a top-level pure
+`result` would evaluate the entire run twice and confound replay counts. An
+independent allocation-site ancestry guard requires depth zero in these sources.
+The ancestry-only artifact must first return 42.
+
+`control_costs/replay.rs` compiles each workload once, validates instrumented
+components, measures the smallest successful counter budget C, then reruns C
+(exit 42) and C−1 (unreachable trap). Unexpected exits or other trap kinds fail;
+they cannot become a successful count or runtime-unavailable skip. Each workload
+retains source, original and instrumented Wasm, stderr, Wasmtime version, source
+and artifact fingerprints, ancestry bound and threshold reports under the
+printed `psrs-control-replay-costs-<pid>` temporary directory.
+
+### Measured traversal
+
+All measurements below use the actual optimized Wasm, required Wasmtime,
+source-level result/order/request checks, and ancestry bound zero.
+
+| Saved callbacks N | One-request helper entries | One-request loop iterations |
+| --- | --- | --- |
+| 0 | 2 | 2 |
+| 1 | 2 | 4 |
+| 4 | 2 | 10 |
+| 16 | 2 | 34 |
+
+The observed linear queue cost is `2*N + 2`: Clone and Rebuild each visit the
+callbacks and their terminating Empty. Helper entries alone cannot detect it.
+
+| Callbacks saved at second request | Linear second-replay iterations | Append second-replay iterations |
+| --- | --- | --- |
+| 0 | 2 | 4 |
+| 4 | 10 | 12 |
+| 16 | 34 | 36 |
+
+Both shape workloads execute exactly two requests and four helper entries.
+The first completes before building the second queue in the linear workload.
+The Append workload performs again while consuming the first replay, so its
+second saved queue is `Append(Cons^N, Empty)`. Its Clone traversal adds the
+Append dispatch and the empty right traversal; callback count/order and extent
+depth remain equal. This is observed traversal cost, not timing, native stack
+measurement, actual GC allocation counting or a general complexity proof. The
+model's separate allocation formula remains model evidence.
+
+### Validation and continuation
+
+| Final validation | Observed result |
+| --- | --- |
+| Backend library, final workspace run | 503 passed |
+| `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control -- --nocapture` | 31 passed, no failures or skips, including both new traversal tests |
+| Eleven control integration targets, §11 command, required Wasmtime | 82 passed, no failures or skips |
+| `cargo test --workspace --no-fail-fast` | Same 71 failed test names as §13; no additions or recoveries |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Existing `psrs-kind/src/check/synonyms.rs:174` `let_and_return` warning blocks it |
+| `cargo clippy --workspace --all-targets -- -D warnings -A clippy::let_and_return` | Passed |
+| `cargo fmt --all --check`; `git diff --check`; changed documentation local link targets | Passed |
+
+The final integrated driver library result is **656 passed / 68 failed**.
+The failing test targets remain CLI `link`, CLI `source_layout`, driver library
+and driver `residual_constraints`. This compares the failure-name set against
+§13's final dirty-tree snapshot, not a fresh clean-checkout baseline. The same
+integrated run also reports E0463 dependency-artifact errors for backend and
+driver rustdoc. Standalone `cargo test -p psrs-backend -p psrs-driver --doc`
+passes afterward (zero examples each); it is separate evidence.
+
+Evidence: `/private/tmp/psrs-control-traversal-{baseline,control-final,integration,workspace-final,clippy-strict,clippy-final,doctest}.log`
+and `/private/tmp/psrs-control-traversal-workspace-comparison.json`. The final
+focused runtime artifacts are under
+`/var/folders/f2/h3z3zsy51xq3kr06707r9ct40000gn/T/psrs-control-replay-costs-33066/`.
+Runtime identity is Wasmtime 49.0.3 (`f96eabaa1`, 2026-10-14). For example, the
+16-callback Append source fingerprint is `fnv1a64-v1:564d03a2e95e03e6`, its
+original component is `fnv1a64-v1:1195130ca0218b27`, and the second-replay
+threshold report records 36 successful iterations versus a trap at budget 35.
+The initial failing probe run retained in `/private/tmp/psrs-control-traversal-first.log` exposed duplicate
+evaluation in the test source; `/private/tmp/psrs-control-traversal-second.log` verifies the corrected
+single-evaluation sources. It was not a compiler regression.
+
+All final Rust changes are included in the integrated snapshot and final focused
+runtime/lint checks. No ignored scoreboard or standalone package conformance
+run was performed. D-04 measurements, stdlib lock and complete AE/AC statuses
+are unchanged.
+
+The next actions at the end of this slice were the full retired-case mapping,
+foreign capture and caught-trap cleanup/reentry, pinned library comparisons and
+complete AE/AC acceptance. §15 records the following slice: `Run` became the
+40th checked action, and the 24 historical Root tests received an owner mapping.
+Native Effect/ST retains the original acceptance order. No commits, pushes,
+package edits or remote changes were made for the traversal slice.
+
+## 15. Run construction and the Root regression slice (2026-10-15)
+
+This is the current snapshot. It reconciles the dirty tree with the
+[architecture proof-owner audit](delimited-control-architecture-review-2026-10-14.md#current-proof-owners-2026-10-15)
+and the
+[lowering implementation audit](delimited-control-lowering-review-2026-10-14.md#implementation-audit-2026-10-15).
+Both audits already describe the 40-action registry, the bounded model and the
+Root mapping. §§12–13 still say 39 actions because they were written before
+`Run` entered `ActionId::ALL`.
+
+This documentation pass inspected the source. It did not re-run the §14
+commands, so the 503/31/82/71 results and the Wasmtime 49.0.3 traversal numbers
+remain measurements of the tree at the end of §14. They do not include the
+`Run` plan or the three Root driver tests below.
+
+### Checkout
+
+| Owner | Current state |
+| --- | --- |
+| Compiler | `/Users/biu/Projects/purescript-rs`, branch `feat/effect-handlers`, HEAD `708d65a0dcd3cee840c3426f04f7386780fdb6e4` (`Build the control machine from checked plans and retire its recognizers`). The working tree is dirty and contains §§11–15. |
+| Independent stdlib | `/Users/biu/Projects/psrs-stdlib`, branch `control-library`, HEAD `d6cf81105046e288e2e9cd9685f8cc47e960c988`; clean and unchanged |
+| Work | Active continuation. Complete delimited-control acceptance remains open. |
+
+Do not redo DEC-21 construction, the operand-level CC boundary, immutable
+`FrozenControlPlan` publication, the bounded model, the §14 traversal probes,
+or the R1–R3 CC regressions. Do not restore the retired `cc/verify/control/*`
+and `mir/control/*` recognizers. Do not add a second MIR machine recognizer
+under the current DEC-21 trust boundary.
+
+### What the source now owns
+
+`control/execution/mod.rs` defines `ActionId::ALL` with **40** paths:
+Executor 20, Clone 7, Rebuild 4, Check 2, Close 2, and one each for Run,
+Start, Once, Cancel and raw resume.
+`plan/check/tests.rs::every_required_action_is_checked_including_helpers_and_rejection_arms`
+drops each path and expects rejection. `ControlHelperRole::ALL` has nine roles;
+`Run` takes payload, callable and computation and returns payload.
+
+`cc/lower/control/plan/run.rs` builds the normal Run lifetime as one checked
+plan: an empty queue, a fresh `Start`, a `Root` context, one `Executor` call
+that passes that same root as both the execution extent and the dispatch
+context, `Close` of that root after the executor returns, and return of that
+executor result. The emitter checks the body against the plan before finishing
+the function. The
+[retired-regression mapping](delimited-control-retired-regressions.md) records
+why this exists: source Run previously emitted those steps in the ordinary
+caller and checked only the first three executor operands, so substituting
+`Check` for `Close` passed P8 verification. The cited before-probe is
+`/private/tmp/psrs-control-run-before-negative.log`. This pass did not
+re-execute it.
+
+The CC operand boundary remains `cc/lower/control/plan/boundary/`. It walks the
+plan and the emitted assignments in order. The MIR boundary remains
+`mir/control/boundary.rs`: dispatch-arm set plus non-self `ReturnCall` targets.
+Physical field and argument mutations after P9 are still outside that check.
+DEC-21 treats ordinary P9/P10 transforms as trusted once construction has
+discharged the machine relation. Generic SSA and layout validity are not that
+discharge.
+
+`FrozenControlPlan` in `cc/control/plan/mod.rs` keeps helper bindings, source
+contracts, resumption and schema placement private, rejects a repeated
+publication, and rolls a failed candidate back. `Machine` in
+`cc/lower/control/builder.rs` holds the immutable representation table, its own
+value declarations, the planned layout, helper symbols and the source span.
+`ControlEmitter` adapts references.
+
+`cc/lower/control/plan/model/` executes the actual plans and compares them with
+`reference/`, which matches typed machine values and replays a flat occurrence
+list. `behavior.rs` still asserts **1,805** depth-three queue expressions and
+includes `Program::Run` in the all-action comparison. The model directory
+contains **39** `#[test]` functions. Twenty-two of them are semantic mutations
+under `mutations/`: seven flow, seven replay and eight lifetime. The model still does not interpret arbitrary
+source callbacks or prove optimizer, foreign-lifetime, host-trap or
+allocation-failure behavior.
+
+### Root mapping, source inventory
+
+[delimited-control-retired-regressions.md](delimited-control-retired-regressions.md)
+reviews **24** of the **185** test names at `01f7e66c`. The other **161** names,
+including checkpoint, context, replay, private-cell publication and inlined
+factory cases, still need a case-by-case owner. A deleted name is not lost
+coverage and is not replacement coverage.
+
+Present Root evidence, by the mapping's keys:
+
+- **CC-root:** `control_regressions::root::cc_run_requires_its_fresh_root_empty_queue_ordered_close_and_result` mutates a live Run for `MissingClose`, `EarlyClose`, `WrongResult`, `ExecutionRoot`, `DispatchRoot`, `CloseRoot` and `NonemptyQueue`.
+- **CC-close:** `cc_run_cannot_check_instead_of_closing_its_root`.
+- **Model-run:** `plan::model::runs::run_composes_dispatch_callbacks_and_normal_root_completion`.
+- **Model-negative:** the Run cleanup mutation above.
+- **Source-runs:** `sequential_and_exclusive_runs_preserve_independent_invocations_after_optimization`.
+- **Escape-runtime:** the existing `control_lifetime` integration target. This pass did not re-run it.
+
+`tests::control` has **54** `#[test]` functions in source: 14 in
+`control_boundary`, 6 in `control_carriers`, 6 in `control_costs`, and 28 in
+`control_regressions`. §14 executed 31 driver control tests.
+`cc/control/plan/tests.rs` still has four publication tests.
+`abi/tests/borrowed_results.rs` still has three WIT tests. Those WIT tests
+reject nested borrowed results and retain borrowed-parameter metadata. They do
+not discharge foreign resource capture.
+
+The five fixtures that were pending inside this family are now in
+`control_regressions::transforms`, executed by
+`cargo test -p psrs-driver --lib tests::control_regressions::transforms`
+on 2026-10-15: **2 passed**, no failures. This run did not repeat the §14
+backend, integration, workspace or Wasmtime traversal commands.
+
+- `cc_start_rejects_a_status_cell_whose_length_is_not_one` rejects an empty
+  Start status cell and a two-element cell at the P8 boundary.
+- `pre_optimization_run_accepts_exclusive_sharing_distributed_close_and_copies`
+  accepts, on pre-optimization MIR, one Start shared by two exclusive
+  successors, Close repeated on both normal successors, Close omitted from a
+  trapping successor, and Close applied to a copy of the root reference.
+
+`control_runtime::collection_preserves_array_and_string_captures_across_suspension`
+and `control_reference` (6 passed) plus the eleven integration targets
+(**83 passed**) and `control-types.mjs` (**17/17**) close AE-01–AE-10 and
+AC-01–AC-05. This turn did not remeasure D-04 or run `cargo test --workspace`.
+
+Post-P9 injection of a wrong root or checkpoint operand is outside DEC-21's
+promised rejection. Map it to construction plus transform behavior, or keep a
+validator only if an explicit decision starts requiring rejection of arbitrary
+modified MIR.
+
+### Review obligations that remain open
+
+| Review item | Current state |
+| --- | --- |
+| L1–L2, gates 1–3 | Checked plans, the 40-path inventory and ordered CC expansion checking are in the source. |
+| L3 | DEC-21 stands. `mir/opt` re-verifies intermediates with the dispatch/tail boundary and generic IR validity. No translation validator exists. |
+| L4, gate 5 model | Implemented, including Run. Bounded construction evidence only. |
+| L5, gate 5 costs | §14's optimized Wasm table stands and was not remeasured here. Ancestry depth, helper entries, loop iterations and queue shape stay separate. |
+| L6 | Immutable planning is in `FrozenControlPlan`. Host-handle capture in a control callback is rejected; nested canonical borrows are unsupported captures. |
+| Gates 4 and 6 | Recognizers stay retired. All 185 historical names have an owner in the mapping audit. Exact MIR-only negatives stay outside DEC-21 where recorded. |
+| R1 | Check/Close bodies are named helper plans plus the restored lifecycle CC mutations. |
+| R2 | The P8 boundary accounts for ordered operations, failed guards and recovery casts. The four observable CC tests remain. |
+| R3 | Live helpers are required by the inventory. The retired inlined Start/Once/Cancel publication negatives still need an explicit construction or transform owner. |
+| AE/AC | AE-01–AE-10 and AC-01–AC-05 Verified; AE-11 Unverified. D-04 measurements unchanged. |
+| Foreign and traps | P8 rejects opaque host-handle captures in control callbacks. Canonical nested `borrow<T>` is an unsupported capture. A trap aborts the instance; the artifact has no Control cleanup export. Complete AC-04 buffer-lifetime evidence remains open. |
+
+### Next actions
+
+1. Treat the 185-name mapping as an audit, not gate closure. Do not restore
+   machine recognizers.
+2. AE-11 and public native Effect/ST facades. Remeasure D-04 only when that
+   work's validation runs.
+3. Leave DEC-21's trust boundary in place. A pass-level translation validator
+   requires an amendment of that decision before implementation.
+
+When the next slice changes compiler or test code, rerun the focused set its
+files touch and say that §14 was not a measurement of this tree:
+
+```sh
+cargo fmt --all --check
+cargo test -p psrs-backend --lib
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver \
+  --test control_surface --test control_scoped_surface \
+  --test control_owned_surface --test control_primitive_values \
+  --test control_runtime --test control_open_runtime \
+  --test control_scoped_runtime --test control_scoped_replay \
+  --test control_lifetime --test control_owned_runtime \
+  --test control_carrier_runtime
+```
+
+No commit, push, PR, package edit or remote change was made for this snapshot.

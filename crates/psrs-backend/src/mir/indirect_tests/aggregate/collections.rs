@@ -68,8 +68,8 @@ fn base(
                 result: reference(0),
             }),
         }],
-        representations: cc::RepresentationTable {
-            representations: vec![
+        representations: cc::RepresentationTable::from_parts(
+            vec![
                 Representation::Variant {
                     cases: vec![
                         VariantCase {
@@ -84,10 +84,9 @@ fn base(
                 },
                 inner,
             ],
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-            ..Default::default()
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),

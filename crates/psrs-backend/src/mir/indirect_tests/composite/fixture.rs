@@ -37,8 +37,8 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
     let flags_shape = product_shape(0);
     let details_shape = product_shape(1);
     let payload_shape = product_shape(2);
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             cc::Representation::Product {
                 fields: vec![ValueShape::Boolean; 5],
             },
@@ -55,8 +55,8 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
                 element: ValueShape::Integer,
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [
+        Vec::new(),
+        [
             (
                 cc::ReprId(0),
                 vec!["audit", "debug", "execute", "read", "write"],
@@ -67,8 +67,7 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
         .into_iter()
         .map(|(id, labels)| (id, labels.into_iter().map(String::from).collect()))
         .collect(),
-        ..Default::default()
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);

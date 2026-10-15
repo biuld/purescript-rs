@@ -21,8 +21,8 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
         )
         .expect("the record field WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -57,12 +57,11 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(ReprId(2), vec!["inner".to_string()])]
+        Vec::new(),
+        [(ReprId(2), vec!["inner".to_string()])]
             .into_iter()
             .collect(),
-        ..Default::default()
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -151,8 +150,8 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
         )
         .expect("the record field parameter WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -187,12 +186,11 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(ReprId(2), vec!["inner".to_string()])]
+        Vec::new(),
+        [(ReprId(2), vec!["inner".to_string()])]
             .into_iter()
             .collect(),
-        ..Default::default()
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);

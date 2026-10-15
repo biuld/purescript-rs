@@ -6,30 +6,29 @@
 //! the `TagCase` helper shared with the other machine functions.
 
 use super::builder::{Machine, repr};
+use super::fields::ControlEmitter;
 use super::plan;
 use crate::cc::payload::erased_shape;
 use crate::cc::{Assignment, Function, TagCase, ValueId};
 
 impl Machine<'_> {
     pub(super) fn executor(mut self) -> Function {
-        let state = self.lower.fresh(erased_shape());
+        let state = self.fresh_value(erased_shape());
         let signature = self
-            .lower
             .representations
             .signature(self.layout.executor)
             .unwrap();
-        let handler = self.lower.fresh(signature.parameters[1]);
-        let computation = self.lower.fresh(repr(self.layout.computation));
-        let sequence = self.lower.fresh(repr(self.layout.sequence));
-        let boundary = self.lower.fresh(repr(self.layout.boundary));
-        let context = self.lower.fresh(repr(self.layout.context));
+        let handler = self.fresh_value(signature.parameters[1]);
+        let computation = self.fresh_value(repr(self.layout.computation));
+        let sequence = self.fresh_value(repr(self.layout.sequence));
+        let boundary = self.fresh_value(repr(self.layout.boundary));
+        let context = self.fresh_value(repr(self.layout.context));
         let parameters = vec![state, handler, computation, sequence, boundary, context];
         let locals = [state, handler, computation, sequence, boundary, context];
-        let program = plan::executor();
-        plan::check(&program).expect("driver plan must be complete");
+        let program = plan::build(plan::Program::Executor);
         let mut body = Vec::new();
-        let result = self.expand(&program, &mut Vec::new(), &locals, &mut body);
-        let representations = self.lower.representations;
+        let result = self.expand(&program, &locals, &mut body);
+        let representations = self.representations;
         let symbol = self.functions.executor;
         let function = self.finish(symbol, "control_executor", parameters, body, result);
         plan::check_boundary(&function, representations, &program)

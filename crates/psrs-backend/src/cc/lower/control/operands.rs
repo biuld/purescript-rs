@@ -16,7 +16,7 @@ impl FunctionLowerer<'_> {
         arguments: &[Expr],
         assignments: &mut Vec<Assignment>,
     ) -> Result<Vec<ValueId>, Vec<BackendError>> {
-        let proof = &self.representations.control_contracts[contract.0 as usize];
+        let proof = &self.representations.control_contracts()[contract.0 as usize];
         let shapes = match proof.implementation {
             ControlImplementation::Frame {
                 representation,
@@ -64,6 +64,13 @@ impl FunctionLowerer<'_> {
                     return self.lower_array_element(argument, assignments);
                 }
                 let source = self.value_shape(argument.ty, argument.span)?;
+                if let ValueShape::Reference(Reference {
+                    heap: RefShape::Closure(_),
+                    ..
+                }) = target
+                {
+                    self.reject_host_resource_captures(argument)?;
+                }
                 let value = self.lower_value(argument, assignments)?;
                 if let ValueShape::Reference(Reference {
                     heap: RefShape::Closure(_),

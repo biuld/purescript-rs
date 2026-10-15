@@ -225,22 +225,8 @@ fn storage_case(
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct RepresentationTable {
-    /// Semantic helper bindings are fixed before any function body is lowered.
-    pub control_helpers: Vec<super::ControlHelperContract>,
-    pub control_resumption: Option<super::ControlResumptionContract>,
-    /// The frozen named placement of the machine schema. Planning fixes it once;
-    /// consumers read named carriers from it instead of inferring a role from a
-    /// helper signature offset. `None` means this module does not use control.
-    pub control_schema: Option<super::ControlSchema>,
-    /// The closed-run pair is planned before payload erasure; consumers must
-    /// not reconstruct its nominal identity from record labels or field count.
-    pub control_result_pair: Option<ReprId>,
-    /// Source control contracts are predeclared by layout, before lowering
-    /// emits any factory or executor bodies.
-    pub control_contracts: Vec<super::ControlContract>,
-    /// Rigid semantic identity is allocated using Core's relation before
-    /// arena indices are erased. The quoted types retain lexical structure.
-    pub source_type_identities: Vec<super::TypeIdentity>,
+    /// Source planning publishes immutable machine metadata before CC lowering.
+    pub(in crate::cc) control: super::control::ControlPlanning,
     pub representations: Vec<Representation>,
     pub signatures: Vec<Signature>,
     /// Canonical logical labels for record products; positional products do
@@ -249,6 +235,20 @@ pub struct RepresentationTable {
 }
 
 impl RepresentationTable {
+    /// Construct ordinary IR layouts without publishing control-machine metadata.
+    pub fn from_parts(
+        representations: Vec<Representation>,
+        signatures: Vec<Signature>,
+        product_labels: std::collections::HashMap<ReprId, Vec<String>>,
+    ) -> Self {
+        Self {
+            representations,
+            signatures,
+            product_labels,
+            ..Self::default()
+        }
+    }
+
     pub fn reserve(&mut self) -> ReprId {
         let id = ReprId(self.representations.len() as u32);
         // A temporary product is replaced before the table leaves P8. Keeping

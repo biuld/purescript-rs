@@ -389,30 +389,25 @@ remains a separate producer obligation.
 
 ### Root initialization and normal completion
 
-A checked Run factory starts with the canonical empty queue and a new root
-extent, installing a Root dispatch context containing that same extent. Start
-returns a freshly allocated parentless extent with a new one-element live status
-cell. Different sequential Run invocations must not share an extent or status
-cell. Mutually exclusive alternatives may share initialization within one
-invocation; recursion and loop iterations still require a new activation.
+A checked Run plan starts with the canonical empty queue and a fresh Start
+extent. It installs a Root dispatch context containing that same extent, calls
+the executor with that extent for both execution and dispatch, closes that root
+after the executor returns, and returns that executor result. Start returns a
+freshly allocated parentless extent whose status cell is a new one-element array
+initialized live. The P8 boundary rejects any other cell length, a non-empty
+queue, a different execution or dispatch root, a close of another root, a close
+before execution, a check in place of close, a missing close, and any returned
+value other than the executor result.
 
-Normal execution closes that root after the executor returns and before the
-checked Run result is published. A check, a close of another root, or a close
-before execution does not satisfy completion. CC checks the factory sequence and
-source witness, using branch identity to distinguish exclusive alternatives.
-MIR admits both a retained Start call and its inlined root/status allocations;
-common allocation ordering checks the current invocation/iteration. Common CFG
-analysis checks root reuse without reinitialization and requires a matching close
-on every normal path before publication, another invocation or a normal exit.
-The close can be distributed across several branches.
-
-These checks retain the source contract through Start inlining and ordinary
-reference copies/casts. They establish initialization operands and normal cleanup
-for surviving checked Run witnesses, not full execution-step equivalence. Extra
-effectful instructions, deletion of every source witness and full dispatch
-semantics require the remaining execution-step proof. Trapping paths are excluded
-from the normal completion proof; caught-host-trap cleanup still requires its
-separate host/runtime contract and execution evidence.
+The Run helper allocates that root, so a caller cannot pass one invocation's
+root or status cell into the next. Mutually exclusive alternatives may share
+initialization within one invocation. Each invocation and each loop iteration
+still needs its own activation. After the construction boundary, ordinary MIR
+may copy the root reference, repeat the same close on normal branches, leave a
+trapping alternative without a close, or keep one Start in a block that
+dominates both exclusive successors. Those are generic CFG and identity forms.
+Deleting the constructed close after that boundary is outside the promised
+rejection. Caught-host-trap cleanup remains a separate host contract.
 
 ### Source context construction and entry
 

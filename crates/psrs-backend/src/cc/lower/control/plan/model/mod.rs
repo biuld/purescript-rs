@@ -1,10 +1,25 @@
-//! An independent bounded model of the flat driver's transition traces.
+//! Bounded construction-model tests, separate from optimized target execution.
 //!
-//! `explore` recovers the terminal outcomes the plan reaches, keyed by the path
-//! of case refinements. `expected` and `helper_expected` state the same
-//! transitions directly from the operational semantics table, not from the plan
-//! builders. The tests compare the two so a dropped, duplicated or mis-routed
-//! transition is a mismatch rather than a silently passing recognizer.
+//! `interpret` executes actual plans with a concrete heap. `reference` implements
+//! direct typed operational semantics and flat-list replay, without consuming
+//! the plans. `behavior` compares outcomes, ordered observations, source identity
+//! and fresh-reference aliasing; `mutations` proves that semantically wrong but
+//! structurally checked plans are distinguishable. These tests do not interpret
+//! arbitrary source callback bodies or prove optimizer preservation.
+//!
+//! The terminal-shape tables retained below are complementary structural tests.
+
+mod behavior;
+mod compare;
+mod continuations;
+mod failure_prefixes;
+mod fixtures;
+mod heap;
+mod interpret;
+mod mutations;
+mod operations;
+mod reference;
+mod runs;
 
 use super::ir::{Case, Exec};
 use super::shape::Terminal;
@@ -141,6 +156,7 @@ pub(super) fn helper_expected() -> Vec<Planned> {
             vec![
                 (vec![(s(Empty), 0)], Value),
                 (vec![(s(Cons), 1)], Tail),
+                (vec![(s(Append), 2)], Reject),
                 (vec![(s(Finish), 3)], Tail),
             ],
         ),
@@ -170,7 +186,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn plan_matches_the_independent_model() {
+    fn executor_terminal_shape_matches_the_specification() {
         let plan = super::super::executor();
         let expected = expected();
         assert_eq!(
@@ -188,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn helper_plans_match_the_model() {
+    fn helper_terminal_shapes_match_the_specification() {
         for (name, plan, expected) in helper_expected() {
             assert_eq!(
                 trace_count(&plan),

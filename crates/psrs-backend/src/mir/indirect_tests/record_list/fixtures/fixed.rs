@@ -88,14 +88,13 @@ pub(crate) fn fixed_list_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 result: ValueShape::Integer,
             }),
         }],
-        representations: cc::RepresentationTable {
-            representations: vec![Representation::Array {
+        representations: cc::RepresentationTable::from_parts(
+            vec![Representation::Array {
                 element: ValueShape::Integer,
             }],
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-            ..Default::default()
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),
@@ -144,14 +143,13 @@ pub(crate) fn fixed_list_result_fixture() -> (cc::Module, ExternalBindings, Reso
                 result: reference(0),
             }),
         }],
-        representations: cc::RepresentationTable {
-            representations: vec![Representation::Array {
+        representations: cc::RepresentationTable::from_parts(
+            vec![Representation::Array {
                 element: ValueShape::Integer,
             }],
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-            ..Default::default()
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),

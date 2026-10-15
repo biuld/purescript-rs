@@ -45,3 +45,61 @@ root :: forall x. Int -> Op x -> (x -> C.Control Op Int) -> { _1 :: Int, _2 :: C
 root s (Op k) raw = { _1: s, _2: raw (k 0) }
 main = (C.run 0 root (nest STEPS))._2
 ";
+
+/// One request with LENGTH callbacks already in the captured sequence.
+/// Pass the run result once to `check`: separate top-level projections would
+/// evaluate this pure definition twice and double the measured machine work.
+pub(super) const SAVED_LENGTH: &str = r"module Main where
+import Prim.Control as C
+data Op x = Op (Int -> x)
+step :: Int -> Int -> Int
+step index value = intAdd (intMul value 3) index
+expected :: Int -> Int
+expected n = if intEq n 0 then 42 else step n (expected (intSub n 1))
+build :: Int -> C.Control Op Int
+build n = if intEq n 0 then C.perform (Op (\x -> x)) else C.bind (build (intSub n 1)) (\value -> C.return (step n value))
+root :: forall x. Int -> Op x -> (x -> C.Control Op Int) -> { _1 :: Int, _2 :: C.Control Op Int }
+root s (Op k) raw = { _1: intAdd s 1, _2: raw (k 42) }
+result = C.run 0 root (build LENGTH)
+check :: { _1 :: Int, _2 :: Int } -> Int
+check result = if intEq result._1 1 then if intEq result._2 (expected LENGTH) then 42 else 0 else 0
+main = check result
+";
+
+/// The first replay finishes before building the second request's sequence,
+/// so the second capture is a linear Cons chain with LENGTH callbacks.
+pub(super) const LINEAR_SECOND: &str = r"module Main where
+import Prim.Control as C
+data Op x = Op (Int -> x)
+step :: Int -> Int -> Int
+step index value = intAdd (intMul value 3) index
+expected :: Int -> Int
+expected n = if intEq n 0 then 42 else step n (expected (intSub n 1))
+build :: Int -> C.Control Op Int
+build n = if intEq n 0 then C.perform (Op (\x -> x)) else C.bind (build (intSub n 1)) (\value -> C.return (step n value))
+root :: forall x. Int -> Op x -> (x -> C.Control Op Int) -> { _1 :: Int, _2 :: C.Control Op Int }
+root s (Op k) raw = if intEq s 0 then { _1: 1, _2: C.bind (raw (k 0)) (\_ -> build LENGTH) } else { _1: intAdd s 1, _2: raw (k 42) }
+result = C.run 0 root (C.perform (Op (\x -> x)))
+check :: { _1 :: Int, _2 :: Int } -> Int
+check result = if intEq result._1 2 then if intEq result._2 (expected LENGTH) then 42 else 0 else 0
+main = check result
+";
+
+/// After the first replay enters its first callback, the second capture sees
+/// Append(remainingCallbacks, Empty): same callbacks as LINEAR_SECOND.
+pub(super) const APPEND_SECOND: &str = r"module Main where
+import Prim.Control as C
+data Op x = Op (Int -> x)
+step :: Int -> Int -> Int
+step index value = intAdd (intMul value 3) index
+expected :: Int -> Int
+expected n = if intEq n 0 then 42 else step n (expected (intSub n 1))
+build :: Int -> C.Control Op Int
+build n = if intEq n 0 then C.bind (C.perform (Op (\x -> x))) (\_ -> C.perform (Op (\x -> x))) else C.bind (build (intSub n 1)) (\value -> C.return (step n value))
+root :: forall x. Int -> Op x -> (x -> C.Control Op Int) -> { _1 :: Int, _2 :: C.Control Op Int }
+root s (Op k) raw = { _1: intAdd s 1, _2: raw (k 42) }
+result = C.run 0 root (build LENGTH)
+check :: { _1 :: Int, _2 :: Int } -> Int
+check result = if intEq result._1 2 then if intEq result._2 (expected LENGTH) then 42 else 0 else 0
+main = check result
+";

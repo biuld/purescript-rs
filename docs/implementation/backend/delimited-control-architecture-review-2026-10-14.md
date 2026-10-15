@@ -4,6 +4,9 @@
 complete AE/AC acceptance remains open.
 The findings and review measurements below describe the pre-repair snapshot.
 See [the repair evidence](#repair-evidence-2026-10-14) for current implementation and validation.
+The later construction migration retires those recognizers; see
+[the current proof-owner audit](#current-proof-owners-2026-10-15) before treating
+their historical tests as current coverage.
 **Design:** [Control machine](../../design/backend/fp/control-machine.md),
 [delimited control](../../design/backend/fp/delimited-control-and-resumable-frames.md)
 and [handler scopes](../../design/backend/fp/control-elimination-and-handler-scopes.md).
@@ -262,3 +265,26 @@ were followed by focused control/backend/integration and lint reruns; full
 workspace was not repeated afterward. See handoff §8 for exact scope, comparison
 and log paths. Ignored scoreboards, explicit full upstream differential and package
 conformance were not rerun; D-04 measurements/statuses are unchanged.
+
+## Current proof owners (2026-10-15)
+
+DEC-21 changes where these obligations are discharged. The historical repair
+sections above describe the former CC/MIR recognizers, not current module paths.
+The current implementation uses checked construction and ordinary downstream
+transform behavior evidence. [The lowering review audit](delimited-control-lowering-review-2026-10-14.md#implementation-audit-2026-10-15)
+records the complete remaining migration scope.
+
+| Review requirement | Current owner | Current evidence and limit |
+| --- | --- | --- |
+| R1: Check/Close bodies, status access and ancestry | Named helper plans, complete typed plan checking, ordered operand-level P8 boundary checking | `control_regressions::lifecycle` restores all eight historical CC mutations for identity, guard, write and ancestry errors; new plan tests reject changed helper outcomes. Required lifetime/replay runtime execution covers the ordinary retained/optimized path. The removed arbitrary post-P9 mutation checks are not claimed. |
+| R2: all normal and exceptional prefixes | The P8 boundary consumes every non-cast assignment in order and checks failed-guard/default bodies, actual sources and exits; recovery casts must feed the next checked operation or exit | `control_regressions::observables` restores all four historical CC tests. Extra stores/calls and missing writes fail; unused recovery, re-erasure and callback recovery moved before clearing are additional permanent negatives. Optimizer equivalence remains trusted and tested under DEC-21; generic MIR verification alone does not prove it. |
+| R3: meaningful retained and inlined evidence | Factory/helper plans are required by the 40-action inventory; `checkpoints::cc_start_and_once_status_cells_must_be_initialized_live` rejects a spent initializer; actual optimized lifetime/owned tests execute | No missing helper is skipped. A post-P9 write of a spent cell is a trusted-transform obligation, not a restored MIR recognizer. |
+| Encapsulation and truthful boundaries | `FrozenControlPlan`, private `CheckedPlan`, representation-neutral field/helper schema and minimal machine emitter | Publication is validated and single-assignment; same-arity wrong field/signature layouts are rejected. Ordinary mutable IR remains constructible and verified. |
+| Independent behavioral machine model | Test-only concrete plan interpreter plus separately written typed operational semantics and flat replay | All 40 actions, bounded queue order/freshness/sharing/ancestry, ordered owned transfer and exceptional prefixes are compared. Twenty-two well-formed semantic mutation classes prove the model distinguishes errors beyond shape/type checking; this is bounded construction evidence, not a formal optimizer or callback-body proof. |
+| Remaining acceptance | Original AE/AC requirements | AE-01–AE-10 and AC-01–AC-05 are Verified. AE-11 native host IO remains open. D-04 numbers were not remeasured. |
+
+The current snapshot, including the 40th `Run` action and the Root regression
+mapping, is [handoff §15](delimited-control-migration-handoff-2026-10-12.md#15-run-construction-and-the-root-regression-slice-2026-10-15).
+§13 records the model checkpoint before that slice.
+These implementation improvements do not close complete AE/AC statuses or alter
+the normative requirements to match the supported subset.

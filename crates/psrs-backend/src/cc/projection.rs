@@ -417,8 +417,8 @@ mod tests {
             nullable: false,
             heap: RefShape::Erased,
         });
-        let representations = RepresentationTable {
-            representations: vec![
+        let representations = RepresentationTable::from_parts(
+            vec![
                 Representation::Product {
                     fields: vec![ValueShape::String],
                 },
@@ -435,12 +435,11 @@ mod tests {
                     ],
                 },
             ],
-            signatures: Vec::new(),
-            product_labels: [(ReprId(0), vec!["name".to_string()])]
+            Vec::new(),
+            [(ReprId(0), vec!["name".to_string()])]
                 .into_iter()
                 .collect(),
-            ..Default::default()
-        };
+        );
         let record_types = [(record, ReprId(0))].into_iter().collect();
         let array_types = HashMap::new();
         let constructor_types = [(just, ReprId(1)), (nothing, ReprId(1))]

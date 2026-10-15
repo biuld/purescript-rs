@@ -488,9 +488,19 @@ suspension protocol. A continuation also cannot retain a borrowed canonical-ABI
 buffer or a host-resource reference past the boundary's lifetime.
 
 The current explicit monadic lowering captures guest queue/context data, not
-native host frames. This does not discharge captured-resource lifetime checks or
-caught-host-trap cleanup. Those remain required acceptance obligations; no
-complete foreign-boundary verifier or recovery protocol is claimed here.
+native host frames. P8 rejects a control callback that captures an opaque
+foreign-import-data host handle. Canonical `borrow<T>`, including nested
+aggregates, is an unsupported control capture; a `list<borrow<T>>` result is
+already rejected at P9. Owned handles and GC-copied strings/lists are outside
+that predicate.
+
+A canonical-ABI or guest trap aborts the component instance. Component-model
+lockdown forbids observing that instance through later reentry. The compiler
+does not emit a Control cleanup export for the embedder to call after catching
+such a trap. Recovery is to discard the instance. That is the defined
+caught-host-trap boundary; it is not a protocol that resumes Control on the
+same instance. Complete AC-04 lifetime evidence for every foreign buffer still
+remains required.
 
 ### Compiler CPS versus native stack switching
 

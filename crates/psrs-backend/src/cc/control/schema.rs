@@ -7,7 +7,8 @@
 //! is immutable evidence: a later pass may read it but not replace it.
 
 use super::{ControlHelperContract, ControlHelperRole};
-use crate::cc::{ReprId, Representation};
+use crate::cc::{RefShape, Reference, ReprId, Representation, SignatureId, ValueShape};
+use crate::control::schema::FieldKind;
 use crate::control::schema::{ComputationCase, ContextCase, ExtentCase, OwnerCase, SequenceCase};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,108 +33,166 @@ pub struct ControlSchema {
     pub replay_result: ReprId,
 }
 
+impl ControlSchema {
+    /// Resolve one logical storage role through this module's frozen placement.
+    pub(crate) fn shape(self, kind: FieldKind, continuation: SignatureId) -> ValueShape {
+        use FieldKind::*;
+        let heap = match kind {
+            Payload => return crate::cc::payload::erased_shape(),
+            Callable => RefShape::Closure(continuation),
+            Computation => RefShape::Repr(self.computation),
+            Sequence => RefShape::Repr(self.sequence),
+            Context => RefShape::Repr(self.context),
+            Extent => RefShape::Repr(self.extent),
+            Status => RefShape::Repr(self.status),
+            Owner => RefShape::Repr(self.owner),
+            Callback => RefShape::Repr(self.callback),
+            ResultPair => RefShape::Repr(self.result_pair),
+            ReplayResult => RefShape::Repr(self.replay_result),
+        };
+        ValueShape::Reference(Reference {
+            nullable: false,
+            heap,
+        })
+    }
+}
+
 impl crate::cc::RepresentationTable {
     /// The frozen machine placement, when this module uses control.
     pub(crate) fn control_schema(&self) -> Option<ControlSchema> {
-        self.control_schema
+        self.control_plan().map(|plan| plan.schema())
     }
 
     /// The single checked contract for a semantic helper role.
     pub(crate) fn control_helper(&self, role: ControlHelperRole) -> Option<&ControlHelperContract> {
-        self.control_helpers
-            .iter()
-            .find(|helper| helper.role() == role)
+        self.control_plan()?.helper(role)
     }
 
-    /// Check that every placed carrier has exactly the cases and field arity the
-    /// named schema declares. This is the independent layout check: the physical
-    /// frame is compared against the names, not one positional list against
-    /// another. Missing placement with present helpers is an error, not a fresh
-    /// unknown.
+    /// Validate the complete logical storage contract against physical CC shapes.
     pub(crate) fn verify_control_schema(&self) -> Result<(), &'static str> {
-        let Some(schema) = self.control_schema else {
-            return if self.control_helpers.is_empty() {
+        let Some(schema) = self.control_schema() else {
+            return if self.control_helpers().is_empty() {
                 Ok(())
             } else {
                 Err("control helpers have no placed machine schema")
             };
         };
-        check_variant(self, schema.computation, &computation_cases())?;
-        check_variant(self, schema.sequence, &sequence_cases())?;
-        check_variant(self, schema.context, &context_cases())?;
-        check_variant(self, schema.extent, &extent_cases())?;
-        check_variant(self, schema.owner, &owner_cases())?;
-        check_product(self, schema.result_pair)?;
-        check_product(self, schema.replay_result)?;
-        for repr in [schema.status, schema.callback] {
-            if !matches!(
-                self.representation(repr),
-                Some(Representation::Array { .. })
-            ) {
-                return Err("control placement names a private cell that is not an array");
+        let continuation = self
+            .control_resumption()
+            .ok_or("control placement has no raw continuation signature")?
+            .signature();
+        let shape = |kind| schema.shape(kind, continuation);
+        let mut identities = std::collections::HashSet::new();
+        for repr in [
+            schema.computation,
+            schema.sequence,
+            schema.context,
+            schema.extent,
+            schema.status,
+            schema.owner,
+            schema.callback,
+            schema.result_pair,
+            schema.replay_result,
+        ] {
+            if !identities.insert(repr) {
+                return Err("control placement aliases distinct storage roles");
             }
         }
-        Ok(())
-    }
-}
-
-fn computation_cases() -> Vec<(u32, usize)> {
-    ComputationCase::ALL
-        .iter()
-        .map(|case| (case.tag(), case.field_count()))
-        .collect()
-}
-
-fn sequence_cases() -> Vec<(u32, usize)> {
-    SequenceCase::ALL
-        .iter()
-        .map(|case| (case.tag(), case.field_count()))
-        .collect()
-}
-
-fn context_cases() -> Vec<(u32, usize)> {
-    ContextCase::ALL
-        .iter()
-        .map(|case| (case.tag(), case.field_count()))
-        .collect()
-}
-
-fn extent_cases() -> Vec<(u32, usize)> {
-    ExtentCase::ALL
-        .iter()
-        .map(|case| (case.tag(), case.field_count()))
-        .collect()
-}
-
-fn owner_cases() -> Vec<(u32, usize)> {
-    OwnerCase::ALL
-        .iter()
-        .map(|case| (case.tag(), case.field_count()))
-        .collect()
-}
-
-fn check_variant(
-    table: &crate::cc::RepresentationTable,
-    repr: ReprId,
-    expected: &[(u32, usize)],
-) -> Result<(), &'static str> {
-    let Some(Representation::Variant { cases }) = table.representation(repr) else {
-        return Err("control placement names a carrier that is not a variant");
-    };
-    if cases.len() != expected.len() {
-        return Err("control carrier does not match the named schema case count");
-    }
-    for (case, (tag, count)) in cases.iter().zip(expected) {
-        if case.tag != *tag || case.fields.len() != *count {
-            return Err("control carrier does not match the named schema field arity");
+        for (repr, expected) in [
+            (
+                schema.computation,
+                ComputationCase::ALL
+                    .iter()
+                    .map(|case| (case.tag(), case.fields()))
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                schema.sequence,
+                SequenceCase::ALL
+                    .iter()
+                    .map(|case| (case.tag(), case.fields()))
+                    .collect(),
+            ),
+            (
+                schema.context,
+                ContextCase::ALL
+                    .iter()
+                    .map(|case| (case.tag(), case.fields()))
+                    .collect(),
+            ),
+            (
+                schema.extent,
+                ExtentCase::ALL
+                    .iter()
+                    .map(|case| (case.tag(), case.fields()))
+                    .collect(),
+            ),
+            (
+                schema.owner,
+                OwnerCase::ALL
+                    .iter()
+                    .map(|case| (case.tag(), case.fields()))
+                    .collect(),
+            ),
+        ] {
+            let Some(Representation::Variant { cases }) = self.representation(repr) else {
+                return Err("control placement names a carrier that is not a variant");
+            };
+            if cases.len() != expected.len() {
+                return Err("control carrier does not match the named schema case count");
+            }
+            for (actual, (tag, fields)) in cases.iter().zip(expected) {
+                let expected = fields.iter().map(|kind| shape(*kind)).collect::<Vec<_>>();
+                if actual.tag != tag || actual.fields != expected {
+                    return Err("control carrier fields disagree with their logical storage roles");
+                }
+            }
         }
-    }
-    Ok(())
-}
-
-fn check_product(table: &crate::cc::RepresentationTable, repr: ReprId) -> Result<(), &'static str> {
-    match table.representation(repr) {
-        Some(Representation::Product { fields }) if fields.len() == 2 => Ok(()),
-        _ => Err("control placement names a product that does not have two fields"),
+        for (repr, fields) in [
+            (schema.result_pair, vec![shape(FieldKind::Payload); 2]),
+            (
+                schema.replay_result,
+                vec![shape(FieldKind::Sequence), shape(FieldKind::Extent)],
+            ),
+        ] {
+            if self.representation(repr) != Some(&Representation::Product { fields }) {
+                return Err("control product fields disagree with their logical storage roles");
+            }
+        }
+        for (repr, element) in [
+            (schema.status, ValueShape::Integer),
+            (schema.callback, shape(FieldKind::Payload)),
+        ] {
+            if self.representation(repr) != Some(&Representation::Array { element }) {
+                return Err("control private cell has the wrong element role");
+            }
+        }
+        if self.control_result_pair() != Some(schema.result_pair) {
+            return Err("control result pair disagrees with its placed role");
+        }
+        for helper in self.control_helpers() {
+            let signature = self
+                .signature(helper.signature())
+                .ok_or("control helper has no planned signature")?;
+            let parameters = helper
+                .role()
+                .parameters()
+                .iter()
+                .map(|kind| shape(*kind))
+                .collect::<Vec<_>>();
+            if signature.parameters != parameters
+                || signature.result != shape(helper.role().result())
+            {
+                return Err("control helper signature disagrees with its logical storage roles");
+            }
+        }
+        let raw = self
+            .signature(continuation)
+            .ok_or("raw continuation signature is missing")?;
+        if raw.parameters != [shape(FieldKind::Payload)] || raw.result != shape(FieldKind::Payload)
+        {
+            return Err("raw continuation signature disagrees with its unary protocol");
+        }
+        Ok(())
     }
 }

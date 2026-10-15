@@ -48,7 +48,7 @@ fn all_eight_operations_use_nominal_carriers_and_direct_callable_protocols() {
     let table = &input.cc.representations;
     let signature = |role| {
         let helper = table
-            .control_helpers
+            .control_helpers()
             .iter()
             .find(|helper| helper.role() == role)
             .unwrap();
@@ -77,7 +77,7 @@ fn all_eight_operations_use_nominal_carriers_and_direct_callable_protocols() {
             else {
                 return;
             };
-            let operation = table.control_contracts[contract.0 as usize].operation();
+            let operation = table.control_contracts()[contract.0 as usize].operation();
             operations.insert(operation);
             let expected = match operation {
                 Intrinsic::ControlReturn | Intrinsic::ControlPerform => vec![erased],
@@ -124,7 +124,7 @@ fn ordinary_parameters_results_and_join_values_keep_the_carrier_shape() {
     let table = &input.cc.representations;
     let expected = |role, parameter: Option<usize>| {
         let helper = table
-            .control_helpers
+            .control_helpers()
             .iter()
             .find(|helper| helper.role() == role)
             .unwrap();
@@ -163,7 +163,7 @@ fn ordinary_parameters_results_and_join_values_keep_the_carrier_shape() {
 #[test]
 fn cc_rejects_weakening_a_source_computation_to_an_abstract_aggregate() {
     let mut input = crate::lower_main_to_cc(SOURCE).unwrap();
-    let contracts = &input.cc.representations.control_contracts;
+    let contracts = &input.cc.representations.control_contracts();
     let (function, value, destination) = input
         .cc
         .functions
@@ -206,7 +206,7 @@ fn cc_boundary_rejects_a_dropped_machine_dispatch_arm() {
     let symbol = input
         .cc
         .representations
-        .control_helpers
+        .control_helpers()
         .iter()
         .find(|helper| helper.role() == ControlHelperRole::Executor)
         .unwrap()

@@ -179,11 +179,7 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    if let CanonicalType::Handle {
-        ownership: crate::abi::canonical::Ownership::Borrow,
-        ..
-    } = element
-    {
+    if crate::abi::canonical::reject_borrowed_control_capture(std::iter::once(element)).is_err() {
         // A borrowed handle must not escape the call that produced it. An owned
         // handle list is an ordinary `i32` array: the standard library drops
         // each extracted handle (DEC-14), so the compiler copies the indices.

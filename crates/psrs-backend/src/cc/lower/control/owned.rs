@@ -4,22 +4,18 @@
 //! [`super::plan`].
 
 use super::builder::{Machine, repr};
+use super::fields::ControlEmitter;
 use crate::cc::Function;
 
 impl Machine<'_> {
     pub(super) fn owned(mut self) -> Function {
-        let signature = self
-            .lower
-            .representations
-            .signature(self.layout.once)
-            .unwrap();
-        let continuation = self.lower.fresh(signature.parameters[0]);
+        let signature = self.representations.signature(self.layout.once).unwrap();
+        let continuation = self.fresh_value(signature.parameters[0]);
         let params = [continuation];
-        let program = super::plan::once();
-        super::plan::verify_plan(&program).expect("once plan must be well-formed");
+        let program = super::plan::build(super::plan::Program::Once);
         let mut body = Vec::new();
-        let result = self.expand(&program, &mut Vec::new(), &params, &mut body);
-        let representations = self.lower.representations;
+        let result = self.expand(&program, &params, &mut body);
+        let representations = self.representations;
         let symbol = self.functions.once;
         let function = self.finish(symbol, "control_once", vec![continuation], body, result);
         super::plan::check_boundary(&function, representations, &program)
@@ -28,13 +24,12 @@ impl Machine<'_> {
     }
 
     pub(super) fn cancel(mut self) -> Function {
-        let owner = self.lower.fresh(repr(self.layout.owner));
+        let owner = self.fresh_value(repr(self.layout.owner));
         let params = [owner];
-        let program = super::plan::cancel();
-        super::plan::verify_plan(&program).expect("cancel plan must be well-formed");
+        let program = super::plan::build(super::plan::Program::Cancel);
         let mut body = Vec::new();
-        let result = self.expand(&program, &mut Vec::new(), &params, &mut body);
-        let representations = self.lower.representations;
+        let result = self.expand(&program, &params, &mut body);
+        let representations = self.representations;
         let symbol = self.functions.cancel;
         let function = self.finish(symbol, "control_cancel", vec![owner], body, result);
         super::plan::check_boundary(&function, representations, &program)

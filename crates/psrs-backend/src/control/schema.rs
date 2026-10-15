@@ -11,6 +11,74 @@
 //! layout planning checks that the physical frame it emits has exactly the
 //! declared arity.
 
+/// Logical storage roles, before any CC representation or physical MIR layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FieldKind {
+    Payload,
+    Callable,
+    Computation,
+    Sequence,
+    Context,
+    Extent,
+    Status,
+    Owner,
+    Callback,
+    ResultPair,
+    ReplayResult,
+}
+
+/// Direct-call helper roles. Raw resume uses the closure receiver protocol.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ControlHelperRole {
+    Executor,
+    Run,
+    CloneSequence,
+    RebuildSequence,
+    Start,
+    Check,
+    Close,
+    Once,
+    Cancel,
+}
+
+impl ControlHelperRole {
+    pub(crate) const ALL: [Self; 9] = [
+        Self::Executor,
+        Self::Run,
+        Self::CloneSequence,
+        Self::RebuildSequence,
+        Self::Start,
+        Self::Check,
+        Self::Close,
+        Self::Once,
+        Self::Cancel,
+    ];
+
+    pub(crate) fn parameters(self) -> &'static [FieldKind] {
+        use FieldKind::*;
+        match self {
+            Self::Run => &[Payload, Callable, Computation],
+            Self::Executor => &[Payload, Callable, Computation, Sequence, Extent, Context],
+            Self::CloneSequence => &[Sequence, Sequence, Sequence, Extent, Extent],
+            Self::RebuildSequence => &[Sequence, Sequence, Extent, Extent],
+            Self::Start => &[],
+            Self::Check | Self::Close => &[Extent],
+            Self::Once => &[Callable],
+            Self::Cancel => &[Owner],
+        }
+    }
+
+    pub(crate) fn result(self) -> FieldKind {
+        use FieldKind::*;
+        match self {
+            Self::Executor | Self::Run => Payload,
+            Self::CloneSequence | Self::RebuildSequence => ReplayResult,
+            Self::Start | Self::Check | Self::Close => Extent,
+            Self::Once | Self::Cancel => Owner,
+        }
+    }
+}
+
 /// The six cases of a `Control f a` computation frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ComputationCase {
@@ -23,6 +91,16 @@ pub enum ComputationCase {
 }
 
 impl ComputationCase {
+    pub(crate) fn fields(self) -> &'static [FieldKind] {
+        use FieldKind::*;
+        match self {
+            Self::Return | Self::Perform => &[Payload],
+            Self::Bind => &[Computation, Callable],
+            Self::Resume => &[Payload, Sequence, Extent],
+            Self::Handle => &[Callable, Callable, Computation],
+            Self::OwnedResume => &[Owner, Payload],
+        }
+    }
     pub const ALL: [Self; 6] = [
         Self::Return,
         Self::Perform,
@@ -34,16 +112,6 @@ impl ComputationCase {
 
     pub const fn tag(self) -> u32 {
         self as u32
-    }
-
-    pub const fn field_count(self) -> usize {
-        match self {
-            Self::Return | Self::Perform => 1,
-            Self::Bind => 2,
-            Self::Resume => 3,
-            Self::Handle => 3,
-            Self::OwnedResume => 2,
-        }
     }
 }
 
@@ -77,18 +145,19 @@ pub enum SequenceCase {
 }
 
 impl SequenceCase {
+    pub(crate) fn fields(self) -> &'static [FieldKind] {
+        use FieldKind::*;
+        match self {
+            Self::Empty => &[],
+            Self::Cons => &[Callable, Sequence],
+            Self::Append => &[Sequence, Sequence],
+            Self::Finish => &[Extent, Sequence, Extent],
+        }
+    }
     pub const ALL: [Self; 4] = [Self::Empty, Self::Cons, Self::Append, Self::Finish];
 
     pub const fn tag(self) -> u32 {
         self as u32
-    }
-
-    pub const fn field_count(self) -> usize {
-        match self {
-            Self::Empty => 0,
-            Self::Cons | Self::Append => 2,
-            Self::Finish => 3,
-        }
     }
 }
 
@@ -111,17 +180,17 @@ pub enum ContextCase {
 }
 
 impl ContextCase {
+    pub(crate) fn fields(self) -> &'static [FieldKind] {
+        use FieldKind::*;
+        match self {
+            Self::Root => &[Extent],
+            Self::Scoped => &[Callable, Callable, Sequence, Extent, Context, Extent],
+        }
+    }
     pub const ALL: [Self; 2] = [Self::Root, Self::Scoped];
 
     pub const fn tag(self) -> u32 {
         self as u32
-    }
-
-    pub const fn field_count(self) -> usize {
-        match self {
-            Self::Root => 1,
-            Self::Scoped => 6,
-        }
     }
 }
 
@@ -144,17 +213,17 @@ pub enum ExtentCase {
 }
 
 impl ExtentCase {
+    pub(crate) fn fields(self) -> &'static [FieldKind] {
+        use FieldKind::*;
+        match self {
+            Self::Root => &[Status],
+            Self::Scoped => &[Status, Extent],
+        }
+    }
     pub const ALL: [Self; 2] = [Self::Root, Self::Scoped];
 
     pub const fn tag(self) -> u32 {
         self as u32
-    }
-
-    pub const fn field_count(self) -> usize {
-        match self {
-            Self::Root => 1,
-            Self::Scoped => 2,
-        }
     }
 }
 
@@ -171,16 +240,13 @@ pub enum OwnerCase {
 }
 
 impl OwnerCase {
+    pub(crate) fn fields(self) -> &'static [FieldKind] {
+        &[FieldKind::Callback, FieldKind::Status]
+    }
     pub const ALL: [Self; 1] = [Self::OneShot];
 
     pub const fn tag(self) -> u32 {
         self as u32
-    }
-
-    pub const fn field_count(self) -> usize {
-        match self {
-            Self::OneShot => 2,
-        }
     }
 }
 

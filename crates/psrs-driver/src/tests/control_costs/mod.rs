@@ -1,6 +1,8 @@
 //! Cost evidence combines actual ancestry guards with observed GC collections.
 
 mod probe;
+mod replay;
+use replay::entry_invocations as replay_invocations;
 mod sources;
 
 use std::process::Command;
@@ -115,50 +117,6 @@ fn control_ancestry_probe_observes_independent_non_tail_extents() {
     run("nested", sources::NESTED, 8, 7, 134);
 }
 
-/// Run the instrumented replay counter at `budget` and report whether the
-/// program completed (the count did not exceed the budget).
-fn replay_ok(name: &str, source: &str, budget: i32) -> Option<bool> {
-    super::wasmtime_available()?;
-    let mut stages = crate::compile_main_stages(source).expect("cost source compiles and verifies");
-    assert!(
-        probe::instrument_replay(&mut stages, budget) > 0,
-        "no replay helpers retained to instrument"
-    );
-    let core =
-        psrs_backend::wasm::encode_module(&stages.wasm).expect("instrumented target encodes");
-    let bytes = probe::component(&stages, &core);
-    wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
-        .validate_all(&bytes)
-        .expect("instrumented Wasm validates");
-    let path = std::env::temp_dir().join(format!("psrs-control-replay-{name}-{budget}.wasm"));
-    std::fs::write(&path, bytes).unwrap();
-    let output = Command::new("wasmtime")
-        .arg("run")
-        .arg(&path)
-        .output()
-        .unwrap();
-    let _ = std::fs::remove_file(&path);
-    Some(output.status.code() == Some(42))
-}
-
-/// The total `CloneSequence`/`RebuildSequence` invocations: the smallest budget
-/// that does not trap the replay counter.
-fn replay_invocations(name: &str, template: &str, steps: i32) -> Option<i32> {
-    super::wasmtime_available()?;
-    let source = template.replace("STEPS", &steps.to_string());
-    let mut lo = 0;
-    let mut hi = 1 << 20;
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if replay_ok(name, &source, mid)? {
-            hi = mid;
-        } else {
-            lo = mid + 1;
-        }
-    }
-    Some(lo)
-}
-
 #[test]
 fn replay_invocations_grow_with_requests_at_fixed_ancestry() {
     // `DEEP` replays its saved queue once per request; the ancestry bound stays
@@ -183,7 +141,7 @@ fn control_cost_pipeline_rejects_a_malformed_compiler_input() {
     let symbol = input
         .cc
         .representations
-        .control_helpers
+        .control_helpers()
         .iter()
         .find(|h| h.role() == psrs_backend::cc::ControlHelperRole::Executor)
         .unwrap()

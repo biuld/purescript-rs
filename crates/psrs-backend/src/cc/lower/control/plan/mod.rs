@@ -24,12 +24,16 @@ mod ir;
 #[cfg(test)]
 mod model;
 mod returns;
+mod run;
 mod shape;
 
+pub(crate) use crate::control::execution::Program;
 pub(crate) use boundary::check_boundary;
+#[cfg(test)]
 pub(super) use check::check;
-pub(super) use check::verify as verify_plan;
-pub(super) use helpers::{
+#[cfg(test)]
+pub(super) use check::check_for;
+use helpers::{
     boundary_check, boundary_close, cancel, clone_sequence, once, raw_resume, rebuild_sequence,
     start_boundary,
 };
@@ -39,8 +43,38 @@ pub(crate) use shape::{Shape, shape as shape_of};
 use crate::control::schema::ComputationCase;
 use ir::{Case, Cursor, Exec, State, state, switch};
 
+/// Only this module can publish a plan as checked. Expansion and boundary
+/// validation consume this immutable value rather than an arbitrary program.
+pub(crate) struct CheckedPlan {
+    exec: Exec,
+}
+
+impl CheckedPlan {
+    pub(in crate::cc::lower::control) fn exec(&self) -> &Exec {
+        &self.exec
+    }
+}
+
+pub(super) fn build(program: Program) -> CheckedPlan {
+    let exec = match program {
+        Program::Executor => executor(),
+        Program::Run => run::program(),
+        Program::CloneSequence => clone_sequence(),
+        Program::RebuildSequence => rebuild_sequence(),
+        Program::Check => boundary_check(),
+        Program::Close => boundary_close(),
+        Program::Start => start_boundary(),
+        Program::Once => once(),
+        Program::Cancel => cancel(),
+        Program::RawResume => raw_resume(),
+    };
+    check::check_for(program, &exec)
+        .expect("machine construction plan must satisfy its complete contract");
+    CheckedPlan { exec }
+}
+
 /// Build the complete flat-driver program.
-pub(super) fn executor() -> Exec {
+fn executor() -> Exec {
     let cursor = Cursor::new();
     let arms = ComputationCase::ALL
         .iter()
@@ -68,7 +102,7 @@ pub(super) fn executor() -> Exec {
 mod tests {
     use super::ir::{Case, Exec, Op, Operand, Shape, State};
     use super::*;
-    use crate::control::schema::{ComputationCase, SequenceCase};
+    use crate::control::schema::ComputationCase;
 
     #[test]
     fn executor_plan_is_complete() {
@@ -77,17 +111,17 @@ mod tests {
 
     #[test]
     fn helper_plans_are_well_formed() {
-        for plan in [
-            clone_sequence(),
-            rebuild_sequence(),
-            boundary_check(),
-            boundary_close(),
-            start_boundary(),
-            once(),
-            cancel(),
-            raw_resume(),
+        for (program, plan) in [
+            (Program::CloneSequence, clone_sequence()),
+            (Program::RebuildSequence, rebuild_sequence()),
+            (Program::Check, boundary_check()),
+            (Program::Close, boundary_close()),
+            (Program::Start, start_boundary()),
+            (Program::Once, once()),
+            (Program::Cancel, cancel()),
+            (Program::RawResume, raw_resume()),
         ] {
-            verify_plan(&plan).expect("helper plan must be well-formed");
+            check_for(program, &plan).expect("helper plan must be well-formed");
         }
     }
 
@@ -126,21 +160,23 @@ mod tests {
                 ),
             ],
         };
-        assert!(verify_plan(&plan).is_err());
+        assert!(check_for(Program::Executor, &plan).is_err());
     }
 
     #[test]
     fn node_field_arity_is_checked() {
-        let plan = Exec::Steps {
-            ops: vec![Op::Node {
-                case: Case::Sequence(SequenceCase::Cons),
-                fields: vec![Operand::Param(0)],
-            }],
-            next: Box::new(Exec::Return {
-                value: Operand::Param(0),
-            }),
+        let mut plan = once();
+        let Exec::Steps { ops, .. } = &mut plan else {
+            unreachable!()
         };
-        assert!(verify_plan(&plan).is_err());
+        let Op::Node { fields, .. } = ops.last_mut().unwrap() else {
+            unreachable!()
+        };
+        fields.pop();
+        assert_eq!(
+            check_for(Program::Once, &plan),
+            Err("machine plan call or allocation has the wrong arity")
+        );
     }
 
     #[test]

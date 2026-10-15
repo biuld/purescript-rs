@@ -1,17 +1,18 @@
 //! CC construction helpers for steps over predeclared machine layouts.
 
+use super::fields::ControlEmitter;
 use super::{ControlFunctions, ControlLayout};
-use crate::cc::lower::FunctionLowerer;
 use crate::cc::payload::erased_shape;
 use crate::cc::{
-    Assignment, AssignmentKind, Function, RefShape, Reference, ReprId, SignatureId, TagCase,
-    ValueId, ValueShape,
+    Assignment, AssignmentKind, Function, RefShape, Reference, ReprId, RepresentationTable,
+    SignatureId, TagCase, ValueDecl, ValueId, ValueShape,
 };
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 
 pub(super) struct Machine<'a> {
-    pub lower: FunctionLowerer<'a>,
+    pub representations: &'a RepresentationTable,
+    pub values: Vec<ValueDecl>,
     pub layout: ControlLayout,
     pub functions: ControlFunctions,
     pub span: TextRange,
@@ -30,13 +31,14 @@ fn reference(heap: RefShape) -> ValueShape {
 
 impl<'a> Machine<'a> {
     pub fn new(
-        lower: FunctionLowerer<'a>,
+        representations: &'a RepresentationTable,
         layout: ControlLayout,
         functions: ControlFunctions,
         span: TextRange,
     ) -> Self {
         Self {
-            lower,
+            representations,
+            values: Vec::new(),
             layout,
             functions,
             span,
@@ -49,7 +51,7 @@ impl<'a> Machine<'a> {
         body: &mut Vec<Assignment>,
         kind: impl FnOnce(ValueId) -> AssignmentKind,
     ) -> ValueId {
-        let destination = self.lower.fresh(shape);
+        let destination = self.fresh_value(shape);
         body.push(Assignment {
             destination,
             kind: kind(destination),
@@ -87,7 +89,6 @@ impl<'a> Machine<'a> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         let fields = self
-            .lower
             .control_fields(representation, case, fields, self.span, body)
             .expect("machine construction must match its predeclared frame schema");
         self.emit(repr(representation), body, |destination| {
@@ -109,7 +110,7 @@ impl<'a> Machine<'a> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         let value = self.cast(value, repr(representation), body);
-        let shape = self.lower.control_field_shape(representation, case, field);
+        let shape = self.control_field_shape(representation, case, field);
         self.emit(shape, body, |destination| AssignmentKind::VariantGet {
             destination,
             representation,
@@ -207,14 +208,12 @@ impl<'a> Machine<'a> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         let signature = self.functions.signature(self.layout, function);
-        self.lower
-            .control_call(function, signature, arguments, self.span, body)
+        self.control_call(function, signature, arguments, self.span, body)
             .expect("generated call must match its predeclared signature")
     }
 
     pub fn value_shape(&self, value: ValueId) -> ValueShape {
-        self.lower
-            .values
+        self.values
             .iter()
             .find(|declaration| declaration.id == value)
             .map(|declaration| declaration.ty)
@@ -237,7 +236,7 @@ impl<'a> Machine<'a> {
             }
         });
         let shape = self.value_shape(cases.first().expect("machine switch has cases").value);
-        let trap = self.lower.fresh(shape);
+        let trap = self.fresh_value(shape);
         let default_assignments = vec![Assignment {
             destination: trap,
             kind: AssignmentKind::Unreachable,
@@ -262,14 +261,12 @@ impl<'a> Machine<'a> {
         let result_type = if symbol == self.functions.resume {
             erased_shape()
         } else {
-            self.lower
-                .representations
+            self.representations
                 .signature(self.functions.signature(self.layout, symbol))
                 .expect("predeclared machine signature")
                 .result
         };
         let result = self
-            .lower
             .control_values(vec![result], vec![result_type], self.span, &mut assignments)
             .expect("machine result must match its predeclared signature")[0];
         Function {
@@ -279,8 +276,22 @@ impl<'a> Machine<'a> {
             assignments,
             result,
             result_type,
-            values: self.lower.values,
+            values: self.values,
             span: self.span,
         }
+    }
+}
+
+impl ControlEmitter for Machine<'_> {
+    fn table(&self) -> &RepresentationTable {
+        self.representations
+    }
+    fn declarations(&self) -> &[ValueDecl] {
+        &self.values
+    }
+    fn fresh_value(&mut self, shape: ValueShape) -> ValueId {
+        let id = ValueId(self.values.len() as u32);
+        self.values.push(ValueDecl { id, ty: shape });
+        id
     }
 }

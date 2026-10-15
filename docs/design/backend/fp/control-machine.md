@@ -276,7 +276,7 @@ bodies can only consume the plan:
 1. **Reserve and plan.** Before source signatures and aggregate layouts, reserve
    the nominal `Control`/`Resumption` identities. Then append the carrier and
    helper tables and allocate the generated symbols: the raw resumption code
-   target and the eight helpers (`executor`, `cloneSequence`, `rebuildSequence`,
+   target and the nine helpers (`run`, `executor`, `cloneSequence`, `rebuildSequence`,
    `start`, `check`, `close`, `once`, `cancel`). Publish the helper contracts and
    the raw-resumption contract in the representation table, and quote each
    checked Core contract into a plan that maps every primitive to a computation
@@ -287,12 +287,14 @@ bodies can only consume the plan:
    machine carrier directly as its nominal reference. A checked `ControlEvidence`
    assignment records the proof and the chosen implementation.
 3. **Construct frames.** `return`, `perform`, `bind`, `handle` and `resume`
-   simply build their computation node. `run` builds an empty queue, a root
-   extent, a `Root` context, calls the executor on
-   `(state, handler, computation, empty, boundary, root)`, and closes the
-   boundary. `once` and `cancel` call their helpers.
+   simply build their computation node. `run` calls its predeclared helper with
+   state, handler and computation. That checked helper builds an empty queue, a
+   fresh root extent and a `Root` context, calls the executor on
+   `(state, handler, computation, empty, boundary, root)`, closes that same root
+   on normal completion and returns the executor result. Source payload recovery
+   follows this helper call. `once` and `cancel` call their helpers.
 4. **Synthesize helpers.** On first use, synthesize the raw resumption target and
-   the eight helpers from the fixed tables, and verify each synthesized function
+   the nine helpers from the fixed tables, and verify each synthesized function
    before publishing it. Bodies are built from the same shared operations that
    ordinary lowering uses, so no helper gets a private representation path.
 5. **Lower to MIR.** The ordinary CC-to-MIR pass resolves symbolic
@@ -312,12 +314,12 @@ this pipeline recognizes a concrete effect, operation or handler.
 fixes this boundary. The named schema, the action registry and the checked
 flat-driver plan are implemented: `control/schema.rs` names every carrier, case,
 field and helper role; `cc/control/schema.rs` freezes one module's placement and
-checks it against those names; and `cc/lower/control/plan.rs` *builds* the flat
+checks it against those names; and `cc/lower/control/plan/` *builds* the flat
 driver from a checked transition program that is expanded to ordinary CC.
 `check` independently verifies that every dispatch uses only declared cases and
 that every required flat-driver action is present before a body is emitted.
 
-The helper bodies and the raw-resume closure adapter (`clone_sequence`,
+The helper bodies and the raw-resume closure adapter (`run`, `clone_sequence`,
 `rebuild_sequence`, `start`, `check`, `close`, `once`, `cancel`, `resume`) are
 built from the same checked plans, so replay, lifecycle, the factories and the
 raw-resume entry no longer emit interleaved hand-written branches. The CC/MIR
@@ -331,18 +333,39 @@ verification replace them. The plan contract is:
    one terminal outcome (`Advance` or `Publish`). Advancing supplies a complete
    named executor state; a branch cannot silently inherit mutable builder state.
    Every required case has an action.
-3. The plan checks its dispatch coverage, allocation arity and action inventory
-   before emission. Generic IR verification still checks operands, types,
-   layout, casts and CFG.
+3. A private `CheckedPlan` is the emitter's only input. Before publication, the
+   plan checks complete dispatch coverage and all 40 named action paths and
+   terminal roles, logical field/helper types, allocation/call arity, lexical
+   temporary/parameter scope and source-specific case refinements. The logical
+   schema is representation-neutral; CC planning resolves its field and helper
+   roles into nominal shapes. Generic IR verification still checks actual
+   operands, types, layout, casts and CFG.
 4. Expansion emits ordinary CC against the immutable layout. The boundary
-   checker then re-checks the emitted body's dispatch and outcome against the
-   plan at module verification; tagging generated code with an action ID alone
+   checker independently walks the plan and the emitted assignment sequences at
+   module verification. It checks dispatch selectors and arms, projections and
+   indices, allocations and their fields, curried applications, helper targets
+   and arguments, capture slots, ordered guards and private-cell reads/writes,
+   trapping defaults and actual returned values. Extra or missing operations
+   fail even when their results are unused. Reference casts preserve operand
+   identity; generic CC verification owns their type legality. Recovery casts
+   must directly feed the next checked operation or actual exit, so a narrowing
+   cast cannot hide a trap behind erasure or move across an observable action.
+   Tagging generated code with an action ID alone
    would not validate it. Semantic rules and the emitter remain independently
    testable rather than generated from one unchecked template.
 5. P9 translates checked CC to physical MIR under its ordinary representation,
    capture, CFG and loopification contracts. Each fact is either explicitly
    discharged at expansion or retained for the P9 checks; no stale certificate
    may authorize modified instructions.
+
+`FrozenControlPlan` publishes helper roles and symbols, source contracts and
+quoted source type identities, raw-resumption binding and schema placement
+through read-only queries. Publication is single-assignment and validates actual
+carrier fields, private cells, products and helper signatures; a failed attempt
+does not publish a partial plan. Ordinary layouts and instructions remain
+mutable and verifiable. Machine emission holds an immutable table and its own
+value declarations, with shared checked reference adaptation; it cannot access
+source lowering environments or mutable layout planning.
 
 The proof boundary after expansion is decided: the semantics-preserving ordinary
 P9/P10 transformations are trusted, their output IR invariants are validated, and
@@ -355,11 +378,22 @@ local helper identities and shape recognition cannot claim that guarantee.
 
 This changes verification architecture, not the selected runtime semantics. The
 machine-semantic recognizers are retired and the boundary checker replaces them
-for construction; arbitrary IR-valid mutations injected after construction are
-no longer rejected, which the optimizer and negative-test layers must account
-for. The [review and migration gates](../../../implementation/backend/delimited-control-lowering-review-2026-10-14.md)
+for construction. CC operand mutations are checked against the plan at the P8
+module boundary. The MIR boundary still checks dispatch arms and external tail
+targets only; arbitrary IR-valid operand mutations after P9 are not rejected.
+The [review and migration gates](../../../implementation/backend/delimited-control-lowering-review-2026-10-14.md)
 record the alternatives and required evidence. No blanket helper exemption,
 inliner restriction, or narrowed AE/AC requirement closes this decision.
+
+The independent test model executes the actual construction plans on a concrete
+heap and compares them with separately written typed transitions and flat-list
+replay. Comparison preserves original value identity, fresh-reference aliasing,
+ordered status/callback operations, required allocation counts and actual exits.
+The finite model covers all 40 named actions and generated queue shapes; semantic
+mutations that preserve plan typing, scope and action coverage must still differ.
+It does not interpret arbitrary source callback bodies, simulate native GC or
+allocation failure, or establish equivalence of optimized MIR/Wasm. Those retain
+their separate producer, target-execution and acceptance obligations.
 
 ### Capture and frame construction
 
@@ -627,21 +661,22 @@ The machine's owners and their required responsibilities are:
 | --- | --- |
 | Checked Core control contracts | Quote each primitive's result, arguments and source/target domains before lowering |
 | CC layout planning | Reserve the nominal `Control`/`Resumption` carriers, the machine representations and every generated helper signature before bodies are lowered; keep the table immutable afterwards |
-| CC control lowering | Emit the frame node for each primitive, route `run`/`once`/`cancel` to helpers, and synthesize the raw resumption target and the eight helpers from the fixed tables |
+| CC control lowering | Emit the frame node for each primitive, route `run`/`once`/`cancel` to helpers, and synthesize the raw resumption target and the nine helpers from the fixed tables |
 | MIR lowering and optimization | Resolve symbolic representations to physical layouts and loopify the executor's self tail calls |
-| CC/MIR machine verifiers | Check dispatch, actual exits, transition operands, capture and finish ownership, replay freshness, ordered private-cell updates and publication; prove lifecycle helper bodies and account for observable operations |
+| P8 checked construction and CC boundary | Check dispatch, actual exits, transition operands, capture and finish ownership, replay freshness, ordered private-cell updates, complete Run lifecycle and publication; prove lifecycle helper bodies and account for observable operations |
+| Ordinary MIR verification | Check physical IR, nominal variant tags, types, CFG and callable contracts; do not claim machine semantic equivalence after P9 |
 | Structured encoding | Emit the loop and its dispatch as ordinary Wasm control flow |
 
 The intended code organization is a machine-layout module (carrier tables and
 helper signatures), a lowering module that constructs nodes and synthesizes
-helpers, and paired CC/MIR verification modules for each relation. No module
+helpers, a P8 construction boundary, and ordinary CC/MIR verification. No module
 recognizes a concrete effect, operation or handler, and no helper gets a private
 representation path.
 
-Stage-independent transition relations and ordered execution events have one
-shared owner under `control/`. CC and MIR adapters supply representation,
-reference-origin, selected-case and execution-order evidence; they must not
-independently define the machine's state transitions. Observable-effect summaries
+Stage-independent schema and action paths have one shared owner under
+`control/`. The P8 plan states ordered execution; its independent boundary
+checker validates actual emitted operands and operations. MIR consumers must
+not reconstruct another private model of the machine's state transitions. Observable-effect summaries
 are shared with ordinary optimization, with separate facts for writes, allocation,
 possible traps, calls and termination. A no-write summary alone cannot discharge
 an unobservable-operation obligation.
@@ -655,12 +690,12 @@ an unobservable-operation obligation.
   trapping default, and a projection is taken only from the case the dispatch
   actually selected.
 - A source `Return` applies its current scoped context's return clause and a
-  source `Perform` applies its operation clause; CC and MIR reject an applied
+  source `Perform` applies its operation clause; P8 rejects an applied
   clause taken from another field, another frame or a boundary.
   The scoped branch must use the complete application result as its next
   computation, consuming the current answer/request; an operation supplies the
   raw resumption over its current queue/checkpoint. State and the root handler
-  retain their identities. MIR requires the application to dominate that
+  retain their identities. P8 requires the application to precede that
   transition inside the scoped branch. A deleted or dead application and a
   discarded result do not discharge this contract.
 - An executor transition's result reaches the actual normal exit. CC checks
@@ -669,8 +704,8 @@ an unobservable-operation obligation.
   results on subsequent normal exits and checks scoped transitions at actual
   terminators, rather than stopping at the first call instruction.
   Identity-preserving casts, copies and joins with the same normal origin are
-  accepted. MIR joins and execution dominance are resolved within the current
-  step's reachable CFG region; the executor loop header starts the next step.
+  accepted under ordinary IR rules after construction; the executor loop
+  header starts the next step. Construction itself uses the checked plan shape.
 - MIR checks every nominal variant constructor against its planned case, including
   ordinary data variants: the physical tag is an immutable `i32` initialized to
   that case's tag. Constant copies and equal constants at normal joins retain
@@ -679,7 +714,7 @@ an unobservable-operation obligation.
 - `Bind` enters its own body with its own callback prepended to the current
   persistent queue. `Resume` returns its saved answer and appends the replayed
   queue to the current queue, installing the activation from that same replay
-  result. CC and MIR check these operands on the actual executor transition.
+  result. P8 checks these operands on the actual executor transition.
 - The pending sequence is persistent: replay never mutates a shared node, and the
   driver is the only code that traverses a saved sequence.
 - Root `Perform` applies the current handler to state, request and the raw
@@ -715,32 +750,24 @@ an unobservable-operation obligation.
 Evidence must cover frame identity, capture boundaries, replay activation
 freshness, one-shot status and stack safety separately from library-level
 interpretation. The [acceptance checklist](../../../implementation/backend/algebraic-effects.md)
-records coverage. CC and MIR check retained Check/Close bodies, ordered owned
-transfer, root/queue operands, and current private contents at publication.
-Execution events distinguish allocation, mutation, reference refinement, calls
-and explicit traps. A failed guard terminates before any subsequent observable
-operation; preceding events must match a prefix of a validated normal path.
-Entry initialization is part of the proof, before the first dispatch. Copies and
-normal joins preserve operand identity without suppressing executed events. Prefix
-comparison resolves observed inputs through each path's aliases but retains the
-instruction result IDs that identify the operation and its checked definition.
+records coverage. P8 checks retained helper bodies, ordered owned transfer,
+root/queue operands and current private contents at publication. Run's complete
+normal lifetime is a checked helper action: its empty queue, root context and
+execution extent derive from one fresh Start result; Close follows the executor
+and precedes publication. A same-signature Check cannot substitute for Close.
+Repeated invocations allocate independent roots/status cells. Every source Run
+calls this predeclared role rather than emitting an unchecked caller-side
+lifecycle around an Executor call.
 
-Static calls admitted as unobservable need a total-function summary: no fallible
-instructions, writes, dynamic calls, reachable CFG cycles or recursive call
-cycles. The summaries use a least fixed point; no-write recursive SCCs are not
-assumed terminating. Narrowing casts need static subtyping, selected immutable
-case evidence (or the sole case of a nominal variant), or an actual checked
-callback/result role. These checks trust ordinary SSA/layout verification and
-checked source callback typing; they do not reconstruct source types from payloads.
-
-Ordinary inlining preserves the physical Start/Once frame and the source witness.
-MIR replays current private-cell contents from allocation to that witness (Run
-checks its root status before executor entry). Mutually exclusive Run alternatives
-can allocate both candidate contexts; those ordinary caller allocations are not
-part of the private-status proof. Helper-body allocation accounting still requires
-all allocations to feed the actual result/transition. A compiler transform that
-inlines Check/Close must preserve their lifecycle-body evidence; today's ordinary
-inliner retains these branching helpers and verifies every intermediate module.
+Construction checks consume ordered allocation, mutation, reference refinement,
+call and trap operations, including failed guard/default paths. Copies at this
+boundary must preserve operand identity and cannot erase observable work. After
+expansion, ordinary CC/MIR transformations own preservation through aliases,
+joins, loopification and inlining under DEC-21. Generic IR verification is not a
+substitute machine recognizer or an optimizer equivalence proof. Bounded model
+comparisons and optimized runtime tests independently check normal/exceptional
+behavior, replay lifetimes and repeated Run execution; arbitrary semantic
+mutations of already discharged MIR are outside this construction guarantee.
 
 The [2026-10-14 review](../../../implementation/backend/delimited-control-architecture-review-2026-10-14.md)
 records the historical defects and their repairs. Caught-host-trap cleanup,
@@ -785,14 +812,15 @@ enters the target under the caller's context.
 
 - The [construction/verification boundary](#construction-and-verification-boundary)
   is implemented: every machine body runs from the checked plan, the
-  recognizers are retired, and both CC and MIR dispatch-arm boundary checks
-  replace them. A translation validator proving optimizer preservation, and
-  operand-level rejection of IR-valid mutations after construction, remain open.
+  recognizers are retired, and the CC boundary checks ordered operations and
+  operands against the plan. MIR retains dispatch-arm and external-tail-target
+  checks. MIR operand validation and a translation validator proving optimizer
+  preservation remain open.
 - Audit full machine acceptance beyond the repaired lifecycle and observable-step
   checks, including all required reference-library and cost evidence. Focused
   verification does not establish complete AE/AC acceptance.
-- Caught-host-trap cleanup and foreign borrowed-buffer/resource capture, which the
-  software machine does not yet prove.
+- Complete AC-04 foreign-buffer lifetime evidence beyond the borrowed-handle
+  capture rejection and instance-terminal trap boundary now implemented.
 - A native stack-switching accelerator, which would replace the frame chain and
   driver behind the same surface under a separate decision and ABI.
 

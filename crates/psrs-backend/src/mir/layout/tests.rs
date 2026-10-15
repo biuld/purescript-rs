@@ -63,17 +63,16 @@ fn signatures_that_lower_to_the_same_wasm_type_share_one_definition() {
 
 #[test]
 fn planner_rejects_a_dangling_closure_signature() {
-    let table = RepresentationTable {
-        representations: vec![Representation::Product {
+    let table = RepresentationTable::from_parts(
+        vec![Representation::Product {
             fields: vec![CcValueShape::Reference(Reference {
                 nullable: false,
                 heap: CcRefShape::Closure(SignatureId(0)),
             })],
         }],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+        Vec::new(),
+        Default::default(),
+    );
     assert!(matches!(
         PlannedLayout::plan(&table, TargetCapabilities::default()),
         Err(LayoutError::UnknownSignature)
@@ -81,12 +80,11 @@ fn planner_rejects_a_dangling_closure_signature() {
 }
 #[test]
 fn gc_planner_rejects_an_mvp_only_target() {
-    let table = RepresentationTable {
-        representations: vec![Representation::Product { fields: Vec::new() }],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+    let table = RepresentationTable::from_parts(
+        vec![Representation::Product { fields: Vec::new() }],
+        Vec::new(),
+        Default::default(),
+    );
 
     let mvp_only = TargetCapabilities {
         gc: false,

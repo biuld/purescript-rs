@@ -67,10 +67,8 @@ pub(in crate::cc::layout) fn append(
                         {
                             return SourceTypeIdentityId(index as u32);
                         }
-                        let index = identities.len();
                         identities.push(id);
-                        table.source_type_identities.push(quoted.clone());
-                        SourceTypeIdentityId(index as u32)
+                        table.plan_control_identity(quoted.clone())
                     };
                     let result_identity = intern(proof.result(), &quoted.result);
                     let argument_identities = proof
@@ -89,9 +87,7 @@ pub(in crate::cc::layout) fn append(
                         source: quoted.source,
                         target: quoted.target,
                     };
-                    if !table.control_contracts.contains(&contract) {
-                        table.control_contracts.push(contract);
-                    }
+                    table.plan_control_contract(contract);
                 }
                 pending.extend(arguments.iter().map(|value| (owner, value)));
             }
@@ -152,7 +148,7 @@ pub(in crate::cc) fn lookup(
 ) -> Option<ControlContractId> {
     let quoted = quote(module, proof)?;
     table
-        .control_contracts
+        .control_contracts()
         .iter()
         .position(|candidate| {
             candidate.operation == proof.operation()
@@ -262,8 +258,8 @@ fn implementation(layout: ControlLayout, operation: Intrinsic) -> ControlImpleme
         ControlResume => crate::control::schema::ComputationCase::OwnedResume,
         ControlRun => {
             return ControlImplementation::Call {
-                signature: layout.executor,
-                role: crate::cc::ControlHelperRole::Executor,
+                signature: layout.run,
+                role: crate::cc::ControlHelperRole::Run,
             };
         }
         ControlOnce => {

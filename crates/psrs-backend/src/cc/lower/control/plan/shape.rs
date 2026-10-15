@@ -41,3 +41,18 @@ pub(crate) fn shape(exec: &Exec) -> Shape {
         Exec::Reject { .. } => Shape::Leaf(Terminal::Reject),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shape_is_sensitive_to_a_dropped_dispatch_arm() {
+        let mut plan = super::super::executor();
+        let before = shape(&plan);
+        if let Exec::Switch { arms, .. } = &mut plan {
+            arms.retain(|(tag, _)| *tag != 0);
+        }
+        assert_ne!(shape(&plan), before);
+    }
+}

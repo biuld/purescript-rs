@@ -4,10 +4,12 @@
 **Baseline:** `feat/effect-handlers`, `1e24e5d5`; clean checkout at review start.
 **Scope:** Machine semantics, P8 construction, P9 representation lowering and
 P10 verification/optimization responsibilities. No Rust implementation changes.
-**Disposition:** Retain persistent sequencing, explicit scope/lifetime data and
-the guest loop. Redesign the construction/proof boundary before extending the
-current instruction-shape recovery approach. The plan below is a recommendation
-for review, not an accepted new pipeline or completed migration.
+**Disposition:** DEC-21 accepts the construction/proof boundary recommended
+below. Checked construction, operand-level CC expansion checking and immutable
+machine planning are implemented; complete migration and AE/AC acceptance remain
+open. See [the current implementation audit](#implementation-audit-2026-10-15).
+The findings below describe the historical baseline; deleted recognizer files
+can be inspected with `git show 1e24e5d5:<path>`.
 
 ## Findings
 
@@ -21,8 +23,8 @@ combine explicit parameters with mutable builder `context`/`boundary` fields.
 The source evidence is valuable, but it describes a factory occurrence rather
 than the whole generated executor action.
 
-[`cc/verify/control/traces.rs`](../../../crates/psrs-backend/src/cc/verify/control/traces.rs)
-and [`mir/control/traces.rs`](../../../crates/psrs-backend/src/mir/control/traces.rs)
+`cc/verify/control/traces.rs`
+and `mir/control/traces.rs`
 recover path events from two different instruction sets. Separate identity,
 selected-case, refinement and exit analyses then recover the semantic operands.
 This makes every change in expansion or optimization a potential new
@@ -68,14 +70,14 @@ the same unchecked field list is insufficient.
 [`mir/opt/mod.rs`](../../../crates/psrs-backend/src/mir/opt/mod.rs) runs the MIR
 verifier after individual rewrites. That is appropriate for IR invariants, but
 the verifier also re-recognizes machine behavior from the rewritten code.
-[`publication.rs`](../../../crates/psrs-backend/src/mir/control/publication.rs)
+`mir/control/publication.rs`
 reconstructs allocation-to-publication windows after Start/Once inlining.
 Its current scope assumes private cells allocated in the same block; meanwhile
 Check/Close remain recognizable because today's ordinary inliner accepts only
 small single-block functions. These are current implementation shapes, not
 general semantic properties of valid inlining.
 
-[`mir/branch_facts.rs`](../../../crates/psrs-backend/src/mir/branch_facts.rs)
+`mir/branch_facts.rs`
 enumerates paths and rejects internal cycles within a step region. CC traces
 also fork paths through alternatives. Repeated reconverging branches can grow
 the enumerated path set exponentially. No pathological compile-time benchmark
@@ -253,3 +255,27 @@ This confirms the reviewed implementation's existing focused tests, not the
 proposed architecture. The prior workspace's 71 failures are not remeasured here.
 No workspace, Clippy, ignored scoreboard, upstream differential or package
 conformance run was performed for these documentation-only changes.
+
+## Implementation audit (2026-10-15)
+
+The current checkout implements the accepted DEC-21 construction boundary.
+This table preserves the full review scope; it does not redefine completion
+around passing focused tests.
+
+| Finding / gate | Current owner and evidence | Remaining obligation |
+| --- | --- | --- |
+| L1; gates 1–3 | Private `CheckedPlan` construction is the only input accepted by the machine emitter. `plan/boundary/` checks actual ordered CC operations, operands and exits. Persistent queues and the guest loop are unchanged. The independent bounded behavioral model now executes all 40 actions and compares their operands/state/effects. | Complete mapped regression coverage below; the bounded model is not an optimizer proof. |
+| L2; action inventory | `control/execution/` independently enumerates 40 paths and terminal roles: 20 executor, 7 Clone, 4 Rebuild, 2 Check, 2 Close and one each for Run, Start, Once, Cancel and raw resume. The plan checker rejects missing, extra and duplicate paths and wrong terminal helper roles. A permanent test drops each of the 40 actions. | The registry proves required selections and terminal roles, not the full semantic operand relation. |
+| L2; logical schema | `control/schema.rs` owns logical field types and helper signatures. CC placement resolves those roles; actual variants, products, private cells and helper signatures must agree. Plan checking validates scoped operands, exact arity, field/index domains and source-specific case refinements before emission. | Semantic equivalence for same-shaped operands belongs to the independent model and boundary tests. |
+| L3; proof discharge | DEC-21 explicitly chooses checked construction followed by trusted ordinary P9/P10 transforms. Generic IR validity is not described as an equivalence proof. Optimized value/order/lifetime/GC/stack execution remains required. | Preserve and expand transform behavior tests; a complete translation validator is a stronger alternative, not a prerequisite silently selected by this review. |
+| L4; gate 5 | `plan/model/interpret.rs` executes actual plans; `reference/` independently matches typed machine values and uses flat occurrence-list replay. Behavioral comparison covers all 40 actions and 1,805 depth-three queue expressions, repeated fresh replay, shared queue occurrences, callback/owner identity, ancestor expiry and failed-path prefixes. Twenty-two structurally checked semantic mutation classes are detected. | The requested bounded model is implemented. It does not prove arbitrary source callback bodies, optimizer equivalence, foreign lifetime or allocation-failure behavior. |
+| L5; gate 5 | Mandatory optimized runtime tests distinguish ancestry depth, helper entries, loop iterations and retained post-GC heap. With ancestry zero and one request, saved callback lengths 0/1/4/16 produce 2/4/10/34 Clone/Rebuild iterations with two helper entries. With two requests and equal callbacks, Append adds two iterations to the second replay. Every observation retains source/artifact identities and verifies budgets C and C−1. The bounded model separately checks queue allocations. | The saved-length/queue-shape traversal observation is implemented; see [handoff §14](delimited-control-migration-handoff-2026-10-12.md#14-optimized-wasm-replay-traversal-costs-2026-10-15). These bounded target observations are not wall-clock benchmarks or a general heap/allocation proof. Persistence does not imply constant-time replay. |
+| L6 | `FrozenControlPlan` privately owns immutable helper/source-contract bindings and schema placement, provides named helper lookup, rejects repeated publication and validates before publishing. Failed publication rolls back. `Machine` owns only an immutable table, its own value declarations, planned layout, symbols and span; shared `ControlEmitter` handles checked reference adaptation. Host-handle captures in control callbacks are rejected; nested canonical borrows are unsupported captures. | Complete AC-04 buffer-lifetime evidence remains; immutable planning does not by itself establish every foreign lifetime. |
+| Gates 4 and 6 | The recognizers have been retired. New construction and malformed-IR tests cover plan scope, schema roles, all named actions and CC operand/effect mismatches. `control_regressions` also restores dispatch, Bind/Resume, Finish, clause-result and helper-contract cases. | The [retired regression mapping](delimited-control-retired-regressions.md) assigns an owner to all 185 names. That audit is not gate closure. Deleted MIR-only negatives stay outside DEC-21 where recorded. |
+| Full AE/AC / foreign / library acceptance | AE-01–AE-10 and AC-01–AC-05 Verified in the 2026-10-15 audit. | AE-11 native host IO remains open. D-04 was not remeasured. |
+
+The API transition also replaces ordinary test table literals with
+`RepresentationTable::from_parts`; mutable ordinary layouts and instructions
+remain available for malformed-IR tests. No opaque certificate authorizes
+modified instructions. Executed command results and snapshot limits for the
+slices that produced them are in handoff [§12](delimited-control-migration-handoff-2026-10-12.md#12-complete-plan-coverage-and-immutable-planning-2026-10-15), [§13](delimited-control-migration-handoff-2026-10-12.md#13-independent-bounded-behavioral-model-2026-10-15), and [§14](delimited-control-migration-handoff-2026-10-12.md#14-optimized-wasm-replay-traversal-costs-2026-10-15). The current snapshot is [§15](delimited-control-migration-handoff-2026-10-12.md#15-run-construction-and-the-root-regression-slice-2026-10-15).

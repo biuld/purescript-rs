@@ -4,20 +4,21 @@ use super::{FunctionLowerer, control_error};
 use crate::BackendError;
 use crate::cc::payload::erased_shape;
 use crate::cc::{
-    Assignment, AssignmentKind, ReprId, Representation, SignatureId, ValueId, ValueShape,
+    Assignment, AssignmentKind, ReprId, Representation, RepresentationTable, SignatureId,
+    ValueDecl, ValueId, ValueShape,
 };
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 
-impl FunctionLowerer<'_> {
-    pub(super) fn control_field_shape(
-        &self,
-        representation: ReprId,
-        case: u32,
-        field: u32,
-    ) -> ValueShape {
-        let Some(Representation::Variant { cases }) =
-            self.representations.representation(representation)
+/// Minimal emission capability shared by source factories and machine helpers.
+/// No source types, local environments or mutable layout planning are exposed.
+pub(super) trait ControlEmitter {
+    fn table(&self) -> &RepresentationTable;
+    fn declarations(&self) -> &[ValueDecl];
+    fn fresh_value(&mut self, shape: ValueShape) -> ValueId;
+
+    fn control_field_shape(&self, representation: ReprId, case: u32, field: u32) -> ValueShape {
+        let Some(Representation::Variant { cases }) = self.table().representation(representation)
         else {
             unreachable!("machine fields require a predeclared variant");
         };
@@ -29,7 +30,7 @@ impl FunctionLowerer<'_> {
             .expect("machine projection must name a predeclared field")
     }
 
-    pub(super) fn control_fields(
+    fn control_fields(
         &mut self,
         representation: ReprId,
         case: u32,
@@ -37,8 +38,7 @@ impl FunctionLowerer<'_> {
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<Vec<ValueId>, Vec<BackendError>> {
-        let Some(Representation::Variant { cases }) =
-            self.representations.representation(representation)
+        let Some(Representation::Variant { cases }) = self.table().representation(representation)
         else {
             return Err(control_error(
                 span,
@@ -53,7 +53,7 @@ impl FunctionLowerer<'_> {
         self.control_values(fields, shapes, span, assignments)
     }
 
-    pub(super) fn control_values(
+    fn control_values(
         &mut self,
         fields: Vec<ValueId>,
         shapes: Vec<ValueShape>,
@@ -73,7 +73,7 @@ impl FunctionLowerer<'_> {
                 // Source payloads and user callbacks use the erased protocol.
                 // Machine helpers keep their predeclared nominal shapes.
                 let source = self
-                    .values
+                    .declarations()
                     .iter()
                     .find(|declaration| declaration.id == value)
                     .map(|declaration| declaration.ty)
@@ -98,7 +98,7 @@ impl FunctionLowerer<'_> {
                         "control field requires a reference shape",
                     ));
                 };
-                let destination = self.fresh(shape);
+                let destination = self.fresh_value(shape);
                 assignments.push(Assignment {
                     destination,
                     kind: AssignmentKind::RepresentationCast {
@@ -113,7 +113,7 @@ impl FunctionLowerer<'_> {
             .collect()
     }
 
-    pub(super) fn control_call(
+    fn control_call(
         &mut self,
         function: SymbolId,
         signature: SignatureId,
@@ -122,8 +122,8 @@ impl FunctionLowerer<'_> {
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         let contract = self
-            .representations
-            .control_helpers
+            .table()
+            .control_helpers()
             .iter()
             .position(|helper| helper.function() == function)
             .map(|index| crate::cc::ControlHelperId(index as u32))
@@ -131,12 +131,12 @@ impl FunctionLowerer<'_> {
                 control_error(span, "control call has no predeclared semantic helper")
             })?;
         let signature = self
-            .representations
+            .table()
             .signature(signature)
             .ok_or_else(|| control_error(span, "control call has no predeclared signature"))?
             .clone();
         let arguments = self.control_values(arguments, signature.parameters, span, assignments)?;
-        let destination = self.fresh(signature.result);
+        let destination = self.fresh_value(signature.result);
         assignments.push(Assignment {
             destination,
             kind: AssignmentKind::DirectCall {
@@ -147,5 +147,17 @@ impl FunctionLowerer<'_> {
             span,
         });
         Ok(destination)
+    }
+}
+
+impl ControlEmitter for FunctionLowerer<'_> {
+    fn table(&self) -> &RepresentationTable {
+        self.representations
+    }
+    fn declarations(&self) -> &[ValueDecl] {
+        &self.values
+    }
+    fn fresh_value(&mut self, shape: ValueShape) -> ValueId {
+        self.fresh(shape)
     }
 }

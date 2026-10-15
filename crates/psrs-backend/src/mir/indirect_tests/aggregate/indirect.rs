@@ -25,8 +25,8 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
         .push_str("aggregate-indirect.wit", &wit)
         .expect("the indirect aggregate WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -43,10 +43,9 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+        Vec::new(),
+        Default::default(),
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);

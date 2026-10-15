@@ -2,6 +2,7 @@
 
 use super::builder::{Machine, repr};
 use super::executor::arm;
+use super::fields::ControlEmitter;
 use crate::cc::{Assignment, AssignmentKind, Function, TagCase, ValueId, ValueShape};
 use crate::control::schema::ExtentCase;
 
@@ -51,12 +52,11 @@ impl Machine<'_> {
     ) {
         let cell = self.cast(cell, repr(representation), body);
         let Some(crate::cc::Representation::Array { element }) =
-            self.lower.representations.representation(representation)
+            self.representations.representation(representation)
         else {
             unreachable!("machine cell is an array");
         };
         let new_value = self
-            .lower
             .control_values(vec![new_value], vec![*element], self.span, body)
             .expect("machine write must preserve its cell representation")[0];
         let index = self.integer(0, body);
@@ -99,7 +99,7 @@ impl Machine<'_> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         let shape = self.value_shape(cases.first().expect("machine select has cases").value);
-        let trap = self.lower.fresh(shape);
+        let trap = self.fresh_value(shape);
         let default_assignments = vec![Assignment {
             destination: trap,
             kind: AssignmentKind::Unreachable,
@@ -145,11 +145,10 @@ impl Machine<'_> {
     }
 
     pub(super) fn start_boundary(mut self) -> Function {
-        let program = super::plan::start_boundary();
-        super::plan::verify_plan(&program).expect("start_boundary plan must be well-formed");
+        let program = super::plan::build(super::plan::Program::Start);
         let mut body = Vec::new();
-        let result = self.expand(&program, &mut Vec::new(), &[], &mut body);
-        let representations = self.lower.representations;
+        let result = self.expand(&program, &[], &mut body);
+        let representations = self.representations;
         let symbol = self.functions.start;
         let function = self.finish(symbol, "control_start_boundary", vec![], body, result);
         super::plan::check_boundary(&function, representations, &program)
@@ -158,13 +157,12 @@ impl Machine<'_> {
     }
 
     pub(super) fn boundary_check(mut self) -> Function {
-        let boundary = self.lower.fresh(repr(self.layout.boundary));
+        let boundary = self.fresh_value(repr(self.layout.boundary));
         let params = [boundary];
-        let program = super::plan::boundary_check();
-        super::plan::verify_plan(&program).expect("boundary_check plan must be well-formed");
+        let program = super::plan::build(super::plan::Program::Check);
         let mut body = Vec::new();
-        let result = self.expand(&program, &mut Vec::new(), &params, &mut body);
-        let representations = self.lower.representations;
+        let result = self.expand(&program, &params, &mut body);
+        let representations = self.representations;
         let symbol = self.functions.check;
         let function = self.finish(
             symbol,
@@ -179,13 +177,12 @@ impl Machine<'_> {
     }
 
     pub(super) fn boundary_close(mut self) -> Function {
-        let boundary = self.lower.fresh(repr(self.layout.boundary));
+        let boundary = self.fresh_value(repr(self.layout.boundary));
         let params = [boundary];
-        let program = super::plan::boundary_close();
-        super::plan::verify_plan(&program).expect("boundary_close plan must be well-formed");
+        let program = super::plan::build(super::plan::Program::Close);
         let mut body = Vec::new();
-        let result = self.expand(&program, &mut Vec::new(), &params, &mut body);
-        let representations = self.lower.representations;
+        let result = self.expand(&program, &params, &mut body);
+        let representations = self.representations;
         let symbol = self.functions.close;
         let function = self.finish(
             symbol,

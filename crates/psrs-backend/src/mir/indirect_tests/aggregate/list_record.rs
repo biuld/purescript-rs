@@ -39,12 +39,11 @@ fn finish(
                 result,
             }),
         }],
-        representations: cc::RepresentationTable {
+        representations: cc::RepresentationTable::from_parts(
             representations,
-            signatures: Vec::new(),
-            product_labels: product_labels.into_iter().collect(),
-            ..Default::default()
-        },
+            Vec::new(),
+            product_labels.into_iter().collect(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),

@@ -21,8 +21,8 @@ pub(super) fn wide_scalar_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         )
         .expect("the wide scalar WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -43,10 +43,9 @@ pub(super) fn wide_scalar_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+        Vec::new(),
+        Default::default(),
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -133,8 +132,8 @@ pub(super) fn wide_scalar_parameter_fixture() -> (cc::Module, ExternalBindings, 
         )
         .expect("the wide scalar parameter WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Number,
             },
@@ -151,10 +150,9 @@ pub(super) fn wide_scalar_parameter_fixture() -> (cc::Module, ExternalBindings, 
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+        Vec::new(),
+        Default::default(),
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);

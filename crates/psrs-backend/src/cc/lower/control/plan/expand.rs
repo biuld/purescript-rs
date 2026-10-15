@@ -12,6 +12,15 @@ impl Machine<'_> {
     /// slots and `Operand::Param` a helper's explicit parameters.
     pub(in crate::cc::lower::control) fn expand(
         &mut self,
+        plan: &super::CheckedPlan,
+        params: &[ValueId],
+        body: &mut Vec<Assignment>,
+    ) -> ValueId {
+        self.expand_exec(plan.exec(), &mut Vec::new(), params, body)
+    }
+
+    fn expand_exec(
+        &mut self,
         exec: &Exec,
         env: &mut Vec<ValueId>,
         params: &[ValueId],
@@ -24,7 +33,7 @@ impl Machine<'_> {
                     let value = self.expand_op(op, env, params, body);
                     env.push(value);
                 }
-                let result = self.expand(next, env, params, body);
+                let result = self.expand_exec(next, env, params, body);
                 env.truncate(base);
                 result
             }
@@ -35,7 +44,7 @@ impl Machine<'_> {
                 for (tag, arm) in arms {
                     let mut arm_body = Vec::new();
                     let mut arm_env = env.clone();
-                    let result = self.expand(arm, &mut arm_env, params, &mut arm_body);
+                    let result = self.expand_exec(arm, &mut arm_env, params, &mut arm_body);
                     cases.push(super::super::executor::arm(*tag, arm_body, result));
                 }
                 self.switch(value, case.repr(self.layout), cases, body)
@@ -237,6 +246,7 @@ impl Machine<'_> {
     fn function_for(&self, role: ControlHelperRole) -> psrs_hir::SymbolId {
         match role {
             ControlHelperRole::Executor => self.functions.executor,
+            ControlHelperRole::Run => self.functions.run,
             ControlHelperRole::CloneSequence => self.functions.clone_sequence,
             ControlHelperRole::RebuildSequence => self.functions.rebuild_sequence,
             ControlHelperRole::Start => self.functions.start,

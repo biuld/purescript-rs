@@ -6,30 +6,7 @@ use psrs_hir::SymbolId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ControlHelperId(pub u32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ControlHelperRole {
-    Executor,
-    CloneSequence,
-    RebuildSequence,
-    Start,
-    Check,
-    Close,
-    Once,
-    Cancel,
-}
-
-impl ControlHelperRole {
-    pub(crate) const ALL: [Self; 8] = [
-        Self::Executor,
-        Self::CloneSequence,
-        Self::RebuildSequence,
-        Self::Start,
-        Self::Check,
-        Self::Close,
-        Self::Once,
-        Self::Cancel,
-    ];
-}
+pub use crate::control::schema::ControlHelperRole;
 
 /// A checked call identifies a particular helper, even when two helpers have
 /// the same physical signature. Only P8 planning publishes these bindings.
@@ -65,7 +42,7 @@ impl crate::cc::RepresentationTable {
         match contract {
             Some(id) => {
                 let helper = self
-                    .control_helpers
+                    .control_helpers()
                     .get(id.0 as usize)
                     .ok_or("control call has no predeclared helper contract")?;
                 if helper.function != function {
@@ -75,7 +52,7 @@ impl crate::cc::RepresentationTable {
                 }
             }
             None if self
-                .control_helpers
+                .control_helpers()
                 .iter()
                 .any(|helper| helper.function == function) =>
             {

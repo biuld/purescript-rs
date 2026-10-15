@@ -192,99 +192,95 @@ fn clone_todo(cursor: &Cursor) -> Exec {
 /// Parameters: `reversed`, `result_queue`, `active`, `parent`.
 pub(crate) fn rebuild_sequence() -> Exec {
     let cursor = Cursor::new();
-    let arms = [
-        SequenceCase::Empty,
-        SequenceCase::Cons,
-        SequenceCase::Finish,
-    ]
-    .iter()
-    .map(|case| {
-        let mut cursor = cursor.clone();
-        let arm = match case {
-            SequenceCase::Empty => {
-                let mut ops = Vec::new();
-                let result = cursor.bind(
-                    &mut ops,
-                    Op::Product {
-                        product: Product::ReplayResult,
-                        fields: vec![param(1), param(2)],
-                    },
-                );
-                steps(ops, Exec::Return { value: result })
-            }
-            SequenceCase::Cons => {
-                let mut ops = Vec::new();
-                let head = cursor.bind(
-                    &mut ops,
-                    project(param(0), Case::Sequence(SequenceCase::Cons), q::CONS_HEAD),
-                );
-                let rest = cursor.bind(
-                    &mut ops,
-                    project(param(0), Case::Sequence(SequenceCase::Cons), q::CONS_TAIL),
-                );
-                let next = cursor.bind(
-                    &mut ops,
-                    Op::Node {
-                        case: Case::Sequence(SequenceCase::Cons),
-                        fields: vec![head, param(1)],
-                    },
-                );
-                steps(
-                    ops,
-                    tail(
-                        ControlHelperRole::RebuildSequence,
-                        vec![rest, next, param(2), param(3)],
-                    ),
-                )
-            }
-            SequenceCase::Append => Exec::Reject {
-                shape: Shape::ReplayResult,
-            },
-            SequenceCase::Finish => {
-                let mut ops = Vec::new();
-                // The saved finish's extent is inspected but replaced by a
-                // fresh activation extent, matching the replay contract.
-                let _saved = cursor.bind(
-                    &mut ops,
-                    project(
-                        param(0),
-                        Case::Sequence(SequenceCase::Finish),
-                        q::FINISH_EXTENT,
-                    ),
-                );
-                let rest = cursor.bind(
-                    &mut ops,
-                    project(
-                        param(0),
-                        Case::Sequence(SequenceCase::Finish),
-                        q::FINISH_REST,
-                    ),
-                );
-                let extent = cursor.bind(
-                    &mut ops,
-                    Op::FreshExtent {
-                        parent: Some(param(3)),
-                    },
-                );
-                let next = cursor.bind(
-                    &mut ops,
-                    Op::Node {
-                        case: Case::Sequence(SequenceCase::Finish),
-                        fields: vec![extent.clone(), param(1), param(2)],
-                    },
-                );
-                steps(
-                    ops,
-                    tail(
-                        ControlHelperRole::RebuildSequence,
-                        vec![rest, next, extent.clone(), extent],
-                    ),
-                )
-            }
-        };
-        (case.tag(), arm)
-    })
-    .collect();
+    let arms = SequenceCase::ALL
+        .iter()
+        .map(|case| {
+            let mut cursor = cursor.clone();
+            let arm = match case {
+                SequenceCase::Empty => {
+                    let mut ops = Vec::new();
+                    let result = cursor.bind(
+                        &mut ops,
+                        Op::Product {
+                            product: Product::ReplayResult,
+                            fields: vec![param(1), param(2)],
+                        },
+                    );
+                    steps(ops, Exec::Return { value: result })
+                }
+                SequenceCase::Cons => {
+                    let mut ops = Vec::new();
+                    let head = cursor.bind(
+                        &mut ops,
+                        project(param(0), Case::Sequence(SequenceCase::Cons), q::CONS_HEAD),
+                    );
+                    let rest = cursor.bind(
+                        &mut ops,
+                        project(param(0), Case::Sequence(SequenceCase::Cons), q::CONS_TAIL),
+                    );
+                    let next = cursor.bind(
+                        &mut ops,
+                        Op::Node {
+                            case: Case::Sequence(SequenceCase::Cons),
+                            fields: vec![head, param(1)],
+                        },
+                    );
+                    steps(
+                        ops,
+                        tail(
+                            ControlHelperRole::RebuildSequence,
+                            vec![rest, next, param(2), param(3)],
+                        ),
+                    )
+                }
+                SequenceCase::Append => Exec::Reject {
+                    shape: Shape::ReplayResult,
+                },
+                SequenceCase::Finish => {
+                    let mut ops = Vec::new();
+                    // The saved finish's extent is inspected but replaced by a
+                    // fresh activation extent, matching the replay contract.
+                    let _saved = cursor.bind(
+                        &mut ops,
+                        project(
+                            param(0),
+                            Case::Sequence(SequenceCase::Finish),
+                            q::FINISH_EXTENT,
+                        ),
+                    );
+                    let rest = cursor.bind(
+                        &mut ops,
+                        project(
+                            param(0),
+                            Case::Sequence(SequenceCase::Finish),
+                            q::FINISH_REST,
+                        ),
+                    );
+                    let extent = cursor.bind(
+                        &mut ops,
+                        Op::FreshExtent {
+                            parent: Some(param(3)),
+                        },
+                    );
+                    let next = cursor.bind(
+                        &mut ops,
+                        Op::Node {
+                            case: Case::Sequence(SequenceCase::Finish),
+                            fields: vec![extent.clone(), param(1), param(2)],
+                        },
+                    );
+                    steps(
+                        ops,
+                        tail(
+                            ControlHelperRole::RebuildSequence,
+                            vec![rest, next, extent.clone(), extent],
+                        ),
+                    )
+                }
+            };
+            (case.tag(), arm)
+        })
+        .collect();
     switch(param(0), Case::Sequence(SequenceCase::Empty), arms)
 }
 

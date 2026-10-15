@@ -12,6 +12,7 @@ mod case;
 mod control;
 pub(crate) mod value_identity;
 pub(crate) use control::ControlSchema;
+pub use control::FrozenControlPlan;
 pub use control::{
     ControlContract, ControlContractId, ControlDomain, ControlHelperContract, ControlHelperId,
     ControlHelperRole, ControlResumptionContract, SourceTypeIdentityId, TypeConstructorIdentity,

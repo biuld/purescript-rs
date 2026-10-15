@@ -5,7 +5,7 @@ use crate::cc::{ControlHelperRole, ReprId};
 use crate::control::schema::{ComputationCase, ContextCase, ExtentCase, OwnerCase, SequenceCase};
 
 /// A named executor parameter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum State {
     Value,
     Handler,
@@ -27,7 +27,7 @@ pub(crate) fn state_index(state: State) -> usize {
 }
 
 /// A value available to a transition.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Operand {
     State(State),
     /// A caller-supplied parameter of a helper body.
@@ -51,7 +51,7 @@ pub(crate) enum Family {
     Owner,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Case {
     Computation(ComputationCase),
     Sequence(SequenceCase),
@@ -61,6 +61,26 @@ pub(crate) enum Case {
 }
 
 impl Case {
+    pub(crate) fn fields(self) -> &'static [crate::control::schema::FieldKind] {
+        match self {
+            Self::Computation(case) => case.fields(),
+            Self::Sequence(case) => case.fields(),
+            Self::Context(case) => case.fields(),
+            Self::Extent(case) => case.fields(),
+            Self::Owner(case) => case.fields(),
+        }
+    }
+
+    pub(crate) fn kind(self) -> crate::control::schema::FieldKind {
+        use crate::control::schema::FieldKind as K;
+        match self {
+            Self::Computation(_) => K::Computation,
+            Self::Sequence(_) => K::Sequence,
+            Self::Context(_) => K::Context,
+            Self::Extent(_) => K::Extent,
+            Self::Owner(_) => K::Owner,
+        }
+    }
     pub(crate) fn family(self) -> Family {
         match self {
             Self::Computation(_) => Family::Computation,
@@ -88,16 +108,6 @@ impl Case {
             Self::Context(case) => case.tag(),
             Self::Extent(case) => case.tag(),
             Self::Owner(case) => case.tag(),
-        }
-    }
-
-    pub(crate) fn field_count(self) -> usize {
-        match self {
-            Self::Computation(case) => case.field_count(),
-            Self::Sequence(case) => case.field_count(),
-            Self::Context(case) => case.field_count(),
-            Self::Extent(case) => case.field_count(),
-            Self::Owner(case) => case.field_count(),
         }
     }
 

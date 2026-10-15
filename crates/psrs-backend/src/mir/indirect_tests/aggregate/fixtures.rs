@@ -62,12 +62,8 @@ pub(super) fn fixture_with_representations(
         Representation::Variant { cases },
     ];
     representations.extend(extra);
-    let representations = cc::RepresentationTable {
-        representations,
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+    let representations =
+        cc::RepresentationTable::from_parts(representations, Vec::new(), Default::default());
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -156,8 +152,8 @@ pub(super) fn parameter_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         )
         .expect("the parameter WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -174,10 +170,9 @@ pub(super) fn parameter_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+        Vec::new(),
+        Default::default(),
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);

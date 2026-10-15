@@ -16,8 +16,8 @@ pub(crate) fn flags_fixture() -> (cc::Module, ExternalBindings, Resolve) {
 
     // Source flag fields are sorted alphabetically: `read` then `write`. WIT
     // declares `write` before `read`, so `write` is bit 0 and `read` is bit 1.
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             cc::Representation::Product {
                 fields: vec![ValueShape::Boolean, ValueShape::Boolean],
             },
@@ -25,12 +25,11 @@ pub(crate) fn flags_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 element: reference(0),
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(cc::ReprId(0), vec!["read".to_string(), "write".to_string()])]
+        Vec::new(),
+        [(cc::ReprId(0), vec!["read".to_string(), "write".to_string()])]
             .into_iter()
             .collect(),
-        ..Default::default()
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -143,14 +142,13 @@ pub(crate) fn handle_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         )
         .expect("the handle list WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![cc::Representation::Array {
+    let representations = cc::RepresentationTable::from_parts(
+        vec![cc::Representation::Array {
             element: ValueShape::Integer,
         }],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+        Vec::new(),
+        Default::default(),
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -242,8 +240,8 @@ pub(crate) fn tuple_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         .expect("the tuple list WIT fixture should resolve");
 
     // DEC-13 maps `tuple<string, string>` to the closed record `{ _1, _2 }`.
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             cc::Representation::Product {
                 fields: vec![ValueShape::String, ValueShape::String],
             },
@@ -251,12 +249,11 @@ pub(crate) fn tuple_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 element: reference(0),
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(cc::ReprId(0), vec!["_1".to_string(), "_2".to_string()])]
+        Vec::new(),
+        [(cc::ReprId(0), vec!["_1".to_string(), "_2".to_string()])]
             .into_iter()
             .collect(),
-        ..Default::default()
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -377,14 +374,13 @@ fn handle_result(result: &str) -> (cc::Module, ExternalBindings, Resolve) {
         )
         .expect("the handle list result WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![cc::Representation::Array {
+    let representations = cc::RepresentationTable::from_parts(
+        vec![cc::Representation::Array {
             element: ValueShape::Integer,
         }],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-        ..Default::default()
-    };
+        Vec::new(),
+        Default::default(),
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);

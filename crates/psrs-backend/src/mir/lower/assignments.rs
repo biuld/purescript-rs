@@ -17,7 +17,7 @@ impl FunctionLowerer<'_> {
                     let proof = self
                         .layout
                         .representation_table()
-                        .control_contracts
+                        .control_contracts()
                         .get(contract.0 as usize)
                         .ok_or_else(|| {
                             vec![BackendError::invalid_ir(
