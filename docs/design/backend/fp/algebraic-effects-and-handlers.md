@@ -6,7 +6,7 @@ Verified in the [algebraic-effects checklist](../../../implementation/backend/al
 The execution mechanism is selected by
 [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md) and
 specified in [delimited control and resumable frames](delimited-control-and-resumable-frames.md).
-D-04 scoreboard numbers were not remeasured.
+The D-04 runtime board is 273/413 as of 2026-10-17.
 **Prerequisites:** [DEC-03](../../../decision/DEC-03-purescript-faithful-type-system.md),
 [functional Core](../../frontend/semantics/functional-core.md),
 [rows and records](../../frontend/type-system/rows-and-records.md),

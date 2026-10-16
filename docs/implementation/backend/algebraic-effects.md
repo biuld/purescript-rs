@@ -1,6 +1,6 @@
 # Algebraic Effects: Proposed Acceptance Checklist
 
-**Status:** AE-01–AE-11 and AC-01–AC-05 Verified. AE-01–AE-10 and AC-01–AC-05 closed on 2026-10-15. AE-11 closed on 2026-10-16 at package fingerprint `fnv1a64-v1:ad19620ada1d2ecf`. D-04 scoreboard numbers were not remeasured.
+**Status:** AE-01–AE-11 and AC-01–AC-05 Verified. AE-01–AE-10 and AC-01–AC-05 closed on 2026-10-15. AE-11 closed on 2026-10-16 at package fingerprint `fnv1a64-v1:ad19620ada1d2ecf`. The D-04 runtime board was remeasured on 2026-10-17 at 273/413.
 **Design:** [Library-owned algebraic effects and handlers](../../design/backend/fp/algebraic-effects-and-handlers.md)
 (library model) and [Delimited control and resumable frames](../../design/backend/fp/delimited-control-and-resumable-frames.md)
 (compiler mechanism).  

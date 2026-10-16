@@ -21,8 +21,8 @@ That audit does not close gates 4 and 6 by count alone. AE-01–AE-10 and
 AC-01–AC-05 are Verified. AE-11 and NE-01–NE-13 are Verified on fingerprint
 `fnv1a64-v1:ad19620ada1d2ecf` (§20). Official Effect/ST adapters wrap
 `PSRS.Effect.Native`; library-module `Host.lift` of Clock/Random/IO/Console
-and `Test.Assert` execute. D-04 scoreboard numbers were not remeasured. A
-translation validator is an explicit further assurance choice,
+and `Test.Assert` execute. The D-04 runtime board is 273/413 as of 2026-10-17. A translation
+validator is an explicit further assurance choice,
 not current work. The
 [architecture proof-owner audit](delimited-control-architecture-review-2026-10-14.md#current-proof-owners-2026-10-15)
 and the
@@ -1659,11 +1659,9 @@ NE-01, NE-03, NE-04, NE-08, and NE-10 are Verified in
 modules outside the Effect family are not re-approved. `checkThrows`,
 `Effect.Console` timers, `Effect.Exception`, and `Effect.Aff` stay
 unimplemented. Filesystem and environment evidence remains the existing
-WASI-07 record; it was not re-run on this fingerprint. D-04 still records
-164/413 and 46 files without a selected `main`. The Effects topic row now
-points at this acceptance and leaves those numbers in place. BE-21 stays
-Partial.
+WASI-07 record; it was not re-run on this fingerprint. The 2026-10-17
+scoreboard later moved L6/M7 to 273/413. BE-21 stays Partial.
 
-**Do next:** remeasure D-04 before changing 164/413 or the 46-file count.
-Keep per-IR machine recognizers retired and leave DEC-21's trust boundary
-in place.
+**Do next:** the 2026-10-17 scoreboard moved L6/M7 from 164/413 to 273/413.
+`BigFunction.purs` still dies before a diagnostic. Keep per-IR machine
+recognizers retired and leave DEC-21's trust boundary in place.

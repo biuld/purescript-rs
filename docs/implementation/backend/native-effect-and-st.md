@@ -1,6 +1,6 @@
 # Native Effect and ST: Proposed Acceptance Checklist
 
-**Status:** NE-01–NE-13 Verified on 2026-10-16 at package fingerprint `fnv1a64-v1:ad19620ada1d2ecf`. The independent package commit and compiler lock revision are `4c73aab52226e8f5e7b1f17052f1a19d717a472e`. D-04 scoreboard numbers were not remeasured.
+**Status:** NE-01–NE-13 Verified on 2026-10-16 at package fingerprint `fnv1a64-v1:ad19620ada1d2ecf`. The independent package commit and compiler lock revision are `4c73aab52226e8f5e7b1f17052f1a19d717a472e`. The D-04 runtime board was remeasured on 2026-10-17 at 273/413.
 
 **Design:** [Native Effect and ST over algebraic handlers](../../design/backend/fp/native-effect-and-st-handlers.md).  
 **Date:** 2026-10-11.
