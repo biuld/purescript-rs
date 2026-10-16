@@ -124,7 +124,7 @@ fn anonymous_record_accessor_projects_nested_fields() {
 
 #[test]
 fn evaluates_record_fields_in_source_order_before_canonical_layout() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let record = { z: runEffect (log \"z\"), a: runEffect (log \"a\") } in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let record = { z: unsafePerformEffect (log \"z\"), a: unsafePerformEffect (log \"a\") } in 0\n";
     let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
     let main = core
         .declarations

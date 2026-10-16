@@ -1,11 +1,13 @@
 # Handoff: Delimited Control Migration and Remaining Acceptance
 
 **Updated:** 2026-10-16. The filename keeps its original date; this file is the
-current snapshot. **§15 is the current progress.** Sections 1–14 are history:
+current snapshot. **§20 is the current progress.** Sections 1–18 are history:
 §10 is the construction-boundary migration, §§11–12 the operand-level CC
-boundary and immutable planning, §13 the bounded model, and §14 the optimized
-Wasm replay measurements. Those sections still use the 39-action inventory from
-before `Run` joined the registry.
+boundary and immutable planning, §13 the bounded model, §14 the optimized
+Wasm replay measurements, and §15 Run construction plus the Root regression
+slice. Sections 1–14 still use the 39-action inventory from before `Run`
+joined the registry. §18 is the native execution and region snapshot from
+before the uncurried adapters.
 **Objective:** Complete delimited control, then implement native Effect/ST.
 **Status:** [DEC-21](../../decision/DEC-21-control-machine-construction-boundary.md)
 is implemented. The named schema, a 40-action inventory and checked plans own
@@ -16,17 +18,21 @@ compares all 40 actions, and §14 records saved-length and queue-shape traversal
 on optimized Wasm. The 185 historical recognizer tests have owners in
 [the retired-regression document](delimited-control-retired-regressions.md).
 That audit does not close gates 4 and 6 by count alone. AE-01–AE-10 and
-AC-01–AC-05 are Verified. AE-11 native host IO and public Effect/ST facades
-remain open; the 2026-10-16 prototype uses a phantom-result free monad so
-Effect/ST can declare official roles, and `ST.Global.toEffect` executes one
-heterogeneous storage-and-clock program. D-04 scoreboard numbers were not
-remeasured. A translation validator is an explicit further assurance choice,
+AC-01–AC-05 are Verified. AE-11 and NE-01–NE-13 are Verified on fingerprint
+`fnv1a64-v1:ad19620ada1d2ecf` (§20). Official Effect/ST adapters wrap
+`PSRS.Effect.Native`; library-module `Host.lift` of Clock/Random/IO/Console
+and `Test.Assert` execute. D-04 scoreboard numbers were not remeasured. A
+translation validator is an explicit further assurance choice,
 not current work. The
 [architecture proof-owner audit](delimited-control-architecture-review-2026-10-14.md#current-proof-owners-2026-10-15)
 and the
 [lowering implementation audit](delimited-control-lowering-review-2026-10-14.md#implementation-audit-2026-10-15)
-remain the review-to-owner tables. §15 records where the code has moved past
-the 39-action text inside §§12–13.
+remain the review-to-owner tables. §15 records where the code moved past the
+39-action text inside §§12–13. §16 records the AE-11 adapter and host-leaf snapshot; §17 continues the
+driver runner migration. §18 records native execution, generic checking and
+abstract regions. §19 records the uncurried adapters and the driver evidence
+from before the public oracle finished. §20 records the finished Effect/ST
+and AE-11 acceptance.
 
 The [architecture review and repair evidence](delimited-control-architecture-review-2026-10-14.md#repair-evidence-2026-10-14)
 records ownership, regressions, and the moved Wasm ancestry observation.
@@ -288,9 +294,8 @@ focused-validation instruction.
 
 ## 6. Remaining work and recommended continuation
 
-Historical (pre-review). The current remaining work is stated in **§10, "Next
-actions for a new agent"**; this section is retained for the acceptance-audit
-context it records.
+Historical (pre-review). The current remaining work is stated in **§16**;
+this section is retained for the acceptance-audit context it records.
 
 Follow the user's order and validation limits: work in the current checkout,
 keep changes focused, and do not run global validation after each small fix.
@@ -1054,7 +1059,7 @@ package edits or remote changes were made for the traversal slice.
 
 ## 15. Run construction and the Root regression slice (2026-10-15)
 
-This is the current snapshot. It reconciles the dirty tree with the
+This section is history. Current progress is **§16**. It reconciles the dirty tree of that day with the
 [architecture proof-owner audit](delimited-control-architecture-review-2026-10-14.md#current-proof-owners-2026-10-15)
 and the
 [lowering implementation audit](delimited-control-lowering-review-2026-10-14.md#implementation-audit-2026-10-15).
@@ -1188,33 +1193,477 @@ modified MIR.
 | R1 | Check/Close bodies are named helper plans plus the restored lifecycle CC mutations. |
 | R2 | The P8 boundary accounts for ordered operations, failed guards and recovery casts. The four observable CC tests remain. |
 | R3 | Live helpers are required by the inventory. The retired inlined Start/Once/Cancel publication negatives still need an explicit construction or transform owner. |
-| AE/AC | AE-01–AE-10 and AC-01–AC-05 Verified; AE-11 Unverified. Phantom-Free Effect/ST prototype with `toEffect` execution is in `tests::native_representation`. D-04 measurements unchanged. |
+| AE/AC | AE-01–AE-10 and AC-01–AC-05 Verified; AE-11 Unverified. Official Effect/ST adapters and library-module `Host.lift` of Clock/Random/IO/Console/`Test.Assert` execute in `tests::native_representation` and `tests::assertions`. D-04 measurements unchanged. |
 | Foreign and traps | P8 rejects opaque host-handle captures in control callbacks. Canonical nested `borrow<T>` is an unsupported capture. A trap aborts the instance; the artifact has no Control cleanup export. Complete AC-04 buffer-lifetime evidence remains open. |
 
 ### Next actions
 
-1. Treat the 185-name mapping as an audit, not gate closure. Do not restore
-   machine recognizers.
-2. AE-11: keep the prototype outside the package; next is safe ST constructors,
-   region-escape negatives, then official Effect/ST source adapters. Remeasure
-   D-04 only when that work's validation runs.
-3. Leave DEC-21's trust boundary in place. A pass-level translation validator
-   requires an amendment of that decision before implementation.
+Continued in **§16**. Keep per-IR machine recognizers retired. Leave DEC-21's
+trust boundary in place. A pass-level translation validator requires an
+amendment of that decision before implementation.
 
-When the next slice changes compiler or test code, rerun the focused set its
-files touch and say that §14 was not a measurement of this tree:
+## 16. Native Effect/ST adapters and host leaves (2026-10-16)
+
+This is the adapter snapshot preceding §17. Delimited-control construction
+is the tree in §15. This slice owns AE-11 native host IO on that tree. AE-11
+and every NE-* row stay **Unverified**. D-04 numbers stay unchanged until a
+fresh scoreboard run. Keep per-IR machine recognizers retired.
+
+Related records:
+[native-effect-and-st.md](native-effect-and-st.md),
+[algebraic-effects.md](algebraic-effects.md) AE-11 row,
+and `/Users/biu/Projects/psrs-stdlib/docs/native-effect.md`.
+
+### Checkout
+
+| Owner | Current state |
+| --- | --- |
+| Compiler | `/Users/biu/Projects/purescript-rs`, branch `feat/effect-handlers`, HEAD `bca4fea7` (`Give native Effect/ST a phantom-result free representation`). Working tree dirty: P8 WIT live-type layout, native representation tests, `assertions` runner migration, AE-11 docs, `stdlib.lock.json` fingerprint. |
+| Independent stdlib | `/Users/biu/Projects/psrs-stdlib`, branch `control-library`, HEAD `d6cf81105046e288e2e9cd9685f8cc47e960c988`. Working tree dirty: official Effect/ST/`Ref` adapters, `PSRS.Effect.Native`/`Host`, WASI raw `*Impl` + `Host.lift`, `Test.Assert.assertImpl` source, docs. |
+| Compiler lock | `path` `../psrs-stdlib`, revision **still** `d6cf81105046e288e2e9cd9685f8cc47e960c988`, development fingerprint `fnv1a64-v1:c54b996e0f7e0295`. Change the fingerprint when `lib/`, `conformance/`, or manifests change. Compute it with the Rust hasher in `crates/psrs-driver/src/prelude/package.rs` (`PathBuf` sort). A Python hash will disagree. Move the **revision** only after the independent repository is committed. |
+| Work | Continue AE-11 in this checkout. Preserve the dirty trees. No push, PR, issue close, or `cargo test --workspace` unless the user asks. |
+
+Dirty compiler paths:
+
+- `crates/psrs-backend/src/cc/layout/functions/reachable.rs`
+- `crates/psrs-backend/src/cc/layout/tests/arrays.rs`
+- `crates/psrs-driver/src/tests/assertions.rs`
+- `crates/psrs-driver/src/tests/native_representation.rs` (deleted; replaced by `native_representation/`)
+- `docs/implementation/backend/{algebraic-effects,native-effect-and-st,delimited-control-migration-handoff-2026-10-12}.md`
+- `stdlib.lock.json`
+
+Dirty stdlib paths: `lib/PSRS/Effect/` (new), `lib/Effect.purs`, `lib/Effect/{Ref,Unsafe}.purs`, `lib/Control/Monad/ST/Internal.purs`, `lib/Test/Assert.purs`, `lib/WASI/{Clock,FileSystem,IO,Network,Process,Random}.purs`, `lib/trusted`, `upstream-lock.json`, `docs/{effect-restoration,st,native-effect}.md`.
+
+### What already executes
+
+Official `Effect`, `Effect.Unsafe`, `Effect.Ref`, and `Control.Monad.ST.Internal`
+are constructor-hidden newtypes over `PSRS.Effect.Native.Program`. `Program a`
+is a phantom-result Free (`data Program a = Program View` with `Val` erasure)
+so `type role Effect representational` and `type role ST nominal representational`
+are accepted. `toEffect` is `unsafeCoerce`. `unsafePerformEffect` is `Target.run`.
+Construction is inert. `run` interprets `new`/`read`/`write` with
+`arrayFill`/`arrayWrite`/`arrayIndex` and `perform` by calling the delayed
+thunk. `abort` is a request whose handler evaluates `trap`; a strict trap
+field in a record would abort every run.
+
+WASI public APIs stay `Effect`. WIT imports are **raw canonical results**.
+`PSRS.Effect.Host.lift f = unsafeCoerce (Target.perform f)`. A WIT import
+typed as `Effect X` is ABI-invalid: `core_matches_result` does not unwrap
+`Effect`. `Test.Assert.assertImpl` is source: `true` is `pure unit`; `false`
+writes through `Effect.Console.error` then `unsafeCoerce Target.abort`.
+`checkThrows` remains `foreign import`.
+
+P8 guest projection keys a WIT import by its checked scheme `TypeId`.
+`live_type_ids` now records Runtime and WIT import schemes as layout roots,
+including schemes that appear only on the import. `WASI.Clock` pulls
+`WASI.IO`; `pollImpl`/`readImpl` `Array` payloads lived only on those schemes.
+That was the `array has no representation` failure while projecting Native
+`Cell`/`Array` methods. Keep Clock and `Pollable` together. The layout unit
+test is `a_wit_import_scheme_lays_out_array_payloads_without_a_declaration_root`.
+
+Focused evidence, `PSRS_REQUIRE_WASMTIME=1`, 2026-10-16:
+
+```sh
+cargo fmt -p psrs-backend -p psrs-driver
+cargo test -p psrs-backend --lib cc::layout::tests::arrays
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::native_representation
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::assertions
+```
+
+Results: layout arrays **2 passed**; `native_representation` **12 passed**
+(11.32s); `assertions` **8 passed** (10.91s). That includes
+`official_clock_now_runs_through_effect` (exit 42) and
+`official_wasi_and_assert_wrappers_run_through_effect` (`now`, `wallNow`,
+`randomU64`, `randomBytes`, `getStdout`, `WASI.Console.log` stdout
+`host-leaf\n`, held `assert true`, exit 42). Held and failed `Test.Assert`
+paths write then trap. §14 control/integration/workspace commands were not
+rerun on this tree.
+
+### Contracts to keep
+
+- Keep per-IR machine recognizers retired. Construction owns machine meaning
+  (DEC-21). MIR checks dispatch arms and external tail targets only.
+- Keep official public signatures, exports, roles, classes, and remaining
+  pure declarations. Repair compiler defects in the compiler.
+- Keep WIT leaves at canonical results. Delay them with `Host.lift`.
+- Keep unimplemented JS foreigns as unimplemented foreigns. Do not fill them
+  with recursion, a fabricated result, or another successful-looking
+  placeholder.
+- Keep `checkThrows` foreign until a trap can return `Boolean` on the same
+  instance. A canonical-ABI or guest trap aborts the component instance.
+- Keep AE-11 / NE-* **Unverified** until the remaining rows have required
+  evidence. Re-measure D-04 before changing those numbers.
+- Work in the current checkout. English docs. Source files stay under 500
+  lines. Group a later commit by topic (code, tests, and the design text for
+  the same topic).
+
+### Remaining work (do this next)
+
+1. **Driver tests that still name `runEffect`.** Official runners are
+   `unsafePerformEffect` / `ST.run`. Many `crates/psrs-driver/src/tests`
+   sources still say `runEffect` (`wasi/`, `integration.rs`, `show.rs`,
+   `polymorphism_erasure_audit.rs`, and others). `tests::assertions` already
+   uses `unsafePerformEffect`. This is a wat-shape review, not a global
+   rename. In particular
+   `stored_random_bytes_leaves_get_random_bytes_inside_the_effect_closure`
+   (`wasi/mod.rs`) asserts compiler-owned Effect closures and `call_ref`
+   from the command entry. Native `run` interprets `perform` thunks; rewrite
+   those assertions against the new lowering, or drop claims the new
+   representation does not make.
+
+2. **`checkThrows`.** Leave it foreign. Instance-terminal traps cannot return
+   `Boolean`.
+
+3. **JS-only Effect foreigns.** `Effect.Console` timers (`time`, `timeLog`,
+   `timeEnd`, `clear`), `Effect.Exception`, `Effect.Aff`, `Effect.Uncurried`.
+   Keep the source contract and report missing target support.
+
+4. **Package pin.** Commit `psrs-stdlib` first, then set `stdlib.lock.json`
+   `revision` to that commit and recompute `source_fingerprint`. Until then
+   the dirty development fingerprint is `fnv1a64-v1:c54b996e0f7e0295`.
+
+5. **AE-11 / D-04.** Mark AE-11 Verified only after remaining host leaves and
+   the issue's validation block. Remeasure D-04 with
+   `PSRS_ORACLE=annotations` and `PSRS_REQUIRE_WASMTIME=1` before editing
+   those numbers.
+
+Suggested first slice: item 1 on `wasi/` plus any test that fails immediately
+with `unknown name runEffect`, with focused
+`PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi`. Then
+update this section and `native-effect-and-st.md` in the same change.
+
+When the slice touches compiler or test code:
 
 ```sh
 cargo fmt --all --check
-cargo test -p psrs-backend --lib
-PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::control
-PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver \
-  --test control_surface --test control_scoped_surface \
-  --test control_owned_surface --test control_primitive_values \
-  --test control_runtime --test control_open_runtime \
-  --test control_scoped_runtime --test control_scoped_replay \
-  --test control_lifetime --test control_owned_runtime \
-  --test control_carrier_runtime
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::native_representation
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::assertions
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi
 ```
 
-No commit, push, PR, package edit or remote change was made for this snapshot.
+Say that §14 was not a measurement of this tree. Skip
+`cargo test --workspace` unless asked. Skip push, PR, and issue close unless
+asked. Skip bumping the lock revision until the independent repository is
+committed.
+
+## 17. Official runner migration in driver tests (2026-10-16)
+
+Current continuation of §16 item 1. The starting compiler HEAD is
+`bca4fea77bda5f79bb44bf6e4660d7bec981d448`; both compiler and independent
+package were already dirty.
+No package sources, lock identity, compiler lowering, or DEC-21 trust boundary
+were changed in this slice. §14 is not a measurement of this tree.
+
+All remaining `runEffect` references under `crates/psrs-driver/src/tests/`
+now use an explicit official `Effect.Unsafe (unsafePerformEffect)` import.
+The affected cases cover WASI wrappers, linked modules, Show, evaluation
+order, polymorphic transport, and ordinary library combinators. The lenient
+source-origin diagnostic additionally requires the `UnknownName` span to
+select `missingName`, preventing a missing runner from satisfying the test.
+
+The two historical WAT closure tests are now runtime contracts:
+
+- `stored_random_bytes_is_inert_and_repeated_runs_execute_the_continuation`
+  checks no output from an unexecuted action, then two runs returning a total
+  byte length of 16 and exactly `bytes\nbytes\n`.
+- `stored_exit_is_inert_and_interpreted_exit_stops_the_program` checks normal
+  exit 0 for a stored exit request, exit 99 for interpretation, and no output
+  from the log following the exit.
+
+These cases do not claim a particular `call_ref` location or indirect-call
+count. Native interpretation may call ordinary helpers while constructing
+requests. The now-unused `wasi/wat.rs` textual call-graph helper is removed.
+WIT import and layout assertions in the other WASI tests remain.
+
+Baseline logs retain the exact failing names:
+
+- `/private/tmp/psrs-native-wasi-before.log`: **116 passed, 35 failed**;
+  the failures report `UnknownName` for `runEffect` at P3 resolve.
+- `/private/tmp/psrs-native-runners-before.log`: **110 passed, 11 failed**
+  across the non-WASI filter selection below. Failures name the same
+  retired runner; four also report the missing explicit `Effect` type import.
+  The source-origin diagnostic passed even with that extra
+  unresolved name; its new span assertion closes that false positive.
+
+Validation uses Wasmtime `49.0.3 (f96eabaa1 2026-10-14)` and
+`PSRS_REQUIRE_WASMTIME=1` throughout. The combined run uses:
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib -- \
+  tests::wasi tests::native_representation tests::assertions \
+  tests::integration tests::show tests::polymorphism_erasure_audit \
+  tests::data_function tests::guards tests::generic_aggregate_audit \
+  tests::pattern_matching_audit tests::cc_ir_audit tests::semigroup \
+  tests::foldable tests::records tests::typecheck
+```
+
+`/private/tmp/psrs-native-runners-final.log` records **288 passed, 4 failed**
+(858.91s). All four failures are missing `Effect` type imports in Foldable,
+Semigroup and the two Show signature fixtures; all four pass in the following
+post-fix rerun. The combined run includes **151/151 WASI**, **12/12 native
+representation**, and **8/8 assertion** tests. It was not repeated in full
+after the four import fixes.
+
+The three audit modules live at crate root, so the `tests::` prefixes above
+select none of their tests. Their actual validation is separate:
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib -- \
+  cc_ir_audit::effects_observe_callee_and_argument_order \
+  generic_aggregate_audit polymorphism_erasure_audit --test-threads=2
+```
+
+`/private/tmp/psrs-native-runners-audits.log`: **28 passed**, no failures
+(615.61s). This includes the aggregate audit battery, mutable/erased payload
+transport, rank-N application, and observed argument order.
+
+The Show/Foldable/Semigroup rerun after adding explicit `Effect` imports is
+**11 passed**, with no failures:
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib -- \
+  tests::show tests::semigroup tests::foldable
+```
+
+Log: `/private/tmp/psrs-native-runners-imports.log` (197.76s). Across the
+combined run, this post-fix rerun, and the separate audits, **320 distinct test
+names pass**, with no unrecovered failure. This is a union of scoped runs,
+not a single clean 320-test invocation. The name-by-name reconciliation is
+`/private/tmp/psrs-native-runners-verification.json`.
+
+`cargo fmt --all --check` passes. Strict
+`cargo clippy -p psrs-driver --lib --tests -- -D warnings` stops in the existing
+`psrs-kind` `let_and_return` diagnostic. The same command with
+`-A clippy::let_and_return` passes. Logs:
+`/private/tmp/psrs-native-runners-clippy{,-known}.log`.
+These are scoped driver checks, not a strict workspace Clippy pass.
+
+Next: finish native API and pinned conformance evidence from
+[native-effect-and-st.md](native-effect-and-st.md), then the independent
+package commit and coherent compiler lock pin. `checkThrows` and JS-only
+foreign support remain explicit gaps. AE-11 and NE-* remain Unverified;
+D-04 measurements stay unchanged. No workspace suite, ignored scoreboard,
+push, PR, or issue close was performed.
+
+
+## 18. Native execution, generic checking and abstract regions (2026-10-16)
+
+This section is history. Current progress is **§19**. The text below continues §17. The compiler remains on feat/effect-handlers at
+`bca4fea77bda5f79bb44bf6e4660d7bec981d448`, with the original dirty tree preserved
+and further changes. The independent package remains on control-library at
+`d6cf81105046e288e2e9cd9685f8cc47e960c988`, also dirty. No commits, pushes, PRs,
+issue operations or workspace test run were performed.
+
+The current source fingerprint is `fnv1a64-v1:b5ec750799a46cc4`; the revision
+is deliberately unchanged until the independent repository is committed.
+The complete owner, regression, acceptance and command record is in
+[native-effect-and-st.md](native-effect-and-st.md#native-execution-and-region-boundary-evidence-2026-10-16).
+Do not repeat the old closure or per-IR machine-recognizer migration.
+
+Implemented in this slice:
+
+- Native Program retains Bind as data and interprets an explicit persistent
+  continuation stack. Pure-bind callbacks are delayed and repeat on each run;
+  20,000-level binds/public loops execute without native stack growth.
+- Official Ref and Global conversion behavior, heterogeneous cells, reentrant
+  modify, self-reference publication and the null/trap initialization boundary
+  have executed public API plus pinned JS observations.
+- Ordinary package PSRS.Command.run now configures Effect Unit execution.
+  Generic command adaptation still preserves Int and an unrelated Job type.
+- Core command closed-type checks, shared free-variable queries and equal-arity
+  universal specialization repair generic ownership defects exposed by the
+  native integration. Malformed Core and complete backend tests pass.
+- HIR source external ownership survives imports; kind/reference checking
+  includes foreign annotations at their original source. ST/STRef retain the
+  official Region kinds. STArray/STFn target constructors stay private;
+  sibling partial-array adapters cross their representation explicitly.
+- Independent package conformance owns native-effect.mjs, native-types.mjs and
+  their public source cases. All 50 upstream checkouts were fetched under
+  `/private/tmp/psrs-native-pinned-upstreams`; all 279 original modules compile
+  with official purs. Do not use the emptied historical /tmp checkout paths.
+
+Measured on the stated package: 92 required-Wasmtime control/native/assertion
+tests, 875 changed-library tests, 4 generic CLI command tests, 12 Node tool tests,
+11 native public cases and 11 actual-upstream type comparisons pass. Strict
+scoped Clippy passes without allowances after two lint-only cleanups. Source
+audit: 50 packages, 308 modules (241 identical, 38 modified, 29 target), none
+missing. The linked acceptance record names exact logs and limitations.
+AE-11 remains Unverified; D-04 numbers remain unchanged.
+
+**Do next:** finish uncurried adapters. ST.Uncurried currently returns `f args`
+while constructing runSTFn actions, so an explicitly unsafe effect in that
+factory could run early. Delay the factory with an ordinary bind of pure Unit.
+Effect.Uncurried still has its original unimplemented foreign declarations;
+provide constructor-hidden target wrappers with the same signatures, roles and
+pure instances, and delay factory application in runEffectFn1–10 as well.
+Compare every arity with pinned official JS, preserving strict arguments and
+repeated execution. Do not replace unsupported foreign slots with placeholders.
+Then finish the NE-01/03/04/08/10 obligations in the checklist, perform a coherent
+package commit/pin only after its required evidence, and remeasure the required
+D-04 boards before changing their numbers. Keep the full requested objective
+active until the actual acceptance audit closes it.
+
+## 19. Uncurried adapters (2026-10-16)
+
+Current continuation of §18. The compiler remains on `feat/effect-handlers` at
+`bca4fea77bda5f79bb44bf6e4660d7bec981d448`, dirty. The independent package
+remains on `control-library` at `d6cf81105046e288e2e9cd9685f8cc47e960c988`,
+dirty. No commit, push, PR, issue operation, workspace suite, or D-04
+scoreboard was run. Wasmtime is `49.0.3 (f96eabaa1 2026-10-14)`.
+
+The lock revision is still `d6cf8110`. The development fingerprint is now
+`fnv1a64-v1:ba951ab7122a6e5e`. §18's `fnv1a64-v1:b5ec750799a46cc4` is the
+package before these adapters. The three driver tests below selected that
+package and passed, so this fingerprint matches the sources those tests
+compiled.
+
+`Effect.Uncurried` and `Control.Monad.ST.Uncurried` no longer leave `mk`/`run`
+as unimplemented foreigns. `EffectFn1`–`EffectFn10` and `STFn1`–`STFn10` are
+constructor-hidden newtypes over curried functions that return a suspended
+`Effect` or `ST` action. Roles match the official declarations: every
+`EffectFn` parameter is representational, and each `STFn` region parameter is
+nominal. `mk*N` stores the callback. `run*N` delays application with
+`bind (pure unit) (\_ -> f args)` at every arity. The `EffectFn` Semigroup and
+Monoid suffix is byte-identical to the pinned `purescript-effect` file at
+`a192ddb923027d426d6ea3d8deb030c9aa7c7dda`, from `instance semigroupEffectFn1`
+through the end of the file. These adapters do not implement a JavaScript
+calling convention. Raw WIT leaves stay canonical and go through `Host.lift`.
+
+The package document `/Users/biu/Projects/psrs-stdlib/docs/native-effect.md`
+describes this representation. `manifest.json` registers
+`conformance/native-uncurried.mjs` as `native_uncurried_oracle`. The acceptance
+checklist's remaining paragraph in
+[native-effect-and-st.md](native-effect-and-st.md) still lists uncurried
+factory delay as open; that paragraph was not edited in this pass. NE-03 stays
+**Unverified**. These cases are one part of that row, not its public-API oracle.
+
+Baseline failures, retained:
+
+- `/private/tmp/psrs-native-uncurried-before.log`: both factory tests failed.
+  Effect stopped at P8 because `Effect.Uncurried.mkEffectFn1` and
+  `runEffectFn1` had no target implementation. ST stopped at P5 with
+  `EscapedSkolem` on the unannotated action.
+- `/private/tmp/psrs-native-st-uncurried-before.log`: after the ST action was
+  annotated, arity 1 printed `argument\nfactory\nstored\n`. Returning `f args`
+  from `runSTFn` ran the factory while constructing the action and did not
+  repeat it.
+
+Current driver evidence is
+`crates/psrs-driver/src/tests/native_representation/uncurried.rs`. Arity 1–10
+for both families expects exit 42 and
+`argument\nstored\nfactory\nfactory\n`. The expected integer is the weighted
+sum `n(n+1)(2n+1)/6`. The mixed case transports an `EffectFn2` of `String` and
+`Int -> Int`, appends two `EffectFn1` values, uses `mempty`, and expects
+`left\nright\n`.
+
+This pass ran:
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib -- \
+  tests::native_representation::uncurried -- --test-threads=2
+```
+
+`/private/tmp/psrs-native-uncurried-current.log`: **3 passed**, no failures
+(149.38s). Cargo did not rebuild the test binary (0.51s). Earlier same-day
+logs are historical: the factory pair passed in 139.72s before `uncurried.rs`
+was last written, and the mixed test alone passed in 10.83s after that write.
+The three-test log is the measurement of the current file.
+
+`conformance/native-uncurried.mjs` was started and did not finish.
+`/private/tmp/psrs-native-uncurried-oracle.log` records accepted target runs
+for `EffectFn1`–`EffectFn10` and `STFn1` only. `STFn2` has official stdout and
+no `target/run.json`. `uncurried.json` was not written. No oracle process is
+still running. That directory is not a 21-case result. The script's intended
+set is twenty arity cases plus `MixedInstances`.
+
+`upstream-lock.json` records a false identity for `Effect/Uncurried.purs`.
+Both `upstream_sha256` and `vendored_sha256` are
+`b4004312b629cf047cc96a3674934eec8badd8bdd58935b9110ea9f7a77b7027`, which is
+the adapted file. The pinned upstream source at the lock's commit
+`a192ddb9` is still
+`0c6db8591d2519d9b18bf2c5ec56f33b6c25ee6f69d3edfbce8482d48771214b`.
+`Control/Monad/ST/Uncurried.purs` keeps upstream
+`bd2411e5e23d8b446ef2f6b924422071eb99c6c629395df21eb9821a341988a6` and
+vendored `22b448946ad3612741adada761a0ff2fc03e0710cc2d6c10f9e2c83c350ca7b2`.
+Restore the Effect upstream hash before any source-fidelity count. An audit
+that trusts the current lock would classify the adapted module as identical.
+
+`/private/tmp/psrs-native-wasi-current.log` contains 133 lines ending in `ok`
+and no `test result` summary. It is an interrupted run, not a 151/151 result
+and not a recorded failure set.
+`/private/tmp/psrs-native-uncurried-clippy.log` shows `psrs-core`,
+`psrs-backend`, and `psrs-driver` finishing in 4.06s with no diagnostic text.
+The command flags are not in that log, so it is not a strict workspace Clippy
+result. This pass did not re-run formatting, Clippy, WASI, or the oracle.
+
+AE-11 and every NE-* row stay at the statuses in
+[native-effect-and-st.md](native-effect-and-st.md). D-04 numbers stay
+unchanged. §14 and §18 are not measurements of fingerprint
+`ba951ab7122a6e5e`. `checkThrows`, `Effect.Console` timers, `Effect.Exception`,
+and `Effect.Aff` remain unimplemented foreigns.
+
+**Do next:**
+
+1. Put `Effect/Uncurried.purs` `upstream_sha256` back to `0c6db859…`, the
+   pinned file. Leave `vendored_sha256` on the adapted file. Recompute
+   `stdlib.lock.json` `source_fingerprint` with the compiler hasher if that
+   edit changes package bytes. Do not copy the adapted hash into the upstream
+   field.
+2. Finish `conformance/native-uncurried.mjs` through `STFn2`–`STFn10` and
+   `MixedInstances`, and keep `uncurried.json`. Do not promote the partial
+   directory to a 21/21 result.
+3. Continue NE-01, NE-03, NE-04, NE-08, and NE-10 from the checklist. Commit
+   the independent package and move the compiler lock revision only after that
+   evidence. Remeasure D-04 before changing its numbers.
+4. Keep per-IR machine recognizers retired and leave DEC-21's trust boundary
+   in place. Keep unimplemented foreign slots unimplemented.
+
+The public oracle and the NE-01/03/04/08/10 rows closed in §20. This section's
+fingerprint `fnv1a64-v1:ba951ab7122a6e5e` and its unfinished `uncurried.json`
+are historical.
+
+## 20. Effect/ST and AE-11 acceptance (2026-10-16)
+
+Current continuation of §19. Compiler `feat/effect-handlers` was dirty at
+`bca4fea77bda5f79bb44bf6e4660d7bec981d448` when the oracles ran. The
+independent package commit is `4c73aab52226e8f5e7b1f17052f1a19d717a472e` on
+`control-library`. No push, PR, issue operation, workspace suite, or D-04
+scoreboard was run. Wasmtime is `49.0.3 (f96eabaa1 2026-10-14)`.
+
+The compiler lock revision is that package commit. The development fingerprint
+is `fnv1a64-v1:ad19620ada1d2ecf`. `Effect/Uncurried.purs` `upstream_sha256` is the
+pinned file `0c6db8591d2519d9b18bf2c5ec56f33b6c25ee6f69d3edfbce8482d48771214b`;
+`vendored_sha256` stays the adapted file. `Data/Number.purs` `vendored_sha256`
+matches the file on disk.
+
+`conformance/native-uncurried.mjs` finished: 21/21 accepted, including
+`STFn2`–`STFn10` and `MixedInstances`
+(`/private/tmp/psrs-native-uncurried-oracle-2/uncurried.json`).
+`conformance/native-effect.mjs` accepted 13/13, including `Identity` and
+`HostOrder` (`/private/tmp/psrs-native-effect-oracle/native.json`).
+`conformance/native-types.mjs` accepted 11/11, including `HiddenSTFn`
+(`/private/tmp/psrs-native-types-oracle/types.json`). The source audit is 240
+identical, 39 modified, 29 platform additions, 308 modules, 50 packages
+(`/private/tmp/psrs-native-effect-audit/inventory.json`). Each oracle records
+the same fingerprint and `unchanged_during_run: true`.
+
+The driver rejection test
+`a_coerced_non_cell_ref_is_rejected_before_codegen` expects P8
+`unsupported aggregate conversion between normalized runtime shapes` for
+`unsafeCoerce 1 :: Ref Int`. Together with the host-order test, the filtered
+driver run is 3 passed.
+
+NE-01, NE-03, NE-04, NE-08, and NE-10 are Verified in
+[native-effect-and-st.md](native-effect-and-st.md). AE-11 is Verified in
+[algebraic-effects.md](algebraic-effects.md). The historical 39 modified
+modules outside the Effect family are not re-approved. `checkThrows`,
+`Effect.Console` timers, `Effect.Exception`, and `Effect.Aff` stay
+unimplemented. Filesystem and environment evidence remains the existing
+WASI-07 record; it was not re-run on this fingerprint. D-04 still records
+164/413 and 46 files without a selected `main`. The Effects topic row now
+points at this acceptance and leaves those numbers in place. BE-21 stays
+Partial.
+
+**Do next:** remeasure D-04 before changing 164/413 or the 46-file count.
+Keep per-IR machine recognizers retired and leave DEC-21's trust boundary
+in place.

@@ -1,6 +1,7 @@
 use super::*;
 use psrs_hir::{Intrinsic, LocalId, ModuleId, SymbolId};
 
+mod command;
 mod control;
 mod deep_expr;
 mod external_types;
@@ -8,6 +9,7 @@ mod instantiation;
 mod link;
 mod patterns;
 mod rank_n;
+mod rank_n_universals;
 mod record_scope;
 mod rows;
 

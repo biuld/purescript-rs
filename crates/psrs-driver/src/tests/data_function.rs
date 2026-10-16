@@ -32,6 +32,7 @@ main = run choose identity 42
 fn the_application_operators_resolve_through_the_library_re_export() {
     let source = r#"
 module Main where
+import Effect.Unsafe (unsafePerformEffect)
 
 import Prelude
 import Effect (Effect)
@@ -65,7 +66,7 @@ checks = do
   log (if viaConst == 1 then "const" else "const-wrong")
   pure unit
 
-main = let ignored = runEffect checks in 0
+main = let ignored = unsafePerformEffect checks in 0
 "#;
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");

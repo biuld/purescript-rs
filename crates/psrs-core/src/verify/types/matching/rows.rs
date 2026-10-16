@@ -1,5 +1,5 @@
-use super::helpers::collect_free_variables;
 use super::{TypeMatcher, Variance};
+use crate::types::collect_free_variables;
 use crate::{Type, TypeId, record_row};
 use psrs_hir::TypeVariableId;
 use std::collections::{HashMap, HashSet};

@@ -121,7 +121,7 @@ fn erased_boolean_box_preserves_both_values() {
 
 #[test]
 fn erased_string_box_preserves_nonempty_contents() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = let ignored = runEffect (log (arrayIndex (copy [\"high\", \"value\"]) 1)) in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = let ignored = unsafePerformEffect (log (arrayIndex (copy [\"high\", \"value\"]) 1)) in 0\n";
     let artifact = compile_source("Main.purs", source).expect("string round trip should compile");
     match execute_component("erased_string_contents", &artifact.wasm) {
         Ok(Some(output)) => {
@@ -151,7 +151,7 @@ fn erased_number_box_preserves_nan_and_signed_zero() {
 fn erased_identity_boxes_char_and_unit() {
     let char_source = "module Main where\nidentity :: forall a. a -> a\nidentity value = value\nmain = charToInt (identity 'B')\n";
     expect_exit("erased_char", char_source, 66);
-    let unit_source = "module Main where\nimport Prelude\nimport WASI.Console\nidentity :: forall a. a -> a\nidentity value = value\nmain = let ignored = identity (runEffect (log \"\")) in 42\n";
+    let unit_source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nidentity :: forall a. a -> a\nidentity value = value\nmain = let ignored = identity (unsafePerformEffect (log \"\")) in 42\n";
     expect_exit("erased_unit", unit_source, 42);
 }
 
@@ -215,7 +215,7 @@ fn escaping_closures_capture_int_and_reference_values() {
 
 #[test]
 fn escaping_closures_capture_a_string_value() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmakeReader :: String -> (Int -> String)\nmakeReader message = \\index -> if index == 0 then message else message\nmain = let reader = makeReader \"captured\" in let ignored = runEffect (log (reader 0)) in 42\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmakeReader :: String -> (Int -> String)\nmakeReader message = \\index -> if index == 0 then message else message\nmain = let reader = makeReader \"captured\" in let ignored = unsafePerformEffect (log (reader 0)) in 42\n";
     let artifact = compile_source("Main.purs", source).expect("string capture should compile");
     match execute_component("escaping_string_capture", &artifact.wasm) {
         Ok(Some(output)) => {
@@ -243,7 +243,7 @@ fn a_curried_function_argument_generates_a_partial_adapter() {
     // `\x -> \y -> f x y` where `map` expects a generic `a -> b`. The erased
     // adapter must partially apply it: the outer closure takes the target's
     // arguments and returns an inner closure for the source's remaining ones.
-    let source = "module Main where\nimport Prelude\nmain = runEffect (ado\n  x <- pure 40\n  y <- pure 2\n  in x + y)\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nmain = unsafePerformEffect (ado\n  x <- pure 40\n  y <- pure 2\n  in x + y)\n";
     let mir = pre_optimization_mir(source);
     let names = mir
         .functions
@@ -297,7 +297,7 @@ fn an_explicitly_polymorphic_local_binding_instantiates_at_int() {
 #[test]
 fn an_explicitly_polymorphic_local_binding_instantiates_at_two_types() {
     // The same erased local value is recovered at `String` and at `Int`.
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let id = (\\x -> x) :: forall a. a -> a in runEffect (do\n  log (id \"hello\")\n  pure (id 42))\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let id = (\\x -> x) :: forall a. a -> a in unsafePerformEffect (do\n  log (id \"hello\")\n  pure (id 42))\n";
     let artifact =
         compile_source("Main.purs", source).expect("the two-type local use should compile");
     match execute_component("local_polymorphic_two_types", &artifact.wasm) {

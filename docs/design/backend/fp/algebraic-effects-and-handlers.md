@@ -1,11 +1,12 @@
 # Library-Owned Algebraic Effects and Handlers
 
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
-**Status:** Draft design. The execution mechanism is selected by
+**Status:** Accepted as the library model. AE-01–AE-11 and AC-01–AC-05 are
+Verified in the [algebraic-effects checklist](../../../implementation/backend/algebraic-effects.md).
+The execution mechanism is selected by
 [DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md) and
-specified in [delimited control and resumable frames](delimited-control-and-resumable-frames.md);
-the low-level closed/open folds and ownership checks have focused implementation
-evidence; complete library handler semantics remain unverified.
+specified in [delimited control and resumable frames](delimited-control-and-resumable-frames.md).
+D-04 scoreboard numbers were not remeasured.
 **Prerequisites:** [DEC-03](../../../decision/DEC-03-purescript-faithful-type-system.md),
 [functional Core](../../frontend/semantics/functional-core.md),
 [rows and records](../../frontend/type-system/rows-and-records.md),

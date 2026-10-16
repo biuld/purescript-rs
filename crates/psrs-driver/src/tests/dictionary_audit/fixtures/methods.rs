@@ -322,6 +322,7 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
     );
 
     let intrinsic = |symbol, name: &str, intrinsic| ExternalSymbol {
+        source_module: None,
         symbol,
         name: name.into(),
         kind: ExternalKind::Intrinsic(intrinsic),

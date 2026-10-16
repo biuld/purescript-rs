@@ -38,6 +38,8 @@ fn the_semigroup_operator_concatenates_strings_and_arrays() {
     // instance keeps the one UTF-8 representation.
     let source = r#"
 module Main where
+import Effect (Effect)
+import Effect.Unsafe (unsafePerformEffect)
 
 import Prelude
 import Effect.Console (log)
@@ -59,7 +61,7 @@ checks = do
   log (if arrayIndex numbers 4 == 5 then "element-ok" else "element-wrong")
   pure unit
 
-main = let ignored = runEffect checks in 0
+main = let ignored = unsafePerformEffect checks in 0
 "#;
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");

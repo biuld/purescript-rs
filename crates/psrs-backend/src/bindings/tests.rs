@@ -13,6 +13,7 @@ fn span() -> TextRange {
 
 fn wit_external(symbol: SymbolId) -> ExternalSymbol {
     ExternalSymbol {
+        source_module: None,
         symbol,
         name: "log".into(),
         kind: ExternalKind::Wit {

@@ -3,16 +3,17 @@ use super::*;
 #[test]
 fn wit_result_bytes_recover_values_and_empty_arrays_when_wasmtime_is_available() {
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import Data.Either (Either(..))
 import WASI.IO (getStdin, blockingRead)
 main =
-  let stream = runEffect getStdin in
-  let empty = runEffect (blockingRead stream 0) in
+  let stream = unsafePerformEffect getStdin in
+  let empty = unsafePerformEffect (blockingRead stream 0) in
   case empty of
     Left _ -> 1
     Right zero ->
-      let result = runEffect (blockingRead stream 4) in
+      let result = unsafePerformEffect (blockingRead stream 4) in
       case result of
         Left _ -> 2
         Right bytes ->

@@ -47,7 +47,7 @@ fn flatten_cc(assignments: &[psrs_backend::cc::Assignment]) -> Vec<&psrs_backend
 /// re-evaluated it per alternative would print the side effect twice.
 #[test]
 fn case_evaluates_its_scrutinee_exactly_once() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\ndata I = A | B\nmain = case { tag: A, payload: runEffect (log \"once\") } of\n  { tag: A, payload: _ } -> 0\n  { tag: B, payload: _ } -> 1\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\ndata I = A | B\nmain = case { tag: A, payload: unsafePerformEffect (log \"once\") } of\n  { tag: A, payload: _ } -> 0\n  { tag: B, payload: _ } -> 1\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;

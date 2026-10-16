@@ -1,6 +1,6 @@
 # Algebraic Effects: Proposed Acceptance Checklist
 
-**Status:** AE-01–AE-10 and AC-01–AC-05 Verified on 2026-10-15. AE-11 (native host IO / Effect/ST facades) remains Unverified.
+**Status:** AE-01–AE-11 and AC-01–AC-05 Verified. AE-01–AE-10 and AC-01–AC-05 closed on 2026-10-15. AE-11 closed on 2026-10-16 at package fingerprint `fnv1a64-v1:ad19620ada1d2ecf`. D-04 scoreboard numbers were not remeasured.
 **Design:** [Library-owned algebraic effects and handlers](../../design/backend/fp/algebraic-effects-and-handlers.md)
 (library model) and [Delimited control and resumable frames](../../design/backend/fp/delimited-control-and-resumable-frames.md)
 (compiler mechanism).  
@@ -55,7 +55,7 @@ blocker and the compiler repairs needed to advance that boundary.
 | AE-08 | Deep interpretation is stack safe | Actual Wasmtime execution of long bind chains, nested requests, and loops; compare observable results with pinned upstream oracle | Verified |
 | AE-09 | Generic optimization preserves observable behavior | Mandatory execution with ignored results, traps, callbacks, and pure newtype controls; no effect-specific optimizer exemptions | Verified |
 | AE-10 | Source fidelity is preserved | Independent package audit with pinned revisions; every target adaptation has a concrete representation reason | Verified |
-| AE-11 | Host interpretation uses a defined native IO boundary | Separate selected ABI design and actual host behavior evidence; a pure handler test is insufficient | Unverified |
+| AE-11 | Host interpretation uses a defined native IO boundary | Separate selected ABI design and actual host behavior evidence; a pure handler test is insufficient | Verified |
 
 The generic control mechanism selected by DEC-19 adds these required
 obligations. Library encoding alone does not satisfy them; the 2026-10-15
@@ -1840,12 +1840,32 @@ Executed this turn:
 | AE-08 | 100,000-step bind, request and deep sequences under Wasmtime | None |
 | AE-09 | Ignored results, traps, callbacks; ordinary optimizer; no control exemption | None |
 | AE-10 | Lock fingerprint matches `stdlib.lock.json`; 70 unchanged Run/Free/… modules | The 34 historical target adaptations stay separately reviewed |
-| AE-11 | Phantom-Free Effect/ST prototype with `toEffect` execution (`tests::native_representation`, 2026-10-16) | Official Effect/ST source, host IO facades, region isolation |
+| AE-11 | Official Effect/ST/`Ref` adapters over `PSRS.Effect.Native`; region-escape/`toEffect` execution; raw canonical WIT leaves; library-module `Host.lift` of Clock/Random/IO/Console and `Test.Assert` | `checkThrows`; JS-only Effect foreigns; D-04 unmeasured |
 | AC-01 | DEC-19; `control_surface` eight operations | None |
 | AC-02 | Closed/open/scoped/owned execution; no silent stack-switch fallback | None |
 | AC-03 | One-shot, cancel, re-entrant reject, expired raw, non-resuming abandonment | None |
 | AC-04 | GC collection logs; polymorphic aggregate recovery; host-handle capture rejection; array/string buffers across suspension | WIT call-local pointers are not capturable; that is the unsupported-capture rule |
 | AC-05 | Deep vs shallow; one-shot vs multi-shot; inert construction then execute | None |
 
-D-04 scoreboard numbers were not remeasured. Native Effect/ST is the remaining
-topic after this audit.
+D-04 scoreboard numbers were not remeasured. Native Effect/ST acceptance on
+2026-10-16 closes AE-11; see below. The cells in this 2026-10-15 table stay the
+record of that day.
+
+## AE-11 acceptance — 2026-10-16
+
+The native IO boundary is `PSRS.Effect.Native` plus `PSRS.Effect.Host.lift`.
+Official `Effect`, `Effect.Unsafe`, `Effect.Ref`, `Effect.Uncurried`,
+`Control.Monad.ST.Internal`, and `Control.Monad.ST.Uncurried` are
+constructor-hidden adapters over that program. WIT imports stay raw canonical
+results. Evidence is the native checklist's
+[2026-10-16 acceptance](native-effect-and-st.md#acceptance-2026-10-16):
+`native.json` 13/13, `uncurried.json` 21/21, `types.json` 11/11, and the P8
+rejection of `unsafeCoerce 1 :: Ref Int`, all on fingerprint
+`fnv1a64-v1:ad19620ada1d2ecf`.
+
+`Test.Assert.checkThrows`, `Effect.Console` timers, `Effect.Exception`, and
+`Effect.Aff` remain unimplemented JavaScript foreigns. F-02 does not require a
+JavaScript FFI, and an instance-terminal trap cannot return `Boolean`. The
+package commit and lock revision are
+`4c73aab52226e8f5e7b1f17052f1a19d717a472e`. D-04 numbers stay at the
+last measurement.

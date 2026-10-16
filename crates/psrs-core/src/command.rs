@@ -33,7 +33,7 @@ pub fn normalize_entry(
                 "configured command runner has no source declaration",
             )
         })?;
-    if !runner_decl.quantified.is_empty() {
+    if !crate::types::free_variables(module, runner_decl.ty).is_empty() {
         return Err(error(
             module,
             runner,
@@ -54,7 +54,7 @@ pub fn normalize_entry(
             "configured command runner must return Int",
         ));
     }
-    if !source.quantified.is_empty() {
+    if !crate::types::free_variables(module, source.ty).is_empty() {
         return Err(error(module, entry, "command entry must be monomorphic"));
     }
     if module.types.get(source.ty.0 as usize) == Some(&Type::Constructor(TypeConstructor::Int)) {

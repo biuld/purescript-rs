@@ -30,15 +30,19 @@ pub(super) fn live_type_ids(module: &CoreModule) -> HashSet<TypeId> {
             record_type(module, *field, &mut visiting, &mut referenced);
         }
     }
-    // Runtime declarations must publish their callable payload layouts even
-    // when unused, because a runtime import's function shape is fixed by its
-    // provider contract rather than inferred from any remaining body.
+    // Runtime and WIT import schemes publish their payload layouts from the
+    // provider contract. Those TypeIds are not always shared with a remaining
+    // declaration body, and canonical guest projection keys the import by this
+    // scheme rather than by a structurally equal declaration type.
     for checked in &module.external_types {
-        let runtime = module.externals.iter().any(|external| {
+        let import_layout = module.externals.iter().any(|external| {
             external.symbol == checked.symbol
-                && matches!(external.kind, psrs_hir::ExternalKind::Runtime { .. })
+                && matches!(
+                    external.kind,
+                    psrs_hir::ExternalKind::Runtime { .. } | psrs_hir::ExternalKind::Wit { .. }
+                )
         });
-        if runtime {
+        if import_layout {
             record_type(module, checked.ty, &mut visiting, &mut referenced);
         }
     }

@@ -151,6 +151,10 @@ impl ExternalKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalSymbol {
+    /// The declaring source module, retained when an import copies this symbol.
+    /// Compiler-provided intrinsics and post-checking synthetic externals have
+    /// no source declaration.
+    pub source_module: Option<ModuleId>,
     pub symbol: SymbolId,
     pub name: String,
     pub kind: ExternalKind,
@@ -183,6 +187,20 @@ pub struct Module {
 }
 
 impl Module {
+    /// Value annotations declared by this source module. Imported external
+    /// signatures retain their original owner and are checked there.
+    pub fn declared_value_signatures(&self) -> impl Iterator<Item = &Type> {
+        self.declarations
+            .iter()
+            .filter_map(|declaration| declaration.signature.as_ref())
+            .chain(
+                self.externals
+                    .iter()
+                    .filter(|external| external.source_module == Some(self.id))
+                    .filter_map(|external| external.signature.as_ref()),
+            )
+    }
+
     /// Checks that every reference targets a declaration visible in this module.
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
         let mut errors = Vec::new();
@@ -208,6 +226,18 @@ impl Module {
             }
         }
         for external in &self.externals {
+            if external.kind.requires_checked_signature() && external.source_module.is_none() {
+                errors.push(VerifyError {
+                    span: self.span,
+                    message: "source external has no declaring module",
+                });
+            }
+            if external.kind.requires_checked_signature() && external.signature.is_none() {
+                errors.push(VerifyError {
+                    span: self.span,
+                    message: "source external has no declared signature",
+                });
+            }
             if external.symbol.module != ModuleId::INTRINSICS {
                 errors.push(VerifyError {
                     span: self.span,

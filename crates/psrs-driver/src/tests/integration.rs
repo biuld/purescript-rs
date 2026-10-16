@@ -228,7 +228,7 @@ fn compiles_multiple_user_sources_with_the_embedded_prelude() {
     let helper = ("Helper.purs", "module Helper where\nanswer = 40\n");
     let main = (
         "Main.purs",
-        "module Main where\nimport Helper\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"linked\") in 0\n",
+        "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Helper\nimport Prelude\nimport WASI.Console\nmain = let ignored = unsafePerformEffect (log \"linked\") in 0\n",
     );
     let artifact = compile_program_sources_with_prelude(&[helper, main]).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));

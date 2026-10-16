@@ -299,12 +299,14 @@ fn a_lenient_type_check_type_checks_a_module_whose_sibling_is_missing() {
 
 #[test]
 fn a_lenient_type_check_attributes_a_diagnostic_to_the_user_source_not_the_library() {
-    let source = "module Main where\nimport Prelude\nmain = runEffect (pure missingName)\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nmain = unsafePerformEffect (pure missingName)\n";
     let errors = check_program_types_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
     assert!(
         errors.iter().any(|error| {
             error.source == DiagnosticOrigin::Source(0)
                 && error.diagnostic.code == Some("UnknownName")
+                && &source[error.diagnostic.span.start as usize..error.diagnostic.span.end as usize]
+                    == "missingName"
         }),
         "the trusted prefix must not shift a user's diagnostic: {errors:?}"
     );

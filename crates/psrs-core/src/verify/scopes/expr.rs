@@ -1,7 +1,7 @@
 use super::{enter, error, leading_foralls, types::scoped_type};
-use crate::{Expr, ExprKind, Module, Pattern, PatternKind, Type, TypeId, VerifyError};
+use crate::{Expr, ExprKind, Module, Pattern, PatternKind, VerifyError};
 use psrs_hir::TypeVariableId;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub(super) fn scoped_expr(
     expression: &Expr,
@@ -213,14 +213,7 @@ fn open_child_binders(
     scope: &mut HashSet<TypeVariableId>,
     errors: &mut Vec<VerifyError>,
 ) {
-    let mut free = HashSet::new();
-    free_type_variables(
-        child.ty,
-        module,
-        &mut HashMap::new(),
-        &mut HashSet::new(),
-        &mut free,
-    );
+    let free = crate::types::free_variables(module, child.ty);
     let relevant = candidates
         .iter()
         .copied()
@@ -241,53 +234,6 @@ fn open_child_binders(
         ));
     }
     scope.extend(local);
-}
-
-fn free_type_variables(
-    id: TypeId,
-    module: &Module,
-    bound: &mut HashMap<TypeVariableId, usize>,
-    active: &mut HashSet<TypeId>,
-    free: &mut HashSet<TypeVariableId>,
-) {
-    if !active.insert(id) {
-        return;
-    }
-    match module.types.get(id.0 as usize) {
-        Some(Type::Variable(variable)) if !bound.contains_key(variable) => {
-            free.insert(*variable);
-        }
-        Some(Type::Application(function, argument)) => {
-            free_type_variables(*function, module, bound, active, free);
-            free_type_variables(*argument, module, bound, active, free);
-        }
-        Some(Type::ForAll { variables, body }) => {
-            for variable in variables {
-                *bound.entry(*variable).or_default() += 1;
-            }
-            free_type_variables(*body, module, bound, active, free);
-            for variable in variables {
-                if let Some(count) = bound.get_mut(variable) {
-                    *count -= 1;
-                    if *count == 0 {
-                        bound.remove(variable);
-                    }
-                }
-            }
-        }
-        Some(Type::RowExtend { ty, tail, .. }) => {
-            free_type_variables(*ty, module, bound, active, free);
-            free_type_variables(*tail, module, bound, active, free);
-        }
-        Some(Type::Closure { parameters, result }) => {
-            for parameter in parameters {
-                free_type_variables(*parameter, module, bound, active, free);
-            }
-            free_type_variables(*result, module, bound, active, free);
-        }
-        _ => {}
-    }
-    active.remove(&id);
 }
 
 fn scoped_pattern(

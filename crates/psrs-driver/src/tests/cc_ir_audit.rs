@@ -142,7 +142,7 @@ fn cc_declarations_are_well_formed_and_capture_once() {
 #[test]
 fn effects_observe_callee_and_argument_order() {
     let name = "effects_observe_callee_and_argument_order";
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nfirst :: Unit -> Unit -> Int\nfirst a b = 0\nmain = first (runEffect (log \"a\")) (runEffect (log \"b\"))\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nfirst :: Unit -> Unit -> Int\nfirst a b = 0\nmain = first (unsafePerformEffect (log \"a\")) (unsafePerformEffect (log \"b\"))\n";
     let artifact = compile_source("Main.purs", source).expect("ordered effects compile");
     if let Some(output) = execute_wasm(name, &artifact.wasm).expect("executing ordered effects") {
         assert_eq!(output.status.code(), Some(0));

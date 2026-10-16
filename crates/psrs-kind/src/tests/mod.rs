@@ -6,6 +6,7 @@ use crate::kind::KindDiagnostic;
 use psrs_hir::ModuleId;
 
 mod declarations;
+mod foreign;
 mod instances;
 mod program;
 mod roles;

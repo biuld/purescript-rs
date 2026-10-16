@@ -151,6 +151,7 @@ pub(crate) fn resolve_ast_module(
             foreign.name.text.clone(),
             symbol,
             ExternalSymbol {
+                source_module: Some(module_id),
                 symbol,
                 name: foreign.name.text.clone(),
                 kind,

@@ -9,6 +9,7 @@ fn fixture(types: &[TypeId]) -> Module {
         .iter()
         .enumerate()
         .map(|(index, _)| ExternalSymbol {
+            source_module: None,
             symbol: SymbolId::new(ModuleId::INTRINSICS, 200 + index as u32),
             name: format!("convert{index}"),
             kind: ExternalKind::Primitive(Intrinsic::IntToNumber),

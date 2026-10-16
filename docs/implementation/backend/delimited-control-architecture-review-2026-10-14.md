@@ -281,10 +281,12 @@ records the complete remaining migration scope.
 | R3: meaningful retained and inlined evidence | Factory/helper plans are required by the 40-action inventory; `checkpoints::cc_start_and_once_status_cells_must_be_initialized_live` rejects a spent initializer; actual optimized lifetime/owned tests execute | No missing helper is skipped. A post-P9 write of a spent cell is a trusted-transform obligation, not a restored MIR recognizer. |
 | Encapsulation and truthful boundaries | `FrozenControlPlan`, private `CheckedPlan`, representation-neutral field/helper schema and minimal machine emitter | Publication is validated and single-assignment; same-arity wrong field/signature layouts are rejected. Ordinary mutable IR remains constructible and verified. |
 | Independent behavioral machine model | Test-only concrete plan interpreter plus separately written typed operational semantics and flat replay | All 40 actions, bounded queue order/freshness/sharing/ancestry, ordered owned transfer and exceptional prefixes are compared. Twenty-two well-formed semantic mutation classes prove the model distinguishes errors beyond shape/type checking; this is bounded construction evidence, not a formal optimizer or callback-body proof. |
-| Remaining acceptance | Original AE/AC requirements | AE-01–AE-10 and AC-01–AC-05 are Verified. AE-11 native host IO remains open. D-04 numbers were not remeasured. |
+| Remaining acceptance | Original AE/AC requirements | AE-01–AE-11 and AC-01–AC-05 are Verified. AE-11 closed on 2026-10-16. D-04 numbers were not remeasured. |
 
-The current snapshot, including the 40th `Run` action and the Root regression
-mapping, is [handoff §15](delimited-control-migration-handoff-2026-10-12.md#15-run-construction-and-the-root-regression-slice-2026-10-15).
-§13 records the model checkpoint before that slice.
-These implementation improvements do not close complete AE/AC statuses or alter
-the normative requirements to match the supported subset.
+The construction snapshot, including the 40th `Run` action and the Root
+regression mapping, is [handoff §15](delimited-control-migration-handoff-2026-10-12.md#15-run-construction-and-the-root-regression-slice-2026-10-15).
+§13 records the model checkpoint before that slice. Effect/ST and AE-11
+acceptance is [handoff §20](delimited-control-migration-handoff-2026-10-12.md#20-effectst-and-ae-11-acceptance-2026-10-16).
+The checklist rows are Verified. Provenance items that D-04 still lists under
+delimited control stay open, and these notes do not narrow the normative
+requirements.

@@ -21,9 +21,10 @@ mod invariant;
 pub(crate) use evidence::instantiation;
 mod helpers;
 mod rows;
+use crate::types::collect_free_variables;
 pub(in crate::verify) use constructors::constructor_fields_match;
 pub(crate) use helpers::equivalent_types;
-use helpers::{collect_free_variables, is_record_type, same_type};
+use helpers::{is_record_type, same_type};
 use rows::RowForm;
 
 pub(in crate::verify) fn compatible(
@@ -161,8 +162,8 @@ impl TypeMatcher<'_> {
     /// Checks value subsumption: `actual` may be consumed wherever `expected`
     /// is required. Function parameters are contravariant, while immutable
     /// record fields are covariant. An actual universal may be instantiated;
-    /// an expected universal remains rigid and therefore requires an actual
-    /// universal with alpha-equivalent binders.
+    /// an expected universal remains rigid. An actual universal may specialize
+    /// its body even when both sides quantify the same number of variables.
     fn subsumption(&mut self, actual: TypeId, expected: TypeId, instantiate: bool) -> bool {
         if !self
             .active
@@ -235,6 +236,7 @@ impl TypeMatcher<'_> {
                 body: expected_body,
             } = expected_type
                 && actual_variables.len() == expected_variables.len()
+                && !instantiate
             {
                 if actual_variables
                     .iter()

@@ -286,7 +286,7 @@ fn repeated_names_inside_a_case_named_pattern_are_rejected() {
 
 #[test]
 fn multiple_case_scrutinees_preserve_order_and_guard_fallthrough() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = case runEffect (log \"1\"), runEffect (log \"2\"), runEffect (log \"3\"), runEffect (log \"4\"), runEffect (log \"5\"), runEffect (log \"6\"), runEffect (log \"7\"), runEffect (log \"8\"), runEffect (log \"9\"), runEffect (log \"10\") of\n  _, _, _, _, _, _, _, _, _, _ | false -> 10\n  _, _, _, _, _, _, _, _, _, _ | true -> 22\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = case unsafePerformEffect (log \"1\"), unsafePerformEffect (log \"2\"), unsafePerformEffect (log \"3\"), unsafePerformEffect (log \"4\"), unsafePerformEffect (log \"5\"), unsafePerformEffect (log \"6\"), unsafePerformEffect (log \"7\"), unsafePerformEffect (log \"8\"), unsafePerformEffect (log \"9\"), unsafePerformEffect (log \"10\") of\n  _, _, _, _, _, _, _, _, _, _ | false -> 10\n  _, _, _, _, _, _, _, _, _, _ | true -> 22\n";
     let artifact =
         compile_source("Main.purs", source).expect("multi-scrutinee guarded case compiles");
     assert!(!has_non_exhaustive_warning(&artifact));

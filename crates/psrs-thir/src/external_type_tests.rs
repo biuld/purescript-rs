@@ -8,6 +8,7 @@ fn fixture() -> Module {
         id: ModuleId(2),
         name: "ExternalScheme".into(),
         externals: vec![ExternalSymbol {
+            source_module: None,
             symbol,
             name: "clock".into(),
             kind: ExternalKind::Wit {

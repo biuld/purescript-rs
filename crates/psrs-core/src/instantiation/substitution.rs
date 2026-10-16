@@ -13,13 +13,7 @@ pub(crate) fn instantiate_declaration(
 ) -> Option<Declaration> {
     let mut replacement_free_variables = HashSet::new();
     for id in replacements.values() {
-        free_variables(
-            module,
-            *id,
-            &mut HashSet::new(),
-            &mut HashSet::new(),
-            &mut replacement_free_variables,
-        );
+        replacement_free_variables.extend(crate::types::free_variables(module, *id));
     }
     let used_variables = all_variables(module);
     let mut substitution = TypeSubstitution {
@@ -52,13 +46,7 @@ pub(super) fn instantiate_expression(
 ) -> Option<Expr> {
     let mut replacement_free_variables = HashSet::new();
     for id in replacements.values() {
-        free_variables(
-            module,
-            *id,
-            &mut HashSet::new(),
-            &mut HashSet::new(),
-            &mut replacement_free_variables,
-        );
+        replacement_free_variables.extend(crate::types::free_variables(module, *id));
     }
     let used_variables = all_variables(module);
     TypeSubstitution {
@@ -371,44 +359,6 @@ impl TypeSubstitution<'_> {
             span: pattern.span,
         })
     }
-}
-
-fn free_variables(
-    module: &Module,
-    id: TypeId,
-    bound: &mut HashSet<TypeVariableId>,
-    active: &mut HashSet<TypeId>,
-    out: &mut HashSet<TypeVariableId>,
-) {
-    if !active.insert(id) {
-        return;
-    }
-    match module.types.get(id.0 as usize) {
-        Some(Type::Variable(variable)) if !bound.contains(variable) => {
-            out.insert(*variable);
-        }
-        Some(Type::Application(function, argument)) => {
-            free_variables(module, *function, bound, active, out);
-            free_variables(module, *argument, bound, active, out);
-        }
-        Some(Type::ForAll { variables, body }) => {
-            let inserted = variables
-                .iter()
-                .copied()
-                .filter(|variable| bound.insert(*variable))
-                .collect::<Vec<_>>();
-            free_variables(module, *body, bound, active, out);
-            for variable in inserted {
-                bound.remove(&variable);
-            }
-        }
-        Some(Type::RowExtend { ty, tail, .. }) => {
-            free_variables(module, *ty, bound, active, out);
-            free_variables(module, *tail, bound, active, out);
-        }
-        _ => {}
-    }
-    active.remove(&id);
 }
 
 fn all_variables(module: &Module) -> HashSet<TypeVariableId> {

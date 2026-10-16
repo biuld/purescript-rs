@@ -1,7 +1,7 @@
 # Native Effect and ST over Algebraic Handlers
 
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
-**Status:** Draft proposal; representation selected in this proposal, not implemented or accepted.  
+**Status:** Accepted 2026-10-16. NE-01–NE-13 are Verified in the [native checklist](../../../implementation/backend/native-effect-and-st.md). The independent package commit and compiler lock revision are `4c73aab52226e8f5e7b1f17052f1a19d717a472e`. D-04 scoreboard numbers were not remeasured.  
 **Prerequisites:** [algebraic effects and handlers](algebraic-effects-and-handlers.md),
 [DEC-03](../../../decision/DEC-03-purescript-faithful-type-system.md),
 [roles and coercions](../../frontend/type-system/prim.md),
@@ -55,7 +55,12 @@ seal a native request vocabulary and retain their original public types.
 The private target library supplies this schematic representation:
 
 ```purescript
-type NativeProgram a = Run (native :: NativeF) a
+data Val
+data NativeView
+  = Ret Val
+  | Request (NativeF Val)
+  | Bind (NativeProgram Val) (Val -> NativeProgram Val)
+data NativeProgram a = NativeProgram NativeView
 
 newtype Effect a = Effect (NativeProgram a)
 type role Effect representational
@@ -83,6 +88,21 @@ hidden behind the official Global conversion. Newtype lowering remains generic.
 The chosen computation representation must support the official representational
 result role. If its inferred roles do not, fix the library representation or
 record the design blocker; do not force an invalid role annotation.
+
+The implementation's `PSRS.Effect.Native.Program` uses this phantom-result free
+view. Importing public `Run` here would cycle through its dependency on Effect.
+The erased answer transport follows the private checked constructor signatures,
+as in the official Free representation; it is not an operation tag-to-type map.
+Every bind constructs a node. In particular, `bind (pure a) k` must delay `k`
+until interpretation, and running the stored program twice invokes `k` twice.
+Strict source arguments to the constructor still evaluate normally.
+
+The native driver keeps pending callbacks in an explicit persistent heap stack.
+Bind pushes one frame, Ret pops one frame or returns, and Request performs one
+leaf before continuing with the same stack. Request methods apply their supplied
+continuation to the checked leaf result. No driver transition recurses through
+a composed chain of callbacks. Deep binds, public loops, and mixed native
+requests require executed stack-safety evidence.
 
 Effect/ST constructors remain hidden. No public Newtype instance or coercion
 witness exposes their NativeProgram fields. In particular, do not export

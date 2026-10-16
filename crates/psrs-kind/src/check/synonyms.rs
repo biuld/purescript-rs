@@ -170,8 +170,7 @@ fn expand_synonym(
         .zip(arguments)
         .collect::<HashMap<_, _>>();
     let instantiated = hir::substitute_type_variables(&synonym.body, &mapping, next_fresh);
-    let expanded = expand_inner(&instantiated, synonyms, fuel, next_fresh);
-    expanded
+    expand_inner(&instantiated, synonyms, fuel, next_fresh)
 }
 
 fn flatten_spine(ty: &hir::Type) -> (&hir::Type, Vec<hir::Type>) {

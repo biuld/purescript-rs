@@ -187,7 +187,7 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
             let ty = checker.finalize_type(&inferred, signature.span, &mut types, &generics)?;
             Some(thir::ExternalType {
                 symbol: external.symbol,
-                source_module: module.id,
+                source_module: external.source_module.unwrap_or(module.id),
                 ty,
             })
         })

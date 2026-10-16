@@ -5,9 +5,18 @@
 > discovery, synthesized `pure`/`bind`/`runEffect`/trap implementations, the
 > Effect-specific backend entry adaptation, the opaque state token, and the
 > `Effect Unit` command entry were removed. No replacement Effect representation
-> has been selected, so a program that used the mechanism does not compile.
+> has been selected in this withdrawn document. The accepted replacement is
+> the library-owned native representation linked below. A program that used the
+> removed compiler protocol does not compile through that protocol.
 > Everything below is retained as dated historical evidence and is **not** an
 > instruction to rebuild the removed machinery.
+
+The current replacement is the library-owned
+[native Effect/ST representation](native-effect-and-st-handlers.md).
+Its implementation and acceptance evidence are recorded in the
+[native checklist](../../../implementation/backend/native-effect-and-st.md).
+It uses ordinary source computations and the configured generic command
+runner; the state-token protocol below remains withdrawn.
 
 **Feature:** F-02  
 **Status:** Withdrawn. The trusted-identity contract recorded below was removed

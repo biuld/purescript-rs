@@ -12,6 +12,7 @@ pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
         .map(|intrinsic| {
             let descriptor = intrinsic.descriptor();
             ExternalSymbol {
+                source_module: None,
                 symbol: intrinsic.symbol(),
                 name: descriptor.name.to_owned(),
                 kind: ExternalKind::Intrinsic(intrinsic),

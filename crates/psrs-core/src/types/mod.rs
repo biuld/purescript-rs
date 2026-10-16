@@ -9,7 +9,9 @@
 use psrs_hir::{TypeId as HirTypeId, TypeVariableId};
 
 mod call;
+mod variables;
 pub use call::call_parts;
+pub(crate) use variables::{collect_free_variables, free_variables};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -61,7 +63,7 @@ pub enum Type {
     },
     /// A closure created with a fixed parameter list. The result is a value,
     /// even when that value is a function or another closure. Representation
-    /// lowering emits this for an effect; source arrows stay [`TypeConstructor::Function`].
+    /// lowering emits this for runtime callables; source arrows stay [`TypeConstructor::Function`].
     Closure {
         parameters: Vec<TypeId>,
         result: TypeId,

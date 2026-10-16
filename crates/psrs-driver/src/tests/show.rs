@@ -11,6 +11,8 @@ use super::*;
 fn show_renders_the_instances_the_corpus_prints() {
     let source = r#"
 module Main where
+import Effect (Effect)
+import Effect.Unsafe (unsafePerformEffect)
 
 import Prelude
 import Effect.Console (log)
@@ -45,7 +47,7 @@ checks = do
   log (show "cafés")
   pure unit
 
-main = let ignored = runEffect checks in 0
+main = let ignored = unsafePerformEffect checks in 0
 "#;
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
@@ -140,6 +142,8 @@ main = let ignored = log (show 1.0e21) in 0
 fn show_covers_number_and_aggregate_boundaries() {
     let source = r#"
 module Main where
+import Effect (Effect)
+import Effect.Unsafe (unsafePerformEffect)
 
 import Prelude
 import Effect.Console (log)
@@ -158,7 +162,7 @@ checks = do
   log (show [[1, 2], [3]])
   pure unit
 
-main = let ignored = runEffect checks in 0
+main = let ignored = unsafePerformEffect checks in 0
 "#;
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
@@ -198,7 +202,7 @@ fn formats_many_numbers_without_exhausting_the_runtime_stack() {
         elements.push_str(&format!("{index}.5"));
     }
     let source = format!(
-        "module Main where\n\nimport Prelude\nimport Effect.Console (log)\n\nmain = let ignored = runEffect (log (show [{elements}])) in 0\n"
+        "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\nimport Prelude\nimport Effect.Console (log)\n\nmain = let ignored = unsafePerformEffect (log (show [{elements}])) in 0\n"
     );
     let Some(output) = run_with_wasmtime(&source) else {
         eprintln!("skipping: wasmtime is not installed");
@@ -239,14 +243,16 @@ fn retained_show_strings_survive_wasi_allocation_and_memory_growth() {
     // The formatter's initial heap has one page. A 70,000-byte canonical
     // random result must grow shared memory while the GC String stays live.
     let source = r#"module Main where
+import Effect (Effect)
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import Effect.Console (log)
 import WASI.Random (randomBytes)
 main = let retained = show 1.0e21
-           first = runEffect (log retained)
-           large = runEffect (randomBytes 70000)
-           next = runEffect (log (show 5.0e-324))
-           last = runEffect (log retained)
+           first = unsafePerformEffect (log retained)
+           large = unsafePerformEffect (randomBytes 70000)
+           next = unsafePerformEffect (log (show 5.0e-324))
+           last = unsafePerformEffect (log retained)
        in if arrayLength large == 70000 && retained == "1e+21" then 42 else 1
 "#;
     let output = run_with_wasmtime(source).expect("Wasmtime required for growth evidence");

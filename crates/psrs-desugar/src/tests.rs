@@ -10,6 +10,7 @@ fn lowers_operator_to_applications_and_preserves_source_ranges() {
         id: module_id,
         name: "Main".into(),
         externals: vec![hir::ExternalSymbol {
+            source_module: None,
             symbol: operator_id,
             name: "+".into(),
             kind: ExternalKind::Intrinsic(Intrinsic::IntAdd),

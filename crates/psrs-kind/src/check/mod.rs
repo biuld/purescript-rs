@@ -197,11 +197,9 @@ impl<'a> Checker<'a> {
     fn check_defined_variables(&mut self) {
         for module in self.modules {
             self.current = module.id;
-            for declaration in &module.declarations {
-                if let Some(signature) = &declaration.signature {
-                    let mut bound = Vec::new();
-                    self.check_references(signature, &mut bound);
-                }
+            for signature in module.declared_value_signatures() {
+                let mut bound = Vec::new();
+                self.check_references(signature, &mut bound);
             }
             for declaration in &module.types {
                 let mut bound: Vec<String> = Vec::new();

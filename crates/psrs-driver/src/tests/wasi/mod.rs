@@ -3,9 +3,7 @@ use super::*;
 mod do_notation;
 mod filesystem;
 mod payloads;
-mod wat;
 mod where_clause;
-use wat::*;
 
 mod classes;
 mod coercion;
@@ -15,7 +13,7 @@ mod wrappers;
 
 #[test]
 fn lowers_string_log_to_wasi_stdout() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"hello world\") in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let ignored = unsafePerformEffect (log \"hello world\") in 0\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
     assert!(artifact.wat.contains("wasi:io/streams@0.2.12"));
@@ -66,7 +64,7 @@ fn runs_main_as_a_wasi_component_when_wasmtime_is_available() {
 #[test]
 fn prints_hello_world_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime(
-        "module Main where\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"hello world\") in 0\n",
+        "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let ignored = unsafePerformEffect (log \"hello world\") in 0\n",
     ) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -79,7 +77,7 @@ fn prints_hello_world_when_wasmtime_is_available() {
 fn prints_a_non_ascii_literal_when_wasmtime_is_available() {
     // `h`, `é` (U+00E9), `λ` (U+03BB): the GC UTF-16 string must be encoded as
     // UTF-8 at the canonical ABI boundary, not truncated to bytes.
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"h\u{e9}\u{3bb}\") in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let ignored = unsafePerformEffect (log \"h\u{e9}\u{3bb}\") in 0\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -90,7 +88,7 @@ fn prints_a_non_ascii_literal_when_wasmtime_is_available() {
 
 #[test]
 fn prints_an_interned_literal_once_per_use_when_wasmtime_is_available() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let first = runEffect (log \"twice\") in let second = runEffect (log \"twice\") in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let first = unsafePerformEffect (log \"twice\") in let second = unsafePerformEffect (log \"twice\") in 0\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -101,7 +99,7 @@ fn prints_an_interned_literal_once_per_use_when_wasmtime_is_available() {
 
 #[test]
 fn prints_an_empty_literal_when_wasmtime_is_available() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"\") in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let ignored = unsafePerformEffect (log \"\") in 0\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -113,7 +111,7 @@ fn prints_an_empty_literal_when_wasmtime_is_available() {
 #[test]
 fn reads_the_monotonic_clock_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime(
-        "module Main where\nimport Prelude\nimport WASI.Clock\nmain = (runEffect now) * 0\n",
+        "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Clock\nmain = (unsafePerformEffect now) * 0\n",
     ) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -124,7 +122,7 @@ fn reads_the_monotonic_clock_when_wasmtime_is_available() {
 #[test]
 fn writes_to_stderr_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime(
-        "module Main where\nimport Prelude\nimport WASI.Console\nmain = let x = runEffect (error \"oops\") in 7\n",
+        "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let x = unsafePerformEffect (error \"oops\") in 7\n",
     ) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -187,10 +185,10 @@ fn lowers_a_list_of_strings_to_an_array() {
 
 #[test]
 fn lowers_the_environment_arguments_wrapper_to_an_array() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Process\n\
-        main = arrayLength (runEffect arguments)\n";
+        main = arrayLength (unsafePerformEffect arguments)\n";
     let artifact = compile_source("Main.purs", source)
         .expect("WASI.Process.arguments should lower to an array");
     assert!(artifact.wat.contains("wasi:cli/environment@0.2.12"));
@@ -218,10 +216,10 @@ fn reads_environment_arguments_when_wasmtime_is_available() {
     // `get-arguments` returns the canonical list<string>; the wrapper recovers
     // it into a GC `Array String`. The host supplies argv, whose first element
     // is the module path under Wasmtime.
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Process\n\
-        main = arrayLength (runEffect arguments)\n";
+        main = arrayLength (unsafePerformEffect arguments)\n";
     let Some(output) = run_with_wasmtime_args(source, &["alpha", "beta"]) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -290,11 +288,11 @@ fn rejects_a_wasi_interface_outside_the_component_capability_profile() {
 
 #[test]
 fn reads_random_bytes_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Console\n\
         import WASI.Random\n\
-        main = let noise = runEffect randomU64 in let bytes = runEffect (randomBytes 8) in let length = arrayLength bytes in noise * length * 0\n";
+        main = let noise = unsafePerformEffect randomU64 in let bytes = unsafePerformEffect (randomBytes 8) in let length = arrayLength bytes in noise * length * 0\n";
     let artifact = compile_source("Main.purs", source).expect("library randomBytes should lower");
     assert!(artifact.wat.contains("wasi:random/random@0.2.12"));
     assert!(artifact.wat.contains("get-random-bytes"));
@@ -309,63 +307,41 @@ fn reads_random_bytes_when_wasmtime_is_available() {
     assert!(output.stdout.is_empty(), "{output:?}");
 }
 
-/// `get-random-bytes` is not a direct call from the command entry in either
-/// program: the import sits in the effect closure, and `runEffect` reaches it
-/// with `call_ref`. A stored action must not `call_ref` from the entry.
+/// Native construction is inert; interpreting a reusable action executes its
+/// host request and continuation on each run, preserving the returned list.
 #[test]
-fn stored_random_bytes_leaves_get_random_bytes_inside_the_effect_closure() {
-    let stored = "module Main where\n\
-        import WASI.Random\n\
-        main = let action = randomBytes 8 in 0\n";
-    let forced = "module Main where\n\
-        import Prelude\n\
-        import WASI.Random\n\
-        main = let value = runEffect (randomBytes 8) in 0\n";
-    let stored_wat = compile_source("Main.purs", stored)
-        .expect("a stored randomBytes action should compile")
-        .wat;
-    let forced_wat = compile_source("Main.purs", forced)
-        .expect("runEffect (randomBytes 8) should compile")
-        .wat;
+fn stored_random_bytes_is_inert_and_repeated_runs_execute_the_continuation() {
+    let program = r#"module Main where
+import Prelude
+import Effect.Unsafe (unsafePerformEffect)
+import WASI.Console (log)
+import WASI.Random (randomBytes)
 
-    let stored_core = core_main(&stored_wat);
-    let forced_core = core_main(&forced_wat);
-    let stored_import = imported_func(stored_core, "wasi:random/random@0.2.12", "get-random-bytes");
-    let forced_import = imported_func(forced_core, "wasi:random/random@0.2.12", "get-random-bytes");
-    let stored_entry = exported_func(stored_core, "wasi:cli/run@0.2.12#run");
-    let forced_entry = exported_func(forced_core, "wasi:cli/run@0.2.12#run");
-    let stored_funcs = core_functions(stored_core);
-    let forced_funcs = core_functions(forced_core);
+action = do
+  bytes <- randomBytes 8
+  log "bytes"
+  pure (arrayLength bytes)
 
-    let stored_from_entry = reachable_by_call(&stored_funcs, stored_entry);
-    assert!(
-        !calls_import(&stored_funcs, &stored_from_entry, stored_import),
-        "the command entry must not call get-random-bytes when the action is not run"
-    );
-    assert!(
-        !has_call_ref(&stored_funcs, &stored_from_entry),
-        "storing the action must not run the effect"
-    );
-    assert!(
-        import_is_reached_only_from_a_closure(&stored_funcs, stored_entry, stored_import),
-        "get-random-bytes must be inside the effect closure"
-    );
-
-    let forced_from_entry = reachable_by_call(&forced_funcs, forced_entry);
-    assert!(
-        has_call_ref(&forced_funcs, &forced_from_entry),
-        "runEffect must invoke the closure from the command entry"
-    );
-    assert!(
-        import_is_reached_only_from_a_closure(&forced_funcs, forced_entry, forced_import),
-        "runEffect still calls get-random-bytes from the closure, not the entry"
-    );
-
-    let Some(output) = run_with_wasmtime(stored) else {
-        eprintln!("skipping: wasmtime is not installed");
-        return;
-    };
-    assert_eq!(output.status.code(), Some(0), "{output:?}");
+"#;
+    for (entry, expected_exit, expected_stdout) in [
+        ("main = let stored = action in 0", 0, ""),
+        (
+            "main = let first = unsafePerformEffect action in let second = unsafePerformEffect action in first + second",
+            16,
+            "bytes\nbytes\n",
+        ),
+    ] {
+        let source = format!("{program}{entry}\n");
+        let artifact = compile_source("Main.purs", &source).expect("random action should compile");
+        assert!(artifact.wat.contains("get-random-bytes"));
+        let Some(output) = run_with_wasmtime(&source) else {
+            eprintln!("skipping: wasmtime is not installed");
+            return;
+        };
+        assert_eq!(output.status.code(), Some(expected_exit), "{output:?}");
+        assert_eq!(output.stdout, expected_stdout.as_bytes(), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+    }
 }
 
 #[test]
@@ -387,10 +363,10 @@ fn rejects_an_import_of_unexported_write_stdout() {
 fn passes_a_byte_array_to_another_import() {
     // A WIT `list<u8>` is `Array Int`, so a byte array crosses the boundary as
     // uninterpreted integers rather than as text (DEC-16).
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.IO (getStdout, blockingWriteAndFlush)\n\
-        main = let ignored = runEffect (bind getStdout (\\handle -> bind (blockingWriteAndFlush handle [104, 105]) (\\result -> pure 0))) in 0\n";
+        main = let ignored = unsafePerformEffect (bind getStdout (\\handle -> bind (blockingWriteAndFlush handle [104, 105]) (\\result -> pure 0))) in 0\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -428,22 +404,14 @@ fn rejects_an_import_of_unexported_exit_with_code_raw() {
     );
 }
 
-/// Source and command entry share one checked exit import. Stored actions do
-/// not invoke their closure; forced actions exit with their own observable code.
+/// Storing a native exit request permits normal completion; interpreting it
+/// exits with the requested code before the following log can execute.
 #[test]
-fn stored_exit_with_code_leaves_exit_with_code_inside_the_effect_closure() {
+fn stored_exit_is_inert_and_interpreted_exit_stops_the_program() {
     let stored =
         "module Main where\nimport WASI.Process\nmain = let action = exitWithCode 99 in 0\n";
-    let forced = "module Main where\nimport Prelude\nimport WASI.Process\nmain = let value = runEffect (exitWithCode 99) in 0\n";
-    for (source, invokes_action, expected_exit) in [(stored, false, 0), (forced, true, 99)] {
-        let artifact = compile_source("Main.purs", source).expect("exit action should compile");
-        let core = core_main(&artifact.wat);
-        let entry = exported_func(core, "wasi:cli/run@0.2.12#run");
-        let functions = core_functions(core);
-        let reachable = reachable_by_call(&functions, entry);
-        assert_eq!(has_call_ref(&functions, &reachable), invokes_action);
-        // Source and synthesized command exit share one checked import. Values
-        // distinguish forcing the stored action from normal command completion.
+    let forced = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Process\nimport WASI.Console (log)\nmain = let value = unsafePerformEffect (exitWithCode 99) in let after = unsafePerformEffect (log \"after exit\") in 0\n";
+    for (source, expected_exit) in [(stored, 0), (forced, 99)] {
         let output = run_with_wasmtime(source).expect("Wasmtime required for exit sequencing");
         assert_eq!(output.status.code(), Some(expected_exit), "{output:?}");
         assert!(output.stdout.is_empty());

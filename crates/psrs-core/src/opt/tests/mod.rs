@@ -93,6 +93,7 @@ fn with_trace(mut module: Module) -> Module {
         ty,
     });
     module.externals.push(ExternalSymbol {
+        source_module: None,
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "trace".into(),
         kind: ExternalKind::Wit {

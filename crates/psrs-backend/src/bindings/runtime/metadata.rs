@@ -101,6 +101,7 @@ mod tests {
     fn fixture() -> CoreModule {
         let mut module = crate::bindings::tests::module(Vec::new());
         module.externals.push(psrs_hir::ExternalSymbol {
+            source_module: None,
             symbol: SymbolId::new(module.id, 7),
             name: "read".into(),
             kind: ExternalKind::Runtime {

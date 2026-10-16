@@ -128,9 +128,9 @@ fn run_cannot_omit_normal_root_cleanup_or_publish_an_unrelated_result() {
                 unreachable!()
             };
             if wrong_result {
-                *next = Box::new(Exec::Return {
+                **next = Exec::Return {
                     value: Operand::Param(0),
-                });
+                };
             } else {
                 let close = ops
                     .iter_mut()

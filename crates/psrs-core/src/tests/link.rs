@@ -207,6 +207,7 @@ fn pruning_keeps_nominal_types_through_a_checked_wit_alias_and_nested_fields() {
     );
     module.entry = Some(SymbolId::new(ModuleId(0), 0));
     module.externals.push(psrs_hir::ExternalSymbol {
+        source_module: None,
         symbol: import,
         name: "read".into(),
         kind: psrs_hir::ExternalKind::Wit {

@@ -56,7 +56,7 @@ fn execute_wasm_output(name: &str, wasm: &[u8]) -> Result<Option<std::process::O
 
 #[test]
 fn generic_string_array_preserves_observable_contents() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = let ignored = runEffect (log (arrayIndex (copy [\"hello\", \"world\"]) 1)) in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = let ignored = unsafePerformEffect (log (arrayIndex (copy [\"hello\", \"world\"]) 1)) in 0\n";
     let artifact = compile_source("Main.purs", source).expect("string round trip should compile");
     match execute_wasm_output("generic_string_contents", &artifact.wasm) {
         Ok(Some(output)) => {
@@ -321,7 +321,7 @@ fn audit_battery() {
         },
         Case {
             name: "scalar_unit_array",
-            source: "module Main where\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = arrayLength (copy [runEffect (log \"\")])\n",
+            source: "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = arrayLength (copy [unsafePerformEffect (log \"\")])\n",
             exit: 1,
         },
         Case {

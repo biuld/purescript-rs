@@ -54,11 +54,11 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [pattern-matching.md](fp/pattern-matching.md) | Pattern decision trees and exhaustiveness | cc-ir |
 | [control-flow-and-tail-calls.md](fp/control-flow-and-tail-calls.md) | CFG structuring, `Switch`, tail calls | mir |
 | [type-classes-and-dictionaries.md](fp/type-classes-and-dictionaries.md) | Dictionary passing and instance evidence | functional-core |
-| [algebraic-effects-and-handlers.md](fp/algebraic-effects-and-handlers.md) | Library operation functors, handlers, residual rows, and the `Run` wrapper over the control surface (**Draft design**) | DEC-03, delimited control, ordinary rows/classes, functional-core |
+| [algebraic-effects-and-handlers.md](fp/algebraic-effects-and-handlers.md) | Library operation functors, handlers, residual rows, and the `Run` wrapper over the control surface (AE-01–AE-11 and AC-01–AC-05 Verified) | DEC-03, delimited control, ordinary rows/classes, functional-core |
 | [delimited-control-and-resumable-frames.md](fp/delimited-control-and-resumable-frames.md) | Effect-agnostic delimited control (`Control f a` with `return`/`bind`/`perform`/`run`), the design-space selection, handler interface and lifetime semantics (**Draft design**) | DEC-03, DEC-19, cc-ir, mir, control-flow-and-tail-calls, capability-profile |
 | [control-machine.md](fp/control-machine.md) | The compiler-generated continuation machine: node inventory, per-IR representation, lowering, flat driver and sequence replay (**Draft design**) | delimited control, control elimination, cc-ir, mir, data-representation |
-| [native-effect-and-st-handlers.md](fp/native-effect-and-st-handlers.md) | Official Effect/ST facades, common native computation, typed storage/host handlers, and region safety (**Draft proposal**) | algebraic effects, delimited control, roles, rank-N, runtime linking |
-| [effects.md](fp/effects.md) | Effect representation and the platform boundary (**withdrawn 2026-10-11**; replacement undecided) | functional-core |
+| [native-effect-and-st-handlers.md](fp/native-effect-and-st-handlers.md) | Official Effect/ST facades, common native computation, typed storage/host handlers, and region safety (NE-01–NE-13 Verified 2026-10-16) | algebraic effects, delimited control, roles, rank-N, runtime linking |
+| [effects.md](fp/effects.md) | Effect representation and the platform boundary (**withdrawn 2026-10-11**; replacement is native Effect/ST) | functional-core |
 | [state-primitives-and-dependency-lowering.md](fp/state-primitives-and-dependency-lowering.md) | Primitive State semantics and cross-pass dependencies (**withdrawn 2026-10-11**) | primitive types, functional-core, CC, MIR |
 | [library-owned-effects.md](fp/library-owned-effects.md) | Ordinary Effect/ST newtypes, runtime adapters, command runner (**withdrawn 2026-10-11**) | State primitives and dependency lowering, source fidelity |
 
