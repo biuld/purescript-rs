@@ -19,9 +19,8 @@ fn polymorphic_refs_keep_cell_identity_and_write_order() {
 
 #[test]
 fn a_coerced_non_cell_ref_is_rejected_before_codegen() {
-    let errors =
-        crate::compile_program_sources_with_prelude(&[("Main.purs", MALFORMED)])
-            .expect_err("Int and Ref have different runtime shapes");
+    let errors = crate::compile_program_sources_with_prelude(&[("Main.purs", MALFORMED)])
+        .expect_err("Int and Ref have different runtime shapes");
     assert!(
         errors.iter().any(|error| {
             error.diagnostic.stage == "P8 closure conversion"
