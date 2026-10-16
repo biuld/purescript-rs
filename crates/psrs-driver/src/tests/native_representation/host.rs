@@ -40,11 +40,11 @@ fn official_wasi_and_assert_wrappers_run_through_effect() {
     );
 }
 
-const HOST_ORDER: &str =
-    include_str!("../../../../../../psrs-stdlib/conformance/native/HostOrder.purs");
+const HOST_ORDER: &str = include_str!("fixtures/HostOrder.purs");
 
 #[test]
 fn stored_host_work_stays_inert_and_runs_in_source_order() {
+    super::assert_matches_stdlib_oracle(HOST_ORDER, "conformance/native/HostOrder.purs");
     let Some(output) =
         super::super::run_program_with_prelude_wasmtime(&[("Main.purs", HOST_ORDER)])
     else {

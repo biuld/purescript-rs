@@ -101,3 +101,16 @@ fn official_clock_now_runs_through_effect() {
     };
     assert_eq!(output.status.code(), Some(42), "{output:?}");
 }
+
+/// The public oracle stays in the sibling `psrs-stdlib` checkout. GitHub CI
+/// only has this repository, so the driver embeds a copy. When the sibling is
+/// present, the copy must be the same bytes.
+fn assert_matches_stdlib_oracle(embedded: &str, relative: &str) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../psrs-stdlib")
+        .join(relative);
+    let Ok(oracle) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    assert_eq!(embedded, oracle, "{}", path.display());
+}
