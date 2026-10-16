@@ -121,7 +121,7 @@ fn erased_boolean_box_preserves_both_values() {
 
 #[test]
 fn erased_string_box_preserves_nonempty_contents() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = let ignored = runEffect (log (arrayIndex (copy [\"high\", \"value\"]) 1)) in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = let ignored = unsafePerformEffect (log (arrayIndex (copy [\"high\", \"value\"]) 1)) in 0\n";
     let artifact = compile_source("Main.purs", source).expect("string round trip should compile");
     match execute_component("erased_string_contents", &artifact.wasm) {
         Ok(Some(output)) => {
@@ -151,7 +151,7 @@ fn erased_number_box_preserves_nan_and_signed_zero() {
 fn erased_identity_boxes_char_and_unit() {
     let char_source = "module Main where\nidentity :: forall a. a -> a\nidentity value = value\nmain = charToInt (identity 'B')\n";
     expect_exit("erased_char", char_source, 66);
-    let unit_source = "module Main where\nimport Prelude\nimport WASI.Console\nidentity :: forall a. a -> a\nidentity value = value\nmain = let ignored = identity (runEffect (log \"\")) in 42\n";
+    let unit_source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nidentity :: forall a. a -> a\nidentity value = value\nmain = let ignored = identity (unsafePerformEffect (log \"\")) in 42\n";
     expect_exit("erased_unit", unit_source, 42);
 }
 
@@ -215,7 +215,7 @@ fn escaping_closures_capture_int_and_reference_values() {
 
 #[test]
 fn escaping_closures_capture_a_string_value() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmakeReader :: String -> (Int -> String)\nmakeReader message = \\index -> if index == 0 then message else message\nmain = let reader = makeReader \"captured\" in let ignored = runEffect (log (reader 0)) in 42\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmakeReader :: String -> (Int -> String)\nmakeReader message = \\index -> if index == 0 then message else message\nmain = let reader = makeReader \"captured\" in let ignored = unsafePerformEffect (log (reader 0)) in 42\n";
     let artifact = compile_source("Main.purs", source).expect("string capture should compile");
     match execute_component("escaping_string_capture", &artifact.wasm) {
         Ok(Some(output)) => {
@@ -243,7 +243,7 @@ fn a_curried_function_argument_generates_a_partial_adapter() {
     // `\x -> \y -> f x y` where `map` expects a generic `a -> b`. The erased
     // adapter must partially apply it: the outer closure takes the target's
     // arguments and returns an inner closure for the source's remaining ones.
-    let source = "module Main where\nimport Prelude\nmain = runEffect (ado\n  x <- pure 40\n  y <- pure 2\n  in x + y)\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nmain = unsafePerformEffect (ado\n  x <- pure 40\n  y <- pure 2\n  in x + y)\n";
     let mir = pre_optimization_mir(source);
     let names = mir
         .functions
@@ -269,7 +269,7 @@ fn linked_modules_round_trip_an_erased_high_bit_int() {
     );
     let consumer = (
         "Main.purs",
-        "module Main where\nimport Producer\nmain = identity 2000000000 - 1999999958\n",
+        "module Main where\nimport Producer\nmain = intSub (identity 2000000000) 1999999958\n",
     );
     let core = lower_program_to_core(&[producer, consumer])
         .expect("the linked erased program should lower to Core");
@@ -286,18 +286,18 @@ fn linked_modules_round_trip_an_erased_high_bit_int() {
 }
 
 #[test]
-fn a_locally_generalized_binding_instantiates_at_int() {
-    // `id` is generalized at the local `let`, so its runtime value is erased.
+fn an_explicitly_polymorphic_local_binding_instantiates_at_int() {
+    // `id` declares a local polymorphic annotation, so its runtime value is erased.
     // The `id 42` use must box the erased argument and recover the integer
     // result exactly as a top-level polymorphic declaration would.
-    let source = "module Main where\nmain = let id = \\x -> x in id 42\n";
+    let source = "module Main where\nmain = let id = (\\x -> x) :: forall a. a -> a in id 42\n";
     expect_exit("local_polymorphic_int", source, 42);
 }
 
 #[test]
-fn a_locally_generalized_binding_instantiates_at_two_types() {
+fn an_explicitly_polymorphic_local_binding_instantiates_at_two_types() {
     // The same erased local value is recovered at `String` and at `Int`.
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let id = \\x -> x in runEffect (do\n  log (id \"hello\")\n  pure (id 42))\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\nmain = let id = (\\x -> x) :: forall a. a -> a in unsafePerformEffect (do\n  log (id \"hello\")\n  pure (id 42))\n";
     let artifact =
         compile_source("Main.purs", source).expect("the two-type local use should compile");
     match execute_component("local_polymorphic_two_types", &artifact.wasm) {
@@ -311,29 +311,30 @@ fn a_locally_generalized_binding_instantiates_at_two_types() {
 }
 
 #[test]
-fn a_locally_generalized_binding_passes_to_a_polymorphic_function() {
+fn an_explicitly_polymorphic_local_binding_passes_to_a_polymorphic_function() {
     // `apply :: forall a. (a -> a) -> a -> a` receives the erased local value,
     // so the argument and result cross the erased boundary at the concrete type.
-    let source = "module Main where\napply :: forall a. (a -> a) -> a -> a\napply f x = f x\nmain = let id = \\x -> x in apply id 42\n";
+    let source = "module Main where\napply :: forall a. (a -> a) -> a -> a\napply f x = f x\nmain = let id = (\\x -> x) :: forall a. a -> a in apply id 42\n";
     expect_exit("local_polymorphic_argument", source, 42);
 }
 
 #[test]
-fn a_curried_locally_generalized_binding_instantiates() {
-    // A locally generalized curried function with an argument: the flattened
+fn a_curried_explicitly_polymorphic_local_binding_instantiates() {
+    // An explicitly polymorphic local curried function with an argument: the flattened
     // erased source has two parameters, matching the concrete use.
-    let source = "module Main where\nmain = let const = \\x -> \\y -> x in const 42 \"ignored\"\n";
+    let source = "module Main where\nmain = let const = (\\x -> \\y -> x) :: forall a b. a -> b -> a in const 42 \"ignored\"\n";
     expect_exit("local_polymorphic_curried", source, 42);
 }
 
 #[test]
-fn a_locally_generalized_identity_instantiates_at_a_function_type() {
+fn an_explicitly_polymorphic_local_identity_instantiates_at_a_function_type() {
     // `(id id) 42`: the outer `id` is instantiated at `Int -> Int`, so its
     // flattened use type `(Int -> Int) -> (Int -> Int)` is wider than the
     // erased source `a -> a`. The recursive adapter must eta-expand, call the
     // erased source with the inner `id`, recover the result at `Int -> Int`,
     // and apply `42`.
-    let source = "module Main where\nmain = let id = \\x -> x in (id id) 42\n";
+    let source =
+        "module Main where\nmain = let id = (\\x -> x) :: forall a. a -> a in (id id) 42\n";
     expect_exit("local_polymorphic_function_type_identity", source, 42);
 }
 
@@ -342,8 +343,7 @@ fn a_local_polymorphic_value_is_applied_after_a_function_type_instantiation() {
     // The same eta-expansion reached with a concrete function argument:
     // `id` is instantiated at `Int -> Int`, applied to `\y -> y + 1`, and the
     // recovered function is applied to `41`.
-    let source =
-        "module Main where\nimport Prelude\nmain = let id = \\x -> x in (id (\\y -> y + 1)) 41\n";
+    let source = "module Main where\nimport Prelude\nmain = let id = (\\x -> x) :: forall a. a -> a in (id (\\y -> y + 1)) 41\n";
     expect_exit("local_polymorphic_function_type_argument", source, 42);
 }
 

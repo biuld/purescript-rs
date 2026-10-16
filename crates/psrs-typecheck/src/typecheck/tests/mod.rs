@@ -75,7 +75,7 @@ fn integer(value: &str, start: u32) -> HirExpr {
 
 #[test]
 fn infers_functions_arithmetic_conditionals_and_intrinsic_booleans() {
-    let add = Intrinsic::I32Add.symbol();
+    let add = Intrinsic::IntAdd.symbol();
     let true_symbol = Intrinsic::BoolTrue.symbol();
     let increment = expr(
         HirExprKind::Lambda {
@@ -287,7 +287,7 @@ fn rejects_a_body_that_does_not_match_its_signature() {
 }
 
 #[test]
-fn generalizes_let_bound_functions() {
+fn unannotated_let_bound_functions_are_monomorphic() {
     let let_expression = expr(
         HirExprKind::Let {
             bindings: vec![hir::LocalBinding {
@@ -322,9 +322,13 @@ fn generalizes_let_bound_functions() {
     let resolved = module(vec![declaration(0, "main", 19, let_expression)], false);
 
     let resolved = psrs_desugar::desugar_module(resolved).unwrap();
-    let typed = typecheck_module(resolved).unwrap();
-    assert_eq!(typed.declarations[0].quantified.len(), 1);
-    typed.verify().unwrap();
+    let errors = typecheck_module(resolved).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.kind == TypeCheckErrorKind::OccursCheck),
+        "{errors:?}"
+    );
 }
 
 #[test]

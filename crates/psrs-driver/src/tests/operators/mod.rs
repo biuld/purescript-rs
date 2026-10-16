@@ -1,11 +1,16 @@
+mod local_types;
+mod natural_transformation;
 mod opaque_type;
 mod prim_type;
+mod qualified_patterns;
+mod sections;
+mod synonyms;
 
 use super::*;
 
 const FIXITY_SOURCE: &str = "module Main where\n\
     infixr 4 subtract as <+>\n\
-    subtract x y = x - y\n\
+    subtract x y = intSub x y\n\
     main = 10 <+> 3 <+> 2\n";
 
 #[test]
@@ -456,7 +461,7 @@ fn ambiguous_imported_fixity_targets_report_scope_conflicts() {
 fn rejects_ambiguous_fixity_groups_for_values_patterns_and_types() {
     let cases = [
         (
-            "module Main where\ninfixl 5 subtract as <+>\ninfixr 5 subtract as <*>\nsubtract x y = x - y\nmain = 1 <+> 2 <*> 3\n",
+            "module Main where\ninfixl 5 subtract as <+>\ninfixr 5 subtract as <*>\nsubtract x y = intSub x y\nmain = 1 <+> 2 <*> 3\n",
             "operators of the same precedence have mixed associativity",
         ),
         (

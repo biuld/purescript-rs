@@ -130,20 +130,25 @@ A data type's cases are not part of its `Type`; they are `ConstructorInfo`
 records naming a tag, a field count, and field types. A sum is therefore an
 ordered set of cases with stable tags, not a nested pair of constructors.
 
-`Effect a` is `Application(Constructor(User(effect_id)), a)`: an ordinary
-imported abstract type constructor applied on the uniform spine. Core has no
-`Effect` node, token type, or callable-type side table. Trusted library binding
-resolves the constructor and operation identities once and passes that metadata
-alongside linked Core. Each WIT import also carries its checked,
-synonym-expanded scheme in `Module.external_types`; `ForAll` quantification is
-preserved and `Effect` remains abstract in the scheme. The effect-lowering
-pipeline uses the trusted identities and checked WIT schemes to classify
-effectful imports before representation lowering, then replaces each `Effect τ`
-value with a generic closure whose parameter list is the runtime token and
-whose result is the lowering of `τ`. That closure is not a source arrow, so
-curried-arrow flattening does not absorb a function or a nested effect inside
-`τ`. The translation and execution boundary are specified in
-[effects](../../backend/fp/effects.md).
+`Effect a` and `ST r a` are ordinary applications of user type constructors.
+Their native adapters declare constructor-hidden newtypes over the same
+library-owned computation field. Core has no Effect node, state token,
+trusted Effect discovery, or native operation registry. Generic newtype,
+ADT, closure and call lowering implements those source declarations; see
+[native Effect/ST](../../backend/fp/native-effect-and-st-handlers.md).
+
+Each WIT import carries its checked, synonym-expanded scheme in
+`Module.external_types`, retaining `ForAll` quantification. Raw WIT leaves
+have canonical result types; ordinary library wrappers delay their calls in
+native programs. The compiler does not unwrap an Effect result to guess a
+canonical ABI result.
+
+HIR `ExternalSymbol.source_module` retains the declaring source module when
+an import copies the symbol. Verified HIR requires both that owner and its
+declared signature for source externals. `Module.declared_value_signatures`
+supplies ordinary and foreign annotations to kind/reference checking at the
+declaring module; imported copies do not produce duplicate diagnostics.
+THIR and Core checked external schemes retain that original source owner.
 
 `Module.newtype_ids` records single-field newtypes that are represented by their
 field below Core. Erasing a newtype is representation metadata, not a change to
@@ -275,7 +280,7 @@ counterpart:
 | `Record*` | product construction and field projection |
 | `Array*` | array operations |
 | polymorphism and constraints | erased type arguments and explicit dictionary arguments |
-| `Effect a` | a representation closure produced after Core; not a source arrow |
+| newtypes, including Effect/ST | the ordinary declared field representation |
 
 The full Core-to-CC contract, including the representation requirements that CC
 introduces and the operations it owns, is specified in [CC IR](../../backend/fp/cc-ir.md).
@@ -331,6 +336,19 @@ which variables were generalized. A nested `ForAll` belongs to its value
 type rather than the enclosing declaration scheme. An expression introducing
 such a universal binds its type variables in the checked subtree; optimization
 must preserve that scope when replacing the expression.
+
+Value subsumption may specialize an actual universal while retaining an
+expected universal. For example, `forall a. a -> a` can supply a dictionary
+method at `forall b. Array b -> Array b`; equal binder counts do not make this
+an alpha-equivalence check. Expected binders remain rigid and repeated uses of
+an instantiated variable must agree. Nominal/invariant positions still require
+their ordinary rigid relation. The checked Core relation owns these checks.
+
+An explicitly configured command runner requires a closed input-to-Int type,
+and a selected command requires a closed value type. Declaration quantifiers
+used only inside the body do not make a closed entry type polymorphic. Free
+variable queries share the same lexical-forall traversal used by scope checking,
+substitution capture checks, and checked instantiation.
 
 ### Core verification
 

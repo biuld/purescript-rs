@@ -250,5 +250,7 @@ pub struct PatternDeclaration {
     pub pattern: Pattern,
     pub equals_span: TextRange,
     pub value: Expr,
+    /// Bindings in scope for `value`, as in `pattern = expr where ...`.
+    pub where_block: Option<DeclarationBlock>,
     pub span: TextRange,
 }

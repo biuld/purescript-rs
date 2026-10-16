@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 mod dictionary;
 mod module;
+mod pattern;
+use pattern::lower_pattern;
 
 /// Lowers a module and verifies the result. A module with unresolved
 /// cross-module global references cannot be verified on its own; use
@@ -32,13 +34,34 @@ fn lower_expr(
     externals: &HashMap<SymbolId, ExternalKind>,
     constructors: &HashMap<SymbolId, psrs_thir::ConstructorInfo>,
     source_types: &[psrs_thir::Type],
+    context: &mut module::LowerContext,
+) -> Result<Expr, LowerError> {
+    psrs_span::with_sufficient_stack(|| {
+        lower_expr_inner(expression, externals, constructors, source_types, context)
+    })
+}
+
+fn lower_expr_inner(
+    expression: TypedExpr,
+    externals: &HashMap<SymbolId, ExternalKind>,
+    constructors: &HashMap<SymbolId, psrs_thir::ConstructorInfo>,
+    source_types: &[psrs_thir::Type],
+    context: &mut module::LowerContext,
 ) -> Result<Expr, LowerError> {
     let span = expression.span;
     let ty = TypeId(expression.ty.0);
     if let Some((symbol, arguments)) = constructor_application(&expression, constructors) {
         let arguments = arguments
             .into_iter()
-            .map(|argument| lower_expr(argument.clone(), externals, constructors, source_types))
+            .map(|argument| {
+                lower_expr(
+                    argument.clone(),
+                    externals,
+                    constructors,
+                    source_types,
+                    context,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         return Ok(Expr {
             kind: ExprKind::Constructor { symbol, arguments },
@@ -79,10 +102,14 @@ fn lower_expr(
             }
             if let Some(constructor) = constructors.get(&id) {
                 if constructor.field_count != 0 {
-                    return Err(LowerError {
+                    return lower_partial_constructor(
+                        id,
+                        expression.ty,
+                        constructor.field_count,
                         span,
-                        message: "partially applied field constructors require closure conversion",
-                    });
+                        source_types,
+                        context,
+                    );
                 }
                 ExprKind::Constructor {
                     symbol: id,
@@ -100,7 +127,7 @@ fn lower_expr(
         TypedExprKind::Array(elements) => ExprKind::Array {
             elements: elements
                 .into_iter()
-                .map(|element| lower_expr(element, externals, constructors, source_types))
+                .map(|element| lower_expr(element, externals, constructors, source_types, context))
                 .collect::<Result<Vec<_>, _>>()?,
         },
         TypedExprKind::Record(fields) => ExprKind::Record {
@@ -109,7 +136,7 @@ fn lower_expr(
                 .map(|(label, value)| {
                     Ok((
                         label,
-                        lower_expr(value, externals, constructors, source_types)?,
+                        lower_expr(value, externals, constructors, source_types, context)?,
                     ))
                 })
                 .collect::<Result<Vec<_>, LowerError>>()?,
@@ -120,13 +147,14 @@ fn lower_expr(
                 externals,
                 constructors,
                 source_types,
+                context,
             )?),
             fields: fields
                 .into_iter()
                 .map(|(label, value)| {
                     Ok((
                         label,
-                        lower_expr(value, externals, constructors, source_types)?,
+                        lower_expr(value, externals, constructors, source_types, context)?,
                     ))
                 })
                 .collect::<Result<Vec<_>, LowerError>>()?,
@@ -137,11 +165,18 @@ fn lower_expr(
                 externals,
                 constructors,
                 source_types,
+                context,
             )?),
             field,
         },
         TypedExprKind::Evidence(evidence) => {
-            return dictionary::lower_evidence(&evidence, source_types);
+            return dictionary::lower_evidence(
+                &evidence,
+                source_types,
+                externals,
+                constructors,
+                context,
+            );
         }
         TypedExprKind::Coerce {
             value,
@@ -159,25 +194,55 @@ fn lower_expr(
                 });
             }
             ExprKind::RepresentationCast {
-                value: Box::new(lower_expr(*value, externals, constructors, source_types)?),
+                value: Box::new(lower_expr(
+                    *value,
+                    externals,
+                    constructors,
+                    source_types,
+                    context,
+                )?),
+                source_type: TypeId(source_type.0),
+                target_type: TypeId(target_type.0),
+            }
+        }
+        TypedExprKind::UnsafeCoerce {
+            value,
+            source_type,
+            target_type,
+            ..
+        } => {
+            if source_type != value.ty || target_type.0 != ty.0 {
+                return Err(LowerError {
+                    span,
+                    message: "unsafe coercion boundary does not match its value and result",
+                });
+            }
+            ExprKind::RepresentationCast {
+                value: Box::new(lower_expr(
+                    *value,
+                    externals,
+                    constructors,
+                    source_types,
+                    context,
+                )?),
                 source_type: TypeId(source_type.0),
                 target_type: TypeId(target_type.0),
             }
         }
         TypedExprKind::Application(function, argument) => {
-            let function = lower_expr(*function, externals, constructors, source_types)?;
-            let argument = lower_expr(*argument, externals, constructors, source_types)?;
+            let function = lower_expr(*function, externals, constructors, source_types, context)?;
+            let argument = lower_expr(*argument, externals, constructors, source_types, context)?;
             // A saturated intrinsic application becomes one IntrinsicCall. The
             // registry's arity decides saturation, and the per-intrinsic
             // handling lives in the intrinsic module rather than here.
-            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
-                && let Some(ExternalKind::Intrinsic(intrinsic)) = externals.get(&symbol)
-                && args.len() == intrinsic.descriptor().arity as usize
-            {
+            // The right argument is already the lowered remainder of the spine.
+            // Move that spine into the intrinsic call; cloning it recurses while
+            // these lowering frames are still live.
+            if let Some(intrinsic) = saturated_intrinsic(&function, externals) {
                 return Ok(Expr {
                     kind: ExprKind::IntrinsicCall {
-                        intrinsic: *intrinsic,
-                        arguments: args,
+                        intrinsic,
+                        arguments: unfold_application(function, argument),
                     },
                     ty,
                     span,
@@ -192,7 +257,13 @@ fn lower_expr(
                 ty: TypeId(binder.ty.0),
                 span: binder.span,
             },
-            body: Box::new(lower_expr(*body, externals, constructors, source_types)?),
+            body: Box::new(lower_expr(
+                *body,
+                externals,
+                constructors,
+                source_types,
+                context,
+            )?),
         },
         TypedExprKind::Let { bindings, body } => ExprKind::Let {
             bindings: bindings
@@ -206,12 +277,24 @@ fn lower_expr(
                             span: binding.binder.span,
                         },
                         quantified: binding.quantified,
-                        value: lower_expr(binding.value, externals, constructors, source_types)?,
+                        value: lower_expr(
+                            binding.value,
+                            externals,
+                            constructors,
+                            source_types,
+                            context,
+                        )?,
                         span: binding.span,
                     })
                 })
                 .collect::<Result<Vec<_>, LowerError>>()?,
-            body: Box::new(lower_expr(*body, externals, constructors, source_types)?),
+            body: Box::new(lower_expr(
+                *body,
+                externals,
+                constructors,
+                source_types,
+                context,
+            )?),
         },
         TypedExprKind::If {
             condition,
@@ -223,18 +306,21 @@ fn lower_expr(
                 externals,
                 constructors,
                 source_types,
+                context,
             )?),
             then_branch: Box::new(lower_expr(
                 *then_branch,
                 externals,
                 constructors,
                 source_types,
+                context,
             )?),
             else_branch: Box::new(lower_expr(
                 *else_branch,
                 externals,
                 constructors,
                 source_types,
+                context,
             )?),
         },
         TypedExprKind::Case {
@@ -246,13 +332,20 @@ fn lower_expr(
                 externals,
                 constructors,
                 source_types,
+                context,
             )?),
             branches: branches
                 .into_iter()
                 .map(|branch| {
                     Ok(crate::CaseBranch {
                         pattern: lower_pattern(branch.pattern)?,
-                        value: lower_expr(branch.value, externals, constructors, source_types)?,
+                        value: lower_expr(
+                            branch.value,
+                            externals,
+                            constructors,
+                            source_types,
+                            context,
+                        )?,
                         span: branch.span,
                         coverage: branch.coverage,
                     })
@@ -263,54 +356,76 @@ fn lower_expr(
     Ok(Expr { kind, ty, span })
 }
 
-fn lower_pattern(pattern: psrs_thir::Pattern) -> Result<crate::Pattern, LowerError> {
-    let span = pattern.span;
-    let kind = match pattern.kind {
-        psrs_thir::PatternKind::Wildcard => crate::PatternKind::Wildcard,
-        psrs_thir::PatternKind::Literal { literal } => crate::PatternKind::Literal {
-            value: match literal {
-                psrs_thir::PatternLiteral::Integer(value) => crate::Literal::Integer(value),
-                psrs_thir::PatternLiteral::Number(value) => crate::Literal::Number(value),
-                psrs_thir::PatternLiteral::String(value) => crate::Literal::String(value),
-                psrs_thir::PatternLiteral::Char(value) => crate::Literal::Char(value),
-                psrs_thir::PatternLiteral::Boolean(value) => crate::Literal::Boolean(value),
+fn lower_partial_constructor(
+    symbol: SymbolId,
+    function_type: psrs_thir::TypeId,
+    field_count: usize,
+    span: psrs_span::TextRange,
+    source_types: &[psrs_thir::Type],
+    context: &mut module::LowerContext,
+) -> Result<Expr, LowerError> {
+    let mut current_type = function_type;
+    let mut binders = Vec::with_capacity(field_count);
+    for index in 0..field_count {
+        let Some((parameter, result)) = arrow_parts_after_foralls(source_types, current_type)
+        else {
+            return Err(LowerError {
+                span,
+                message: "constructor type has fewer arguments than its declaration",
+            });
+        };
+        let Some(id) = context.fresh_local() else {
+            return Err(LowerError {
+                span,
+                message: "cannot allocate a local for a constructor function",
+            });
+        };
+        binders.push((
+            Binder {
+                id,
+                name: format!("__partial_constructor_{index}"),
+                ty: TypeId(parameter.0),
+                span,
             },
-        },
-        psrs_thir::PatternKind::Array { elements } => crate::PatternKind::Array {
-            elements: elements
-                .into_iter()
-                .map(lower_pattern)
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        psrs_thir::PatternKind::Named { id, pattern } => crate::PatternKind::Named {
-            id,
-            pattern: Box::new(lower_pattern(*pattern)?),
-        },
-        psrs_thir::PatternKind::Var { id, ty } => crate::PatternKind::Var {
-            id,
-            ty: TypeId(ty.0),
-        },
-        psrs_thir::PatternKind::Constructor { symbol, arguments } => {
-            crate::PatternKind::Constructor {
-                symbol,
-                arguments: arguments
-                    .into_iter()
-                    .map(lower_pattern)
-                    .collect::<Result<Vec<_>, _>>()?,
-            }
-        }
-        psrs_thir::PatternKind::Record { fields } => crate::PatternKind::Record {
-            fields: fields
-                .into_iter()
-                .map(|(label, pattern)| Ok((label, lower_pattern(pattern)?)))
-                .collect::<Result<Vec<_>, LowerError>>()?,
-        },
-    };
-    Ok(crate::Pattern {
-        kind,
-        ty: TypeId(pattern.ty.0),
+            TypeId(current_type.0),
+        ));
+        current_type = result;
+    }
+
+    let arguments = binders
+        .iter()
+        .map(|(binder, _)| Expr {
+            kind: ExprKind::Local(binder.id),
+            ty: binder.ty,
+            span,
+        })
+        .collect();
+    let mut body = Expr {
+        kind: ExprKind::Constructor { symbol, arguments },
+        ty: TypeId(current_type.0),
         span,
-    })
+    };
+    for (binder, function_type) in binders.into_iter().rev() {
+        body = Expr {
+            kind: ExprKind::Lambda {
+                binder,
+                body: Box::new(body),
+            },
+            ty: function_type,
+            span,
+        };
+    }
+    Ok(body)
+}
+
+fn arrow_parts_after_foralls(
+    types: &[psrs_thir::Type],
+    mut function_type: psrs_thir::TypeId,
+) -> Option<(psrs_thir::TypeId, psrs_thir::TypeId)> {
+    while let Some((_, body)) = psrs_thir::forall_parts(types, function_type) {
+        function_type = body;
+    }
+    psrs_thir::arrow_parts(types, function_type)
 }
 
 fn constructor_application<'a>(
@@ -333,23 +448,36 @@ fn constructor_application<'a>(
     })
 }
 
-fn flatten_intrinsic(
+fn saturated_intrinsic(
     function: &Expr,
-    final_argument: Expr,
     externals: &HashMap<SymbolId, ExternalKind>,
-) -> Option<(SymbolId, Vec<Expr>)> {
-    let mut arguments = vec![final_argument];
+) -> Option<psrs_hir::Intrinsic> {
+    let mut count = 1usize;
     let mut head = function;
-    while let ExprKind::Application(next, argument) = &head.kind {
-        arguments.push((**argument).clone());
+    while let ExprKind::Application(next, _) = &head.kind {
+        count += 1;
         head = next;
     }
     let ExprKind::Global(symbol) = head.kind else {
         return None;
     };
-    if !matches!(externals.get(&symbol), Some(ExternalKind::Intrinsic(_))) {
-        return None;
+    match externals.get(&symbol) {
+        Some(ExternalKind::Intrinsic(intrinsic))
+            if count == intrinsic.descriptor().arity as usize =>
+        {
+            Some(*intrinsic)
+        }
+        _ => None,
+    }
+}
+
+fn unfold_application(function: Expr, final_argument: Expr) -> Vec<Expr> {
+    let mut arguments = vec![final_argument];
+    let mut head = function;
+    while let ExprKind::Application(next, argument) = head.kind {
+        arguments.push(*argument);
+        head = *next;
     }
     arguments.reverse();
-    Some((symbol, arguments))
+    arguments
 }

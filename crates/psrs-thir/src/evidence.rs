@@ -2,6 +2,19 @@ use super::TypeId;
 use psrs_hir::{LocalId, SymbolId, TypeId as ClassId};
 use psrs_span::TextRange;
 
+/// Authority for a conversion that is not an ordinary Coercible proof.
+/// Newtype deriving relies on representation transparency and a selected
+/// wrapped instance, as upstream dictionary reuse does. The checker owns that
+/// validation; THIR verifies the named newtype and the conversion endpoints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UncheckedCoercionOrigin {
+    UnsafeCoerce,
+    NewtypeDeriving {
+        class_id: ClassId,
+        newtype_id: ClassId,
+    },
+}
+
 /// A frontend-selected dictionary derivation retained in Typed Core.
 ///
 /// The class solver owns the meaning and coherence of this derivation. Core
@@ -20,11 +33,16 @@ pub struct Evidence {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EvidenceKind {
+    /// A compiler-constructed dictionary expressed as checked ordinary terms.
+    /// The verifier checks its fields, lexical scope, and dictionary type;
+    /// the frontend owns the class rule that authorizes construction.
+    DictionaryValue(Box<super::Expr>),
     /// A dictionary parameter introduced by a constrained binding.
     Given(LocalId),
     /// A dictionary value already bound by the class elaborator.
     Global(SymbolId),
     /// A dictionary obtained from a superclass field of another dictionary.
+    /// Selects and forces a checked Unit thunk in the parent dictionary.
     Superclass {
         parent: Box<Evidence>,
         field: String,

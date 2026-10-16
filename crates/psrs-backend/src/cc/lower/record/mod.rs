@@ -212,7 +212,16 @@ impl FunctionLowerer<'_> {
         ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(representation) = self.record_types.get(&record.ty).copied() else {
+        // A local may be used at an instantiated type while its runtime value
+        // still has the layout fixed by its binder (notably a class dictionary
+        // passed through a higher-kinded method). Project using that stored
+        // layout, then convert the selected field to the use-site type below.
+        let source_type = match &record.kind {
+            psrs_core::ExprKind::Local(local) => self.local_types.get(local).copied(),
+            _ => None,
+        }
+        .unwrap_or(record.ty);
+        let Some(representation) = self.record_types.get(&source_type).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
@@ -260,12 +269,18 @@ impl FunctionLowerer<'_> {
         });
         let target_type = expression.ty;
         let target_shape = self.value_shape(target_type, expression.span)?;
-        let conversion = self.typed_conversion(
+        // The stored field keeps the dictionary method's scheme. Its use type
+        // is the checked instance, including a constructor such as Effect.
+        // The source module still has that relation after representation
+        // rewriting replaces applications at the same type ids.
+        let evidence = self.boundary.instantiation_at(field_layout.ty, target_type);
+        let conversion = self.typed_conversion_with_instantiation(
             field_layout.ty,
             target_type,
             stored,
             target_shape,
             expression.span,
+            evidence.as_ref(),
         )?;
         Ok(self.emit_conversion(
             projected,

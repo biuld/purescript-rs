@@ -126,7 +126,7 @@ pub(super) fn heap_related(
     heap_subtype(child, parent, definitions) || heap_subtype(parent, child, definitions)
 }
 
-pub(super) fn heap_subtype(
+pub(in crate::mir) fn heap_subtype(
     child: HeapType,
     parent: HeapType,
     definitions: &[&DefinedType],

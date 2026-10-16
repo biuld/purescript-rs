@@ -62,6 +62,7 @@ pub(super) fn add_assignments(
             | AssignmentKind::VariantTag { representation, .. }
             | AssignmentKind::VariantGet { representation, .. }
             | AssignmentKind::ArrayNew { representation, .. }
+            | AssignmentKind::ArrayFill { representation, .. }
             | AssignmentKind::ArrayGet { representation, .. }
             | AssignmentKind::ArrayClone { representation, .. }
             | AssignmentKind::ArraySet { representation, .. }
@@ -129,10 +130,12 @@ pub(super) fn add_assignments(
                 }
             }
             AssignmentKind::Constant(_)
+            | AssignmentKind::ControlEvidence { .. }
             | AssignmentKind::NumberConstant(_)
             | AssignmentKind::StringConstant(_)
             | AssignmentKind::Primitive { .. }
             | AssignmentKind::Unary { .. }
+            | AssignmentKind::RuntimeCall { .. }
             | AssignmentKind::ArrayLen { .. }
             | AssignmentKind::Unreachable => {}
             AssignmentKind::ClosureGetCapture { .. } => {
@@ -147,7 +150,7 @@ pub(super) fn add_assignments(
     }
 }
 
-fn add_conversion(
+pub(super) fn add_conversion(
     conversion: &ValueConversion,
     direct_calls: &mut HashSet<SymbolId>,
     representations: &mut HashSet<ReprId>,

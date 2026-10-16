@@ -1,14 +1,13 @@
 use psrs_core::{Expr, ExprKind, Module as CoreModule, Pattern, PatternKind, Type, TypeId};
 use std::collections::HashSet;
 
-/// Callable types that occur on a remaining declaration, expression, or
-/// constructor field, or reserved aggregate layout. Other residual callable
-/// types left behind by pruned library code are omitted.
+/// Types referenced by remaining declarations, expressions, constructor fields,
+/// and any explicitly supplied aggregate layout roots.
 pub(super) fn referenced_types(
     module: &CoreModule,
     aggregate_roots: impl Iterator<Item = TypeId>,
 ) -> HashSet<TypeId> {
-    let mut referenced = HashSet::new();
+    let mut referenced = live_type_ids(module);
     let mut visiting = HashSet::new();
     // Every reserved aggregate is normalized by the layout builder. Its nested
     // callable fields therefore need signatures even when its Core type is a
@@ -16,6 +15,12 @@ pub(super) fn referenced_types(
     for ty in aggregate_roots {
         record_type(module, ty, &mut visiting, &mut referenced);
     }
+    referenced
+}
+
+pub(super) fn live_type_ids(module: &CoreModule) -> HashSet<TypeId> {
+    let mut referenced = HashSet::new();
+    let mut visiting = HashSet::new();
     for declaration in &module.declarations {
         record_type(module, declaration.ty, &mut visiting, &mut referenced);
         record_expr(module, &declaration.value, &mut visiting, &mut referenced);
@@ -25,10 +30,35 @@ pub(super) fn referenced_types(
             record_type(module, *field, &mut visiting, &mut referenced);
         }
     }
+    // Runtime and WIT import schemes publish their payload layouts from the
+    // provider contract. Those TypeIds are not always shared with a remaining
+    // declaration body, and canonical guest projection keys the import by this
+    // scheme rather than by a structurally equal declaration type.
+    for checked in &module.external_types {
+        let import_layout = module.externals.iter().any(|external| {
+            external.symbol == checked.symbol
+                && matches!(
+                    external.kind,
+                    psrs_hir::ExternalKind::Runtime { .. } | psrs_hir::ExternalKind::Wit { .. }
+                )
+        });
+        if import_layout {
+            record_type(module, checked.ty, &mut visiting, &mut referenced);
+        }
+    }
     referenced
 }
 
 fn record_expr(
+    module: &CoreModule,
+    expression: &Expr,
+    visiting: &mut HashSet<TypeId>,
+    referenced: &mut HashSet<TypeId>,
+) {
+    psrs_span::with_sufficient_stack(|| record_expr_inner(module, expression, visiting, referenced))
+}
+
+fn record_expr_inner(
     module: &CoreModule,
     expression: &Expr,
     visiting: &mut HashSet<TypeId>,
@@ -145,14 +175,12 @@ fn record_type(
     if !visiting.insert(id) {
         return;
     }
+    referenced.insert(id);
     match module.types.get(id.0 as usize) {
         Some(Type::Application(function, argument)) => {
             // An ordinary arrow and a registered callable constructor
             // application are both callable closures and need a representation
             // signature even though they are not a dedicated type node.
-            if super::super::is_callable_type(module, id) {
-                referenced.insert(id);
-            }
             record_type(module, *function, visiting, referenced);
             record_type(module, *argument, visiting, referenced);
         }
@@ -164,13 +192,9 @@ fn record_type(
             // Keep a signature entry for the quantified value itself as well
             // as for its body. Use sites retain the scheme TypeId on binders,
             // while expression TypeIds may name its instantiated body.
-            if super::super::is_callable_type(module, id) {
-                referenced.insert(id);
-            }
             record_type(module, *body, visiting, referenced);
         }
         Some(Type::Closure { parameters, result }) => {
-            referenced.insert(id);
             for parameter in parameters {
                 record_type(module, *parameter, visiting, referenced);
             }

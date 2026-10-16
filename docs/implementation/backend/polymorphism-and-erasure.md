@@ -46,6 +46,7 @@ existing code or a fixture that only inspects WAT does not verify execution.
 | PE-10 | CC and MIR verifiers reject malformed adapters, captures, calls, and unresolved representation requirements. | Full-module negative fixtures for wrong signature, capture index/type, arity, cast provenance, and result shape before Wasm emission. | Verified |
 | PE-11 | Erased values are recovered before canonical WIT calls; optimized and unspecialized execution agree. | Source or verified Core fixture crossing a concrete ABI call, plus execution retaining an erased generic path and normal optimized execution. | Verified |
 | PE-12 | Nested quantifiers preserve each value's uniform definition signature, independent use-site conversions, and returned closure arity. | Verified Core and source execution at distinct instantiations; quantified parameters, fields, captures, returned functions and direct over-application; malformed boundary rejection. Coordinate RN-02 through RN-11. | Unverified |
+| PE-13 | Abstract constructor applications preserve their producer storage protocol across generic calls, dictionary methods and returned closures. Source evidence survives until a common conversion plan fixes both physical endpoints. | Mandatory value-sensitive execution of the non-Effect Reader dictionary reproduction below, Effect discard/map and fixed-payload cases; inspect producer/recovery signatures; retain ordinary closure and aggregate regressions. | Verified |
 
 ## Vertical execution order
 
@@ -270,10 +271,98 @@ PE-11:
   Revision: cc5d0f4 + audit diff.
   Gaps: there is no separate unspecialized compiler mode; the erased path is
     the one path and it is the executed path.
+
+PE-13:
+  Implementation: psrs-core/src/instantiation.rs (read-only checked
+    instantiation evidence), psrs-core/src/verify/types/matching/invariant.rs
+    (invariant matcher with explicit constructor binding), psrs-backend/src/
+    boundary.rs (BoundaryEvidence and the RepresentationRegistry: scheme/use
+    evidence read from the immutable source module; Function and Effect
+    constructor policies; payload-erased protocol signatures),
+    cc/lower/conversion/transport.rs (constructor transport),
+    cc/lower/conversion/callable.rs (representation-only adapter emission),
+    cc/lower/conversion/mod.rs (plan_conversion consults transport first),
+    cc/lower/erased/mod.rs and cc/lower/{global,record}/mod.rs (evidence
+    read from the boundary at the use), cc/lower/call/partial.rs
+    (lower_indirect_partial_application captures an under-applied local or
+    dictionary callee).
+  Tests: psrs-driver tests::closure_protocol::
+    reader_dictionary_returns_the_concrete_result (Reader `Chain ((->) Int)`
+    exits 42 with empty stdout),
+    abstract_callable_transport_emits_a_checked_adapter (the CC contains a
+    FunctionAdapter, a `protocol_adapter_factory_` capturing the producer
+    protocol closure, and a generated adapter returning `ValueShape::Integer`),
+    fixed_unit_payload_through_a_bind_constraint_repeats_the_action
+    (`forall f. Bind f => f Unit -> f Unit` at Effect prints `again` twice);
+    psrs-driver tests::partial_application::
+    a_partial_application_of_a_local_closure_defers_the_remaining_argument and
+    a_partial_application_of_a_dictionary_method_defers_the_remaining_argument;
+    psrs-core tests::instantiation (distinct nominal applications rejected,
+    flexible heads bind from either side, dictionary quantifiers alpha-rename,
+    unsolved and cyclic bindings are not constructor identities);
+    psrs-driver tests::effects::discard_defined_from_bind_sequences_effects
+    (`a\nb\n`); psrs-driver tests::functor::
+    mapping_an_effect_does_not_run_it_until_the_action_runs (`before\ntick\n2\n`).
+  Input boundary: linked source and source plus a verified CC module.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib
+    closure_protocol; PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
+  Result: pass. The Reader method and its caller recover the stored protocol
+    and adapt; a reference cast is not used as the adapter. The Effect discard,
+    delayed-map and fixed-payload cases run to completion with the exact
+    output, and an under-applied local closure or dictionary method exposes its
+    remaining parameter through a generated indirect call. The L6/M7 scoreboard
+    moved from 164/413 to 210/413 on this tree: the stored-protocol recovery
+    cleared 29 of the 30 P8 CC verifier failures and 17 of the 19 runtime traps,
+    and the indirect partial-application handling cleared three more
+    closure-conversion failures. L1–L5 are unchanged. The workspace suite is not fully green: ten
+    pre-existing Phase-3 failures (bare library operators that now need an
+    import, a local `Data.Boolean` that duplicates the vendored module,
+    `Newtype`/`Coercible` type checking on the official `Data.Foldable` and
+    `Data.Monoid`, a resolver `ScopeConflict`, and a class-mediated constant
+    fold) are unrelated to this topic and are recorded under remaining work.
+  Revision: 675f0e3 plus this slice.
+  Gaps: none for the Reader, discard, delayed-map and fixed-payload cases.
+    Binding quantifiers that are not leading `forall` nodes on the type still
+    need explicit evidence review.
 ```
 
 ## Remaining work and blockers
 
+- **Abstract constructor and closure transport (PE-13, landed).** The 2026-10-05
+  investigation below reproduces the runtime failure without Effect. The
+  repair is now landed and tested: the non-Effect Reader dictionary, Effect
+  `discard`, delayed map, and fixed-payload `f Unit` programs execute, and the
+  abstract callable boundary recovers the producer's stored protocol before
+  generating an adapter (see the PE-13 evidence). The L6/M7 scoreboard moved
+  from 164/413 to 210/413. An under-applied local closure or dictionary method
+  is supported by a generated closure that calls the captured callee
+  indirectly. What remains is binding quantifiers that are not leading `forall`
+  nodes on the type, and constructors other than `Function` and the registered
+  Effect token protocol do not each have explicit execution evidence. The two
+  experimental worktrees are stopped and are not integrated.
+- **Representation evidence and policies (landed).** Checked instantiation
+  evidence and constructor representation policies reach P8 through the
+  Core-to-CC side table (`psrs-backend/src/boundary.rs`). The
+  `RepresentationRegistry` registers `Function` (checked instantiation arguments)
+  and the trusted `Effect` (runtime token); `BoundaryEvidence` provides the
+  checking-owned relation and the payload-erased protocol signature of each
+  callable constructor. `FunctionLowerer::source`, `constructor_protocols`, and
+  `transport_signatures` are gone. The effect token is the opaque
+  `TypeId::STATE_TOKEN`. The checker's relation is a single `TypeMatcher::relate`
+  entry parameterized by `Variance` (subsumption or invariant); P8 consumes its
+  `Instantiation` evidence and recomputes nothing.
+- **Workspace suite still red on the Phase-3 migration.** Ten driver tests fail
+  for reasons this topic does not own: five use `-` or `/` without importing the
+  library operator that now owns it (`tests::scalars`, `tests::functions`,
+  `tests::operators` twice, and
+  `polymorphism_erasure_audit::linked_modules_round_trip_an_erased_high_bit_int`);
+  two declare a local `Data.Boolean` that the vendored library now also
+  provides (`tests::guards`); one folds `+` through the `Data.Semiring` class
+  and no longer reaches `i32.const 42` (`tests::integration`); one expects a
+  resolver `ScopeConflict` (`tests::declarations`); and one needs
+  `Newtype`/`Coercible` type checking on the official `Data.Foldable` and
+  `Data.Monoid` (`tests::foldable`). `cargo clippy --workspace --all-targets --
+  -D warnings` also reports pre-existing lints on the same branch.
 - **MIR RefCast/RefTest nullability handoff.** `mir/verify/instruction` checks
   the cast target heap and destination type but does not reject a nullable
   operand or mismatched operand/target nullability; tightening it is owned by
@@ -300,3 +389,161 @@ PE-11:
   erased identity fixture; type-class dictionaries and returned polymorphic
   functions remain independently tracked in
   [type classes and dictionaries](type-classes-and-dictionaries.md).
+
+## Constructor and closure investigation (2026-10-05)
+
+### Baseline and classification
+
+Revision `675f0e3` on `stdlib/vendor-core-libraries`. Experiments used a clean
+`git archive` of that revision, built with `cargo build --offline -p psrs-cli
+--bin psrs`, and Wasmtime 49.0.2. The active implementation checkout is the
+main worktree on that existing iteration branch. No experimental Rust diff was
+transferred there. No workspace suite or official scoreboard was run, and no
+D-04 or README rate was changed.
+
+The independent reproduction defines its own class and does not import Prelude,
+Effect, a host service or a trusted Effect operation:
+
+```purescript
+module Main where
+
+class Chain f where
+  chain :: forall a b. f a -> (a -> f b) -> f b
+
+instance chainReader :: Chain ((->) Int) where
+  chain m k x = k (m x) x
+
+repeatAction :: forall f. Chain f => f Int -> f Int
+repeatAction action = chain action (\_ -> action)
+
+action :: Int -> Int
+action x = x
+
+main :: Int
+main = repeatAction action 42
+```
+
+Compilation succeeds. Expected exit is 42 with empty stdout; actual exit is
+134 with `wasm trap: cast failure`. In the emitted core module, function 14
+constructs a closure using `ref.func 13`, whose code type 9 is
+`(ref struct, i32) -> eqref`. Function 16 receives the returned erased closure,
+recovers it, and casts its code reference to type 10,
+`(ref struct, i32) -> i32`, before `call_ref 10`. The generated CC records direct
+`RecoverReference(TypeInstantiation)` to the consumer closure signature.
+This is a producer/consumer calling-convention mismatch, not an Effect
+operation or runtime instance-selection failure. Function/type numbers are
+evidence for this artifact only.
+
+The same clean build measured these small source cases:
+
+| Case | Expected behavior | Observed behavior |
+| --- | --- | --- |
+| Generic `apply` receives a locally generalized identity | Exit 42, no stdout | Exit 42, no stdout |
+| A closure passes through `forall a. a -> a` | Exit 42, no stdout | Exit 42, no stdout |
+| A closure passes through a `Box a` constructor and projection | Exit 42, no stdout | Exit 42, no stdout |
+| A closure is forwarded through `forall f a. f a -> f a` | Exit 42, no stdout | Exit 42, no stdout |
+| Custom Reader `Chain` example above | Exit 42, no stdout | Cast trap, exit 134 |
+| Effect `discard` | Exit 0, `a\nb\n` | Cast trap, exit 134, empty stdout |
+| Mapping an Effect action | Exit 0, `before\ntick\n2\n` | Cast trap, exit 134, empty stdout |
+| `forall f. Bind f => f Unit -> f Unit` instantiated at Effect | Exit 0, `again\nagain\n` | Cast trap, exit 134, empty stdout |
+| Reader examples using the vendored Prelude instances | Compile, then execute | Rejected at P7; no runtime result |
+
+The passing forwarding case shows that erasure does not always require an
+adapter. The failing Reader dictionary establishes a general representation
+contract gap. It does not prove that every Effect failure follows an identical
+adapter chain or that one local patch repairs them all. Effect additionally
+rewrites source applications before P8; its explicit source-to-physical mapping
+must compose with the general repair. Keep the separate P7 Reader failure out
+of the runtime diagnosis.
+
+Artifacts are preserved at
+`/private/tmp/psrs-closure-representation-audit-20261005/`: source files,
+`measurements.json`, build/runtime stdout and stderr, and Reader CC/MIR/WAT.
+The recorded command form was `baseline/target/debug/psrs build <case>.purs
+-o <case>.wasm`, followed by `wasmtime run <case>.wasm`, from that directory.
+Expected nonzero successful exits were checked as values, not as shell success.
+
+### Disposition of stopped candidates
+
+Both worktrees remain at base `675f0e3`, with uncommitted checkpoints and exported
+patches. Neither is a repair suitable for integration:
+
+| Candidate | Useful investigation result | Disposition |
+| --- | --- | --- |
+| `fix/stdlib-closure-contract` | Established the lost constructor relation and exercised Core traversals | Reject the closure-origin field approach; preserve the checkpoint, do not apply it |
+| `fix/stdlib-p8-effect-contract` | Explored immutable source/physical views, shared checking evidence and layout roots | Restart implementation from the existing iteration branch; do not transplant this diff |
+
+The second candidate routes the public conversion entry through
+`effect_aware_conversion`, scopes `effect_instantiation`/`effect_compatibility`
+state and gathers evidence primarily for saturated direct Global calls. This
+does not define the ordinary Reader constructor protocol and leaves other
+call/storage boundaries incomplete. Its flat symmetric node correspondences
+do not preserve position, checking direction or binder context. Its extra
+scheme projection can reject a previously successful match; evidence extraction
+has not been shown to preserve the source checker's acceptance contract.
+Removing the rewritten module's ordinary verification also left the complete
+physical expression/declaration contract unverified. Focused proof tests and a
+successful package check cannot establish these obligations or runtime repair.
+
+Retain the reproduced programs, signature traces and test intentions. Reuse the
+ideas of immutable source views and Core-owned checked relations after defining
+their general contracts; review any code extracted for those ideas separately.
+The Core matcher must not infer a source constructor from callable arity.
+
+### Restart order and acceptance gates
+
+1. Fix the general boundary model before coding: definition/use relation,
+   producer storage protocol, consumer requirement and source-to-physical map.
+   Preserve quantifier boundaries, direction and field/application positions.
+2. Define one checked conversion-plan API for ordinary callable constructors,
+   scalar boxes, arrays and ADT/record storage. Separate planning from emission;
+   representation-only adapter endpoints need a physical contract, not an
+   invented source origin. Evidence collection must not change source acceptance.
+3. Implement and execute the minimal non-Effect Reader dictionary path through
+   this API. Cover both the method producer and returned-closure consumer;
+   direct/indirect calls and partial applications must use the same contract or
+   report unsupported boundaries explicitly. Preserve the passing controls.
+4. Connect the trusted Effect application-to-closure mapping to that API.
+   Execute discard, delayed map and fixed-payload cases with exact output/status.
+   Check arrays, dictionary fields and captures through the recursive planner.
+5. Verify the complete lowered representation and generated CC before erasing
+   semantic evidence. Then run the agreed focused regression scope. Workspace
+   tests, scoreboard measurements and completion claims remain separate gates.
+
+This is a design and investigation checkpoint. No replacement implementation
+is claimed complete, and the historical evidence above does not close PE-13.
+
+### Landed execution checkpoint (2026-10-05)
+
+The main worktree on `stdlib/vendor-core-libraries`, based on `675f0e3`, keeps
+an immutable Core snapshot from before `lower_effects`. Expression
+instantiation and compatibility whose type ids still exist use that snapshot.
+`Function` with one fixed argument supplies the Reader domain. The Effect
+representation owner supplies the runtime token for a registered user
+constructor with no instantiation arguments. Dictionary-field selection and a
+generalized local use pass that checked instantiation into the common
+conversion planner. The planner emits an adapter when the producer and
+consumer protocols differ. A reference cast is not used as that adapter.
+
+Wasmtime 49.0.2 executed these programs from the current debug `psrs` binary.
+Exit status is the program value, including Reader's 42.
+
+| Case | Result |
+| --- | --- |
+| Custom Reader `Chain` | Exit 42, empty stdout |
+| Effect `discard` | Exit 0, stdout `a\nb\n` |
+| Mapping an Effect action | Exit 0, stdout `before\ntick\n2\n` |
+| `forall f. Bind f => f Unit -> f Unit` at Effect | Exit 0, stdout `again\nagain\n` |
+
+The Reader and fixed-payload cases are committed as
+`crates/psrs-driver/src/tests/closure_protocol.rs` tests; the discard and map
+cases are the existing `effects` and `functor` tests. Under-application of an
+indirect callee (a local closure or a dictionary method) is now lowered by a
+generated closure that captures the callee and the supplied arguments and calls
+it indirectly; the `tests::partial_application` cases execute it. Binding
+quantifiers that are not leading `forall` nodes on the type still need explicit
+evidence review. Array, ADT, and newtype protocols still belong to their
+representation owners. Unsupported constructor transport is rejected with a
+source-spanned diagnostic. On this tree the L6/M7 scoreboard moved from
+164/413 to 210/413, so the D-04 and README runtime rows are updated with it;
+L1–L5 are unchanged.

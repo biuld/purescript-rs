@@ -47,7 +47,7 @@ fn flatten_cc(assignments: &[psrs_backend::cc::Assignment]) -> Vec<&psrs_backend
 /// re-evaluated it per alternative would print the side effect twice.
 #[test]
 fn case_evaluates_its_scrutinee_exactly_once() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\ndata I = A | B\nmain = case { tag: A, payload: runEffect (log \"once\") } of\n  { tag: A, payload: _ } -> 0\n  { tag: B, payload: _ } -> 1\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\ndata I = A | B\nmain = case { tag: A, payload: unsafePerformEffect (log \"once\") } of\n  { tag: A, payload: _ } -> 0\n  { tag: B, payload: _ } -> 1\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -209,6 +209,22 @@ fn recursive_pattern_compilation_terminates_and_stays_first_match() {
         return;
     };
     assert_eq!(output.status.code(), Some(42));
+}
+
+/// PM-10: a recursive product grows the specialization query unless missing
+/// constructor signatures use the default matrix before witness construction.
+#[test]
+fn recursive_binary_products_execute_in_either_constructor_order() {
+    for declaration in ["Node Int Tree Tree | Leaf", "Leaf | Node Int Tree Tree"] {
+        let source = format!(
+            "module Main where\ndata Tree = {declaration}\nread tree = case tree of\n  Node n Leaf Leaf -> n\n  Node _ _ _ -> 1\n  Leaf -> 0\nmain = read (Node 42 Leaf Leaf)\n"
+        );
+        let Some(output) = run_with_wasmtime(&source) else {
+            eprintln!("skipping: wasmtime is not installed");
+            return;
+        };
+        assert_eq!(output.status.code(), Some(42), "{source}");
+    }
 }
 
 /// PM-11: the optimizer and Wasm lowering preserve the selected branch value

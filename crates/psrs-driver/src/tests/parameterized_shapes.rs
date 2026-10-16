@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn maps_generic_arrays_across_polymorphic_adt_boundaries() {
+fn preserves_generic_arrays_across_polymorphic_adt_boundaries() {
     let source = "\
 module Main where
 data Wrap a = Wrap (Array a)
@@ -13,23 +13,19 @@ unwrap value = case value of
 main = arrayIndex (unwrap (wrap [40, 42])) 1
 ";
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("generic source Core should lower to CC before P7")
-    .cc;
+    let generic_cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("generic source Core should lower to CC before P7")
+        .cc;
     let generic_array_maps = aggregate_conversions(&generic_cc)
         .iter()
         .map(|conversion| array_map_count(&conversion.plan))
         .sum::<usize>();
     assert!(
-        generic_array_maps >= 2,
-        "expected pre-P7 concrete/generic boundary maps; found {generic_array_maps}"
+        generic_array_maps == 0,
+        "expected no array copying at pre-P7 concrete/generic boundaries; found {generic_array_maps}"
     );
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("generic Array a must map at concrete call boundaries");
@@ -82,12 +78,12 @@ main = arrayIndex (unwrap (wrap [40, 42])) 1
         })
         .count();
     assert!(
-        array_maps >= 2,
-        "expected specialization and canonicalization maps; found {array_maps}"
+        array_maps == 0,
+        "expected no array reconstruction; found {array_maps}"
     );
-    assert!(stages.artifact.wat.contains("array.new_default"));
+    assert!(!stages.artifact.wat.contains("array.new_default"));
     assert!(stages.artifact.wat.contains("array.get"));
-    assert!(stages.artifact.wat.contains("array.set"));
+    assert!(stages.artifact.wat.contains("array.new_fixed"));
     let Some(output) = run_wasmtime(source) else {
         eprintln!("skipping execution: wasmtime is not installed");
         return;
@@ -108,22 +104,22 @@ copy record = record { value = record.value }
 main = arrayIndex ((copy { items: [40, 42], value: 7 }).items) 1
 ";
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("generic source Core should lower to CC before P7")
-    .cc;
+    let generic_cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("generic source Core should lower to CC before P7")
+        .cc;
     let generic_conversions = aggregate_conversions(&generic_cc);
     assert!(
         generic_conversions
             .iter()
-            .any(|conversion| { contains_canonical_record_array_map(&conversion.plan) }),
-        "expected a pre-P7 canonical closed-record map containing a nested array map"
+            .all(|conversion| array_map_count(&conversion.plan) == 0),
+        "record conversion must retain its nested array storage"
     );
+    assert!(generic_cc.functions.iter().flat_map(|function| &function.assignments).any(|assignment|
+        matches!(assignment.kind, psrs_backend::cc::AssignmentKind::ProductNew { representation, .. }
+            if generic_cc.representations.product_labels(representation) == Some(&["items".to_owned(), "value".to_owned()]))),
+        "record conversion retains explicit product construction");
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("closed generic records should map across concrete instantiations");
@@ -143,7 +139,7 @@ main = arrayIndex ((copy { items: [40, 42], value: 7 }).items) 1
 }
 
 #[test]
-fn maps_nested_generic_arrays_recursively_across_instantiations() {
+fn preserves_nested_generic_arrays_across_instantiations() {
     let source = "\
 module Main where
 duplicate :: forall a. Array (Array a) -> Array (Array a)
@@ -151,12 +147,9 @@ duplicate values = values
 main = arrayIndex (arrayIndex (duplicate [[40, 42]]) 0) 1
 ";
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("generic source Core should lower to CC before P7")
-    .cc;
+    let generic_cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("generic source Core should lower to CC before P7")
+        .cc;
     let conversions = aggregate_conversions(&generic_cc);
     let maximum_nested_array_maps = conversions
         .iter()
@@ -164,12 +157,11 @@ main = arrayIndex (arrayIndex (duplicate [[40, 42]]) 0) 1
         .max()
         .unwrap_or_default();
     assert!(
-        maximum_nested_array_maps >= 2,
-        "expected pre-P7 recursively nested ArrayMap plans; found depth {maximum_nested_array_maps}"
+        maximum_nested_array_maps == 0,
+        "expected no recursive array reconstruction; found depth {maximum_nested_array_maps}"
     );
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("nested generic arrays should map recursively");
@@ -196,23 +188,19 @@ concrete values = values
 main = arrayIndex (applyArray concrete [40, 42]) 1
 ";
     let prepared = crate::prepare_main(source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::lower_cc_with_context(
-        prepared.core.clone(),
-        prepared.effect_context.as_ref(),
-    )
-    .expect("generic source Core should lower to CC before P7")
-    .cc;
+    let generic_cc = psrs_backend::cc::lower_module(prepared.core.clone())
+        .expect("generic source Core should lower to CC before P7")
+        .cc;
     let array_maps = aggregate_conversions(&generic_cc)
         .iter()
         .map(|conversion| array_map_count(&conversion.plan))
         .sum::<usize>();
     assert!(
-        array_maps >= 2,
-        "expected pre-P7 higher-order argument and result ArrayMap plans; found {array_maps}"
+        array_maps == 0,
+        "expected no pre-P7 higher-order array reconstruction; found {array_maps}"
     );
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("higher-order adapters should convert generic aggregate arguments and results");
@@ -292,20 +280,6 @@ fn array_map_depth(conversion: &psrs_backend::cc::ValueConversion) -> usize {
             fields.iter().map(array_map_depth).max().unwrap_or_default()
         }
         _ => 0,
-    }
-}
-
-fn contains_canonical_record_array_map(conversion: &psrs_backend::cc::ValueConversion) -> bool {
-    use psrs_backend::cc::ValueConversion;
-
-    match conversion {
-        ValueConversion::ProductMap { labels, fields, .. } => {
-            labels == &["items".to_owned(), "value".to_owned()]
-                && fields.iter().any(|field| array_map_count(field) > 0)
-        }
-        ValueConversion::ArrayMap { element, .. } => contains_canonical_record_array_map(element),
-        ValueConversion::Sequence(steps) => steps.iter().any(contains_canonical_record_array_map),
-        _ => false,
     }
 }
 

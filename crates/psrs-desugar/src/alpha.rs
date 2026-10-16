@@ -106,7 +106,7 @@ fn collect_expr_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
                 collect_expr_ids(element, ids);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 collect_expr_ids(value, ids);
             }
@@ -231,6 +231,12 @@ fn rename_expr(expression: Expr, mapping: &HashMap<LocalId, LocalId>) -> Expr {
                 .collect(),
         ),
         ExprKind::Record(fields) => ExprKind::Record(
+            fields
+                .into_iter()
+                .map(|(label, value)| (label, rename_expr(value, mapping)))
+                .collect(),
+        ),
+        ExprKind::MatchProduct(fields) => ExprKind::MatchProduct(
             fields
                 .into_iter()
                 .map(|(label, value)| (label, rename_expr(value, mapping)))

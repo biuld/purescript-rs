@@ -1,3 +1,4 @@
+use crate::boundary::BoundaryEvidence;
 use crate::cc::lower::{FunctionLowerer, GeneratedSymbolAllocator};
 use crate::cc::{
     Function, RefShape, Reference, Representation, RepresentationTable, ValueDecl, ValueShape,
@@ -111,6 +112,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
         nullable: false,
         heap: RefShape::Repr(representation),
     });
+    let boundary = BoundaryEvidence::empty(&module);
     let mut lowerer = FunctionLowerer {
         next_value: 1,
         values: vec![ValueDecl {
@@ -121,11 +123,18 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
         signatures: &signatures,
         representations: &representations,
         module: &module,
+        boundary: &boundary,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
+        nominal_types: &std::collections::HashMap::new(),
         boxed_integer_type: None,
         boxed_number_type: None,
+        control_layout: None,
+        control_functions: std::rc::Rc::new(std::cell::RefCell::new(None)),
+        generated_signatures: std::rc::Rc::new(std::cell::RefCell::new(
+            std::collections::HashMap::new(),
+        )),
         array_types: &array_types,
         record_types: &record_types,
         constructor_tags: &constructor_tags,

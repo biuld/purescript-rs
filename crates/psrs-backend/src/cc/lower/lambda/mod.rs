@@ -1,4 +1,6 @@
-use super::super::layout::{function_type_signature, scalar_type, unquantified_type};
+use super::super::layout::{
+    function_arrow_parameters, function_type_signature, scalar_type, unquantified_type,
+};
 use super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, ValueId, ValueShape,
 };
@@ -8,10 +10,12 @@ use psrs_core::{Expr, ExprKind};
 use std::collections::HashMap;
 
 mod captures;
+mod eta;
 mod wrapper;
 
 pub(super) use captures::collect_captures;
 use captures::lambda_captures;
+pub(super) use eta::EtaApplication;
 pub(super) use wrapper::make_wrapper;
 
 pub(super) trait LambdaLowering {
@@ -80,6 +84,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             self.enum_types,
             self.aggregate_types,
             self.newtype_ids,
+            self.nominal_types,
             self.array_types,
             self.record_types,
             self.function_types,
@@ -103,21 +108,42 @@ impl LambdaLowering for FunctionLowerer<'_> {
         let mut nested = self.child_lowerer();
         let closure_parameter = nested.fresh(closure_value_type());
         let mut parameters = vec![closure_parameter];
-        for binder in &binders {
-            let parameter_type = scalar_type(
+        let source_parameter_types = function_arrow_parameters(self.module, expression.ty).0;
+        let mut nested_assignments = Vec::new();
+        let mut binder_adaptations = Vec::with_capacity(binders.len());
+        for (index, binder) in binders.iter().enumerate() {
+            let binder_shape = scalar_type(
                 self.module,
                 binder.ty,
                 binder.span,
                 self.enum_types,
                 self.aggregate_types,
                 self.newtype_ids,
+                self.nominal_types,
                 self.array_types,
                 self.record_types,
                 self.function_types,
             )?;
-            let parameter = nested.fresh(parameter_type);
-            nested.locals.insert(binder.id, parameter);
+            let parameter_shape = signature_definition
+                .as_ref()
+                .and_then(|signature| signature.parameters.get(index))
+                .copied()
+                .unwrap_or(binder_shape);
+            let parameter = nested.fresh(parameter_shape);
             nested.local_types.insert(binder.id, binder.ty);
+            let source_type = source_parameter_types
+                .get(index)
+                .copied()
+                .unwrap_or(binder.ty);
+            binder_adaptations.push((
+                binder.id,
+                parameter,
+                source_type,
+                binder.ty,
+                parameter_shape,
+                binder_shape,
+                binder.span,
+            ));
             parameters.push(parameter);
         }
         let mut extra_parameters = Vec::new();
@@ -131,7 +157,26 @@ impl LambdaLowering for FunctionLowerer<'_> {
                 extra_parameters.push(parameter);
             }
         }
-        let mut nested_assignments = Vec::new();
+        for (local, parameter, source_type, binder_type, parameter_shape, binder_shape, span) in
+            binder_adaptations
+        {
+            let conversion = nested.typed_conversion(
+                source_type,
+                binder_type,
+                parameter_shape,
+                binder_shape,
+                span,
+            )?;
+            let bound_value = nested.emit_conversion(
+                parameter,
+                parameter_shape,
+                binder_shape,
+                conversion,
+                span,
+                &mut nested_assignments,
+            );
+            nested.locals.insert(local, bound_value);
+        }
         for (index, capture) in captures.into_iter().enumerate() {
             let Some(outer_value) = self.locals.get(&capture).copied() else {
                 return Err(capture_error(expression));
@@ -170,36 +215,17 @@ impl LambdaLowering for FunctionLowerer<'_> {
                 .expect("an eta-expanded lambda has an interned signature");
             let body_signature =
                 body_signature.expect("an eta-expanded lambda has a body signature");
-            // Recover the erased function value into its closure shape so the
-            // indirect call can name the body signature.
-            let callable = if is_erased_reference(nested_result_type) {
-                let closure = nested.fresh(closure_value_type_for(body_signature));
-                nested_assignments.push(Assignment {
-                    destination: closure,
-                    kind: AssignmentKind::RepresentationCast {
-                        destination: closure,
-                        value: result,
-                        reference: Reference {
-                            nullable: false,
-                            heap: RefShape::Closure(body_signature),
-                        },
-                    },
-                    span: expression.span,
-                });
-                closure
-            } else {
-                result
-            };
-            let final_result = nested.fresh(signature_definition.result);
-            nested_assignments.push(Assignment {
-                destination: final_result,
-                kind: AssignmentKind::IndirectCall {
-                    function: callable,
+            let final_result = nested.apply_eta_result(
+                EtaApplication {
+                    value: result,
+                    shape: nested_result_type,
                     signature: body_signature,
                     arguments: extra_parameters,
+                    result_shape: signature_definition.result,
+                    span: expression.span,
                 },
-                span: expression.span,
-            });
+                &mut nested_assignments,
+            )?;
             (final_result, signature_definition.result)
         } else {
             (result, nested_result_type)
@@ -215,11 +241,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             result_type: final_result_type,
             span: expression.span,
         };
-        super::super::verify::verify_function(
-            &nested_function,
-            self.signatures,
-            self.representations,
-        )?;
+        self.verify_synthesized(&nested_function)?;
         let FunctionLowerer {
             generated: nested_generated,
             warnings: nested_warnings,
@@ -274,11 +296,15 @@ impl LambdaLowering for FunctionLowerer<'_> {
             signatures: self.signatures,
             representations: self.representations,
             module: self.module,
+            boundary: self.boundary,
             enum_types: self.enum_types,
             aggregate_types: self.aggregate_types,
             newtype_ids: self.newtype_ids,
+            nominal_types: self.nominal_types,
             boxed_integer_type: self.boxed_integer_type,
             boxed_number_type: self.boxed_number_type,
+            control_layout: self.control_layout,
+            control_functions: std::rc::Rc::clone(&self.control_functions),
             array_types: self.array_types,
             record_types: self.record_types,
             constructor_tags: self.constructor_tags,
@@ -287,6 +313,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             function_types: self.function_types,
             function_wrappers: self.function_wrappers,
             generated_symbols: std::rc::Rc::clone(&self.generated_symbols),
+            generated_signatures: std::rc::Rc::clone(&self.generated_signatures),
             owner: self.owner,
             warnings: Vec::new(),
             local_types: HashMap::new(),

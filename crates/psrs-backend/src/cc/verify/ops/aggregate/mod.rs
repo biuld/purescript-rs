@@ -38,7 +38,7 @@ fn verify_plan(
     table: &RepresentationTable,
 ) -> Result<ValueShape, Vec<BackendError>> {
     match plan {
-        ValueConversion::Identity => Ok(source),
+        ValueConversion::Identity => Ok(plan.output_shape(source)),
         ValueConversion::BoxScalar {
             kind,
             representation,
@@ -62,7 +62,7 @@ fn verify_plan(
                     "scalar box plan has incompatible shapes",
                 ));
             }
-            Ok(repr_shape(*representation))
+            Ok(plan.output_shape(source))
         }
         ValueConversion::UnboxScalar {
             kind,
@@ -86,12 +86,12 @@ fn verify_plan(
                     if *value == ValueShape::Integer
                         && matches!(destination, ValueShape::Integer | ValueShape::Boolean) =>
                 {
-                    Ok(*destination)
+                    Ok(plan.output_shape(source))
                 }
                 BoxKind::Number
                     if *value == ValueShape::Number && *destination == ValueShape::Number =>
                 {
-                    Ok(*destination)
+                    Ok(plan.output_shape(source))
                 }
                 _ => Err(assignment_error(
                     assignment,
@@ -110,7 +110,7 @@ fn verify_plan(
                     "reference erasure requires a typed reference",
                 ));
             }
-            Ok(erased_shape())
+            Ok(plan.output_shape(source))
         }
         ValueConversion::RecoverReference {
             destination,
@@ -177,7 +177,7 @@ fn verify_plan(
                     ));
                 }
             }
-            Ok(*destination)
+            Ok(plan.output_shape(source))
         }
         ValueConversion::FunctionAdapter {
             source: expected,
@@ -201,7 +201,7 @@ fn verify_plan(
             }
             super::super::helpers::verify_value_shape(&source, table, assignment.span)?;
             super::super::helpers::verify_value_shape(destination, table, assignment.span)?;
-            Ok(*destination)
+            Ok(plan.output_shape(source))
         }
         ValueConversion::Sequence(plans) => {
             let mut shape = source;
@@ -241,7 +241,7 @@ fn verify_plan(
                     "array map element conversion is invalid",
                 ));
             }
-            Ok(repr_shape(*target))
+            Ok(plan.output_shape(source))
         }
         ValueConversion::ProductMap {
             source: source_id,
@@ -289,7 +289,7 @@ fn verify_plan(
                     ));
                 }
             }
-            Ok(repr_shape(*target))
+            Ok(plan.output_shape(source))
         }
     }
 }

@@ -133,3 +133,77 @@ fn check_commands_print_typecheck_warnings() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn diagnose_writes_a_diagnostic_bundle_that_replays_outside_the_bundle() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after UNIX epoch")
+        .as_nanos();
+    let root =
+        std::env::temp_dir().join(format!("psrs-diagnose-cli-{}-{unique}", std::process::id()));
+    std::fs::create_dir_all(&root).expect("create diagnosis test directory");
+    let source = root.join("Broken.purs");
+    let snapshot = root.join("snapshot.json");
+    std::fs::write(&source, "module Broken where\nmain = @\n").expect("write malformed source");
+
+    let result = Command::new(env!("CARGO_BIN_EXE_psrs"))
+        .args([
+            "diagnose",
+            source.to_str().expect("source path is UTF-8"),
+            "--out",
+            snapshot.to_str().expect("snapshot path is UTF-8"),
+        ])
+        .output()
+        .expect("run psrs diagnose");
+    assert!(
+        result.status.success(),
+        "diagnosis command failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&snapshot).expect("read diagnosis snapshot"))
+            .expect("parse diagnosis snapshot");
+    let case = &report["cases"][0];
+    assert_eq!(case["status"], "failed");
+    assert_eq!(case["input_set_complete"], true);
+    let diagnostic = &case["diagnostics"][0];
+    assert!(!diagnostic["stage"].as_str().unwrap_or_default().is_empty());
+    assert!(
+        !diagnostic["message"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty()
+    );
+
+    let bundle = std::path::PathBuf::from(
+        case["bundle"]
+            .as_str()
+            .expect("failed case has bundle path"),
+    );
+    assert!(bundle.join("case.json").is_file());
+    assert!(bundle.join("inputs/0000-Broken.purs").is_file());
+    let replay = Command::new("sh")
+        .arg(bundle.join("replay.sh"))
+        .current_dir(&root)
+        .output()
+        .expect("replay diagnosis bundle from outside its directory");
+    assert!(
+        !replay.status.success(),
+        "broken source unexpectedly compiled"
+    );
+    let replay_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&replay.stdout),
+        String::from_utf8_lossy(&replay.stderr)
+    );
+    assert!(
+        replay_output.contains(diagnostic["message"].as_str().unwrap()),
+        "replay did not reproduce the recorded diagnostic: {replay_output}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}

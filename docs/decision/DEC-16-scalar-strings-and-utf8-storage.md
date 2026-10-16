@@ -140,10 +140,20 @@ The migration has landed:
   intentional differences, and L1 parse agreement is 904/908 with exactly those
   four cases as the remainder.
 
-One part of the target is not implemented: there is no source-level string
-length, indexing, or slicing operation yet, so scalar-value boundaries are
-enforced inside the storage and boundary paths only. Adding those operations is
-where the scalar/byte distinction first becomes visible to source.
+Source-level scalar length, take, drop, slice and splitAt now execute through
+Data.String.CodeUnits foreign-slot delegates to the independent PSRS.String
+library. The library scans validated canonical UTF-8 and maps scalar indices
+to byte boundaries before copying a range through PSRS.Array.sliceImpl. The
+448-case pinned-FFI projection oracle makes the intentional scalar/UTF-16
+difference explicit; see the [acceptance checkpoint](../implementation/stdlib/string-slicing-2026-10-07/report.md).
+Scalar charAt and toChar now also execute through typed foreign-slot delegates.
+The private library decoder reconstructs one scalar from validated canonical
+UTF-8 before using the existing Int-to-Char identity primitive. The original
+rank-N constructors and public pure wrappers are preserved. Their 269 projected
+FFI observations and 6 builder checks are recorded in the
+[character checkpoint](../implementation/stdlib/string-characters-2026-10-07/report.md).
+Other foreign slots, including unsafe character indexing and predicate
+traversal, remain unsupported. This does not establish the full String API.
 
 This record is the semantic authority. The design documents state the contract,
 including

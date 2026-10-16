@@ -1,3 +1,4 @@
+mod callable_fields;
 mod calls;
 mod types;
 
@@ -63,6 +64,9 @@ impl State {
         call_type: crate::TypeId,
         pending: &mut Vec<Declaration>,
     ) -> Option<SymbolId> {
+        if callable_fields::crosses_callable_field(module, declaration) {
+            return None;
+        }
         let (replacements, arguments) = match_instantiation(module, declaration, call_type)?;
         let key = Key {
             declaration: declaration.symbol,
@@ -160,6 +164,10 @@ pub(super) fn retain_live(mut module: Module, generated: &HashSet<SymbolId>) -> 
 }
 
 fn collect_references(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
+    psrs_span::with_sufficient_stack(|| collect_references_inner(expression, out))
+}
+
+fn collect_references_inner(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
         crate::ExprKind::Global(symbol) => out.push(*symbol),
         crate::ExprKind::Constructor { arguments, .. }

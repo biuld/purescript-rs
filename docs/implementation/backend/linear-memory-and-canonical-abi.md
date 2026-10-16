@@ -263,7 +263,7 @@ ABI-06:
 
 ```text
 ABI-07:
-  Implementation: crates/psrs-backend/src/component.rs (wit-component lift).
+  Implementation: crates/psrs-linker/src/compose.rs (wit-component lift).
   Tests: psrs-driver tests::integration::emits_a_wasi_command_component;
     tests::wasi::runs_main_as_a_wasi_component_when_wasmtime_is_available.
   Input boundary: encoded core module.

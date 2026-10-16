@@ -1,0 +1,3821 @@
+--- purescript-prelude@v6.0.1/src/Control/Apply.purs
++++ stdlib/lib/Control/Apply.purs
+@@ -60,7 +60,22 @@
+ instance applyArray :: Apply Array where
+   apply = arrayApply
+ 
+-foreign import arrayApply :: forall a b. Array (a -> b) -> Array a -> Array b
++arrayApply :: forall a b. Array (a -> b) -> Array a -> Array b
++arrayApply a0 a1 = applyArrayFrom a0 a1 0
++
++applyArrayFrom :: forall a b. Array (a -> b) -> Array a -> Int -> Array b
++applyArrayFrom fs xs index =
++  if intLt index (arrayLength fs) then
++    arrayAppend (mapArrayAll (arrayIndex fs index) xs 0) (applyArrayFrom fs xs (intAdd index 1))
++  else
++    []
++
++mapArrayAll :: forall a b. (a -> b) -> Array a -> Int -> Array b
++mapArrayAll f xs index =
++  if intLt index (arrayLength xs) then
++    arrayAppend [f (arrayIndex xs index)] (mapArrayAll f xs (intAdd index 1))
++  else
++    []
+ 
+ instance applyProxy :: Apply Proxy where
+   apply _ _ = Proxy
+--- purescript-prelude@v6.0.1/src/Control/Bind.purs
++++ stdlib/lib/Control/Bind.purs
+@@ -94,7 +94,15 @@
+ instance bindArray :: Bind Array where
+   bind = arrayBind
+ 
+-foreign import arrayBind :: forall a b. Array a -> (a -> Array b) -> Array b
++arrayBind :: forall a b. Array a -> (a -> Array b) -> Array b
++arrayBind a0 a1 = bindArrayFrom a0 a1 0
++
++bindArrayFrom :: forall a b. Array a -> (a -> Array b) -> Int -> Array b
++bindArrayFrom xs f index =
++  if intLt index (arrayLength xs) then
++    arrayAppend (f (arrayIndex xs index)) (bindArrayFrom xs f (intAdd index 1))
++  else
++    []
+ 
+ instance bindProxy :: Bind Proxy where
+   bind _ _ = Proxy
+--- purescript-control@v6.0.0/src/Control/Extend.purs
++++ stdlib/lib/Control/Extend.purs
+@@ -27,7 +27,8 @@
+ instance extendFn :: Semigroup w => Extend ((->) w) where
+   extend f g w = f \w' -> g (w <> w')
+ 
+-foreign import arrayExtend :: forall a b. (Array a -> b) -> Array a -> Array b
++arrayExtend :: forall a b. (Array a -> b) -> Array a -> Array b
++arrayExtend a0 a1 = arrayExtend a0 a1
+ 
+ instance extendArray :: Extend Array where
+   extend = arrayExtend
+--- purescript-st@v6.2.0/src/Control/Monad/ST/Internal.purs
++++ stdlib/lib/Control/Monad/ST/Internal.purs
+@@ -35,11 +35,14 @@
+ 
+ type role ST nominal representational
+ 
+-foreign import map_ :: forall r a b. (a -> b) -> ST r a -> ST r b
++map_ :: forall r a b. (a -> b) -> ST r a -> ST r b
++map_ a0 a1 = map_ a0 a1
+ 
+-foreign import pure_ :: forall r a. a -> ST r a
++pure_ :: forall r a. a -> ST r a
++pure_ a0 = pure_ a0
+ 
+-foreign import bind_ :: forall r a b. ST r a -> (a -> ST r b) -> ST r b
++bind_ :: forall r a b. ST r a -> (a -> ST r b) -> ST r b
++bind_ a0 a1 = bind_ a0 a1
+ 
+ instance functorST :: Functor (ST r) where
+   map = map_
+@@ -86,26 +89,30 @@
+ -- | to the surrounding computation. It may cause problems to apply this
+ -- | function using the `$` operator. The recommended approach is to use
+ -- | parentheses instead.
+-foreign import run :: forall a. (forall r. ST r a) -> a
++run :: forall a. (forall r. ST r a) -> a
++run a0 = run a0
+ 
+ -- | Loop while a condition is `true`.
+ -- |
+ -- | `while b m` is ST computation which runs the ST computation `b`. If its
+ -- | result is `true`, it runs the ST computation `m` and loops. If not, the
+ -- | computation ends.
+-foreign import while :: forall r a. ST r Boolean -> ST r a -> ST r Unit
++while :: forall r a. ST r Boolean -> ST r a -> ST r Unit
++while a0 a1 = while a0 a1
+ 
+ -- | Loop over a consecutive collection of numbers
+ -- |
+ -- | `ST.for lo hi f` runs the computation returned by the function `f` for each
+ -- | of the inputs between `lo` (inclusive) and `hi` (exclusive).
+-foreign import for :: forall r a. Int -> Int -> (Int -> ST r a) -> ST r Unit
++for :: forall r a. Int -> Int -> (Int -> ST r a) -> ST r Unit
++for a0 a1 a2 = for a0 a1 a2
+ 
+ -- | Loop over an array of values.
+ -- |
+ -- | `ST.foreach xs f` runs the computation returned by the function `f` for each
+ -- | of the inputs `xs`.
+-foreign import foreach :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit
++foreach :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit
++foreach a0 a1 = foreach a0 a1
+ 
+ -- | The type `STRef r a` represents a mutable reference holding a value of
+ -- | type `a`, which can be used with the `ST r` effect.
+@@ -114,10 +121,12 @@
+ type role STRef nominal representational
+ 
+ -- | Create a new mutable reference.
+-foreign import new :: forall a r. a -> ST r (STRef r a)
++new :: forall a r. a -> ST r (STRef r a)
++new a0 = new a0
+ 
+ -- | Read the current value of a mutable reference.
+-foreign import read :: forall a r. STRef r a -> ST r a
++read :: forall a r. STRef r a -> ST r a
++read a0 = read a0
+ 
+ -- | Update the value of a mutable reference by applying a function
+ -- | to the current value, computing a new state value for the reference and
+@@ -125,7 +134,8 @@
+ modify' :: forall r a b. (a -> { state :: a, value :: b }) -> STRef r a -> ST r b
+ modify' = modifyImpl
+ 
+-foreign import modifyImpl :: forall r a b. (a -> { state :: a, value :: b }) -> STRef r a -> ST r b
++modifyImpl :: forall r a b. (a -> { state :: a, value :: b }) -> STRef r a -> ST r b
++modifyImpl a0 a1 = modifyImpl a0 a1
+ 
+ -- | Modify the value of a mutable reference by applying a function to the
+ -- | current value. The modified value is returned.
+@@ -133,4 +143,5 @@
+ modify f = modify' \s -> let s' = f s in { state: s', value: s' }
+ 
+ -- | Set the value of a mutable reference.
+-foreign import write :: forall a r. a -> STRef r a -> ST r a
++write :: forall a r. a -> STRef r a -> ST r a
++write a0 a1 = write a0 a1
+--- purescript-st@v6.2.0/src/Control/Monad/ST/Uncurried.purs
++++ stdlib/lib/Control/Monad/ST/Uncurried.purs
+@@ -58,44 +58,44 @@
+ 
+ type role STFn10 representational representational representational representational representational representational representational representational representational representational nominal representational
+ 
+-foreign import mkSTFn1 :: forall a t r.
+-  (a -> ST t r) -> STFn1 a t r
+-foreign import mkSTFn2 :: forall a b t r.
+-  (a -> b -> ST t r) -> STFn2 a b t r
+-foreign import mkSTFn3 :: forall a b c t r.
+-  (a -> b -> c -> ST t r) -> STFn3 a b c t r
+-foreign import mkSTFn4 :: forall a b c d t r.
+-  (a -> b -> c -> d -> ST t r) -> STFn4 a b c d t r
+-foreign import mkSTFn5 :: forall a b c d e t r.
+-  (a -> b -> c -> d -> e -> ST t r) -> STFn5 a b c d e t r
+-foreign import mkSTFn6 :: forall a b c d e f t r.
+-  (a -> b -> c -> d -> e -> f -> ST t r) -> STFn6 a b c d e f t r
+-foreign import mkSTFn7 :: forall a b c d e f g t r.
+-  (a -> b -> c -> d -> e -> f -> g -> ST t r) -> STFn7 a b c d e f g t r
+-foreign import mkSTFn8 :: forall a b c d e f g h t r.
+-  (a -> b -> c -> d -> e -> f -> g -> h -> ST t r) -> STFn8 a b c d e f g h t r
+-foreign import mkSTFn9 :: forall a b c d e f g h i t r.
+-  (a -> b -> c -> d -> e -> f -> g -> h -> i -> ST t r) -> STFn9 a b c d e f g h i t r
+-foreign import mkSTFn10 :: forall a b c d e f g h i j t r.
+-  (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> ST t r) -> STFn10 a b c d e f g h i j t r
++mkSTFn1 :: forall a t r. (a -> ST t r) -> STFn1 a t r
++mkSTFn1 a0 = mkSTFn1 a0
++mkSTFn2 :: forall a b t r. (a -> b -> ST t r) -> STFn2 a b t r
++mkSTFn2 a0 = mkSTFn2 a0
++mkSTFn3 :: forall a b c t r. (a -> b -> c -> ST t r) -> STFn3 a b c t r
++mkSTFn3 a0 = mkSTFn3 a0
++mkSTFn4 :: forall a b c d t r. (a -> b -> c -> d -> ST t r) -> STFn4 a b c d t r
++mkSTFn4 a0 = mkSTFn4 a0
++mkSTFn5 :: forall a b c d e t r. (a -> b -> c -> d -> e -> ST t r) -> STFn5 a b c d e t r
++mkSTFn5 a0 = mkSTFn5 a0
++mkSTFn6 :: forall a b c d e f t r. (a -> b -> c -> d -> e -> f -> ST t r) -> STFn6 a b c d e f t r
++mkSTFn6 a0 = mkSTFn6 a0
++mkSTFn7 :: forall a b c d e f g t r. (a -> b -> c -> d -> e -> f -> g -> ST t r) -> STFn7 a b c d e f g t r
++mkSTFn7 a0 = mkSTFn7 a0
++mkSTFn8 :: forall a b c d e f g h t r. (a -> b -> c -> d -> e -> f -> g -> h -> ST t r) -> STFn8 a b c d e f g h t r
++mkSTFn8 a0 = mkSTFn8 a0
++mkSTFn9 :: forall a b c d e f g h i t r. (a -> b -> c -> d -> e -> f -> g -> h -> i -> ST t r) -> STFn9 a b c d e f g h i t r
++mkSTFn9 a0 = mkSTFn9 a0
++mkSTFn10 :: forall a b c d e f g h i j t r. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> ST t r) -> STFn10 a b c d e f g h i j t r
++mkSTFn10 a0 = mkSTFn10 a0
+ 
+-foreign import runSTFn1 :: forall a t r.
+-  STFn1 a t r -> a -> ST t r
+-foreign import runSTFn2 :: forall a b t r.
+-  STFn2 a b t r -> a -> b -> ST t r
+-foreign import runSTFn3 :: forall a b c t r.
+-  STFn3 a b c t r -> a -> b -> c -> ST t r
+-foreign import runSTFn4 :: forall a b c d t r.
+-  STFn4 a b c d t r -> a -> b -> c -> d -> ST t r
+-foreign import runSTFn5 :: forall a b c d e t r.
+-  STFn5 a b c d e t r -> a -> b -> c -> d -> e -> ST t r
+-foreign import runSTFn6 :: forall a b c d e f t r.
+-  STFn6 a b c d e f t r -> a -> b -> c -> d -> e -> f -> ST t r
+-foreign import runSTFn7 :: forall a b c d e f g t r.
+-  STFn7 a b c d e f g t r -> a -> b -> c -> d -> e -> f -> g -> ST t r
+-foreign import runSTFn8 :: forall a b c d e f g h t r.
+-  STFn8 a b c d e f g h t r -> a -> b -> c -> d -> e -> f -> g -> h -> ST t r
+-foreign import runSTFn9 :: forall a b c d e f g h i t r.
+-  STFn9 a b c d e f g h i t r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> ST t r
+-foreign import runSTFn10 :: forall a b c d e f g h i j t r.
+-  STFn10 a b c d e f g h i j t r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> ST t r
++runSTFn1 :: forall a t r. STFn1 a t r -> a -> ST t r
++runSTFn1 a0 a1 = runSTFn1 a0 a1
++runSTFn2 :: forall a b t r. STFn2 a b t r -> a -> b -> ST t r
++runSTFn2 a0 a1 a2 = runSTFn2 a0 a1 a2
++runSTFn3 :: forall a b c t r. STFn3 a b c t r -> a -> b -> c -> ST t r
++runSTFn3 a0 a1 a2 a3 = runSTFn3 a0 a1 a2 a3
++runSTFn4 :: forall a b c d t r. STFn4 a b c d t r -> a -> b -> c -> d -> ST t r
++runSTFn4 a0 a1 a2 a3 a4 = runSTFn4 a0 a1 a2 a3 a4
++runSTFn5 :: forall a b c d e t r. STFn5 a b c d e t r -> a -> b -> c -> d -> e -> ST t r
++runSTFn5 a0 a1 a2 a3 a4 a5 = runSTFn5 a0 a1 a2 a3 a4 a5
++runSTFn6 :: forall a b c d e f t r. STFn6 a b c d e f t r -> a -> b -> c -> d -> e -> f -> ST t r
++runSTFn6 a0 a1 a2 a3 a4 a5 a6 = runSTFn6 a0 a1 a2 a3 a4 a5 a6
++runSTFn7 :: forall a b c d e f g t r. STFn7 a b c d e f g t r -> a -> b -> c -> d -> e -> f -> g -> ST t r
++runSTFn7 a0 a1 a2 a3 a4 a5 a6 a7 = runSTFn7 a0 a1 a2 a3 a4 a5 a6 a7
++runSTFn8 :: forall a b c d e f g h t r. STFn8 a b c d e f g h t r -> a -> b -> c -> d -> e -> f -> g -> h -> ST t r
++runSTFn8 a0 a1 a2 a3 a4 a5 a6 a7 a8 = runSTFn8 a0 a1 a2 a3 a4 a5 a6 a7 a8
++runSTFn9 :: forall a b c d e f g h i t r. STFn9 a b c d e f g h i t r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> ST t r
++runSTFn9 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 = runSTFn9 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9
++runSTFn10 :: forall a b c d e f g h i j t r. STFn10 a b c d e f g h i j t r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> ST t r
++runSTFn10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 = runSTFn10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10
+--- purescript-arrays@v7.3.0/src/Data/Array/NonEmpty/Internal.purs
++++ stdlib/lib/Data/Array/NonEmpty/Internal.purs
+@@ -72,13 +72,10 @@
+ derive newtype instance altNonEmptyArray :: Alt NonEmptyArray
+ 
+ -- we use FFI here to avoid the unncessary copy created by `tail`
+-foreign import foldr1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a
+-foreign import foldl1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a
++foldr1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a
++foldr1Impl = foldr1Impl
++foldl1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a
++foldl1Impl = foldl1Impl
+ 
+-foreign import traverse1Impl
+-  :: forall m a b
+-   . Fn3
+-       (forall a' b'. (m (a' -> b') -> m a' -> m b'))
+-       (forall a' b'. (a' -> b') -> m a' -> m b')
+-       (a -> m b)
+-       (NonEmptyArray a -> m (NonEmptyArray b))
++traverse1Impl :: forall m a b . Fn3 (forall a' b'. (m (a' -> b') -> m a' -> m b')) (forall a' b'. (a' -> b') -> m a' -> m b') (a -> m b) (NonEmptyArray a -> m (NonEmptyArray b))
++traverse1Impl = traverse1Impl
+--- purescript-arrays@v7.3.0/src/Data/Array/ST/Partial.purs
++++ stdlib/lib/Data/Array/ST/Partial.purs
+@@ -21,7 +21,8 @@
+   -> ST h a
+ peek = runSTFn2 peekImpl
+ 
+-foreign import peekImpl :: forall h a. STFn2 Int (STArray h a) h a
++peekImpl :: forall h a. STFn2 Int (STArray h a) h a
++peekImpl = peekImpl
+ 
+ -- | Change the value at the specified index in a mutable array.
+ poke
+@@ -33,4 +34,5 @@
+   -> ST h Unit
+ poke = runSTFn3 pokeImpl
+ 
+-foreign import pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Unit
++pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Unit
++pokeImpl = pokeImpl
+--- purescript-arrays@v7.3.0/src/Data/Array/ST.purs
++++ stdlib/lib/Data/Array/ST.purs
+@@ -75,17 +75,20 @@
+ unsafeFreeze :: forall h a. STArray h a -> ST h (Array a)
+ unsafeFreeze = runSTFn1 unsafeFreezeImpl
+ 
+-foreign import unsafeFreezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)
++unsafeFreezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)
++unsafeFreezeImpl = unsafeFreezeImpl
+ 
+ -- | O(1) Convert an immutable array to a mutable array, without copying. The input
+ -- | array must not be used afterward.
+ unsafeThaw :: forall h a. Array a -> ST h (STArray h a)
+ unsafeThaw = runSTFn1 unsafeThawImpl
+ 
+-foreign import unsafeThawImpl :: forall h a. STFn1 (Array a) h (STArray h a)
++unsafeThawImpl :: forall h a. STFn1 (Array a) h (STArray h a)
++unsafeThawImpl = unsafeThawImpl
+ 
+ -- | Create a new, empty mutable array.
+-foreign import new :: forall h a. ST h (STArray h a)
++new :: forall h a. ST h (STArray h a)
++new = new
+ 
+ thaw
+   :: forall h a
+@@ -94,7 +97,8 @@
+ thaw = runSTFn1 thawImpl
+ 
+ -- | Create a mutable copy of an immutable array.
+-foreign import thawImpl :: forall h a. STFn1 (Array a) h (STArray h a)
++thawImpl :: forall h a. STFn1 (Array a) h (STArray h a)
++thawImpl = thawImpl
+ 
+ -- | Make a mutable copy of a mutable array.
+ clone
+@@ -103,7 +107,8 @@
+   -> ST h (STArray h a)
+ clone = runSTFn1 cloneImpl
+ 
+-foreign import cloneImpl :: forall h a. STFn1 (STArray h a) h (STArray h a)
++cloneImpl :: forall h a. STFn1 (STArray h a) h (STArray h a)
++cloneImpl = cloneImpl
+ 
+ -- | Sort a mutable array in place. Sorting is stable: the order of equal
+ -- | elements is preserved.
+@@ -114,9 +119,8 @@
+ shift :: forall h a. STArray h a -> ST h (Maybe a)
+ shift = runSTFn3 shiftImpl Just Nothing
+ 
+-foreign import shiftImpl
+-  :: forall h a
+-   . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)
++shiftImpl :: forall h a . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)
++shiftImpl = shiftImpl
+ 
+ -- | Sort a mutable array in place using a comparison function. Sorting is
+ -- | stable: the order of elements is preserved if they are equal according to
+@@ -131,9 +135,8 @@
+   EQ -> 0
+   LT -> -1
+ 
+-foreign import sortByImpl
+-  :: forall a h
+-   . STFn3 (a -> a -> Ordering) (Ordering -> Int) (STArray h a) h (STArray h a)
++sortByImpl :: forall a h . STFn3 (a -> a -> Ordering) (Ordering -> Int) (STArray h a) h (STArray h a)
++sortByImpl = sortByImpl
+ 
+ -- | Sort a mutable array in place based on a projection. Sorting is stable: the
+ -- | order of elements is preserved if they are equal according to the projection.
+@@ -152,7 +155,8 @@
+   -> ST h (Array a)
+ freeze = runSTFn1 freezeImpl
+ 
+-foreign import freezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)
++freezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)
++freezeImpl = freezeImpl
+ 
+ -- | Read the value at the specified index in a mutable array.
+ peek
+@@ -162,7 +166,8 @@
+   -> ST h (Maybe a)
+ peek = runSTFn4 peekImpl Just Nothing
+ 
+-foreign import peekImpl :: forall h a r. STFn4 (a -> r) r Int (STArray h a) h r
++peekImpl :: forall h a r. STFn4 (a -> r) r Int (STArray h a) h r
++peekImpl = peekImpl
+ 
+ poke
+   :: forall h a
+@@ -173,9 +178,11 @@
+ poke = runSTFn3 pokeImpl
+ 
+ -- | Change the value at the specified index in a mutable array.
+-foreign import pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Boolean
+-
+-foreign import lengthImpl :: forall h a. STFn1 (STArray h a) h Int
++pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Boolean
++pokeImpl = pokeImpl
++
++lengthImpl :: forall h a. STFn1 (STArray h a) h Int
++lengthImpl = lengthImpl
+ 
+ -- | Get the number of elements in a mutable array.
+ length :: forall h a. STArray h a -> ST h Int
+@@ -185,16 +192,16 @@
+ pop :: forall h a. STArray h a -> ST h (Maybe a)
+ pop = runSTFn3 popImpl Just Nothing
+ 
+-foreign import popImpl
+-  :: forall h a
+-   . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)
++popImpl :: forall h a . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)
++popImpl = popImpl
+ 
+ -- | Append an element to the end of a mutable array. Returns the new length of
+ -- | the array.
+ push :: forall h a. a -> (STArray h a) -> ST h Int
+ push = runSTFn2 pushImpl
+ 
+-foreign import pushImpl :: forall h a. STFn2 a (STArray h a) h Int
++pushImpl :: forall h a. STFn2 a (STArray h a) h Int
++pushImpl = pushImpl
+ 
+ -- | Append the values in an immutable array to the end of a mutable array.
+ -- | Returns the new length of the mutable array.
+@@ -205,9 +212,8 @@
+   -> ST h Int
+ pushAll = runSTFn2 pushAllImpl
+ 
+-foreign import pushAllImpl
+-  :: forall h a
+-   . STFn2 (Array a) (STArray h a) h Int
++pushAllImpl :: forall h a . STFn2 (Array a) (STArray h a) h Int
++pushAllImpl = pushAllImpl
+ 
+ -- | Append an element to the front of a mutable array. Returns the new length of
+ -- | the array.
+@@ -223,9 +229,8 @@
+   -> ST h Int
+ unshiftAll = runSTFn2 unshiftAllImpl
+ 
+-foreign import unshiftAllImpl
+-  :: forall h a
+-   . STFn2 (Array a) (STArray h a) h Int
++unshiftAllImpl :: forall h a . STFn2 (Array a) (STArray h a) h Int
++unshiftAllImpl = unshiftAllImpl
+ 
+ -- | Mutate the element at the specified index using the supplied function.
+ modify :: forall h a. Int -> (a -> a) -> STArray h a -> ST h Boolean
+@@ -245,9 +250,8 @@
+   -> ST h (Array a)
+ splice = runSTFn4 spliceImpl
+ 
+-foreign import spliceImpl
+-  :: forall h a
+-   . STFn4 Int Int (Array a) (STArray h a) h (Array a)
++spliceImpl :: forall h a . STFn4 Int Int (Array a) (STArray h a) h (Array a)
++spliceImpl = spliceImpl
+ 
+ -- | Create an immutable copy of a mutable array, where each element
+ -- | is labelled with its index in the original array.
+@@ -257,6 +261,5 @@
+   -> ST h (Array (Assoc a))
+ toAssocArray = runSTFn1 toAssocArrayImpl
+ 
+-foreign import toAssocArrayImpl
+-  :: forall h a
+-   . STFn1 (STArray h a) h (Array (Assoc a))
++toAssocArrayImpl :: forall h a . STFn1 (STArray h a) h (Array (Assoc a))
++toAssocArrayImpl = toAssocArrayImpl
+--- purescript-arrays@v7.3.0/src/Data/Array.purs
++++ stdlib/lib/Data/Array.purs
+@@ -174,9 +174,8 @@
+ fromFoldable :: forall f. Foldable f => f ~> Array
+ fromFoldable = runFn2 fromFoldableImpl F.foldr
+ 
+-foreign import fromFoldableImpl
+-  :: forall f a
+-   . Fn2 (forall b. (a -> b -> b) -> b -> f a -> b) (f a) (Array a)
++fromFoldableImpl :: forall f a . Fn2 (forall b. (a -> b -> b) -> b -> f a -> b) (f a) (Array a)
++fromFoldableImpl = fromFoldableImpl
+ 
+ -- | Create an array of one element
+ -- | ```purescript
+@@ -192,7 +191,8 @@
+ range :: Int -> Int -> Array Int
+ range = runFn2 rangeImpl
+ 
+-foreign import rangeImpl :: Fn2 Int Int (Array Int)
++rangeImpl :: Fn2 Int Int (Array Int)
++rangeImpl = rangeImpl
+ 
+ -- | Create an array containing a value repeated the specified number of times.
+ -- | ```purescript
+@@ -201,7 +201,8 @@
+ replicate :: forall a. Int -> a -> Array a
+ replicate = runFn2 replicateImpl
+ 
+-foreign import replicateImpl :: forall a. Fn2 Int a (Array a)
++replicateImpl :: forall a. Fn2 Int a (Array a)
++replicateImpl = replicateImpl
+ 
+ -- | An infix synonym for `range`.
+ -- | ```purescript
+@@ -240,7 +241,8 @@
+ -- | ```purescript
+ -- | length ["Hello", "World"] = 2
+ -- | ```
+-foreign import length :: forall a. Array a -> Int
++length :: forall a. Array a -> Int
++length a0 = length a0
+ 
+ --------------------------------------------------------------------------------
+ -- Extending arrays ------------------------------------------------------------
+@@ -370,9 +372,8 @@
+ uncons :: forall a. Array a -> Maybe { head :: a, tail :: Array a }
+ uncons = runFn3 unconsImpl (const Nothing) \x xs -> Just { head: x, tail: xs }
+ 
+-foreign import unconsImpl
+-  :: forall a b
+-   . Fn3 (Unit -> b) (a -> Array a -> b) (Array a) b
++unconsImpl :: forall a b . Fn3 (Unit -> b) (a -> Array a -> b) (Array a) b
++unconsImpl = unconsImpl
+ 
+ -- | Break an array into its last element and all preceding elements.
+ -- |
+@@ -402,9 +403,8 @@
+ index :: forall a. Array a -> Int -> Maybe a
+ index = runFn4 indexImpl Just Nothing
+ 
+-foreign import indexImpl
+-  :: forall a
+-   . Fn4 (forall r. r -> Maybe r) (forall r. Maybe r) (Array a) Int (Maybe a)
++indexImpl :: forall a . Fn4 (forall r. r -> Maybe r) (forall r. Maybe r) (Array a) Int (Maybe a)
++indexImpl = indexImpl
+ 
+ -- | An infix version of `index`.
+ -- |
+@@ -459,14 +459,8 @@
+ findMap :: forall a b. (a -> Maybe b) -> Array a -> Maybe b
+ findMap = runFn4 findMapImpl Nothing isJust
+ 
+-foreign import findMapImpl
+-  :: forall a b
+-   . Fn4
+-       (forall c. Maybe c)
+-       (forall c. Maybe c -> Boolean)
+-       (a -> Maybe b)
+-       (Array a)
+-       (Maybe b)
++findMapImpl :: forall a b . Fn4 (forall c. Maybe c) (forall c. Maybe c -> Boolean) (a -> Maybe b) (Array a) (Maybe b)
++findMapImpl = findMapImpl
+ 
+ -- | Find the first index for which a predicate holds.
+ -- |
+@@ -478,14 +472,8 @@
+ findIndex :: forall a. (a -> Boolean) -> Array a -> Maybe Int
+ findIndex = runFn4 findIndexImpl Just Nothing
+ 
+-foreign import findIndexImpl
+-  :: forall a
+-   . Fn4
+-       (forall b. b -> Maybe b)
+-       (forall b. Maybe b)
+-       (a -> Boolean)
+-       (Array a)
+-       (Maybe Int)
++findIndexImpl :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) (a -> Boolean) (Array a) (Maybe Int)
++findIndexImpl = findIndexImpl
+ 
+ -- | Find the last index for which a predicate holds.
+ -- |
+@@ -497,14 +485,8 @@
+ findLastIndex :: forall a. (a -> Boolean) -> Array a -> Maybe Int
+ findLastIndex = runFn4 findLastIndexImpl Just Nothing
+ 
+-foreign import findLastIndexImpl
+-  :: forall a
+-   . Fn4
+-       (forall b. b -> Maybe b)
+-       (forall b. Maybe b)
+-       (a -> Boolean)
+-       (Array a)
+-       (Maybe Int)
++findLastIndexImpl :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) (a -> Boolean) (Array a) (Maybe Int)
++findLastIndexImpl = findLastIndexImpl
+ 
+ -- | Insert an element at the specified index, creating a new array, or
+ -- | returning `Nothing` if the index is out of bounds.
+@@ -517,15 +499,8 @@
+ insertAt :: forall a. Int -> a -> Array a -> Maybe (Array a)
+ insertAt = runFn5 _insertAt Just Nothing
+ 
+-foreign import _insertAt
+-  :: forall a
+-   . Fn5
+-       (forall b. b -> Maybe b)
+-       (forall b. Maybe b)
+-       Int
+-       a
+-       (Array a)
+-       (Maybe (Array a))
++_insertAt :: forall a . Fn5 (forall b. b -> Maybe b) (forall b. Maybe b) Int a (Array a) (Maybe (Array a))
++_insertAt = _insertAt
+ 
+ -- | Delete the element at the specified index, creating a new array, or
+ -- | returning `Nothing` if the index is out of bounds.
+@@ -538,14 +513,8 @@
+ deleteAt :: forall a. Int -> Array a -> Maybe (Array a)
+ deleteAt = runFn4 _deleteAt Just Nothing
+ 
+-foreign import _deleteAt
+-  :: forall a
+-   . Fn4
+-       (forall b. b -> Maybe b)
+-       (forall b. Maybe b)
+-       Int
+-       (Array a)
+-       (Maybe (Array a))
++_deleteAt :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) Int (Array a) (Maybe (Array a))
++_deleteAt = _deleteAt
+ 
+ -- | Change the element at the specified index, creating a new array, or
+ -- | returning `Nothing` if the index is out of bounds.
+@@ -558,15 +527,8 @@
+ updateAt :: forall a. Int -> a -> Array a -> Maybe (Array a)
+ updateAt = runFn5 _updateAt Just Nothing
+ 
+-foreign import _updateAt
+-  :: forall a
+-   . Fn5
+-       (forall b. b -> Maybe b)
+-       (forall b. Maybe b)
+-       Int
+-       a
+-       (Array a)
+-       (Maybe (Array a))
++_updateAt :: forall a . Fn5 (forall b. b -> Maybe b) (forall b. Maybe b) Int a (Array a) (Maybe (Array a))
++_updateAt = _updateAt
+ 
+ -- | Apply a function to the element at the specified index, creating a new
+ -- | array, or returning `Nothing` if the index is out of bounds.
+@@ -639,7 +601,8 @@
+ -- | reverse [1, 2, 3] = [3, 2, 1]
+ -- | ```
+ -- |
+-foreign import reverse :: forall a. Array a -> Array a
++reverse :: forall a. Array a -> Array a
++reverse a0 = reverse a0
+ 
+ -- | Flatten an array of arrays, creating a new array.
+ -- |
+@@ -647,7 +610,8 @@
+ -- | concat [[1, 2, 3], [], [4, 5, 6]] = [1, 2, 3, 4, 5, 6]
+ -- | ```
+ -- |
+-foreign import concat :: forall a. Array (Array a) -> Array a
++concat :: forall a. Array (Array a) -> Array a
++concat a0 = concat a0
+ 
+ -- | Apply a function to each element in an array, and flatten the results
+ -- | into a single, new array.
+@@ -670,9 +634,8 @@
+ filter :: forall a. (a -> Boolean) -> Array a -> Array a
+ filter = runFn2 filterImpl
+ 
+-foreign import filterImpl
+-  :: forall a
+-   . Fn2 (a -> Boolean) (Array a) (Array a)
++filterImpl :: forall a . Fn2 (a -> Boolean) (Array a) (Array a)
++filterImpl = filterImpl
+ 
+ -- | Partition an array using a predicate function, creating a set of
+ -- | new arrays. One for the values satisfying the predicate function
+@@ -689,9 +652,8 @@
+   -> { yes :: Array a, no :: Array a }
+ partition = runFn2 partitionImpl
+ 
+-foreign import partitionImpl
+-  :: forall a
+-   . Fn2 (a -> Boolean) (Array a) { yes :: Array a, no :: Array a }
++partitionImpl :: forall a . Fn2 (a -> Boolean) (Array a) { yes :: Array a, no :: Array a }
++partitionImpl = partitionImpl
+ 
+ -- | Splits an array into two subarrays, where `before` contains the elements
+ -- | up to (but not including) the given index, and `after` contains the rest
+@@ -854,7 +816,8 @@
+ scanl :: forall a b. (b -> a -> b) -> b -> Array a -> Array b
+ scanl = runFn3 scanlImpl
+ 
+-foreign import scanlImpl :: forall a b. Fn3 (b -> a -> b) b (Array a) (Array b)
++scanlImpl :: forall a b. Fn3 (b -> a -> b) b (Array a) (Array b)
++scanlImpl = scanlImpl
+ 
+ -- | Fold a data structure from the right, keeping all intermediate results
+ -- | instead of only the final result. Note that the initial value does not
+@@ -867,7 +830,8 @@
+ scanr :: forall a b. (a -> b -> b) -> b -> Array a -> Array b
+ scanr = runFn3 scanrImpl
+ 
+-foreign import scanrImpl :: forall a b. Fn3 (a -> b -> b) b (Array a) (Array b)
++scanrImpl :: forall a b. Fn3 (a -> b -> b) b (Array a) (Array b)
++scanrImpl = scanrImpl
+ 
+ --------------------------------------------------------------------------------
+ -- Sorting ---------------------------------------------------------------------
+@@ -911,7 +875,8 @@
+ sortWith :: forall a b. Ord b => (a -> b) -> Array a -> Array a
+ sortWith f = sortBy (comparing f)
+ 
+-foreign import sortByImpl :: forall a. Fn3 (a -> a -> Ordering) (Ordering -> Int) (Array a) (Array a)
++sortByImpl :: forall a. Fn3 (a -> a -> Ordering) (Ordering -> Int) (Array a) (Array a)
++sortByImpl = sortByImpl
+ 
+ --------------------------------------------------------------------------------
+ -- Subarrays -------------------------------------------------------------------
+@@ -929,7 +894,8 @@
+ slice :: forall a. Int -> Int -> Array a -> Array a
+ slice = runFn3 sliceImpl
+ 
+-foreign import sliceImpl :: forall a. Fn3 Int Int (Array a) (Array a)
++sliceImpl :: forall a. Fn3 Int Int (Array a) (Array a)
++sliceImpl = sliceImpl
+ 
+ -- | Keep only a number of elements from the start of an array, creating a new
+ -- | array.
+@@ -1250,13 +1216,8 @@
+   -> Array c
+ zipWith = runFn3 zipWithImpl
+ 
+-foreign import zipWithImpl
+-  :: forall a b c
+-   . Fn3
+-       (a -> b -> c)
+-       (Array a)
+-       (Array b)
+-       (Array c)
++zipWithImpl :: forall a b c . Fn3 (a -> b -> c) (Array a) (Array b) (Array c)
++zipWithImpl = zipWithImpl
+ 
+ -- | A generalization of `zipWith` which accumulates results in some
+ -- | `Applicative` functor.
+@@ -1319,7 +1280,8 @@
+ any :: forall a. (a -> Boolean) -> Array a -> Boolean
+ any = runFn2 anyImpl
+ 
+-foreign import anyImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean
++anyImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean
++anyImpl = anyImpl
+ 
+ -- | Returns true if all the array elements satisfy the given predicate.
+ -- | iterating the array only as necessary and stopping as soon as the predicate
+@@ -1333,7 +1295,8 @@
+ all :: forall a. (a -> Boolean) -> Array a -> Boolean
+ all = runFn2 allImpl
+ 
+-foreign import allImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean
++allImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean
++allImpl = allImpl
+ 
+ -- | Perform a fold using a monadic step function.
+ -- |
+@@ -1368,4 +1331,5 @@
+ unsafeIndex :: forall a. Partial => Array a -> Int -> a
+ unsafeIndex = runFn2 unsafeIndexImpl
+ 
+-foreign import unsafeIndexImpl :: forall a. Fn2 (Array a) Int a
++unsafeIndexImpl :: forall a. Fn2 (Array a) Int a
++unsafeIndexImpl = unsafeIndexImpl
+--- purescript-prelude@v6.0.1/src/Data/Bounded.purs
++++ stdlib/lib/Data/Bounded.purs
+@@ -37,16 +37,20 @@
+   top = topInt
+   bottom = bottomInt
+ 
+-foreign import topInt :: Int
+-foreign import bottomInt :: Int
++topInt :: Int
++topInt = 2147483647
++bottomInt :: Int
++bottomInt = intSub (intSub 0 2147483647) 1
+ 
+ -- | Characters fall within the Unicode range.
+ instance boundedChar :: Bounded Char where
+   top = topChar
+   bottom = bottomChar
+ 
+-foreign import topChar :: Char
+-foreign import bottomChar :: Char
++topChar :: Char
++topChar = intToChar 65535
++bottomChar :: Char
++bottomChar = intToChar 0
+ 
+ instance boundedOrdering :: Bounded Ordering where
+   top = GT
+@@ -56,8 +60,10 @@
+   top = unit
+   bottom = unit
+ 
+-foreign import topNumber :: Number
+-foreign import bottomNumber :: Number
++topNumber :: Number
++topNumber = numberDiv 1.0 0.0
++bottomNumber :: Number
++bottomNumber = numberNeg (numberDiv 1.0 0.0)
+ 
+ instance boundedNumber :: Bounded Number where
+   top = topNumber
+--- purescript-enums@v6.0.1/src/Data/Enum.purs
++++ stdlib/lib/Data/Enum.purs
+@@ -317,5 +317,7 @@
+ charToEnum n | n >= toCharCode bottom && n <= toCharCode top = Just (fromCharCode n)
+ charToEnum _ = Nothing
+ 
+-foreign import toCharCode :: Char -> Int
+-foreign import fromCharCode :: Int -> Char
++toCharCode :: Char -> Int
++toCharCode a0 = toCharCode a0
++fromCharCode :: Int -> Char
++fromCharCode a0 = fromCharCode a0
+--- purescript-prelude@v6.0.1/src/Data/Eq.purs
++++ stdlib/lib/Data/Eq.purs
+@@ -45,19 +45,19 @@
+ infix 4 notEq as /=
+ 
+ instance eqBoolean :: Eq Boolean where
+-  eq = eqBooleanImpl
++  eq x y = eqBooleanImpl x y
+ 
+ instance eqInt :: Eq Int where
+-  eq = eqIntImpl
++  eq x y = eqIntImpl x y
+ 
+ instance eqNumber :: Eq Number where
+-  eq = eqNumberImpl
++  eq x y = eqNumberImpl x y
+ 
+ instance eqChar :: Eq Char where
+-  eq = eqCharImpl
++  eq x y = eqCharImpl x y
+ 
+ instance eqString :: Eq String where
+-  eq = eqStringImpl
++  eq x y = eqStringImpl x y
+ 
+ instance eqUnit :: Eq Unit where
+   eq _ _ = true
+@@ -66,7 +66,7 @@
+   eq _ _ = true
+ 
+ instance eqArray :: Eq a => Eq (Array a) where
+-  eq = eqArrayImpl eq
++  eq xs ys = eqArrayImpl eq xs ys
+ 
+ instance eqRec :: (RL.RowToList row list, EqRecord list row) => Eq (Record row) where
+   eq = eqRecord (Proxy :: Proxy list)
+@@ -74,13 +74,32 @@
+ instance eqProxy :: Eq (Proxy a) where
+   eq _ _ = true
+ 
+-foreign import eqBooleanImpl :: Boolean -> Boolean -> Boolean
+-foreign import eqIntImpl :: Int -> Int -> Boolean
+-foreign import eqNumberImpl :: Number -> Number -> Boolean
+-foreign import eqCharImpl :: Char -> Char -> Boolean
+-foreign import eqStringImpl :: String -> String -> Boolean
++eqBooleanImpl :: Boolean -> Boolean -> Boolean
++eqBooleanImpl a0 a1 = booleanEq a0 a1
++eqIntImpl :: Int -> Int -> Boolean
++eqIntImpl a0 a1 = intEq a0 a1
++eqNumberImpl :: Number -> Number -> Boolean
++eqNumberImpl a0 a1 = numberEq a0 a1
++eqCharImpl :: Char -> Char -> Boolean
++eqCharImpl a0 a1 = charEq a0 a1
++eqStringImpl :: String -> String -> Boolean
++eqStringImpl a0 a1 = eqBytes (stringToBytes a0) (stringToBytes a1) 0
+ 
+-foreign import eqArrayImpl :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Boolean
++eqBytes :: Array Int -> Array Int -> Int -> Boolean
++eqBytes xs ys index =
++  if intGe index (arrayLength xs) then intEq (arrayLength xs) (arrayLength ys)
++  else if intGe index (arrayLength ys) then false
++  else if intEq (arrayIndex xs index) (arrayIndex ys index) then eqBytes xs ys (intAdd index 1)
++  else false
++
++eqArrayImpl :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Boolean
++eqArrayImpl a0 a1 a2 = eqArrayFrom a0 a1 a2 0
++
++eqArrayFrom :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Int -> Boolean
++eqArrayFrom eq xs ys index =
++  if intGe index (arrayLength xs) then intEq (arrayLength xs) (arrayLength ys)
++  else if eq (arrayIndex xs index) (arrayIndex ys index) then eqArrayFrom eq xs ys (intAdd index 1)
++  else false
+ 
+ -- | The `Eq1` type class represents type constructors with decidable equality.
+ class Eq1 f where
+--- purescript-prelude@v6.0.1/src/Data/EuclideanRing.purs
++++ stdlib/lib/Data/EuclideanRing.purs
+@@ -72,20 +72,25 @@
+ infixl 7 div as /
+ 
+ instance euclideanRingInt :: EuclideanRing Int where
+-  degree = intDegree
+-  div = intDiv
+-  mod = intMod
++  degree x = intDegree x
++  div x y = intDiv x y
++  mod x y = intMod x y
+ 
+ instance euclideanRingNumber :: EuclideanRing Number where
+   degree _ = 1
+-  div = numDiv
++  div x y = numDiv x y
+   mod _ _ = 0.0
+ 
+-foreign import intDegree :: Int -> Int
+-foreign import intDiv :: Int -> Int -> Int
+-foreign import intMod :: Int -> Int -> Int
++intDegree :: Int -> Int
++intDegree a0 = if intEq a0 minInt32 then 2147483647 else if intLt a0 0 then intNeg a0 else a0
+ 
+-foreign import numDiv :: Number -> Number -> Number
++minInt32 :: Int
++minInt32 = intSub (intSub 0 2147483647) 1
++
++
++
++numDiv :: Number -> Number -> Number
++numDiv a0 a1 = numberDiv a0 a1
+ 
+ -- | The *greatest common divisor* of two values.
+ gcd :: forall a. Eq a => EuclideanRing a => a -> a -> a
+--- purescript-foldable-traversable@v6.0.0/src/Data/Foldable.purs
++++ stdlib/lib/Data/Foldable.purs
+@@ -132,8 +132,10 @@
+   foldl = foldlArray
+   foldMap = foldMapDefaultR
+ 
+-foreign import foldrArray :: forall a b. (a -> b -> b) -> b -> Array a -> b
+-foreign import foldlArray :: forall a b. (b -> a -> b) -> b -> Array a -> b
++foldrArray :: forall a b. (a -> b -> b) -> b -> Array a -> b
++foldrArray a0 a1 a2 = foldrArray a0 a1 a2
++foldlArray :: forall a b. (b -> a -> b) -> b -> Array a -> b
++foldlArray a0 a1 a2 = foldlArray a0 a1 a2
+ 
+ instance foldableMaybe :: Foldable Maybe where
+   foldr _ z Nothing  = z
+@@ -223,7 +225,7 @@
+ 
+ -- | Fold a data structure, accumulating values in some `Monoid`.
+ fold :: forall f m. Foldable f => Monoid m => f m -> m
+-fold = foldMap identity
++fold xs = foldMap identity xs
+ 
+ -- | Similar to 'foldl', but the result is encapsulated in a monad.
+ -- |
+--- purescript-functions@v6.0.0/src/Data/Function/Uncurried.purs
++++ stdlib/lib/Data/Function/Uncurried.purs
+@@ -56,69 +56,89 @@
+ type role Fn10 representational representational representational representational representational representational representational representational representational representational representational
+ 
+ -- | Create a function of no arguments
+-foreign import mkFn0 :: forall a. (Unit -> a) -> Fn0 a
++mkFn0 :: forall a. (Unit -> a) -> Fn0 a
++mkFn0 a0 = mkFn0 a0
+ 
+ -- | Create a function of one argument
+ mkFn1 :: forall a b. (a -> b) -> Fn1 a b
+ mkFn1 f = f
+ 
+ -- | Create a function of two arguments from a curried function
+-foreign import mkFn2 :: forall a b c. (a -> b -> c) -> Fn2 a b c
++mkFn2 :: forall a b c. (a -> b -> c) -> Fn2 a b c
++mkFn2 a0 = mkFn2 a0
+ 
+ -- | Create a function of three arguments from a curried function
+-foreign import mkFn3 :: forall a b c d. (a -> b -> c -> d) -> Fn3 a b c d
++mkFn3 :: forall a b c d. (a -> b -> c -> d) -> Fn3 a b c d
++mkFn3 a0 = mkFn3 a0
+ 
+ -- | Create a function of four arguments from a curried function
+-foreign import mkFn4 :: forall a b c d e. (a -> b -> c -> d -> e) -> Fn4 a b c d e
++mkFn4 :: forall a b c d e. (a -> b -> c -> d -> e) -> Fn4 a b c d e
++mkFn4 a0 = mkFn4 a0
+ 
+ -- | Create a function of five arguments from a curried function
+-foreign import mkFn5 :: forall a b c d e f. (a -> b -> c -> d -> e -> f) -> Fn5 a b c d e f
++mkFn5 :: forall a b c d e f. (a -> b -> c -> d -> e -> f) -> Fn5 a b c d e f
++mkFn5 a0 = mkFn5 a0
+ 
+ -- | Create a function of six arguments from a curried function
+-foreign import mkFn6 :: forall a b c d e f g. (a -> b -> c -> d -> e -> f -> g) -> Fn6 a b c d e f g
++mkFn6 :: forall a b c d e f g. (a -> b -> c -> d -> e -> f -> g) -> Fn6 a b c d e f g
++mkFn6 a0 = mkFn6 a0
+ 
+ -- | Create a function of seven arguments from a curried function
+-foreign import mkFn7 :: forall a b c d e f g h. (a -> b -> c -> d -> e -> f -> g -> h) -> Fn7 a b c d e f g h
++mkFn7 :: forall a b c d e f g h. (a -> b -> c -> d -> e -> f -> g -> h) -> Fn7 a b c d e f g h
++mkFn7 a0 = mkFn7 a0
+ 
+ -- | Create a function of eight arguments from a curried function
+-foreign import mkFn8 :: forall a b c d e f g h i. (a -> b -> c -> d -> e -> f -> g -> h -> i) -> Fn8 a b c d e f g h i
++mkFn8 :: forall a b c d e f g h i. (a -> b -> c -> d -> e -> f -> g -> h -> i) -> Fn8 a b c d e f g h i
++mkFn8 a0 = mkFn8 a0
+ 
+ -- | Create a function of nine arguments from a curried function
+-foreign import mkFn9 :: forall a b c d e f g h i j. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j) -> Fn9 a b c d e f g h i j
++mkFn9 :: forall a b c d e f g h i j. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j) -> Fn9 a b c d e f g h i j
++mkFn9 a0 = mkFn9 a0
+ 
+ -- | Create a function of ten arguments from a curried function
+-foreign import mkFn10 :: forall a b c d e f g h i j k. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k) -> Fn10 a b c d e f g h i j k
++mkFn10 :: forall a b c d e f g h i j k. (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k) -> Fn10 a b c d e f g h i j k
++mkFn10 a0 = mkFn10 a0
+ 
+ -- | Apply a function of no arguments
+-foreign import runFn0 :: forall a. Fn0 a -> a
++runFn0 :: forall a. Fn0 a -> a
++runFn0 a0 = runFn0 a0
+ 
+ -- | Apply a function of one argument
+ runFn1 :: forall a b. Fn1 a b -> a -> b
+ runFn1 f = f
+ 
+ -- | Apply a function of two arguments
+-foreign import runFn2 :: forall a b c. Fn2 a b c -> a -> b -> c
++runFn2 :: forall a b c. Fn2 a b c -> a -> b -> c
++runFn2 a0 a1 a2 = runFn2 a0 a1 a2
+ 
+ -- | Apply a function of three arguments
+-foreign import runFn3 :: forall a b c d. Fn3 a b c d -> a -> b -> c -> d
++runFn3 :: forall a b c d. Fn3 a b c d -> a -> b -> c -> d
++runFn3 a0 a1 a2 a3 = runFn3 a0 a1 a2 a3
+ 
+ -- | Apply a function of four arguments
+-foreign import runFn4 :: forall a b c d e. Fn4 a b c d e -> a -> b -> c -> d -> e
++runFn4 :: forall a b c d e. Fn4 a b c d e -> a -> b -> c -> d -> e
++runFn4 a0 a1 a2 a3 a4 = runFn4 a0 a1 a2 a3 a4
+ 
+ -- | Apply a function of five arguments
+-foreign import runFn5 :: forall a b c d e f. Fn5 a b c d e f -> a -> b -> c -> d -> e -> f
++runFn5 :: forall a b c d e f. Fn5 a b c d e f -> a -> b -> c -> d -> e -> f
++runFn5 a0 a1 a2 a3 a4 a5 = runFn5 a0 a1 a2 a3 a4 a5
+ 
+ -- | Apply a function of six arguments
+-foreign import runFn6 :: forall a b c d e f g. Fn6 a b c d e f g -> a -> b -> c -> d -> e -> f -> g
++runFn6 :: forall a b c d e f g. Fn6 a b c d e f g -> a -> b -> c -> d -> e -> f -> g
++runFn6 a0 a1 a2 a3 a4 a5 a6 = runFn6 a0 a1 a2 a3 a4 a5 a6
+ 
+ -- | Apply a function of seven arguments
+-foreign import runFn7 :: forall a b c d e f g h. Fn7 a b c d e f g h -> a -> b -> c -> d -> e -> f -> g -> h
++runFn7 :: forall a b c d e f g h. Fn7 a b c d e f g h -> a -> b -> c -> d -> e -> f -> g -> h
++runFn7 a0 a1 a2 a3 a4 a5 a6 a7 = runFn7 a0 a1 a2 a3 a4 a5 a6 a7
+ 
+ -- | Apply a function of eight arguments
+-foreign import runFn8 :: forall a b c d e f g h i. Fn8 a b c d e f g h i -> a -> b -> c -> d -> e -> f -> g -> h -> i
++runFn8 :: forall a b c d e f g h i. Fn8 a b c d e f g h i -> a -> b -> c -> d -> e -> f -> g -> h -> i
++runFn8 a0 a1 a2 a3 a4 a5 a6 a7 a8 = runFn8 a0 a1 a2 a3 a4 a5 a6 a7 a8
+ 
+ -- | Apply a function of nine arguments
+-foreign import runFn9 :: forall a b c d e f g h i j. Fn9 a b c d e f g h i j -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j
++runFn9 :: forall a b c d e f g h i j. Fn9 a b c d e f g h i j -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j
++runFn9 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 = runFn9 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9
+ 
+ -- | Apply a function of ten arguments
+-foreign import runFn10 :: forall a b c d e f g h i j k. Fn10 a b c d e f g h i j k -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k
++runFn10 :: forall a b c d e f g h i j k. Fn10 a b c d e f g h i j k -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k
++runFn10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 = runFn10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10
+--- purescript-prelude@v6.0.1/src/Data/Functor.purs
++++ stdlib/lib/Data/Functor.purs
+@@ -47,12 +47,20 @@
+   map = compose
+ 
+ instance functorArray :: Functor Array where
+-  map = arrayMap
++  map x y = arrayMap x y
+ 
+ instance functorProxy :: Functor Proxy where
+   map _ _ = Proxy
+ 
+-foreign import arrayMap :: forall a b. (a -> b) -> Array a -> Array b
++arrayMap :: forall a b. (a -> b) -> Array a -> Array b
++arrayMap a0 a1 = mapArrayFrom a0 a1 0
++
++mapArrayFrom :: forall a b. (a -> b) -> Array a -> Int -> Array b
++mapArrayFrom f xs index =
++  if intLt index (arrayLength xs) then
++    arrayAppend [f (arrayIndex xs index)] (mapArrayFrom f xs (intAdd index 1))
++  else
++    []
+ 
+ -- | The `void` function is used to ignore the type wrapped by a
+ -- | [`Functor`](#functor), replacing it with `Unit` and keeping only the type
+@@ -67,18 +75,18 @@
+ -- |   print (n * n)
+ -- | ```
+ void :: forall f a. Functor f => f a -> f Unit
+-void = map (const unit)
++void fa = map (\_ -> unit) fa
+ 
+ -- | Ignore the return value of a computation, using the specified return value
+ -- | instead.
+ voidRight :: forall f a b. Functor f => a -> f b -> f a
+-voidRight x = map (const x)
++voidRight x fa = map (\_ -> x) fa
+ 
+ infixl 4 voidRight as <$
+ 
+ -- | A version of `voidRight` with its arguments flipped.
+ voidLeft :: forall f a b. Functor f => f a -> b -> f b
+-voidLeft f x = const x <$> f
++voidLeft fa x = (\_ -> x) <$> fa
+ 
+ infixl 4 voidLeft as $>
+ 
+--- purescript-foldable-traversable@v6.0.0/src/Data/FunctorWithIndex.purs
++++ stdlib/lib/Data/FunctorWithIndex.purs
+@@ -35,7 +35,8 @@
+ class Functor f <= FunctorWithIndex i f | f -> i where
+   mapWithIndex :: forall a b. (i -> a -> b) -> f a -> f b
+ 
+-foreign import mapWithIndexArray :: forall a b. (Int -> a -> b) -> Array a -> Array b
++mapWithIndexArray :: forall a b. (Int -> a -> b) -> Array a -> Array b
++mapWithIndexArray a0 a1 = mapWithIndexArray a0 a1
+ 
+ instance functorWithIndexArray :: FunctorWithIndex Int Array where
+   mapWithIndex = mapWithIndexArray
+--- purescript-prelude@v6.0.1/src/Data/HeytingAlgebra/Generic.purs
++++ stdlib/lib/Data/HeytingAlgebra/Generic.purs
+@@ -67,4 +67,4 @@
+ 
+ -- | A `Generic` implementation of the `not` member from the `HeytingAlgebra` type class.
+ genericNot :: forall a rep. Generic a rep => GenericHeytingAlgebra rep => a -> a
+-genericNot x = to $ genericNot' (from x)
+\ No newline at end of file
++genericNot x = to $ genericNot' (from x)
+--- purescript-prelude@v6.0.1/src/Data/HeytingAlgebra.purs
++++ stdlib/lib/Data/HeytingAlgebra.purs
+@@ -64,9 +64,9 @@
+   ff = false
+   tt = true
+   implies a b = not a || b
+-  conj = boolConj
+-  disj = boolDisj
+-  not = boolNot
++  conj x y = boolConj x y
++  disj x y = boolDisj x y
++  not x = boolNot x
+ 
+ instance heytingAlgebraUnit :: HeytingAlgebra Unit where
+   ff = unit
+@@ -100,9 +100,12 @@
+   implies = impliesRecord (Proxy :: Proxy list)
+   not = notRecord (Proxy :: Proxy list)
+ 
+-foreign import boolConj :: Boolean -> Boolean -> Boolean
+-foreign import boolDisj :: Boolean -> Boolean -> Boolean
+-foreign import boolNot :: Boolean -> Boolean
++boolConj :: Boolean -> Boolean -> Boolean
++boolConj a0 a1 = booleanAnd a0 a1
++boolDisj :: Boolean -> Boolean -> Boolean
++boolDisj a0 a1 = booleanOr a0 a1
++boolNot :: Boolean -> Boolean
++boolNot a0 = booleanNot a0
+ 
+ -- | A class for records where all fields have `HeytingAlgebra` instances, used
+ -- | to implement the `HeytingAlgebra` instance for records.
+--- purescript-integers@v6.0.0/src/Data/Int/Bits.purs
++++ stdlib/lib/Data/Int/Bits.purs
+@@ -10,28 +10,35 @@
+   ) where
+ 
+ -- | Bitwise AND.
+-foreign import and :: Int -> Int -> Int
++and :: Int -> Int -> Int
++and a0 a1 = intAnd a0 a1
+ 
+ infixl 10 and as .&.
+ 
+ -- | Bitwise OR.
+-foreign import or :: Int -> Int -> Int
++or :: Int -> Int -> Int
++or a0 a1 = intOr a0 a1
+ 
+ infixl 10 or as .|.
+ 
+ -- | Bitwise XOR.
+-foreign import xor :: Int -> Int -> Int
++xor :: Int -> Int -> Int
++xor a0 a1 = intXor a0 a1
+ 
+ infixl 10 xor as .^.
+ 
+ -- | Bitwise shift left.
+-foreign import shl :: Int -> Int -> Int
++shl :: Int -> Int -> Int
++shl a0 a1 = intShl a0 a1
+ 
+ -- | Bitwise shift right.
+-foreign import shr :: Int -> Int -> Int
++shr :: Int -> Int -> Int
++shr a0 a1 = intShr a0 a1
+ 
+ -- | Bitwise zero-fill shift right.
+-foreign import zshr :: Int -> Int -> Int
++zshr :: Int -> Int -> Int
++zshr a0 a1 = intZshr a0 a1
+ 
+ -- | Bitwise NOT.
+-foreign import complement :: Int -> Int
++complement :: Int -> Int
++complement a0 = intComplement a0
+--- purescript-integers@v6.0.0/src/Data/Int.purs
++++ stdlib/lib/Data/Int.purs
+@@ -37,11 +37,8 @@
+ fromNumber :: Number -> Maybe Int
+ fromNumber = fromNumberImpl Just Nothing
+ 
+-foreign import fromNumberImpl
+-  :: (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> Number
+-  -> Maybe Int
++fromNumberImpl :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Number -> Maybe Int
++fromNumberImpl a0 a1 a2 = fromNumberImpl a0 a1 a2
+ 
+ -- | Convert a `Number` to an `Int`, by taking the closest integer equal to or
+ -- | less than the argument. Values outside the `Int` range are clamped, `NaN`
+@@ -78,7 +75,8 @@
+ 
+ -- | Converts an `Int` value back into a `Number`. Any `Int` is a valid `Number`
+ -- | so there is no loss of precision with this function.
+-foreign import toNumber :: Int -> Number
++toNumber :: Int -> Number
++toNumber a0 = toNumber a0
+ 
+ -- | Reads an `Int` from a `String` value. The number must parse as an integer
+ -- | and fall within the valid range of values for the `Int` type, otherwise
+@@ -224,7 +222,8 @@
+ -- | div 2 (-3) == 0
+ -- | quot 2 (-3) == 0
+ -- | ```
+-foreign import quot :: Int -> Int -> Int
++quot :: Int -> Int -> Int
++quot a0 a1 = quot a0 a1
+ 
+ -- | The `rem` function provides the remainder after _truncating_ integer
+ -- | division (see the documentation for the `EuclideanRing` class). It is
+@@ -242,16 +241,15 @@
+ -- | mod 2 (-3) == 2
+ -- | rem 2 (-3) == 2
+ -- | ```
+-foreign import rem :: Int -> Int -> Int
++rem :: Int -> Int -> Int
++rem a0 a1 = rem a0 a1
+ 
+ -- | Raise an Int to the power of another Int.
+-foreign import pow :: Int -> Int -> Int
+-
+-foreign import fromStringAsImpl
+-  :: (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> Radix
+-  -> String
+-  -> Maybe Int
+-
+-foreign import toStringAs :: Radix -> Int -> String
++pow :: Int -> Int -> Int
++pow a0 a1 = pow a0 a1
++
++fromStringAsImpl :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Radix -> String -> Maybe Int
++fromStringAsImpl a0 a1 a2 a3 = fromStringAsImpl a0 a1 a2 a3
++
++toStringAs :: Radix -> Int -> String
++toStringAs a0 a1 = toStringAs a0 a1
+--- purescript-lazy@v6.0.0/src/Data/Lazy.purs
++++ stdlib/lib/Data/Lazy.purs
+@@ -32,10 +32,12 @@
+ type role Lazy representational
+ 
+ -- | Defer a computation, creating a `Lazy` value.
+-foreign import defer :: forall a. (Unit -> a) -> Lazy a
++defer :: forall a. (Unit -> a) -> Lazy a
++defer a0 = defer a0
+ 
+ -- | Force evaluation of a `Lazy` value.
+-foreign import force :: forall a. Lazy a -> a
++force :: forall a. Lazy a -> a
++force a0 = force a0
+ 
+ instance semiringLazy :: Semiring a => Semiring (Lazy a) where
+   add a b = defer \_ -> force a + force b
+--- purescript-numbers@v9.0.1/src/Data/Number/Format.purs
++++ stdlib/lib/Data/Number/Format.purs
+@@ -30,9 +30,12 @@
+ 
+ import Prelude
+ 
+-foreign import toPrecisionNative ::   Int -> Number -> String
+-foreign import toFixedNative ::       Int -> Number -> String
+-foreign import toExponentialNative :: Int -> Number -> String
++toPrecisionNative :: Int -> Number -> String
++toPrecisionNative a0 a1 = toPrecisionNative a0 a1
++toFixedNative :: Int -> Number -> String
++toFixedNative a0 a1 = toFixedNative a0 a1
++toExponentialNative :: Int -> Number -> String
++toExponentialNative a0 a1 = toExponentialNative a0 a1
+ 
+ -- | The `Format` data type specifies how a number will be formatted.
+ data Format
+@@ -73,4 +76,5 @@
+ -- | > toString 1.2e-10
+ -- | "1.2e-10"
+ -- | ```
+-foreign import toString :: Number -> String
++toString :: Number -> String
++toString a0 = toString a0
+--- purescript-numbers@v9.0.1/src/Data/Number.purs
++++ stdlib/lib/Data/Number.purs
+@@ -44,7 +44,8 @@
+ -- | > nan
+ -- | NaN
+ -- | ```
+-foreign import nan :: Number
++nan :: Number
++nan = nan
+ 
+ -- | Test whether a number is NaN.
+ -- | ```purs
+@@ -54,7 +55,8 @@
+ -- | > isNaN nan
+ -- | true
+ -- | ```
+-foreign import isNaN :: Number -> Boolean
++isNaN :: Number -> Boolean
++isNaN a0 = isNaN a0
+ 
+ -- | Positive infinity. For negative infinity use `(-infinity)`
+ -- | ```purs
+@@ -64,7 +66,8 @@
+ -- | > (-infinity)
+ -- | - Infinity
+ -- | ```
+-foreign import infinity :: Number
++infinity :: Number
++infinity = infinity
+ 
+ -- | Test whether a number is finite.
+ -- | ```purs
+@@ -80,7 +83,8 @@
+ -- | > isFinite nan
+ -- | false
+ -- | ```
+-foreign import isFinite :: Number -> Boolean
++isFinite :: Number -> Boolean
++isFinite a0 = isFinite a0
+ 
+ -- | Attempt to parse a `Number` using JavaScripts `parseFloat`. Returns
+ -- | `Nothing` if the parse fails or if the result is not a finite number.
+@@ -112,7 +116,8 @@
+ fromString :: String -> Maybe Number
+ fromString str = runFn4 fromStringImpl str isFinite Just Nothing
+ 
+-foreign import fromStringImpl :: Fn4 String (Number -> Boolean) (forall a. a -> Maybe a) (forall a. Maybe a) (Maybe Number)
++fromStringImpl :: Fn4 String (Number -> Boolean) (forall a. a -> Maybe a) (forall a. Maybe a) (Maybe Number)
++fromStringImpl = fromStringImpl
+ 
+ -- | Returns the absolute value of the argument.
+ -- | ```purs
+@@ -120,28 +125,32 @@
+ -- | > sign x * abs x == x
+ -- | true
+ -- | ```
+-foreign import abs :: Number -> Number
++abs :: Number -> Number
++abs a0 = abs a0
+ 
+ -- | Returns the inverse cosine in radians of the argument.
+ -- | ```purs
+ -- | > acos 0.0 == pi / 2.0
+ -- | true
+ -- | ```
+-foreign import acos :: Number -> Number
++acos :: Number -> Number
++acos a0 = acos a0
+ 
+ -- | Returns the inverse sine in radians of the argument.
+ -- | ```purs
+ -- | > asin 1.0 == pi / 2.0
+ -- | true
+ -- | ```
+-foreign import asin :: Number -> Number
++asin :: Number -> Number
++asin a0 = asin a0
+ 
+ -- | Returns the inverse tangent in radians of the argument.
+ -- | ```purs
+ -- | > atan 1.0 == pi / 4.0
+ -- | true
+ -- | ```
+-foreign import atan :: Number -> Number
++atan :: Number -> Number
++atan a0 = atan a0
+ 
+ -- | Four-quadrant tangent inverse. Given the arguments `y` and `x`, returns
+ -- | the inverse tangent of `y / x`, where the signs of both arguments are used
+@@ -154,49 +163,57 @@
+ -- | > atan2 1.0 0.0 == pi / 2.0
+ -- | true
+ -- | ```
+-foreign import atan2 :: Number -> Number -> Number
++atan2 :: Number -> Number -> Number
++atan2 a0 a1 = atan2 a0 a1
+ 
+ -- | Returns the smallest integer not smaller than the argument.
+ -- | ```purs
+ -- | > ceil 1.5
+ -- | 2.0
+ -- | ```
+-foreign import ceil :: Number -> Number
++ceil :: Number -> Number
++ceil a0 = ceil a0
+ 
+ -- | Returns the cosine of the argument, where the argument is in radians.
+ -- | ```purs
+ -- | > cos (pi / 4.0) == sqrt2 / 2.0
+ -- | true
+ -- | ```
+-foreign import cos :: Number -> Number
++cos :: Number -> Number
++cos a0 = cos a0
+ 
+ -- | Returns `e` exponentiated to the power of the argument.
+ -- | ```purs
+ -- | > exp 1.0
+ -- | 2.718281828459045
+ -- | ```
+-foreign import exp :: Number -> Number
++exp :: Number -> Number
++exp a0 = exp a0
+ 
+ -- | Returns the largest integer not larger than the argument.
+ -- | ```purs
+ -- | > floor 1.5
+ -- | 1.0
+ -- | ```
+-foreign import floor :: Number -> Number
++floor :: Number -> Number
++floor a0 = floor a0
+ 
+ -- | Returns the natural logarithm of a number.
+ -- | ```purs
+ -- | > log e
+ -- | 1.0
+-foreign import log :: Number -> Number
++log :: Number -> Number
++log a0 = log a0
+ 
+ -- | Returns the largest of two numbers. Unlike `max` in Data.Ord this version
+ -- | returns NaN if either argument is NaN.
+-foreign import max :: Number -> Number -> Number
++max :: Number -> Number -> Number
++max a0 a1 = max a0 a1
+ 
+ -- | Returns the smallest of two numbers. Unlike `min` in Data.Ord this version
+ -- | returns NaN if either argument is NaN.
+-foreign import min :: Number -> Number -> Number
++min :: Number -> Number -> Number
++min a0 a1 = min a0 a1
+ 
+ -- | Return  the first argument exponentiated to the power of the second argument.
+ -- | ```purs
+@@ -206,14 +223,16 @@
+ -- | true
+ -- | ```
+ 
+-foreign import pow :: Number -> Number -> Number
++pow :: Number -> Number -> Number
++pow a0 a1 = pow a0 a1
+ 
+ -- | Computes the remainder after division. This is the same as JavaScript's `%` operator.
+ -- ```purs
+ -- > 5.3 % 2.0
+ -- 1.2999999999999998
+ -- ```
+-foreign import remainder :: Number -> Number -> Number
++remainder :: Number -> Number -> Number
++remainder a0 a1 = remainder a0 a1
+ 
+ infixl 7 remainder as %
+ 
+@@ -222,7 +241,8 @@
+ -- | > round 1.5
+ -- | 2.0
+ -- | ```
+-foreign import round :: Number -> Number
++round :: Number -> Number
++round a0 = round a0
+ 
+ -- | Returns either a positive or negative +/- 1, indicating the sign of the
+ -- | argument. If the argument is 0, it will return a +/- 0. If the argument is
+@@ -232,28 +252,32 @@
+ -- | > sign x * abs x == x
+ -- | true
+ -- | ```
+-foreign import sign :: Number -> Number
++sign :: Number -> Number
++sign a0 = sign a0
+ 
+ -- | Returns the sine of the argument, where the argument is in radians.
+ -- | ```purs
+ -- | > sin (pi / 2.0)
+ -- | 1.0
+ -- | ```
+-foreign import sin :: Number -> Number
++sin :: Number -> Number
++sin a0 = sin a0
+ 
+ -- | Returns the square root of the argument.
+ -- | ```purs
+ -- | > sqrt 49.0
+ -- | 7.0
+ -- | ```
+-foreign import sqrt :: Number -> Number
++sqrt :: Number -> Number
++sqrt a0 = sqrt a0
+ 
+ -- | Returns the tangent of the argument, where the argument is in radians.
+ -- | ```
+ -- | > tan (pi / 4.0)
+ -- | 0.9999999999999999
+ -- | ```
+-foreign import tan :: Number -> Number
++tan :: Number -> Number
++tan a0 = tan a0
+ 
+ -- | Truncates the decimal portion of a number. Equivalent to `floor` if the
+ -- | number is positive, and `ceil` if the number is negative.
+@@ -261,7 +285,8 @@
+ -- | ceil 1.5
+ -- | 2.0
+ -- | ```
+-foreign import trunc :: Number -> Number
++trunc :: Number -> Number
++trunc a0 = trunc a0
+ 
+ -- | The base of the natural logarithm, also known as Euler's number or *e*.
+ -- | ```purs
+--- purescript-prelude@v6.0.1/src/Data/Ord.purs
++++ stdlib/lib/Data/Ord.purs
+@@ -49,19 +49,19 @@
+   compare :: a -> a -> Ordering
+ 
+ instance ordBoolean :: Ord Boolean where
+-  compare = ordBooleanImpl LT EQ GT
++  compare x y = ordBooleanImpl LT EQ GT x y
+ 
+ instance ordInt :: Ord Int where
+-  compare = ordIntImpl LT EQ GT
++  compare x y = ordIntImpl LT EQ GT x y
+ 
+ instance ordNumber :: Ord Number where
+-  compare = ordNumberImpl LT EQ GT
++  compare x y = ordNumberImpl LT EQ GT x y
+ 
+ instance ordString :: Ord String where
+-  compare = ordStringImpl LT EQ GT
++  compare x y = ordStringImpl LT EQ GT x y
+ 
+ instance ordChar :: Ord Char where
+-  compare = ordCharImpl LT EQ GT
++  compare x y = ordCharImpl LT EQ GT x y
+ 
+ instance ordUnit :: Ord Unit where
+   compare _ _ = EQ
+@@ -81,47 +81,46 @@
+         LT -> 1
+         GT -> -1
+ 
+-foreign import ordBooleanImpl
+-  :: Ordering
+-  -> Ordering
+-  -> Ordering
+-  -> Boolean
+-  -> Boolean
+-  -> Ordering
+-
+-foreign import ordIntImpl
+-  :: Ordering
+-  -> Ordering
+-  -> Ordering
+-  -> Int
+-  -> Int
+-  -> Ordering
+-
+-foreign import ordNumberImpl
+-  :: Ordering
+-  -> Ordering
+-  -> Ordering
+-  -> Number
+-  -> Number
+-  -> Ordering
+-
+-foreign import ordStringImpl
+-  :: Ordering
+-  -> Ordering
+-  -> Ordering
+-  -> String
+-  -> String
+-  -> Ordering
+-
+-foreign import ordCharImpl
+-  :: Ordering
+-  -> Ordering
+-  -> Ordering
+-  -> Char
+-  -> Char
+-  -> Ordering
+-
+-foreign import ordArrayImpl :: forall a. (a -> a -> Int) -> Array a -> Array a -> Int
++ordBooleanImpl :: Ordering -> Ordering -> Ordering -> Boolean -> Boolean -> Ordering
++ordBooleanImpl a0 a1 a2 a3 a4 = if booleanEq a3 a4 then a1 else if a3 then a2 else a0
++
++ordIntImpl :: Ordering -> Ordering -> Ordering -> Int -> Int -> Ordering
++ordIntImpl a0 a1 a2 a3 a4 = if intLt a3 a4 then a0 else if intEq a3 a4 then a1 else a2
++
++ordNumberImpl :: Ordering -> Ordering -> Ordering -> Number -> Number -> Ordering
++ordNumberImpl a0 a1 a2 a3 a4 = if numberLt a3 a4 then a0 else if numberEq a3 a4 then a1 else a2
++
++ordStringImpl :: Ordering -> Ordering -> Ordering -> String -> String -> Ordering
++ordStringImpl a0 a1 a2 a3 a4 = ordBytes a0 a1 a2 (stringToBytes a3) (stringToBytes a4) 0
++
++ordBytes :: forall a. a -> a -> a -> Array Int -> Array Int -> Int -> a
++ordBytes lt eq gt xs ys index =
++  if intGe index (arrayLength xs) then
++    if intEq (arrayLength xs) (arrayLength ys) then eq
++    else if intGt (arrayLength xs) (arrayLength ys) then gt
++    else lt
++  else if intGe index (arrayLength ys) then gt
++  else if intLt (arrayIndex xs index) (arrayIndex ys index) then lt
++  else if intEq (arrayIndex xs index) (arrayIndex ys index) then ordBytes lt eq gt xs ys (intAdd index 1)
++  else gt
++
++ordCharImpl :: Ordering -> Ordering -> Ordering -> Char -> Char -> Ordering
++ordCharImpl a0 a1 a2 a3 a4 = if charLt a3 a4 then a0 else if charEq a3 a4 then a1 else a2
++
++ordArrayImpl :: forall a. (a -> a -> Int) -> Array a -> Array a -> Int
++ordArrayImpl a0 a1 a2 = ordArrayFrom a0 a1 a2 0
++
++ordArrayFrom :: forall a. (a -> a -> Int) -> Array a -> Array a -> Int -> Int
++ordArrayFrom compareOne xs ys index =
++  if intLt index (arrayLength xs) then
++    if intLt index (arrayLength ys) then
++      let
++        order = compareOne (arrayIndex xs index) (arrayIndex ys index)
++      in
++        if intEq order 0 then ordArrayFrom compareOne xs ys (intAdd index 1) else order
++    else intNeg 1
++  else if intEq (arrayLength xs) (arrayLength ys) then 0
++  else 1
+ 
+ instance ordOrdering :: Ord Ordering where
+   compare LT LT = EQ
+--- purescript-prelude@v6.0.1/src/Data/Reflectable.purs
++++ stdlib/lib/Data/Reflectable.purs
+@@ -33,7 +33,8 @@
+ instance Reifiable String
+ 
+ -- local definition for use in `reifyType`
+-foreign import unsafeCoerce :: forall a b. a -> b
++unsafeCoerce :: forall a b. a -> b
++unsafeCoerce a0 = unsafeCoerce a0
+ 
+ -- | Reify a value of type `t` such that it can be consumed by a
+ -- | function constrained by the `Reflectable` type class. For
+--- purescript-prelude@v6.0.1/src/Data/Ring/Generic.purs
++++ stdlib/lib/Data/Ring/Generic.purs
+@@ -21,4 +21,4 @@
+ 
+ -- | A `Generic` implementation of the `sub` member from the `Ring` type class.
+ genericSub :: forall a rep. Generic a rep => GenericRing rep => a -> a -> a
+-genericSub x y = to $ from x `genericSub'` from y
+\ No newline at end of file
++genericSub x y = to $ from x `genericSub'` from y
+--- purescript-prelude@v6.0.1/src/Data/Ring.purs
++++ stdlib/lib/Data/Ring.purs
+@@ -30,10 +30,10 @@
+ infixl 6 sub as -
+ 
+ instance ringInt :: Ring Int where
+-  sub = intSub
++  sub x y = intSub x y
+ 
+ instance ringNumber :: Ring Number where
+-  sub = numSub
++  sub x y = numSub x y
+ 
+ instance ringUnit :: Ring Unit where
+   sub _ _ = unit
+@@ -51,8 +51,9 @@
+ negate :: forall a. Ring a => a -> a
+ negate a = zero - a
+ 
+-foreign import intSub :: Int -> Int -> Int
+-foreign import numSub :: Number -> Number -> Number
++
++numSub :: Number -> Number -> Number
++numSub a0 a1 = numberSub a0 a1
+ 
+ -- | A class for records where all fields have `Ring` instances, used to
+ -- | implement the `Ring` instance for records.
+--- purescript-prelude@v6.0.1/src/Data/Semigroup.purs
++++ stdlib/lib/Data/Semigroup.purs
+@@ -37,7 +37,7 @@
+ infixr 5 append as <>
+ 
+ instance semigroupString :: Semigroup String where
+-  append = concatString
++  append x y = concatString x y
+ 
+ instance semigroupUnit :: Semigroup Unit where
+   append _ _ = unit
+@@ -49,7 +49,7 @@
+   append f g x = f x <> g x
+ 
+ instance semigroupArray :: Semigroup (Array a) where
+-  append = concatArray
++  append x y = concatArray x y
+ 
+ instance semigroupProxy :: Semigroup (Proxy a) where
+   append _ _ = Proxy
+@@ -57,8 +57,10 @@
+ instance semigroupRecord :: (RL.RowToList row list, SemigroupRecord list row row) => Semigroup (Record row) where
+   append = appendRecord (Proxy :: Proxy list)
+ 
+-foreign import concatString :: String -> String -> String
+-foreign import concatArray :: forall a. Array a -> Array a -> Array a
++concatString :: String -> String -> String
++concatString a0 a1 = bytesToString (arrayAppend (stringToBytes a0) (stringToBytes a1))
++concatArray :: forall a. Array a -> Array a -> Array a
++concatArray a0 a1 = arrayAppend a0 a1
+ 
+ -- | A class for records where all fields have `Semigroup` instances, used to
+ -- | implement the `Semigroup` instance for records.
+--- purescript-prelude@v6.0.1/src/Data/Semiring/Generic.purs
++++ stdlib/lib/Data/Semiring/Generic.purs
+@@ -48,4 +48,4 @@
+ 
+ -- | A `Generic` implementation of the `mul` member from the `Semiring` type class.
+ genericMul :: forall a rep. Generic a rep => GenericSemiring rep => a -> a -> a
+-genericMul x y = to $ from x `genericMul'` from y
+\ No newline at end of file
++genericMul x y = to $ from x `genericMul'` from y
+--- purescript-prelude@v6.0.1/src/Data/Semiring.purs
++++ stdlib/lib/Data/Semiring.purs
+@@ -51,15 +51,15 @@
+ infixl 7 mul as *
+ 
+ instance semiringInt :: Semiring Int where
+-  add = intAdd
++  add x y = intAdd x y
+   zero = 0
+-  mul = intMul
++  mul x y = intMul x y
+   one = 1
+ 
+ instance semiringNumber :: Semiring Number where
+-  add = numAdd
++  add x y = numAdd x y
+   zero = 0.0
+-  mul = numMul
++  mul x y = numMul x y
+   one = 1.0
+ 
+ instance semiringFn :: Semiring b => Semiring (a -> b) where
+@@ -86,10 +86,12 @@
+   one = oneRecord (Proxy :: Proxy list) (Proxy :: Proxy row)
+   zero = zeroRecord (Proxy :: Proxy list) (Proxy :: Proxy row)
+ 
+-foreign import intAdd :: Int -> Int -> Int
+-foreign import intMul :: Int -> Int -> Int
+-foreign import numAdd :: Number -> Number -> Number
+-foreign import numMul :: Number -> Number -> Number
++
++
++numAdd :: Number -> Number -> Number
++numAdd a0 a1 = numberAdd a0 a1
++numMul :: Number -> Number -> Number
++numMul a0 a1 = numberMul a0 a1
+ 
+ -- | A class for records where all fields have `Semiring` instances, used to
+ -- | implement the `Semiring` instance for records.
+--- purescript-prelude@v6.0.1/src/Data/Show/Generic.purs
++++ stdlib/lib/Data/Show/Generic.purs
+@@ -54,4 +54,11 @@
+ genericShow :: forall a rep. Generic a rep => GenericShow rep => a -> String
+ genericShow x = genericShow' (from x)
+ 
+-foreign import intercalate :: String -> Array String -> String
++intercalate :: String -> Array String -> String
++intercalate a0 a1 = intercalateFrom a0 a1 0
++
++intercalateFrom :: String -> Array String -> Int -> String
++intercalateFrom separator values index =
++  if intGe index (arrayLength values) then ""
++  else if intEq index 0 then arrayIndex values index <> intercalateFrom separator values (intAdd index 1)
++  else separator <> arrayIndex values index <> intercalateFrom separator values (intAdd index 1)
+--- purescript-prelude@v6.0.1/src/Data/Show.purs
++++ stdlib/lib/Data/Show.purs
+@@ -1,97 +1,280 @@
++-- | The `Show` class.
++-- |
++-- | `show` renders a value as text. The `Int`, `Number`, `Boolean`, `Char`,
++-- | `String`, `Unit`, and `Array` instances are the ones the corpus actually
++-- | applies `show` to. `Show Unit` lives here; `Data.Unit` only re-exports the
++-- | builtin. A record instance is not here because `reflectSymbol` has no
++-- | runtime.
++-- |
++-- | `Boolean`, `Int`, `Char`, `String`, `Unit`, and `Array` match the official
++-- | spelling, including the `Char`/`String` escapes. `Number` uses the same
++-- | shape as the official instance — decimal digits, `.0` on an integer token,
++-- | scientific form outside `(1e-6, 1e21)` — but the digits come from the
++-- | numeric primitives, not from a correctly rounded ECMAScript conversion.
++-- | Integers whose absolute value is below `1e21`, powers of ten, and the
++-- | dyadic fractions the digit loop reaches exactly match; other fractions
++-- | print a deterministic expansion that can differ from `purs`.
+ module Data.Show
+   ( class Show
+   , show
+-  , class ShowRecordFields
+-  , showRecordFields
+   ) where
+ 
+ import Data.Semigroup ((<>))
+-import Data.Symbol (class IsSymbol, reflectSymbol)
+-import Data.Unit (Unit)
+-import Data.Void (Void, absurd)
+-import Prim.Row (class Nub)
+-import Prim.RowList as RL
+-import Record.Unsafe (unsafeGet)
+-import Type.Proxy (Proxy(..))
+-
+--- | The `Show` type class represents those types which can be converted into
+--- | a human-readable `String` representation.
+--- |
+--- | While not required, it is recommended that for any expression `x`, the
+--- | string `show x` be executable PureScript code which evaluates to the same
+--- | value as the expression `x`.
++
++-- | A type that can be rendered as text.
+ class Show a where
+   show :: a -> String
+ 
++instance showBoolean :: Show Boolean where
++  show value = if value then "true" else "false"
++
++instance showInt :: Show Int where
++  show value =
++    if intEq value minInt then "-2147483648"
++    else if intLt value 0 then "-" <> showPositiveInt (intNeg value)
++    else showPositiveInt value
++
++instance showNumber :: Show Number where
++  show value =
++    if numberNe value value then "NaN"
++    else if numberEq value positiveInfinity then "Infinity"
++    else if numberEq value negativeInfinity then "-Infinity"
++    else if numberLt value 0.0 then "-" <> showPositiveNumber (numberNeg value)
++    else showPositiveNumber value
++
++instance showChar :: Show Char where
++  show value = "'" <> escapeCode (charToInt value) false false <> "'"
++
++instance showString :: Show String where
++  show value = "\"" <> escapeBytes (stringToBytes value) 0 <> "\""
++
+ instance showUnit :: Show Unit where
+   show _ = "unit"
+ 
+-instance showBoolean :: Show Boolean where
+-  show true = "true"
+-  show false = "false"
+-
+-instance showInt :: Show Int where
+-  show = showIntImpl
+-
+-instance showNumber :: Show Number where
+-  show = showNumberImpl
+-
+-instance showChar :: Show Char where
+-  show = showCharImpl
+-
+-instance showString :: Show String where
+-  show = showStringImpl
+-
+ instance showArray :: Show a => Show (Array a) where
+-  show = showArrayImpl show
+-
+-instance showProxy :: Show (Proxy a) where
+-  show _ = "Proxy"
+-
+-instance showVoid :: Show Void where
+-  show = absurd
+-
+-instance showRecord ::
+-  ( Nub rs rs
+-  , RL.RowToList rs ls
+-  , ShowRecordFields ls rs
+-  ) =>
+-  Show (Record rs) where
+-  show record = "{" <> showRecordFields (Proxy :: Proxy ls) record <> "}"
+-
+--- | A class for records where all fields have `Show` instances, used to
+--- | implement the `Show` instance for records.
+-class ShowRecordFields :: RL.RowList Type -> Row Type -> Constraint
+-class ShowRecordFields rowlist row where
+-  showRecordFields :: Proxy rowlist -> Record row -> String
+-
+-instance showRecordFieldsNil :: ShowRecordFields RL.Nil row where
+-  showRecordFields _ _ = ""
+-else
+-instance showRecordFieldsConsNil ::
+-  ( IsSymbol key
+-  , Show focus
+-  ) =>
+-  ShowRecordFields (RL.Cons key focus RL.Nil) row where
+-  showRecordFields _ record = " " <> key <> ": " <> show focus <> " "
+-    where
+-    key = reflectSymbol (Proxy :: Proxy key)
+-    focus = unsafeGet key record :: focus
+-else
+-instance showRecordFieldsCons ::
+-  ( IsSymbol key
+-  , ShowRecordFields rowlistTail row
+-  , Show focus
+-  ) =>
+-  ShowRecordFields (RL.Cons key focus rowlistTail) row where
+-  showRecordFields _ record = " " <> key <> ": " <> show focus <> "," <> tail
+-    where
+-    key = reflectSymbol (Proxy :: Proxy key)
+-    focus = unsafeGet key record :: focus
+-    tail = showRecordFields (Proxy :: Proxy rowlistTail) record
+-
+-foreign import showIntImpl :: Int -> String
+-foreign import showNumberImpl :: Number -> String
+-foreign import showCharImpl :: Char -> String
+-foreign import showStringImpl :: String -> String
+-foreign import showArrayImpl :: forall a. (a -> String) -> Array a -> String
++  show value = "[" <> showElements value 0 <> "]"
++
++minInt :: Int
++minInt = intSub (intSub 0 2147483647) 1
++
++positiveInfinity :: Number
++positiveInfinity = numberDiv 1.0 0.0
++
++negativeInfinity :: Number
++negativeInfinity = numberDiv (numberNeg 1.0) 0.0
++
++showPositiveInt :: Int -> String
++showPositiveInt value =
++  if intLt value 10 then digit value
++  else showPositiveInt (intDiv value 10) <> digit (intMod value 10)
++
++digit :: Int -> String
++digit value = bytesToString [intAdd 48 value]
++
++-- | A non-negative `Number`. Integers below `1e21` print as decimal digits
++-- | plus `.0`. Smaller magnitudes print as a fixed expansion. The rest use
++-- | scientific form, which is what the official `Show Number` does past
++-- | those thresholds.
++showPositiveNumber :: Number -> String
++showPositiveNumber value =
++  if numberEq value 0.0 then "0.0"
++  else if numberGe value 1.0e21 then showScientific value
++  else if numberLt value 1.0e-6 then showScientific value
++  else if numberEq value (floorNumber value) then showIntegerNumber value <> ".0"
++  else showMixed value
++
++showMixed :: Number -> String
++showMixed value =
++  let
++    whole = floorNumber value
++    fraction = numberSub value whole
++    wholeText = if numberEq whole 0.0 then "0" else showIntegerNumber whole
++    fractionText = digitsToString (trimZeros (collectFraction fraction 17 [])) 0
++  in
++    if intEq (arrayLength (stringToBytes fractionText)) 0 then wholeText <> ".0"
++    else wholeText <> "." <> fractionText
++
++showScientific :: Number -> String
++showScientific value =
++  let
++    exponent = powerOfTen value 0
++    mantissa = scaleToUnit value exponent
++  in
++    showMantissa mantissa <> showExponent exponent
++
++showMantissa :: Number -> String
++showMantissa value =
++  let
++    whole = numberToInt (floorNumber value)
++    fraction = numberSub value (intToNumber whole)
++    fractionText = digitsToString (trimZeros (collectFraction fraction 17 [])) 0
++  in
++    if intEq (arrayLength (stringToBytes fractionText)) 0 then showPositiveInt whole
++    else showPositiveInt whole <> "." <> fractionText
++
++showExponent :: Int -> String
++showExponent value =
++  if intLt value 0 then "e-" <> showPositiveInt (intNeg value)
++  else "e+" <> showPositiveInt value
++
++powerOfTen :: Number -> Int -> Int
++powerOfTen value exponent =
++  if numberEq value 0.0 then exponent
++  else if numberGe value 10.0 then powerOfTen (numberDiv value 10.0) (intAdd exponent 1)
++  else if numberLt value 1.0 then powerOfTen (numberMul value 10.0) (intSub exponent 1)
++  else exponent
++
++scaleToUnit :: Number -> Int -> Number
++scaleToUnit value exponent =
++  if intEq exponent 0 then value
++  else if intGt exponent 0 then scaleToUnit (numberDiv value 10.0) (intSub exponent 1)
++  else scaleToUnit (numberMul value 10.0) (intAdd exponent 1)
++
++-- | Floor of a non-negative number. Groups of nine digits stay inside `Int`,
++-- | so a value past `2^31` still floors without a wider primitive.
++floorNumber :: Number -> Number
++floorNumber value =
++  if numberLt value 1000000000.0 then intToNumber (numberToInt value)
++  else
++    let
++      billions = floorNumber (numberDiv value 1000000000.0)
++      base = numberMul billions 1000000000.0
++      low = numberToInt (numberSub value base)
++    in
++      numberAdd base (intToNumber low)
++
++showIntegerNumber :: Number -> String
++showIntegerNumber value =
++  if numberLt value 1000000000.0 then showPositiveInt (numberToInt value)
++  else
++    let
++      billions = floorNumber (numberDiv value 1000000000.0)
++      base = numberMul billions 1000000000.0
++      low = numberToInt (numberSub value base)
++    in
++      showIntegerNumber billions <> pad9 low
++
++pad9 :: Int -> String
++pad9 value =
++  if intLt value 10 then "00000000" <> showPositiveInt value
++  else if intLt value 100 then "0000000" <> showPositiveInt value
++  else if intLt value 1000 then "000000" <> showPositiveInt value
++  else if intLt value 10000 then "00000" <> showPositiveInt value
++  else if intLt value 100000 then "0000" <> showPositiveInt value
++  else if intLt value 1000000 then "000" <> showPositiveInt value
++  else if intLt value 10000000 then "00" <> showPositiveInt value
++  else if intLt value 100000000 then "0" <> showPositiveInt value
++  else showPositiveInt value
++
++collectFraction :: Number -> Int -> Array Int -> Array Int
++collectFraction fraction remaining digits =
++  if intEq remaining 0 then digits
++  else if numberEq fraction 0.0 then digits
++  else
++    let
++      scaled = numberMul fraction 10.0
++      digitValue = numberToInt scaled
++      rest = numberSub scaled (intToNumber digitValue)
++    in
++      collectFraction rest (intSub remaining 1) (arrayAppend digits [digitValue])
++
++trimZeros :: Array Int -> Array Int
++trimZeros digits =
++  let
++    length = arrayLength digits
++  in
++    if intEq length 0 then digits
++    else if intEq (arrayIndex digits (intSub length 1)) 0 then trimZeros (takePrefix digits (intSub length 1))
++    else digits
++
++takePrefix :: Array Int -> Int -> Array Int
++takePrefix digits count = copyPrefix digits count 0
++
++copyPrefix :: Array Int -> Int -> Int -> Array Int
++copyPrefix digits count index =
++  if intGe index count then []
++  else arrayAppend [arrayIndex digits index] (copyPrefix digits count (intAdd index 1))
++
++digitsToString :: Array Int -> Int -> String
++digitsToString digits index =
++  if intGe index (arrayLength digits) then ""
++  else digit (arrayIndex digits index) <> digitsToString digits (intAdd index 1)
++
++showElements :: forall a. Show a => Array a -> Int -> String
++showElements values index =
++  if intGe index (arrayLength values) then ""
++  else if intEq index 0 then show (arrayIndex values index) <> showElements values (intAdd index 1)
++  else "," <> show (arrayIndex values index) <> showElements values (intAdd index 1)
++
++-- | The body of a `Char` or `String` escape, without the surrounding quotes.
++-- | `ampersand` is true when a numeric escape must not swallow a following
++-- | digit, which is the official `\&` rule.
++escapeCode :: Int -> Boolean -> Boolean -> String
++escapeCode code ampersand inString =
++  if intEq code 7 then "\\a"
++  else if intEq code 8 then "\\b"
++  else if intEq code 12 then "\\f"
++  else if intEq code 10 then "\\n"
++  else if intEq code 13 then "\\r"
++  else if intEq code 9 then "\\t"
++  else if intEq code 11 then "\\v"
++  else if intLt code 32 then "\\" <> showPositiveInt code <> emptyAmpersand ampersand
++  else if intEq code 127 then "\\127" <> emptyAmpersand ampersand
++  else if intEq code 92 then "\\\\"
++  else if intEq code 34 then if inString then "\\\"" else utf8 code
++  else if intEq code 39 then if inString then utf8 code else "\\'"
++  else utf8 code
++
++emptyAmpersand :: Boolean -> String
++emptyAmpersand needed = if needed then "\\&" else ""
++
++escapeBytes :: Array Int -> Int -> String
++escapeBytes bytes index =
++  if intGe index (arrayLength bytes) then ""
++  else
++    let
++      decoded = decode bytes index
++      code = arrayIndex decoded 0
++      next = arrayIndex decoded 1
++    in
++      escapeCode code (nextIsDigit bytes next) true <> escapeBytes bytes next
++
++nextIsDigit :: Array Int -> Int -> Boolean
++nextIsDigit bytes index =
++  if intGe index (arrayLength bytes) then false
++  else
++    let
++      code = arrayIndex (decode bytes index) 0
++    in
++      if intLt code 48 then false else intLe code 57
++
++-- | One Unicode scalar and the index of the byte after it. The bytes are
++-- | well-formed UTF-8 because they came from `stringToBytes`.
++decode :: Array Int -> Int -> Array Int
++decode bytes index =
++  let
++    first = arrayIndex bytes index
++  in
++    if intLt first 128 then [first, intAdd index 1]
++    else if intLt first 224 then
++      [ intAdd (intShl (intAnd first 31) 6) (continuation bytes (intAdd index 1))
++      , intAdd index 2
++      ]
++    else if intLt first 240 then
++      [ intAdd (intAdd (intShl (intAnd first 15) 12) (intShl (continuation bytes (intAdd index 1)) 6)) (continuation bytes (intAdd index 2))
++      , intAdd index 3
++      ]
++    else
++      [ intAdd (intAdd (intAdd (intShl (intAnd first 7) 18) (intShl (continuation bytes (intAdd index 1)) 12)) (intShl (continuation bytes (intAdd index 2)) 6)) (continuation bytes (intAdd index 3))
++      , intAdd index 4
++      ]
++
++continuation :: Array Int -> Int -> Int
++continuation bytes index = intAnd (arrayIndex bytes index) 63
++
++utf8 :: Int -> String
++utf8 code =
++  if intLt code 128 then bytesToString [code]
++  else if intLt code 2048 then bytesToString [intOr 192 (intShr code 6), intOr 128 (intAnd code 63)]
++  else if intLt code 65536 then bytesToString [intOr 224 (intShr code 12), intOr 128 (intAnd (intShr code 6) 63), intOr 128 (intAnd code 63)]
++  else bytesToString [intOr 240 (intShr code 18), intOr 128 (intAnd (intShr code 12) 63), intOr 128 (intAnd (intShr code 6) 63), intOr 128 (intAnd code 63)]
+--- purescript-strings@v6.0.1/src/Data/String/CodePoints.purs
++++ stdlib/lib/Data/String/CodePoints.purs
+@@ -88,10 +88,8 @@
+ singleton :: CodePoint -> String
+ singleton = _singleton singletonFallback
+ 
+-foreign import _singleton
+-  :: (CodePoint -> String)
+-  -> CodePoint
+-  -> String
++_singleton :: (CodePoint -> String) -> CodePoint -> String
++_singleton a0 a1 = _singleton a0 a1
+ 
+ singletonFallback :: CodePoint -> String
+ singletonFallback (CodePoint cp) | cp <= 0xFFFF = fromCharCode cp
+@@ -114,10 +112,8 @@
+ fromCodePointArray :: Array CodePoint -> String
+ fromCodePointArray = _fromCodePointArray singletonFallback
+ 
+-foreign import _fromCodePointArray
+-  :: (CodePoint -> String)
+-  -> Array CodePoint
+-  -> String
++_fromCodePointArray :: (CodePoint -> String) -> Array CodePoint -> String
++_fromCodePointArray a0 a1 = _fromCodePointArray a0 a1
+ 
+ -- | Creates an array of code points from a string. Operates in space and time
+ -- | linear to the length of the string.
+@@ -133,11 +129,8 @@
+ toCodePointArray :: String -> Array CodePoint
+ toCodePointArray = _toCodePointArray toCodePointArrayFallback unsafeCodePointAt0
+ 
+-foreign import _toCodePointArray
+-  :: (String -> Array CodePoint)
+-  -> (String -> CodePoint)
+-  -> String
+-  -> Array CodePoint
++_toCodePointArray :: (String -> Array CodePoint) -> (String -> CodePoint) -> String -> Array CodePoint
++_toCodePointArray a0 a1 a2 = _toCodePointArray a0 a1 a2
+ 
+ toCodePointArrayFallback :: String -> Array CodePoint
+ toCodePointArrayFallback s = unfoldr unconsButWithTuple s
+@@ -163,14 +156,8 @@
+ codePointAt 0 s = Just (unsafeCodePointAt0 s)
+ codePointAt n s = _codePointAt codePointAtFallback Just Nothing unsafeCodePointAt0 n s
+ 
+-foreign import _codePointAt
+-  :: (Int -> String -> Maybe CodePoint)
+-  -> (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> (String -> CodePoint)
+-  -> Int
+-  -> String
+-  -> Maybe CodePoint
++_codePointAt :: (Int -> String -> Maybe CodePoint) -> (forall a. a -> Maybe a) -> (forall a. Maybe a) -> (String -> CodePoint) -> Int -> String -> Maybe CodePoint
++_codePointAt a0 a1 a2 a3 a4 a5 = _codePointAt a0 a1 a2 a3 a4 a5
+ 
+ codePointAtFallback :: Int -> String -> Maybe CodePoint
+ codePointAtFallback n s = case uncons s of
+@@ -227,12 +214,8 @@
+ countPrefix :: (CodePoint -> Boolean) -> String -> Int
+ countPrefix = _countPrefix countFallback unsafeCodePointAt0
+ 
+-foreign import _countPrefix
+-  :: ((CodePoint -> Boolean) -> String -> Int)
+-  -> (String -> CodePoint)
+-  -> (CodePoint -> Boolean)
+-  -> String
+-  -> Int
++_countPrefix :: ((CodePoint -> Boolean) -> String -> Int) -> (String -> CodePoint) -> (CodePoint -> Boolean) -> String -> Int
++_countPrefix a0 a1 a2 a3 = _countPrefix a0 a1 a2 a3
+ 
+ countFallback :: (CodePoint -> Boolean) -> String -> Int
+ countFallback p s = countTail p s 0
+@@ -328,7 +311,8 @@
+ take :: Int -> String -> String
+ take = _take takeFallback
+ 
+-foreign import _take :: (Int -> String -> String) -> Int -> String -> String
++_take :: (Int -> String -> String) -> Int -> String -> String
++_take a0 a1 a2 = _take a0 a1 a2
+ 
+ takeFallback :: Int -> String -> String
+ takeFallback n _ | n < 1 = ""
+@@ -418,10 +402,8 @@
+ unsafeCodePointAt0 :: String -> CodePoint
+ unsafeCodePointAt0 = _unsafeCodePointAt0 unsafeCodePointAt0Fallback
+ 
+-foreign import _unsafeCodePointAt0
+-  :: (String -> CodePoint)
+-  -> String
+-  -> CodePoint
++_unsafeCodePointAt0 :: (String -> CodePoint) -> String -> CodePoint
++_unsafeCodePointAt0 a0 a1 = _unsafeCodePointAt0 a0 a1
+ 
+ unsafeCodePointAt0Fallback :: String -> CodePoint
+ unsafeCodePointAt0Fallback s =
+--- purescript-strings@v6.0.1/src/Data/String/CodeUnits.purs
++++ stdlib/lib/Data/String/CodeUnits.purs
+@@ -80,21 +80,24 @@
+ -- | singleton 'l' == "l"
+ -- | ```
+ -- |
+-foreign import singleton :: Char -> String
++singleton :: Char -> String
++singleton a0 = singleton a0
+ 
+ -- | Converts an array of characters into a string.
+ -- |
+ -- | ```purescript
+ -- | fromCharArray ['H', 'e', 'l', 'l', 'o'] == "Hello"
+ -- | ```
+-foreign import fromCharArray :: Array Char -> String
++fromCharArray :: Array Char -> String
++fromCharArray a0 = fromCharArray a0
+ 
+ -- | Converts the string into an array of characters.
+ -- |
+ -- | ```purescript
+ -- | toCharArray "Hello☺\n" == ['H','e','l','l','o','☺','\n']
+ -- | ```
+-foreign import toCharArray :: String -> Array Char
++toCharArray :: String -> Array Char
++toCharArray a0 = toCharArray a0
+ 
+ -- | Returns the character at the given index, if the index is within bounds.
+ -- |
+@@ -106,12 +109,8 @@
+ charAt :: Int -> String -> Maybe Char
+ charAt = _charAt Just Nothing
+ 
+-foreign import _charAt
+-  :: (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> Int
+-  -> String
+-  -> Maybe Char
++_charAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Int -> String -> Maybe Char
++_charAt a0 a1 a2 a3 = _charAt a0 a1 a2 a3
+ 
+ -- | Converts the string to a character, if the length of the string is
+ -- | exactly `1`.
+@@ -123,11 +122,8 @@
+ toChar :: String -> Maybe Char
+ toChar = _toChar Just Nothing
+ 
+-foreign import _toChar
+-  :: (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> String
+-  -> Maybe Char
++_toChar :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> String -> Maybe Char
++_toChar a0 a1 a2 = _toChar a0 a1 a2
+ 
+ -- | Returns the first character and the rest of the string,
+ -- | if the string is not empty.
+@@ -147,7 +143,8 @@
+ -- | length "Hello World" == 11
+ -- | ```
+ -- |
+-foreign import length :: String -> Int
++length :: String -> Int
++length a0 = length a0
+ 
+ -- | Returns the number of contiguous characters at the beginning
+ -- | of the string for which the predicate holds.
+@@ -156,7 +153,8 @@
+ -- | countPrefix (_ /= ' ') "Hello World" == 5 -- since length "Hello" == 5
+ -- | ```
+ -- |
+-foreign import countPrefix :: (Char -> Boolean) -> String -> Int
++countPrefix :: (Char -> Boolean) -> String -> Int
++countPrefix a0 a1 = countPrefix a0 a1
+ 
+ -- | Returns the index of the first occurrence of the pattern in the
+ -- | given string. Returns `Nothing` if there is no match.
+@@ -169,12 +167,8 @@
+ indexOf :: Pattern -> String -> Maybe Int
+ indexOf = _indexOf Just Nothing
+ 
+-foreign import _indexOf
+-  :: (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> Pattern
+-  -> String
+-  -> Maybe Int
++_indexOf :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> String -> Maybe Int
++_indexOf a0 a1 a2 a3 = _indexOf a0 a1 a2 a3
+ 
+ -- | Returns the index of the first occurrence of the pattern in the
+ -- | given string, starting at the specified index. Returns `Nothing` if there is
+@@ -188,13 +182,8 @@
+ indexOf' :: Pattern -> Int -> String -> Maybe Int
+ indexOf' = _indexOfStartingAt Just Nothing
+ 
+-foreign import _indexOfStartingAt
+-  :: (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> Pattern
+-  -> Int
+-  -> String
+-  -> Maybe Int
++_indexOfStartingAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> Int -> String -> Maybe Int
++_indexOfStartingAt a0 a1 a2 a3 a4 = _indexOfStartingAt a0 a1 a2 a3 a4
+ 
+ -- | Returns the index of the last occurrence of the pattern in the
+ -- | given string. Returns `Nothing` if there is no match.
+@@ -207,12 +196,8 @@
+ lastIndexOf :: Pattern -> String -> Maybe Int
+ lastIndexOf = _lastIndexOf Just Nothing
+ 
+-foreign import _lastIndexOf
+-  :: (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> Pattern
+-  -> String
+-  -> Maybe Int
++_lastIndexOf :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> String -> Maybe Int
++_lastIndexOf a0 a1 a2 a3 = _lastIndexOf a0 a1 a2 a3
+ 
+ -- | Returns the index of the last occurrence of the pattern in the
+ -- | given string, starting at the specified index and searching
+@@ -235,13 +220,8 @@
+ lastIndexOf' :: Pattern -> Int -> String -> Maybe Int
+ lastIndexOf' = _lastIndexOfStartingAt Just Nothing
+ 
+-foreign import _lastIndexOfStartingAt
+-  :: (forall a. a -> Maybe a)
+-  -> (forall a. Maybe a)
+-  -> Pattern
+-  -> Int
+-  -> String
+-  -> Maybe Int
++_lastIndexOfStartingAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> Int -> String -> Maybe Int
++_lastIndexOfStartingAt a0 a1 a2 a3 a4 = _lastIndexOfStartingAt a0 a1 a2 a3 a4
+ 
+ -- | Returns the first `n` characters of the string.
+ -- |
+@@ -249,7 +229,8 @@
+ -- | take 5 "Hello World" == "Hello"
+ -- | ```
+ -- |
+-foreign import take :: Int -> String -> String
++take :: Int -> String -> String
++take a0 a1 = take a0 a1
+ 
+ -- | Returns the last `n` characters of the string.
+ -- |
+@@ -276,7 +257,8 @@
+ -- | drop 6 "Hello World" == "World"
+ -- | ```
+ -- |
+-foreign import drop :: Int -> String -> String
++drop :: Int -> String -> String
++drop a0 a1 = drop a0 a1
+ 
+ -- | Returns the string without the last `n` characters.
+ -- |
+@@ -308,7 +290,8 @@
+ -- | slice (-4) (-1) "purescript" == "rip"
+ -- | slice (-4) 3  "purescript" == ""
+ -- | ```
+-foreign import slice :: Int -> Int -> String -> String
++slice :: Int -> Int -> String -> String
++slice a0 a1 a2 = slice a0 a1 a2
+ 
+ -- | Splits a string into two substrings, where `before` contains the
+ -- | characters up to (but not including) the given index, and `after` contains
+@@ -329,4 +312,5 @@
+ -- | (splitAt i s).before <> (splitAt i s).after == s
+ -- | splitAt i s == {before: take i s, after: drop i s}
+ -- | ```
+-foreign import splitAt :: Int -> String -> { before :: String, after :: String }
++splitAt :: Int -> String -> { before :: String, after :: String }
++splitAt a0 a1 = splitAt a0 a1
+--- purescript-strings@v6.0.1/src/Data/String/Common.purs
++++ stdlib/lib/Data/String/Common.purs
+@@ -34,27 +34,24 @@
+ localeCompare :: String -> String -> Ordering
+ localeCompare = _localeCompare LT EQ GT
+ 
+-foreign import _localeCompare
+-  :: Ordering
+-  -> Ordering
+-  -> Ordering
+-  -> String
+-  -> String
+-  -> Ordering
++_localeCompare :: Ordering -> Ordering -> Ordering -> String -> String -> Ordering
++_localeCompare a0 a1 a2 a3 a4 = _localeCompare a0 a1 a2 a3 a4
+ 
+ -- | Replaces the first occurence of the pattern with the replacement string.
+ -- |
+ -- | ```purescript
+ -- | replace (Pattern "<=") (Replacement "≤") "a <= b <= c" == "a ≤ b <= c"
+ -- | ```
+-foreign import replace :: Pattern -> Replacement -> String -> String
++replace :: Pattern -> Replacement -> String -> String
++replace a0 a1 a2 = replace a0 a1 a2
+ 
+ -- | Replaces all occurences of the pattern with the replacement string.
+ -- |
+ -- | ```purescript
+ -- | replaceAll (Pattern "<=") (Replacement "≤") "a <= b <= c" == "a ≤ b ≤ c"
+ -- | ```
+-foreign import replaceAll :: Pattern -> Replacement -> String -> String
++replaceAll :: Pattern -> Replacement -> String -> String
++replaceAll a0 a1 a2 = replaceAll a0 a1 a2
+ 
+ -- | Returns the substrings of the second string separated along occurences
+ -- | of the first string.
+@@ -62,21 +59,24 @@
+ -- | ```purescript
+ -- | split (Pattern " ") "hello world" == ["hello", "world"]
+ -- | ```
+-foreign import split :: Pattern -> String -> Array String
++split :: Pattern -> String -> Array String
++split a0 a1 = split a0 a1
+ 
+ -- | Returns the argument converted to lowercase.
+ -- |
+ -- | ```purescript
+ -- | toLower "hElLo" == "hello"
+ -- | ```
+-foreign import toLower :: String -> String
++toLower :: String -> String
++toLower a0 = toLower a0
+ 
+ -- | Returns the argument converted to uppercase.
+ -- |
+ -- | ```purescript
+ -- | toUpper "Hello" == "HELLO"
+ -- | ```
+-foreign import toUpper :: String -> String
++toUpper :: String -> String
++toUpper a0 = toUpper a0
+ 
+ -- | Removes whitespace from the beginning and end of a string, including
+ -- | [whitespace characters](http://www.ecma-international.org/ecma-262/5.1/#sec-7.2)
+@@ -85,7 +85,8 @@
+ -- | ```purescript
+ -- | trim "   Hello  \n World\n\t    " == "Hello  \n World"
+ -- | ```
+-foreign import trim :: String -> String
++trim :: String -> String
++trim a0 = trim a0
+ 
+ -- | Joins the strings in the array together, inserting the first argument
+ -- | as separator between them.
+@@ -93,4 +94,5 @@
+ -- | ```purescript
+ -- | joinWith ", " ["apple", "banana", "orange"] == "apple, banana, orange"
+ -- | ```
+-foreign import joinWith :: String -> Array String -> String
++joinWith :: String -> Array String -> String
++joinWith a0 a1 = joinWith a0 a1
+--- purescript-strings@v6.0.1/src/Data/String/Regex.purs
++++ stdlib/lib/Data/String/Regex.purs
+@@ -28,17 +28,14 @@
+ -- | Wraps Javascript `RegExp` objects.
+ foreign import data Regex :: Type
+ 
+-foreign import showRegexImpl :: Regex -> String
++showRegexImpl :: Regex -> String
++showRegexImpl a0 = showRegexImpl a0
+ 
+ instance showRegex :: Show Regex where
+   show = showRegexImpl
+ 
+-foreign import regexImpl
+-  :: (String -> Either String Regex)
+-  -> (Regex -> Either String Regex)
+-  -> String
+-  -> String
+-  -> Either String Regex
++regexImpl :: (String -> Either String Regex) -> (Regex -> Either String Regex) -> String -> String -> Either String Regex
++regexImpl a0 a1 a2 a3 = regexImpl a0 a1 a2 a3
+ 
+ -- | Constructs a `Regex` from a pattern string and flags. Fails with
+ -- | `Left error` if the pattern contains a syntax error.
+@@ -46,14 +43,16 @@
+ regex s f = regexImpl Left Right s $ renderFlags f
+ 
+ -- | Returns the pattern string used to construct the given `Regex`.
+-foreign import source :: Regex -> String
++source :: Regex -> String
++source a0 = source a0
+ 
+ -- | Returns the `RegexFlags` used to construct the given `Regex`.
+ flags :: Regex -> RegexFlags
+ flags = RegexFlags <<< flagsImpl
+ 
+ -- | Returns the `RegexFlags` inner record used to construct the given `Regex`.
+-foreign import flagsImpl :: Regex -> RegexFlagsRec
++flagsImpl :: Regex -> RegexFlagsRec
++flagsImpl a0 = flagsImpl a0
+ 
+ -- | Returns the string representation of the given `RegexFlags`.
+ renderFlags :: RegexFlags -> String
+@@ -79,14 +78,11 @@
+ -- | Returns `true` if the `Regex` matches the string. In contrast to
+ -- | `RegExp.prototype.test()` in JavaScript, `test` does not affect
+ -- | the `lastIndex` property of the Regex.
+-foreign import test :: Regex -> String -> Boolean
++test :: Regex -> String -> Boolean
++test a0 a1 = test a0 a1
+ 
+-foreign import _match
+-  :: (forall r. r -> Maybe r)
+-  -> (forall r. Maybe r)
+-  -> Regex
+-  -> String
+-  -> Maybe (NonEmptyArray (Maybe String))
++_match :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> String -> Maybe (NonEmptyArray (Maybe String))
++_match a0 a1 a2 a3 = _match a0 a1 a2 a3
+ 
+ -- | Matches the string against the `Regex` and returns an array of matches
+ -- | if there were any. Each match has type `Maybe String`, where `Nothing`
+@@ -98,15 +94,11 @@
+ -- | Replaces occurrences of the `Regex` with the first string. The replacement
+ -- | string can include special replacement patterns escaped with `"$"`.
+ -- | See [reference](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/replace).
+-foreign import replace :: Regex -> String -> String -> String
++replace :: Regex -> String -> String -> String
++replace a0 a1 a2 = replace a0 a1 a2
+ 
+-foreign import _replaceBy
+-  :: (forall r. r -> Maybe r)
+-  -> (forall r. Maybe r)
+-  -> Regex
+-  -> (String -> Array (Maybe String) -> String)
+-  -> String
+-  -> String
++_replaceBy :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> (String -> Array (Maybe String) -> String) -> String -> String
++_replaceBy a0 a1 a2 a3 a4 = _replaceBy a0 a1 a2 a3 a4
+ 
+ -- | Transforms occurrences of the `Regex` using a function of the matched
+ -- | substring and a list of captured substrings of type `Maybe String`,
+@@ -115,12 +107,8 @@
+ replace' :: Regex -> (String -> Array (Maybe String) -> String) -> String -> String
+ replace' = _replaceBy Just Nothing
+ 
+-foreign import _search
+-  :: (forall r. r -> Maybe r)
+-  -> (forall r. Maybe r)
+-  -> Regex
+-  -> String
+-  -> Maybe Int
++_search :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> String -> Maybe Int
++_search a0 a1 a2 a3 = _search a0 a1 a2 a3
+ 
+ -- | Returns `Just` the index of the first match of the `Regex` in the string,
+ -- | or `Nothing` if there is no match.
+@@ -128,4 +116,5 @@
+ search = _search Just Nothing
+ 
+ -- | Split the string into an array of substrings along occurrences of the `Regex`.
+-foreign import split :: Regex -> String -> Array String
++split :: Regex -> String -> Array String
++split a0 a1 = split a0 a1
+--- purescript-strings@v6.0.1/src/Data/String/Unsafe.purs
++++ stdlib/lib/Data/String/Unsafe.purs
+@@ -7,9 +7,11 @@
+ -- | Returns the character at the given index.
+ -- |
+ -- | **Unsafe:** throws runtime exception if the index is out of bounds.
+-foreign import charAt :: Int -> String -> Char
++charAt :: Int -> String -> Char
++charAt a0 a1 = charAt a0 a1
+ 
+ -- | Converts a string of length `1` to a character.
+ -- |
+ -- | **Unsafe:** throws runtime exception if length is not `1`.
+-foreign import char :: String -> Char
++char :: String -> Char
++char a0 = char a0
+--- purescript-prelude@v6.0.1/src/Data/Symbol.purs
++++ stdlib/lib/Data/Symbol.purs
+@@ -11,7 +11,8 @@
+   reflectSymbol :: Proxy sym -> String
+ 
+ -- local definition for use in `reifySymbol`
+-foreign import unsafeCoerce :: forall a b. a -> b
++unsafeCoerce :: forall a b. a -> b
++unsafeCoerce a0 = unsafeCoerce a0
+ 
+ reifySymbol :: forall r. String -> (forall sym. IsSymbol sym => Proxy sym -> r) -> r
+ reifySymbol s f = coerce f { reflectSymbol: \_ -> s } Proxy
+--- purescript-foldable-traversable@v6.0.0/src/Data/Traversable.purs
++++ stdlib/lib/Data/Traversable.purs
+@@ -103,14 +103,8 @@
+   traverse = traverseArrayImpl apply map pure
+   sequence = sequenceDefault
+ 
+-foreign import traverseArrayImpl
+-  :: forall m a b
+-   . (forall x y. m (x -> y) -> m x -> m y)
+-  -> (forall x y. (x -> y) -> m x -> m y)
+-  -> (forall x. x -> m x)
+-  -> (a -> m b)
+-  -> Array a
+-  -> m (Array b)
++traverseArrayImpl :: forall m a b . (forall x y. m (x -> y) -> m x -> m y) -> (forall x y. (x -> y) -> m x -> m y) -> (forall x. x -> m x) -> (a -> m b) -> Array a -> m (Array b)
++traverseArrayImpl a0 a1 a2 a3 a4 = traverseArrayImpl a0 a1 a2 a3 a4
+ 
+ instance traversableMaybe :: Traversable Maybe where
+   traverse _ Nothing  = pure Nothing
+--- purescript-tuples@v7.0.0/src/Data/Tuple.purs
++++ stdlib/lib/Data/Tuple.purs
+@@ -1,135 +1,47 @@
+--- | A data type and functions for working with ordered pairs.
+-module Data.Tuple where
++-- | A strict product of two values. Native tuple syntax remains a closed
++-- | record, while this library type provides the constructor used by the core
++-- | libraries. WIT tuples continue to map to closed records as specified by
++-- | DEC-13.
++module Data.Tuple
++  ( Tuple(..)
++  , fst
++  , snd
++  , curry
++  , uncurry
++  , swap
++  ) where
+ 
+-import Prelude
++import Data.Eq (class Eq)
++import Data.Functor (class Functor)
++import Data.Ord (class Ord)
++import Data.Show (class Show, show)
++import Data.Semigroup ((<>))
+ 
+-import Control.Comonad (class Comonad)
+-import Control.Extend (class Extend)
+-import Control.Lazy (class Lazy, defer)
+-import Data.Eq (class Eq1)
+-import Data.Functor.Invariant (class Invariant, imapF)
+-import Data.Generic.Rep (class Generic)
+-import Data.HeytingAlgebra (implies, ff, tt)
+-import Data.Ord (class Ord1)
+-
+--- | A simple product type for wrapping a pair of component values.
+ data Tuple a b = Tuple a b
+ 
+--- | Allows `Tuple`s to be rendered as a string with `show` whenever there are
+--- | `Show` instances for both component types.
+-instance showTuple :: (Show a, Show b) => Show (Tuple a b) where
+-  show (Tuple a b) = "(Tuple " <> show a <> " " <> show b <> ")"
+-
+--- | Allows `Tuple`s to be checked for equality with `==` and `/=` whenever
+--- | there are `Eq` instances for both component types.
+ derive instance eqTuple :: (Eq a, Eq b) => Eq (Tuple a b)
+-
+-derive instance eq1Tuple :: Eq a => Eq1 (Tuple a)
+-
+--- | Allows `Tuple`s to be compared with `compare`, `>`, `>=`, `<` and `<=`
+--- | whenever there are `Ord` instances for both component types. To obtain
+--- | the result, the `fst`s are `compare`d, and if they are `EQ`ual, the
+--- | `snd`s are `compare`d.
+ derive instance ordTuple :: (Ord a, Ord b) => Ord (Tuple a b)
+-
+-derive instance ord1Tuple :: Ord a => Ord1 (Tuple a)
+-
+-instance boundedTuple :: (Bounded a, Bounded b) => Bounded (Tuple a b) where
+-  top = Tuple top top
+-  bottom = Tuple bottom bottom
+-
+-instance semigroupoidTuple :: Semigroupoid Tuple where
+-  compose (Tuple _ c) (Tuple a _) = Tuple a c
+-
+--- | The `Semigroup` instance enables use of the associative operator `<>` on
+--- | `Tuple`s whenever there are `Semigroup` instances for the component
+--- | types. The `<>` operator is applied pairwise, so:
+--- | ```purescript
+--- | (Tuple a1 b1) <> (Tuple a2 b2) = Tuple (a1 <> a2) (b1 <> b2)
+--- | ```
+-instance semigroupTuple :: (Semigroup a, Semigroup b) => Semigroup (Tuple a b) where
+-  append (Tuple a1 b1) (Tuple a2 b2) = Tuple (a1 <> a2) (b1 <> b2)
+-
+-instance monoidTuple :: (Monoid a, Monoid b) => Monoid (Tuple a b) where
+-  mempty = Tuple mempty mempty
+-
+-instance semiringTuple :: (Semiring a, Semiring b) => Semiring (Tuple a b) where
+-  add (Tuple x1 y1) (Tuple x2 y2) = Tuple (add x1 x2) (add y1 y2)
+-  one = Tuple one one
+-  mul (Tuple x1 y1) (Tuple x2 y2) = Tuple (mul x1 x2) (mul y1 y2)
+-  zero = Tuple zero zero
+-
+-instance ringTuple :: (Ring a, Ring b) => Ring (Tuple a b) where
+-  sub (Tuple x1 y1) (Tuple x2 y2) = Tuple (sub x1 x2) (sub y1 y2)
+-
+-instance commutativeRingTuple :: (CommutativeRing a, CommutativeRing b) => CommutativeRing (Tuple a b)
+-
+-instance heytingAlgebraTuple :: (HeytingAlgebra a, HeytingAlgebra b) => HeytingAlgebra (Tuple a b) where
+-  tt = Tuple tt tt
+-  ff = Tuple ff ff
+-  implies (Tuple x1 y1) (Tuple x2 y2) = Tuple (x1 `implies` x2) (y1 `implies` y2)
+-  conj (Tuple x1 y1) (Tuple x2 y2) = Tuple (conj x1 x2) (conj y1 y2)
+-  disj (Tuple x1 y1) (Tuple x2 y2) = Tuple (disj x1 x2) (disj y1 y2)
+-  not (Tuple x y) = Tuple (not x) (not y)
+-
+-instance booleanAlgebraTuple :: (BooleanAlgebra a, BooleanAlgebra b) => BooleanAlgebra (Tuple a b)
+-
+--- | The `Functor` instance allows functions to transform the contents of a
+--- | `Tuple` with the `<$>` operator, applying the function to the second
+--- | component, so:
+--- | ```purescript
+--- | f <$> (Tuple x y) = Tuple x (f y)
+--- | ````
+ derive instance functorTuple :: Functor (Tuple a)
+ 
+-derive instance genericTuple :: Generic (Tuple a b) _
++instance showTuple :: (Show a, Show b) => Show (Tuple a b) where
++  show (Tuple first second) = "(Tuple " <> show first <> " " <> show second <> ")"
+ 
+-instance invariantTuple :: Invariant (Tuple a) where
+-  imap = imapF
++-- | The first component. `fst (Tuple x y)` is `x`.
++fst :: forall a b. Tuple a b -> a
++fst (Tuple first _) = first
+ 
+--- | The `Apply` instance allows functions to transform the contents of a
+--- | `Tuple` with the `<*>` operator whenever there is a `Semigroup` instance
+--- | for the `fst` component, so:
+--- | ```purescript
+--- | (Tuple a1 f) <*> (Tuple a2 x) == Tuple (a1 <> a2) (f x)
+--- | ```
+-instance applyTuple :: (Semigroup a) => Apply (Tuple a) where
+-  apply (Tuple a1 f) (Tuple a2 x) = Tuple (a1 <> a2) (f x)
++-- | The second component. `snd (Tuple x y)` is `y`.
++snd :: forall a b. Tuple a b -> b
++snd (Tuple _ second) = second
+ 
+-instance applicativeTuple :: (Monoid a) => Applicative (Tuple a) where
+-  pure = Tuple mempty
++-- | Turns a function of a pair into a function of two arguments.
++curry :: forall a b c. (Tuple a b -> c) -> a -> b -> c
++curry f x y = f (Tuple x y)
+ 
+-instance bindTuple :: (Semigroup a) => Bind (Tuple a) where
+-  bind (Tuple a1 b) f = case f b of
+-    Tuple a2 c -> Tuple (a1 <> a2) c
++-- | Turns a function of two arguments into a function of a pair.
++uncurry :: forall a b c. (a -> b -> c) -> Tuple a b -> c
++uncurry f (Tuple first second) = f first second
+ 
+-instance monadTuple :: (Monoid a) => Monad (Tuple a)
+-
+-instance extendTuple :: Extend (Tuple a) where
+-  extend f t@(Tuple a _) = Tuple a (f t)
+-
+-instance comonadTuple :: Comonad (Tuple a) where
+-  extract = snd
+-
+-instance lazyTuple :: (Lazy a, Lazy b) => Lazy (Tuple a b) where
+-  defer f = Tuple (defer $ \_ -> fst (f unit)) (defer $ \_ -> snd (f unit))
+-
+--- | Returns the first component of a tuple.
+-fst :: forall a b. Tuple a b -> a
+-fst (Tuple a _) = a
+-
+--- | Returns the second component of a tuple.
+-snd :: forall a b. Tuple a b -> b
+-snd (Tuple _ b) = b
+-
+--- | Turn a function that expects a tuple into a function of two arguments.
+-curry :: forall a b c. (Tuple a b -> c) -> a -> b -> c
+-curry f a b = f (Tuple a b)
+-
+--- | Turn a function of two arguments into a function that expects a tuple.
+-uncurry :: forall a b c. (a -> b -> c) -> Tuple a b -> c
+-uncurry f (Tuple a b) = f a b
+-
+--- | Exchange the first and second components of a tuple.
++-- | Exchanges the two components.
+ swap :: forall a b. Tuple a b -> Tuple b a
+-swap (Tuple a b) = Tuple b a
++swap (Tuple first second) = Tuple second first
+--- purescript-unfoldable@v6.0.0/src/Data/Unfoldable.purs
++++ stdlib/lib/Data/Unfoldable.purs
+@@ -44,15 +44,8 @@
+ instance unfoldableMaybe :: Unfoldable Maybe where
+   unfoldr f b = fst <$> f b
+ 
+-foreign import unfoldrArrayImpl
+-  :: forall a b
+-   . (forall x. Maybe x -> Boolean)
+-  -> (forall x. Maybe x -> x)
+-  -> (forall x y. Tuple x y -> x)
+-  -> (forall x y. Tuple x y -> y)
+-  -> (b -> Maybe (Tuple a b))
+-  -> b
+-  -> Array a
++unfoldrArrayImpl :: forall a b . (forall x. Maybe x -> Boolean) -> (forall x. Maybe x -> x) -> (forall x y. Tuple x y -> x) -> (forall x y. Tuple x y -> y) -> (b -> Maybe (Tuple a b)) -> b -> Array a
++unfoldrArrayImpl a0 a1 a2 a3 a4 a5 = unfoldrArrayImpl a0 a1 a2 a3 a4 a5
+ 
+ -- | Replicate a value some natural number of times.
+ -- | For example:
+--- purescript-unfoldable@v6.0.0/src/Data/Unfoldable1.purs
++++ stdlib/lib/Data/Unfoldable1.purs
+@@ -45,15 +45,8 @@
+ instance unfoldable1Maybe :: Unfoldable1 Maybe where
+   unfoldr1 f b = Just (fst (f b))
+ 
+-foreign import unfoldr1ArrayImpl
+-  :: forall a b
+-   . (forall x. Maybe x -> Boolean)
+-  -> (forall x. Maybe x -> x)
+-  -> (forall x y. Tuple x y -> x)
+-  -> (forall x y. Tuple x y -> y)
+-  -> (b -> Tuple a (Maybe b))
+-  -> b
+-  -> Array a
++unfoldr1ArrayImpl :: forall a b . (forall x. Maybe x -> Boolean) -> (forall x. Maybe x -> x) -> (forall x y. Tuple x y -> x) -> (forall x y. Tuple x y -> y) -> (b -> Tuple a (Maybe b)) -> b -> Array a
++unfoldr1ArrayImpl a0 a1 a2 a3 a4 a5 = unfoldr1ArrayImpl a0 a1 a2 a3 a4 a5
+ 
+ -- | Replicate a value `n` times. At least one value will be produced, so values
+ -- | `n` less than 1 will be treated as 1.
+--- purescript-prelude@v6.0.1/src/Data/Unit.purs
++++ stdlib/lib/Data/Unit.purs
+@@ -1,14 +1,5 @@
+-module Data.Unit where
+-
+--- | The `Unit` type has a single inhabitant, called `unit`. It represents
+--- | values with no computational content.
+--- |
+--- | `Unit` is often used, wrapped in a monadic type constructor, as the
+--- | return type of a computation where only the _effects_ are important.
+--- |
+--- | When returning a value of type `Unit` from an FFI function, it is
+--- | recommended to use `undefined`, or not return a value at all.
+-foreign import data Unit :: Type
+-
+--- | `unit` is the sole inhabitant of the `Unit` type.
+-foreign import unit :: Unit
++-- | `Unit` is a compiler builtin, the same type as an unqualified
++-- | `Unit`. This module re-exports that builtin and the `unit`
++-- | primitive so `import Data.Unit` matches the official library
++-- | without declaring a second unit type.
++module Data.Unit (Unit, unit) where
+--- purescript-console@v6.0.0/src/Effect/Console.purs
++++ stdlib/lib/Effect/Console.purs
+@@ -1,68 +1,23 @@
+-module Effect.Console where
++-- | The corpus's console surface, a thin binding over the platform layer
++-- | `WASI.Console`
++-- | ([DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
++-- |
++-- | Nothing here chooses a stream or performs a write: `log` and `error` are the
++-- | platform functions under their corpus names, and `warn` is the platform's.
++-- | That keeps one place that decides where output goes, rather than a
++-- | wrapper that could drift from it.
++-- |
++-- | `logShow` adds no I/O of its own: it is `log` of `Data.Show.show`, so the
++-- | rendering is the library's `Show` and the destination is still the one
++-- | `WASI.Console.log` decides. It is a wrapper like `log`, not a second
++-- | stringifier.
++module Effect.Console (log, warn, error, logShow) where
+ 
+-import Effect (Effect)
++import Prelude
++import WASI.Console (error, log, warn)
++import Data.Show (class Show, show)
+ 
+-import Data.Show (class Show, show)
+-import Data.Unit (Unit)
+-
+--- | Write a message to the console.
+-foreign import log
+-  :: String
+-  -> Effect Unit
+-
+--- | Write a value to the console, using its `Show` instance to produce a
+--- | `String`.
++-- | Writes the `Show` rendering of a value. `log` already writes the newline,
++-- | so this is `log` composed with the library's `show`.
+ logShow :: forall a. Show a => a -> Effect Unit
+-logShow a = log (show a)
+-
+--- | Write an warning to the console.
+-foreign import warn
+-  :: String
+-  -> Effect Unit
+-
+--- | Write an warning value to the console, using its `Show` instance to produce
+--- | a `String`.
+-warnShow :: forall a. Show a => a -> Effect Unit
+-warnShow a = warn (show a)
+-
+--- | Write an error to the console.
+-foreign import error
+-  :: String
+-  -> Effect Unit
+-
+--- | Write an error value to the console, using its `Show` instance to produce a
+--- | `String`.
+-errorShow :: forall a. Show a => a -> Effect Unit
+-errorShow a = error (show a)
+-
+--- | Write an info message to the console.
+-foreign import info
+-  :: String
+-  -> Effect Unit
+-
+--- | Write an info value to the console, using its `Show` instance to produce a
+--- | `String`.
+-infoShow :: forall a. Show a => a -> Effect Unit
+-infoShow a = info (show a)
+-
+--- | Write an debug message to the console.
+-foreign import debug
+-  :: String
+-  -> Effect Unit
+-
+--- | Write an debug value to the console, using its `Show` instance to produce a
+--- | `String`.
+-debugShow :: forall a. Show a => a -> Effect Unit
+-debugShow a = debug (show a)
+-
+--- | Start a named timer.
+-foreign import time :: String -> Effect Unit
+-
+--- | Print the time since a named timer started in milliseconds.
+-foreign import timeLog :: String -> Effect Unit
+-
+--- | Stop a named timer and print time since it started in milliseconds.
+-foreign import timeEnd :: String -> Effect Unit
+-
+--- | Clears the console
+-foreign import clear :: Effect Unit
++logShow value = log (show value)
+--- purescript-refs@v6.0.0/src/Effect/Ref.purs
++++ stdlib/lib/Effect/Ref.purs
+@@ -41,24 +41,28 @@
+ type role Ref representational
+ 
+ -- | Create a new mutable reference containing the specified value.
+-foreign import _new :: forall s. s -> Effect (Ref s)
++_new :: forall s. s -> Effect (Ref s)
++_new a0 = _new a0
+ 
+ new :: forall s. s -> Effect (Ref s)
+ new = _new
+ 
+ -- | Create a new mutable reference containing a value that can refer to the
+ -- | `Ref` being created.
+-foreign import newWithSelf :: forall s. (Ref s -> s) -> Effect (Ref s)
++newWithSelf :: forall s. (Ref s -> s) -> Effect (Ref s)
++newWithSelf a0 = newWithSelf a0
+ 
+ -- | Read the current value of a mutable reference.
+-foreign import read :: forall s. Ref s -> Effect s
++read :: forall s. Ref s -> Effect s
++read a0 = read a0
+ 
+ -- | Update the value of a mutable reference by applying a function
+ -- | to the current value.
+ modify' :: forall s b. (s -> { state :: s, value :: b }) -> Ref s -> Effect b
+ modify' = modifyImpl
+ 
+-foreign import modifyImpl :: forall s b. (s -> { state :: s, value :: b }) -> Ref s -> Effect b
++modifyImpl :: forall s b. (s -> { state :: s, value :: b }) -> Ref s -> Effect b
++modifyImpl a0 a1 = modifyImpl a0 a1
+ 
+ -- | Update the value of a mutable reference by applying a function
+ -- | to the current value. The updated value is returned.
+@@ -70,4 +74,5 @@
+ modify_ f s = void $ modify f s
+ 
+ -- | Update the value of a mutable reference to the specified value.
+-foreign import write :: forall s. s -> Ref s -> Effect Unit
++write :: forall s. s -> Ref s -> Effect Unit
++write a0 a1 = write a0 a1
+--- purescript-effect@v4.0.0/src/Effect.purs
++++ stdlib/lib/Effect.purs
+@@ -1,72 +1,29 @@
+--- | This module provides the `Effect` type, which is used to represent
+--- | _native_ effects. The `Effect` type provides a typed API for effectful
+--- | computations, while at the same time generating efficient JavaScript.
++-- | The `Effect` monad: the corpus-facing name for the abstract effect
++-- | interface this compiler already has.
++-- |
++-- | The operations themselves are anchored in `Prelude` rather than here, and
++-- | that is deliberate rather than an oversight. Two pieces of the compiler key
++-- | on that module by name: `check_run_effect_scope` resolves the trusted
++-- | `Prelude.runEffect` value, and `psrs_core::effect::operations` synthesizes
++-- | `pure`, `bind`, and `run` from the externals declared there. Moving the
++-- | foreign imports into this module would move the entry point with them.
++-- |
++-- | So this module is the public surface the corpus imports, and `Prelude`
++-- | remains the owner of the primitive interface. The dependency runs one way:
++-- | `Effect` imports `Prelude`, never the reverse.
+ module Effect
+   ( Effect
+-  , untilE, whileE, forE, foreachE
++  , pure
++  , bind
++  , discard
++  , map
++  , apply
++  , untilE
+   ) where
+ 
+-import Prelude
++import Prelude (Effect, apply, bind, discard, map, pure)
+ 
+-import Control.Apply (lift2)
+-
+--- | A native effect. The type parameter denotes the return type of running the
+--- | effect, that is, an `Effect Int` is a possibly-effectful computation which
+--- | eventually produces a value of the type `Int` when it finishes.
+-foreign import data Effect :: Type -> Type
+-
+-type role Effect representational
+-
+-instance functorEffect :: Functor Effect where
+-  map = liftA1
+-
+-instance applyEffect :: Apply Effect where
+-  apply = ap
+-
+-instance applicativeEffect :: Applicative Effect where
+-  pure = pureE
+-
+-foreign import pureE :: forall a. a -> Effect a
+-
+-instance bindEffect :: Bind Effect where
+-  bind = bindE
+-
+-foreign import bindE :: forall a b. Effect a -> (a -> Effect b) -> Effect b
+-
+-instance monadEffect :: Monad Effect
+-
+--- | The `Semigroup` instance for effects allows you to run two effects, one
+--- | after the other, and then combine their results using the result type's
+--- | `Semigroup` instance.
+-instance semigroupEffect :: Semigroup a => Semigroup (Effect a) where
+-  append = lift2 append
+-
+--- | If you have a `Monoid a` instance, then `mempty :: Effect a` is defined as
+--- | `pure mempty`.
+-instance monoidEffect :: Monoid a => Monoid (Effect a) where
+-  mempty = pureE mempty
+-
+--- | Loop until a condition becomes `true`.
+--- |
+--- | `untilE b` is an effectful computation which repeatedly runs the effectful
+--- | computation `b`, until its return value is `true`.
+-foreign import untilE :: Effect Boolean -> Effect Unit
+-
+--- | Loop while a condition is `true`.
+--- |
+--- | `whileE b m` is effectful computation which runs the effectful computation
+--- | `b`. If its result is `true`, it runs the effectful computation `m` and
+--- | loops. If not, the computation ends.
+-foreign import whileE :: forall a. Effect Boolean -> Effect a -> Effect Unit
+-
+--- | Loop over a consecutive collection of numbers.
+--- |
+--- | `forE lo hi f` runs the computation returned by the function `f` for each
+--- | of the inputs between `lo` (inclusive) and `hi` (exclusive).
+-foreign import forE :: Int -> Int -> (Int -> Effect Unit) -> Effect Unit
+-
+--- | Loop over an array of values.
+--- |
+--- | `foreachE xs f` runs the computation returned by the function `f` for each
+--- | of the inputs `xs`.
+-foreign import foreachE :: forall a. Array a -> (a -> Effect Unit) -> Effect Unit
++-- | Repeats an effect until it returns `true`.
++untilE :: Effect Boolean -> Effect Unit
++untilE action = bind action \done ->
++  if done then pure unit else untilE action
+--- purescript-partial@v4.0.0/src/Partial/Unsafe.purs
++++ stdlib/lib/Partial/Unsafe.purs
+@@ -13,7 +13,8 @@
+ -- either a dependency or reimplementing it here.
+ -- Rather than doing that, we'll use a type signature
+ -- of `a -> b` instead.
+-foreign import _unsafePartial :: forall a b. a -> b
++_unsafePartial :: forall a b. a -> b
++_unsafePartial a0 = _unsafePartial a0
+ 
+ -- | Discharge a partiality constraint, unsafely.
+ unsafePartial :: forall a. (Partial => a) -> a
+--- purescript-partial@v4.0.0/src/Partial.purs
++++ stdlib/lib/Partial.purs
+@@ -12,4 +12,5 @@
+ crashWith :: forall a. Partial => String -> a
+ crashWith = _crashWith
+ 
+-foreign import _crashWith :: forall a. String -> a
++_crashWith :: forall a. String -> a
++_crashWith a0 = _crashWith a0
+--- purescript-prelude@v6.0.1/src/Prelude.purs
++++ stdlib/lib/Prelude.purs
+@@ -1,17 +1,20 @@
+--- | `Prelude` is a module that re-exports many other foundational modules from the `purescript-prelude` library
+--- | (e.g. the Monad type class hierarchy, the Monoid type classes, Eq, Ord, etc.).
++-- | The primitive surface the rest of the library and the corpus build on.
+ -- |
+--- | Typically, this module will be imported in most other libraries and projects as an open import.
++-- | The class hierarchy is the official `purescript-prelude` v6.0.1 re-export
++-- | list. `Effect` stays in this module: `check_run_effect_scope` resolves
++-- | `Prelude.runEffect`, and `psrs_core::effect::operations` synthesizes
++-- | `effectPure`, `effectBind`, `runEffect`, and `trap` from the `psrs:effect`
++-- | bindings declared here. The class methods `pure` and `bind` are the
++-- | official `Applicative` and `Bind` methods; the `Effect` instances call
++-- | those bindings, so creating an action still does not run it.
+ -- |
+--- | ```
+--- | module MyModule where
+--- |
+--- | import Prelude -- open import
+--- |
+--- | import Data.Maybe (Maybe(..)) -- closed import
+--- | ```
++-- | `unit` is not declared here. `Unit` is a builtin, re-exported through
++-- | `Data.Unit`, and the one `Unit` value is `Intrinsic::Unit`.
+ module Prelude
+-  ( module Control.Applicative
++  ( Effect
++  , runEffect
++  , trap
++  , module Control.Applicative
+   , module Control.Apply
+   , module Control.Bind
+   , module Control.Category
+@@ -68,3 +71,34 @@
+ import Data.Show (class Show, show)
+ import Data.Unit (Unit, unit)
+ import Data.Void (Void, absurd)
++
++foreign import data Effect :: Type -> Type
++
++-- | Builds an `Effect` that returns `value`. Lowering replaces this binding;
++-- | the `Applicative` instance is what user code calls `pure`.
++foreign import "psrs:effect#pure" effectPure :: forall a. a -> Effect a
++
++-- | Sequences two effects. The `Bind` instance is what user code calls `bind`.
++foreign import "psrs:effect#bind" effectBind :: forall a b. Effect a -> (a -> Effect b) -> Effect b
++
++foreign import "psrs:effect#run" runEffect :: forall a. Effect a -> a
++
++-- | The effect that escapes instead of returning. An uncaught failure on this
++-- | target is a guest trap, so this is the one operation whose result never
++-- | exists; it is how a library reports an assertion that did not hold.
++foreign import "psrs:effect#trap" trap :: Effect Unit
++
++instance functorEffect :: Functor Effect where
++  map f action = bind action (\value -> pure (f value))
++
++instance applyEffect :: Apply Effect where
++  apply wrapped action =
++    bind wrapped (\function -> bind action (\value -> pure (function value)))
++
++instance applicativeEffect :: Applicative Effect where
++  pure value = effectPure value
++
++instance bindEffect :: Bind Effect where
++  bind action next = effectBind action next
++
++instance monadEffect :: Monad Effect
+--- purescript-prelude@v6.0.1/src/Record/Unsafe.purs
++++ stdlib/lib/Record/Unsafe.purs
+@@ -7,21 +7,25 @@
+ module Record.Unsafe where
+ 
+ -- | Checks if a record has a key, using a string for the key.
+-foreign import unsafeHas :: forall r1. String -> Record r1 -> Boolean
++unsafeHas :: forall r1. String -> Record r1 -> Boolean
++unsafeHas a0 a1 = unsafeHas a0 a1
+ 
+ -- | Unsafely gets a value from a record, using a string for the key.
+ -- |
+ -- | If the key does not exist this will cause a runtime error elsewhere.
+-foreign import unsafeGet :: forall r a. String -> Record r -> a
++unsafeGet :: forall r a. String -> Record r -> a
++unsafeGet a0 a1 = unsafeGet a0 a1
+ 
+ -- | Unsafely sets a value on a record, using a string for the key.
+ -- |
+ -- | The output record's row is unspecified so can be coerced to any row. If the
+ -- | output type is incorrect it will cause a runtime error elsewhere.
+-foreign import unsafeSet :: forall r1 r2 a. String -> a -> Record r1 -> Record r2
++unsafeSet :: forall r1 r2 a. String -> a -> Record r1 -> Record r2
++unsafeSet a0 a1 a2 = unsafeSet a0 a1 a2
+ 
+ -- | Unsafely removes a value on a record, using a string for the key.
+ -- |
+ -- | The output record's row is unspecified so can be coerced to any row. If the
+ -- | output type is incorrect it will cause a runtime error elsewhere.
+-foreign import unsafeDelete :: forall r1 r2. String -> Record r1 -> Record r2
++unsafeDelete :: forall r1 r2. String -> Record r1 -> Record r2
++unsafeDelete a0 a1 = unsafeDelete a0 a1
+--- purescript-assert@v6.0.0/src/Test/Assert.purs
++++ stdlib/lib/Test/Assert.purs
+@@ -1,134 +1,70 @@
+-module Test.Assert
+-  ( assert
+-  , assert'
+-  , assertEqual
+-  , assertEqual'
+-  , assertFalse
+-  , assertFalse'
+-  , assertThrows
+-  , assertThrows'
+-  , assertTrue
+-  , assertTrue'
+-  ) where
++-- | The corpus's assertion surface: the `Test.Assert` module the `passing`
++-- | suite imports.
++-- |
++-- | A failed assertion must be visible to whatever runs the program, and this
++-- | target's only such signal is a guest trap — a non-zero exit code is a
++-- | recorded result, not a failure. So the failure path writes the message to
++-- | standard error and then escapes through `Prelude.trap`
++-- | ([DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md): the
++-- | wrapper owns the corpus name, the primitive stays in `Prelude`).
++-- |
++-- | **Deliberately absent**, with the reason recorded rather than approximated:
++-- |
++-- | - `assertEqual` and `assertEqual'` compare with `Eq` and print with `Show`.
++-- |   Both classes are declared (`Data.Eq`, `Data.Show`), so the surface itself
++-- |   is writable — the official signature is what this compiler cannot yet
++-- |   elaborate. The corpus calls the record form
++-- |   (`assertEqual' "label" { expected: e, actual: a }`), whose official type is
++-- |   `forall a. Eq a => Show a => String -> { actual :: a, expected :: a } ->
++-- |   Effect Unit`. A constraint whose quantified variable appears inside a
++-- |   record type is elaborated with the *record* as the constraint's argument,
++-- |   so `Eq a` is wanted for `{ actual :: a, expected :: a }` and the
++-- |   declaration is rejected with `NoInstanceFound`. The same signature with a
++-- |   type synonym for the record fails identically, so it is constraint
++-- |   elaboration rather than the record syntax. Approximating the signature
++-- |   would change the official API the corpus calls, so the functions stay out
++-- |   until that is fixed. #137 carries the minimal reproduction and the probes
++-- |   that separate this defect from record syntax.
++-- | - `assertThrows` and `assertThrows'` need to observe that evaluating an
++-- |   argument failed. A trap is not observable from inside the guest without
++-- |   the Wasm exceptions proposal, which is outside the target profile
++-- | ([DEC-05](../../../decision/DEC-05-wasmtime-feature-set.md)), so there is
++-- |   no honest implementation to write yet.
++module Test.Assert (assert, assert', assertTrue, assertFalse) where
+ 
+ import Prelude
+-
+ import Effect (Effect)
+ import Effect.Console (error)
+ 
+--- | Throws a runtime exception with message "Assertion failed" when the boolean
+--- | value is false.
++-- | Escapes when the boolean is false. The message is written to standard
++-- | error first, so the trap carries the diagnostic with it.
++assert' :: String -> Boolean -> Effect Unit
++assert' message condition =
++  if condition
++  then pure unit
++  else abortWith message
++
++-- | Escapes with the default message when the boolean is false.
+ assert :: Boolean -> Effect Unit
+ assert = assert' "Assertion failed"
+ 
+--- | Throws a runtime exception with the specified message when the boolean
+--- | value is false.
+-assert' :: String -> Boolean -> Effect Unit
+-assert' = assertImpl
++-- | Escapes unless the value is `true`, naming both values.
++assertTrue :: Boolean -> Effect Unit
++assertTrue actual =
++  if actual
++  then pure unit
++  else abortWith "Assertion failed: Expected: true\nActual:   false"
+ 
+-foreign import assertImpl
+-  :: String
+-  -> Boolean
+-  -> Effect Unit
++-- | Escapes unless the value is `false`, naming both values.
++assertFalse :: Boolean -> Effect Unit
++assertFalse actual =
++  if actual
++  then abortWith "Assertion failed: Expected: false\nActual:   true"
++  else pure unit
+ 
+--- | Throws a runtime exception with message "Assertion failed: An error should
+--- | have been thrown", unless the argument throws an exception when evaluated.
+--- |
+--- | This function is specifically for testing unsafe pure code; for example,
+--- | to make sure that an exception is thrown if a precondition is not
+--- | satisfied. Functions which use `Effect a` can be
+--- | tested with `catchException` instead.
+-assertThrows :: forall a. (Unit -> a) -> Effect Unit
+-assertThrows =
+-  assertThrows' "Assertion failed: An error should have been thrown"
+-
+--- | Throws a runtime exception with the specified message, unless the argument
+--- | throws an exception when evaluated.
+--- |
+--- | This function is specifically for testing unsafe pure code; for example,
+--- | to make sure that an exception is thrown if a precondition is not
+--- | satisfied. Functions which use `Effect a` can be
+--- | tested with `catchException` instead.
+-assertThrows'
+-  :: forall a
+-   . String
+-  -> (Unit -> a)
+-  -> Effect Unit
+-assertThrows' msg fn = assert' msg =<< checkThrows fn
+-
+-foreign import checkThrows
+-  :: forall a
+-   . (Unit -> a)
+-  -> Effect Boolean
+-
+--- | Compares the `expected` and `actual` values for equality and
+--- | throws a runtime exception when the values are not equal.
+--- |
+--- | The message indicates the expected value and the actual value.
+-assertEqual
+-  :: forall a
+-   . Eq a
+-  => Show a
+-  => { actual :: a, expected :: a }
+-  -> Effect Unit
+-assertEqual = assertEqual' ""
+-
+--- | Compares the `expected` and `actual` values for equality and throws a
+--- | runtime exception with the specified message when the values are not equal.
+--- |
+--- | The message also indicates the expected value and the actual value.
+-assertEqual'
+-  :: forall a
+-   . Eq a
+-  => Show a
+-  => String
+-  -> { actual :: a, expected :: a }
+-  -> Effect Unit
+-assertEqual' userMessage {actual, expected} = do
+-  unless result $ error message
+-  assert' message result
+-  where
+-  message = (if userMessage == "" then "" else userMessage <> "\n")
+-             <> "Expected: " <> show expected
+-             <> "\nActual:   " <> show actual
+-  result = actual == expected
+-
+--- | Throws a runtime exception when the value is `false`.
+--- |
+--- | The message indicates the expected value (`true`)
+--- | and the actual value (`false`).
+-assertTrue
+-  :: Boolean
+-  -> Effect Unit
+-assertTrue actual = assertEqual { actual, expected: true }
+-
+--- | Throws a runtime exception with the specified message when the value is
+--- | `false`.
+--- |
+--- | The message also indicates the expected value (`true`)
+--- | and the actual value (`false`).
+-assertTrue'
+-  :: String
+-  -> Boolean
+-  -> Effect Unit
+-assertTrue' message actual = assertEqual' message { actual, expected: true }
+-
+--- | Throws a runtime exception when the value is `true`.
+--- |
+--- | The message indicates the expected value (`false`)
+--- | and the actual value (`true`).
+-assertFalse
+-  :: Boolean
+-  -> Effect Unit
+-assertFalse actual = assertEqual { actual, expected: false }
+-
+--- | Throws a runtime exception with the specified message when the value is
+--- | `true`.
+--- |
+--- | The message also indicates the expected value (`false`)
+--- | and the actual value (`true`).
+-assertFalse'
+-  :: String
+-  -> Boolean
+-  -> Effect Unit
+-assertFalse' message actual = assertEqual' message { actual, expected: false }
++-- | The escape itself. Kept private: a caller reports a failure by choosing the
++-- | message, not by reaching for the trap.
++abortWith :: String -> Effect Unit
++abortWith message = do
++  _ <- error message
++  trap
+--- purescript-unsafe-coerce@v6.0.0/src/Unsafe/Coerce.purs
++++ stdlib/lib/Unsafe/Coerce.purs
+@@ -24,4 +24,5 @@
+ -- | `unsafeCoerce` can now be accomplished via `coerce` from
+ -- | `purescript-safe-coerce`. See that library's documentation for more
+ -- | context.
+-foreign import unsafeCoerce :: forall a b. a -> b
++unsafeCoerce :: forall a b. a -> b
++unsafeCoerce a0 = unsafeCoerce a0
+--- purescript-effect@v4.0.0/src/Effect/Class.purs
++++ /dev/null
+@@ -1,19 +0,0 @@
+-module Effect.Class where
+-
+-import Control.Category (identity)
+-import Control.Monad (class Monad)
+-import Effect (Effect)
+-
+--- | The `MonadEffect` class captures those monads which support native effects.
+--- |
+--- | Instances are provided for `Effect` itself, and the standard monad
+--- | transformers.
+--- |
+--- | `liftEffect` can be used in any appropriate monad transformer stack to lift an
+--- | action of type `Effect a` into the monad.
+--- |
+-class Monad m <= MonadEffect m where
+-  liftEffect :: forall a. Effect a -> m a
+-
+-instance monadEffectEffect :: MonadEffect Effect where
+-  liftEffect = identity
+--- purescript-console@v6.0.0/src/Effect/Class/Console.purs
++++ /dev/null
+@@ -1,49 +0,0 @@
+-module Effect.Class.Console where
+-
+-import Data.Function ((<<<))
+-import Data.Show (class Show)
+-import Data.Unit (Unit)
+-import Effect.Class (class MonadEffect, liftEffect)
+-import Effect.Console as EffConsole
+-
+-log :: forall m. MonadEffect m => String -> m Unit
+-log = liftEffect <<< EffConsole.log
+-
+-logShow :: forall m a. MonadEffect m => Show a => a -> m Unit
+-logShow = liftEffect <<< EffConsole.logShow
+-
+-warn :: forall m. MonadEffect m => String -> m Unit
+-warn = liftEffect <<< EffConsole.warn
+-
+-warnShow :: forall m a. MonadEffect m => Show a => a -> m Unit
+-warnShow = liftEffect <<< EffConsole.warnShow
+-
+-error :: forall m. MonadEffect m => String -> m Unit
+-error = liftEffect <<< EffConsole.error
+-
+-errorShow :: forall m a. MonadEffect m => Show a => a -> m Unit
+-errorShow = liftEffect <<< EffConsole.errorShow
+-
+-info :: forall m. MonadEffect m => String -> m Unit
+-info = liftEffect <<< EffConsole.info
+-
+-infoShow :: forall m a. MonadEffect m => Show a => a -> m Unit
+-infoShow = liftEffect <<< EffConsole.infoShow
+-
+-debug :: forall m. MonadEffect m => String -> m Unit
+-debug = liftEffect <<< EffConsole.debug
+-
+-debugShow :: forall m a. MonadEffect m => Show a => a -> m Unit
+-debugShow = liftEffect <<< EffConsole.debugShow
+-
+-time :: forall m. MonadEffect m => String -> m Unit
+-time = liftEffect <<< EffConsole.time
+-
+-timeLog :: forall m. MonadEffect m => String -> m Unit
+-timeLog = liftEffect <<< EffConsole.timeLog
+-
+-timeEnd :: forall m. MonadEffect m => String -> m Unit
+-timeEnd = liftEffect <<< EffConsole.timeEnd
+-
+-clear :: forall m. MonadEffect m => m Unit
+-clear = liftEffect EffConsole.clear
+--- purescript-effect@v4.0.0/src/Effect/Uncurried.purs
++++ /dev/null
+@@ -1,286 +0,0 @@
+--- | This module defines types for effectful uncurried functions, as well as
+--- | functions for converting back and forth between them.
+--- |
+--- | This makes it possible to give a PureScript type to JavaScript functions
+--- | such as this one:
+--- |
+--- | ```javascript
+--- | function logMessage(level, message) {
+--- |   console.log(level + ": " + message);
+--- | }
+--- | ```
+--- |
+--- | In particular, note that `logMessage` performs effects immediately after
+--- | receiving all of its parameters, so giving it the type `Data.Function.Fn2
+--- | String String Unit`, while convenient, would effectively be a lie.
+--- |
+--- | One way to handle this would be to convert the function into the normal
+--- | PureScript form (namely, a curried function returning an Effect action),
+--- | and performing the marshalling in JavaScript, in the FFI module, like this:
+--- |
+--- | ```purescript
+--- | -- In the PureScript file:
+--- | foreign import logMessage :: String -> String -> Effect Unit
+--- | ```
+--- |
+--- | ```javascript
+--- | // In the FFI file:
+--- | exports.logMessage = function(level) {
+--- |   return function(message) {
+--- |     return function() {
+--- |       logMessage(level, message);
+--- |     };
+--- |   };
+--- | };
+--- | ```
+--- |
+--- | This method, unfortunately, turns out to be both tiresome and error-prone.
+--- | This module offers an alternative solution. By providing you with:
+--- |
+--- |  * the ability to give the real `logMessage` function a PureScript type,
+--- |    and
+--- |  * functions for converting between this form and the normal PureScript
+--- |    form,
+--- |
+--- | the FFI boilerplate is no longer needed. The previous example becomes:
+--- |
+--- | ```purescript
+--- | -- In the PureScript file:
+--- | foreign import logMessageImpl :: EffectFn2 String String Unit
+--- | ```
+--- |
+--- | ```javascript
+--- | // In the FFI file:
+--- | exports.logMessageImpl = logMessage
+--- | ```
+--- |
+--- | You can then use `runEffectFn2` to provide a nicer version:
+--- |
+--- | ```purescript
+--- | logMessage :: String -> String -> Effect Unit
+--- | logMessage = runEffectFn2 logMessageImpl
+--- | ```
+--- |
+--- | (note that this has the same type as the original `logMessage`).
+--- |
+--- | Effectively, we have reduced the risk of errors by moving as much code into
+--- | PureScript as possible, so that we can leverage the type system. Hopefully,
+--- | this is a little less tiresome too.
+--- |
+--- | Here's a slightly more advanced example. Here, because we are using
+--- | callbacks, we need to use `mkEffectFn{N}` as well.
+--- |
+--- | Suppose our `logMessage` changes so that it sometimes sends details of the
+--- | message to some external server, and in those cases, we want the resulting
+--- | `HttpResponse` (for whatever reason).
+--- |
+--- | ```javascript
+--- | function logMessage(level, message, callback) {
+--- |   console.log(level + ": " + message);
+--- |   if (level > LogLevel.WARN) {
+--- |     LogAggregatorService.post("/logs", {
+--- |       level: level,
+--- |       message: message
+--- |     }, callback);
+--- |   } else {
+--- |     callback(null);
+--- |   }
+--- | }
+--- | ```
+--- |
+--- | The import then looks like this:
+--- | ```purescript
+--- | foreign import logMessageImpl
+--- |  EffectFn3
+--- |    String
+--- |    String
+--- |    (EffectFn1 (Nullable HttpResponse) Unit)
+--- |    Unit
+--- | ```
+--- |
+--- | And, as before, the FFI file is extremely simple:
+--- |
+--- | ```javascript
+--- | exports.logMessageImpl = logMessage
+--- | ```
+--- |
+--- | Finally, we use `runEffectFn{N}` and `mkEffectFn{N}` for a more comfortable
+--- | PureScript version:
+--- |
+--- | ```purescript
+--- | logMessage ::
+--- |   String ->
+--- |   String ->
+--- |   (Nullable HttpResponse -> Effect Unit) ->
+--- |   Effect Unit
+--- | logMessage level message callback =
+--- |   runEffectFn3 logMessageImpl level message (mkEffectFn1 callback)
+--- | ```
+--- |
+--- | The general naming scheme for functions and types in this module is as
+--- | follows:
+--- |
+--- | * `EffectFn{N}` means, an uncurried function which accepts N arguments and
+--- |   performs some effects. The first N arguments are the actual function's
+--- |   argument. The last type argument is the return type.
+--- | * `runEffectFn{N}` takes an `EffectFn` of N arguments, and converts it into
+--- |   the normal PureScript form: a curried function which returns an Effect
+--- |   action.
+--- | * `mkEffectFn{N}` is the inverse of `runEffectFn{N}`. It can be useful for
+--- |   callbacks.
+--- |
+-
+-module Effect.Uncurried where
+-
+-import Data.Monoid (class Monoid, class Semigroup, mempty, (<>))
+-import Effect (Effect)
+-
+-foreign import data EffectFn1 :: Type -> Type -> Type
+-
+-type role EffectFn1 representational representational
+-
+-foreign import data EffectFn2 :: Type -> Type -> Type -> Type
+-
+-type role EffectFn2 representational representational representational
+-
+-foreign import data EffectFn3 :: Type -> Type -> Type -> Type -> Type
+-
+-type role EffectFn3 representational representational representational representational
+-
+-foreign import data EffectFn4 :: Type -> Type -> Type -> Type -> Type -> Type
+-
+-type role EffectFn4 representational representational representational representational representational
+-
+-foreign import data EffectFn5 :: Type -> Type -> Type -> Type -> Type -> Type -> Type
+-
+-type role EffectFn5 representational representational representational representational representational representational
+-
+-foreign import data EffectFn6 :: Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type
+-
+-type role EffectFn6 representational representational representational representational representational representational representational
+-
+-foreign import data EffectFn7 :: Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type
+-
+-type role EffectFn7 representational representational representational representational representational representational representational representational
+-
+-foreign import data EffectFn8 :: Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type
+-
+-type role EffectFn8 representational representational representational representational representational representational representational representational representational
+-
+-foreign import data EffectFn9 :: Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type
+-
+-type role EffectFn9 representational representational representational representational representational representational representational representational representational representational
+-
+-foreign import data EffectFn10 :: Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type -> Type
+-
+-type role EffectFn10 representational representational representational representational representational representational representational representational representational representational representational
+-
+-foreign import mkEffectFn1 :: forall a r.
+-  (a -> Effect r) -> EffectFn1 a r
+-foreign import mkEffectFn2 :: forall a b r.
+-  (a -> b -> Effect r) -> EffectFn2 a b r
+-foreign import mkEffectFn3 :: forall a b c r.
+-  (a -> b -> c -> Effect r) -> EffectFn3 a b c r
+-foreign import mkEffectFn4 :: forall a b c d r.
+-  (a -> b -> c -> d -> Effect r) -> EffectFn4 a b c d r
+-foreign import mkEffectFn5 :: forall a b c d e r.
+-  (a -> b -> c -> d -> e -> Effect r) -> EffectFn5 a b c d e r
+-foreign import mkEffectFn6 :: forall a b c d e f r.
+-  (a -> b -> c -> d -> e -> f -> Effect r) -> EffectFn6 a b c d e f r
+-foreign import mkEffectFn7 :: forall a b c d e f g r.
+-  (a -> b -> c -> d -> e -> f -> g -> Effect r) -> EffectFn7 a b c d e f g r
+-foreign import mkEffectFn8 :: forall a b c d e f g h r.
+-  (a -> b -> c -> d -> e -> f -> g -> h -> Effect r) -> EffectFn8 a b c d e f g h r
+-foreign import mkEffectFn9 :: forall a b c d e f g h i r.
+-  (a -> b -> c -> d -> e -> f -> g -> h -> i -> Effect r) -> EffectFn9 a b c d e f g h i r
+-foreign import mkEffectFn10 :: forall a b c d e f g h i j r.
+-  (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> Effect r) -> EffectFn10 a b c d e f g h i j r
+-
+-foreign import runEffectFn1 :: forall a r.
+-  EffectFn1 a r -> a -> Effect r
+-foreign import runEffectFn2 :: forall a b r.
+-  EffectFn2 a b r -> a -> b -> Effect r
+-foreign import runEffectFn3 :: forall a b c r.
+-  EffectFn3 a b c r -> a -> b -> c -> Effect r
+-foreign import runEffectFn4 :: forall a b c d r.
+-  EffectFn4 a b c d r -> a -> b -> c -> d -> Effect r
+-foreign import runEffectFn5 :: forall a b c d e r.
+-  EffectFn5 a b c d e r -> a -> b -> c -> d -> e -> Effect r
+-foreign import runEffectFn6 :: forall a b c d e f r.
+-  EffectFn6 a b c d e f r -> a -> b -> c -> d -> e -> f -> Effect r
+-foreign import runEffectFn7 :: forall a b c d e f g r.
+-  EffectFn7 a b c d e f g r -> a -> b -> c -> d -> e -> f -> g -> Effect r
+-foreign import runEffectFn8 :: forall a b c d e f g h r.
+-  EffectFn8 a b c d e f g h r -> a -> b -> c -> d -> e -> f -> g -> h -> Effect r
+-foreign import runEffectFn9 :: forall a b c d e f g h i r.
+-  EffectFn9 a b c d e f g h i r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> Effect r
+-foreign import runEffectFn10 :: forall a b c d e f g h i j r.
+-  EffectFn10 a b c d e f g h i j r -> a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> Effect r
+-
+--- The reason these are written eta-expanded instead of as:
+--- ```
+--- append f1 f2 = mkEffectFnN $ runEffectFnN f1 <> runEffectFnN f2
+--- ```
+--- is to help the compiler recognize that it can emit uncurried
+--- JS functions (which are more efficient), when an appended
+--- EffectFn is applied to all its arguments
+-
+-instance semigroupEffectFn1 :: Semigroup r => Semigroup (EffectFn1 a r) where
+-  append f1 f2 = mkEffectFn1 \a -> runEffectFn1 f1 a <> runEffectFn1 f2 a
+-
+-instance semigroupEffectFn2 :: Semigroup r => Semigroup (EffectFn2 a b r) where
+-  append f1 f2 = mkEffectFn2 \a b -> runEffectFn2 f1 a b <> runEffectFn2 f2 a b
+-
+-instance semigroupEffectFn3 :: Semigroup r => Semigroup (EffectFn3 a b c r) where
+-  append f1 f2 = mkEffectFn3 \a b c -> runEffectFn3 f1 a b c <> runEffectFn3 f2 a b c
+-
+-instance semigroupEffectFn4 :: Semigroup r => Semigroup (EffectFn4 a b c d r) where
+-  append f1 f2 = mkEffectFn4 \a b c d -> runEffectFn4 f1 a b c d <> runEffectFn4 f2 a b c d
+-
+-instance semigroupEffectFn5 :: Semigroup r => Semigroup (EffectFn5 a b c d e r) where
+-  append f1 f2 = mkEffectFn5 \a b c d e -> runEffectFn5 f1 a b c d e <> runEffectFn5 f2 a b c d e
+-
+-instance semigroupEffectFn6 :: Semigroup r => Semigroup (EffectFn6 a b c d e f r) where
+-  append f1 f2 = mkEffectFn6 \a b c d e f -> runEffectFn6 f1 a b c d e f <> runEffectFn6 f2 a b c d e f
+-
+-instance semigroupEffectFn7 :: Semigroup r => Semigroup (EffectFn7 a b c d e f g r) where
+-  append f1 f2 = mkEffectFn7 \a b c d e f g -> runEffectFn7 f1 a b c d e f g <> runEffectFn7 f2 a b c d e f g
+-
+-instance semigroupEffectFn8 :: Semigroup r => Semigroup (EffectFn8 a b c d e f g h r) where
+-  append f1 f2 = mkEffectFn8 \a b c d e f g h -> runEffectFn8 f1 a b c d e f g h <> runEffectFn8 f2 a b c d e f g h
+-
+-instance semigroupEffectFn9 :: Semigroup r => Semigroup (EffectFn9 a b c d e f g h i r) where
+-  append f1 f2 = mkEffectFn9 \a b c d e f g h i -> runEffectFn9 f1 a b c d e f g h i <> runEffectFn9 f2 a b c d e f g h i
+-
+-instance semigroupEffectFn10 :: Semigroup r => Semigroup (EffectFn10 a b c d e f g h i j r) where
+-  append f1 f2 = mkEffectFn10 \a b c d e f g h i j -> runEffectFn10 f1 a b c d e f g h i j <> runEffectFn10 f2 a b c d e f g h i j
+-
+-instance monoidEffectFn1 :: Monoid r => Monoid (EffectFn1 a r) where
+-  mempty = mkEffectFn1 \_ -> mempty
+-
+-instance monoidEffectFn2 :: Monoid r => Monoid (EffectFn2 a b r) where
+-  mempty = mkEffectFn2 \_ _ -> mempty
+-
+-instance monoidEffectFn3 :: Monoid r => Monoid (EffectFn3 a b c r) where
+-  mempty = mkEffectFn3 \_ _ _ -> mempty
+-
+-instance monoidEffectFn4 :: Monoid r => Monoid (EffectFn4 a b c d r) where
+-  mempty = mkEffectFn4 \_ _ _ _ -> mempty
+-
+-instance monoidEffectFn5 :: Monoid r => Monoid (EffectFn5 a b c d e r) where
+-  mempty = mkEffectFn5 \_ _ _ _ _ -> mempty
+-
+-instance monoidEffectFn6 :: Monoid r => Monoid (EffectFn6 a b c d e f r) where
+-  mempty = mkEffectFn6 \_ _ _ _ _ _ -> mempty
+-
+-instance monoidEffectFn7 :: Monoid r => Monoid (EffectFn7 a b c d e f g r) where
+-  mempty = mkEffectFn7 \_ _ _ _ _ _ _ -> mempty
+-
+-instance monoidEffectFn8 :: Monoid r => Monoid (EffectFn8 a b c d e f g h r) where
+-  mempty = mkEffectFn8 \_ _ _ _ _ _ _ _ -> mempty
+-
+-instance monoidEffectFn9 :: Monoid r => Monoid (EffectFn9 a b c d e f g h i r) where
+-  mempty = mkEffectFn9 \_ _ _ _ _ _ _ _ _ -> mempty
+-
+-instance monoidEffectFn10 :: Monoid r => Monoid (EffectFn10 a b c d e f g h i j r) where
+-  mempty = mkEffectFn10 \_ _ _ _ _ _ _ _ _ _ -> mempty
+--- purescript-effect@v4.0.0/src/Effect/Unsafe.purs
++++ /dev/null
+@@ -1,8 +0,0 @@
+-module Effect.Unsafe where
+-
+-import Effect (Effect)
+-
+--- | Run an effectful computation.
+--- |
+--- | *Note*: use of this function can result in arbitrary side-effects.
+-foreign import unsafePerformEffect :: forall a. Effect a -> a

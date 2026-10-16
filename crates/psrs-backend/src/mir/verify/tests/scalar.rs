@@ -199,6 +199,7 @@ fn rejects_a_call_with_the_wrong_argument_type() {
             id: BlockId(0),
             parameters: Vec::new(),
             instructions: vec![Instruction::Call {
+                contract: None,
                 destination: call_result,
                 function: callee_symbol,
                 arguments: vec![argument, argument],

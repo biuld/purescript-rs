@@ -60,19 +60,16 @@ fn accepts_the_function_constructor_as_an_instance_argument() {
 }
 
 #[test]
-fn still_reports_a_partially_applied_function_synonym_in_a_type() {
-    // The same shape as above, but standing alone as a newtype field, where it
-    // is not checked against a class kind. `purs` reports
-    // PartiallyAppliedSynonym for `failing/TypeSynonyms9.purs`.
-    let errors = check(
-        "module Main where\n\
-         newtype A (a :: (Type -> Type) -> Type -> Type) = A String\n\
-         newtype B = B (A ((->) Array))\n",
-    );
-    assert!(
-        codes(&errors).contains(&"PartiallyAppliedSynonym"),
-        "{errors:?}"
-    );
+fn accepts_a_partially_applied_function_arrow() {
+    // `(->)` is a builtin type constructor, not a synonym, so a partial
+    // application read on its own is valid: `purs` accepts `type Reader = (->) r`
+    // and `Free ((->) Unit)`. Only a named synonym is `PartiallyAppliedSynonym`.
+    check_ok(concat!(
+        "module Main where\n",
+        "type Reader = (->) Int\n",
+        "type ReaderString = (->) Int String\n",
+        "newtype B = B ((->) Boolean Int)\n",
+    ));
 }
 
 #[test]

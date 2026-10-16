@@ -87,6 +87,7 @@ fn executes_erased_identity_for_scalars_and_concrete_references_on_both_targets(
     let call_identity = |destination, value| Assignment {
         destination: ValueId(destination),
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: identity_symbol,
             arguments: vec![ValueId(value)],
         },

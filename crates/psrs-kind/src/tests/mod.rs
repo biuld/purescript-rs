@@ -6,9 +6,11 @@ use crate::kind::KindDiagnostic;
 use psrs_hir::ModuleId;
 
 mod declarations;
+mod foreign;
 mod instances;
 mod program;
 mod roles;
+mod synonyms;
 
 pub(super) fn check(source: &str) -> Vec<KindDiagnostic> {
     check_modules(&[resolve(source)])

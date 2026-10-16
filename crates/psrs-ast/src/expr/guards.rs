@@ -152,6 +152,58 @@ pub(crate) fn prepend_guards(mut expression: Expr, guards: Vec<Guard>, span: Tex
     }
 }
 
+/// An immediate `_` in an `if` condition, then branch, or else branch is a
+/// function parameter, in that written order. Nested expressions keep their
+/// own underscores.
+pub(crate) fn lower_if(
+    condition: cst::Expr,
+    then_branch: cst::Expr,
+    else_branch: cst::Expr,
+    span: TextRange,
+) -> Result<Expr, LowerError> {
+    let mut binders = Vec::new();
+    let condition = lower_immediate_anonymous(condition, &mut binders)?;
+    let then_branch = lower_immediate_anonymous(then_branch, &mut binders)?;
+    let else_branch = lower_immediate_anonymous(else_branch, &mut binders)?;
+    let mut expression = Expr {
+        kind: ExprKind::If {
+            condition: Box::new(condition),
+            then_branch: Box::new(then_branch),
+            else_branch: Box::new(else_branch),
+        },
+        span,
+    };
+    for binder in binders.into_iter().rev() {
+        expression = Expr {
+            kind: ExprKind::Lambda {
+                binder,
+                body: Box::new(expression),
+            },
+            span,
+        };
+    }
+    Ok(expression)
+}
+
+fn lower_immediate_anonymous(
+    expression: cst::Expr,
+    binders: &mut Vec<Binder>,
+) -> Result<Expr, LowerError> {
+    if matches!(&expression.kind, cst::ExprKind::Name(name) if name.text == "_") {
+        let span = expression.span;
+        let name = format!("$psrs_if_argument_{}", span.start);
+        binders.push(Binder {
+            name: name.clone(),
+            span,
+        });
+        return Ok(Expr {
+            kind: ExprKind::Name(Name { text: name, span }),
+            span,
+        });
+    }
+    lower_expr(expression)
+}
+
 pub(crate) fn lower_case_scrutinees(
     scrutinees: Vec<psrs_cst::Expr>,
     span: TextRange,
@@ -193,7 +245,7 @@ pub(crate) fn lower_case_scrutinees(
         lowered.pop().expect("one case scrutinee").1
     } else {
         Expr {
-            kind: ExprKind::Record(
+            kind: ExprKind::MatchProduct(
                 lowered
                     .into_iter()
                     .map(|(index, value)| (tuple_label(index), value))

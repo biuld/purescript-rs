@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "stdlib_lock": {
+    "schema_version": 1,
+    "path": "../psrs-stdlib",
+    "revision": "8aaaffad89acf7aa71da38b1405920d4f37356ef",
+    "source_fingerprint": "fnv1a64-v1:73d24a5e09ceea6c"
+  },
+  "compiler_sha256": "9881768920f1295da5a679fd2b0254a7b15bfb0ddcaba7dca1c07156aef374ff",
+  "wasm_sha256": "ef6d1913578e840e1563a49f856692edbe2775d3fece65d7c6d4e0f9668d361b",
+  "official_oracle_checks": 333,
+  "execution": {
+    "exit_code": 42,
+    "stdout": "3\n1\n2\n",
+    "stderr": ""
+  },
+  "accepted": true
+}

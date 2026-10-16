@@ -48,6 +48,24 @@ pub(super) fn verify_array_assignment(
             )?;
             uses.extend(elements.iter().copied());
         }
+        AssignmentKind::ArrayFill {
+            destination,
+            representation,
+            length,
+            value,
+        } => {
+            verify_embedded_destination(assignment, *destination)?;
+            let element = verify_array_representation(table, *representation, assignment)?;
+            require_value_shape(declared, *length, ValueShape::Integer, assignment)?;
+            require_value_shape(declared, *value, element, assignment)?;
+            require_destination(
+                declared,
+                assignment,
+                repr_shape(*representation),
+                "arrayFill has an incompatible result shape",
+            )?;
+            uses.extend([*length, *value]);
+        }
         AssignmentKind::ArrayLen { destination, value } => {
             verify_embedded_destination(assignment, *destination)?;
             verify_array_value(declared, *value, table, None, assignment)?;

@@ -56,7 +56,7 @@ fn execute_wasm_output(name: &str, wasm: &[u8]) -> Result<Option<std::process::O
 
 #[test]
 fn generic_string_array_preserves_observable_contents() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = let ignored = runEffect (log (arrayIndex (copy [\"hello\", \"world\"]) 1)) in 0\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = let ignored = unsafePerformEffect (log (arrayIndex (copy [\"hello\", \"world\"]) 1)) in 0\n";
     let artifact = compile_source("Main.purs", source).expect("string round trip should compile");
     match execute_wasm_output("generic_string_contents", &artifact.wasm) {
         Ok(Some(output)) => {
@@ -99,9 +99,10 @@ fn linked_modules_share_canonical_layouts() {
         canonical_arrays, 1,
         "linked modules must share one canonical Array(Erased) layout"
     );
-    assert!(
-        array_new_default_count(&stages.mir) >= 1,
-        "the linked producer boundary must retain a reconstruction path"
+    assert_eq!(
+        array_new_default_count(&stages.mir),
+        0,
+        "the linked producer boundary must preserve the original array storage"
     );
     match execute_wasm("linked_modules", &stages.artifact.wasm) {
         Ok(Some(code)) => assert_eq!(code, 42, "linked round-trip should preserve its element"),
@@ -227,7 +228,7 @@ fn audit_battery() {
         },
         Case {
             name: "record_roundtrip_nested",
-            source: "module Main where\ncopy :: forall a. { inner :: { value :: a } } -> { inner :: { value :: a } }\ncopy record = record\nmain = arrayIndex (copy { inner: { value: [40, 42] } }.inner.value) 1\n",
+            source: "module Main where\ncopy :: forall a. { inner :: { value :: a } } -> { inner :: { value :: a } }\ncopy record = record\nmain = arrayIndex ((copy { inner: { value: [40, 42] } }).inner.value) 1\n",
             exit: 42,
         },
         // GA-06 dependent ADT fields, multiple instantiations
@@ -320,7 +321,7 @@ fn audit_battery() {
         },
         Case {
             name: "scalar_unit_array",
-            source: "module Main where\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = arrayLength (copy [runEffect (log \"\")])\n",
+            source: "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport WASI.Console\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = arrayLength (copy [unsafePerformEffect (log \"\")])\n",
             exit: 1,
         },
         Case {
@@ -409,13 +410,13 @@ fn empty_array_reconstruction_executes() {
     );
     let stages = psrs_backend::compile_with_context(
         prepared.core,
-        prepared.effect_context,
         psrs_backend::TargetCapabilities::default(),
     )
     .expect("an empty concrete array must still lower through the conversion path");
-    assert!(
-        array_new_default_count(&stages.mir) >= 1,
-        "the empty array should still allocate its canonical destination"
+    assert_eq!(
+        array_new_default_count(&stages.mir),
+        0,
+        "the empty array must not be reconstructed at a polymorphic boundary"
     );
     assert!(
         stages
@@ -426,9 +427,9 @@ fn empty_array_reconstruction_executes() {
             .flat_map(|block| &block.instructions)
             .any(|instruction| matches!(
                 instruction,
-                psrs_backend::mir::Instruction::ArraySet { .. }
+                psrs_backend::mir::Instruction::ArrayNew { elements, .. } if elements.is_empty()
             )),
-        "the conversion loop should retain its element store even for an empty source"
+        "the empty source literal retains its single storage allocation"
     );
     match execute_wasm("empty_array_reconstruction", &stages.artifact.wasm) {
         Ok(Some(code)) => assert_eq!(code, 0, "empty array round-trip should have length zero"),

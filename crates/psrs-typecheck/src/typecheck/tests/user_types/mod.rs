@@ -223,6 +223,7 @@ fn synonym(id: u32, name: &str, parameters: &[&str], body: HirType) -> psrs_hir:
         name: name.into(),
         name_span: TextRange::new(0, 1),
         kind: psrs_hir::TypeDeclarationKind::TypeSynonym,
+        compiler_class: None,
         parameters: parameters
             .iter()
             .map(|parameter| psrs_hir::TypeParameter {
@@ -286,6 +287,49 @@ fn expands_type_synonyms_in_signatures() {
 }
 
 #[test]
+fn applies_extra_arguments_after_expanding_a_synonym() {
+    let element = applied(
+        applied(
+            named(0, 20),
+            builtin(psrs_hir::BuiltinType::Array, 24),
+            20,
+            30,
+        ),
+        builtin(psrs_hir::BuiltinType::Int, 31),
+        20,
+        34,
+    );
+    let signature = HirType {
+        kind: HirTypeKind::Function {
+            parameter: Box::new(element.clone()),
+            result: Box::new(element),
+        },
+        span: TextRange::new(20, 40),
+    };
+    let declaration = declaration_with_signature(0, "f", 19, signature, identity_lambda(40));
+    let mut resolved = module(vec![declaration], false);
+    resolved.types = vec![synonym(0, "Hom", &["f"], variable("f", 10))];
+
+    let typed = typecheck_module(resolved).unwrap();
+    assert!(
+        typed
+            .types
+            .iter()
+            .any(|ty| matches!(ty, Type::Constructor(thir::TypeConstructor::Array)))
+    );
+    assert!(
+        typed
+            .types
+            .iter()
+            .any(|ty| matches!(ty, Type::Constructor(thir::TypeConstructor::Int)))
+    );
+    assert!(!typed.types.iter().any(|ty| matches!(
+        ty,
+        Type::Constructor(thir::TypeConstructor::User(id)) if id.index == 0
+    )));
+}
+
+#[test]
 fn rejects_a_partially_applied_synonym() {
     let signature = HirType {
         kind: HirTypeKind::Named(psrs_hir::TypeId::new(ModuleId(0), 0)),
@@ -325,6 +369,7 @@ fn data_declaration(
         name: name.into(),
         name_span: TextRange::new(0, 1),
         kind: psrs_hir::TypeDeclarationKind::Data,
+        compiler_class: None,
         parameters: parameters
             .iter()
             .map(|parameter| psrs_hir::TypeParameter {

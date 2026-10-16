@@ -158,6 +158,7 @@ fn the_verifier_rejects_an_owned_handle_dropped_twice() {
     );
     let instructions = vec![
         Instruction::Call {
+            contract: None,
             destination: ValueId(1),
             function: symbol,
             arguments: Vec::new(),
@@ -195,6 +196,7 @@ fn the_verifier_accepts_an_explicit_drop() {
     );
     let instructions = vec![
         Instruction::Call {
+            contract: None,
             destination: ValueId(1),
             function: symbol,
             arguments: Vec::new(),

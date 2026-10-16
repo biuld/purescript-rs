@@ -8,6 +8,8 @@ license.workspace = true
 psrs-core.workspace = true
 psrs-hir.workspace = true
 psrs-span.workspace = true
+psrs-linker.workspace = true
+psrs-runtime = { workspace = true, default-features = false, features = ["catalog", "gc-storage"] }
 wasm-encoder.workspace = true
 wasmparser.workspace = true
 wasmprinter.workspace = true

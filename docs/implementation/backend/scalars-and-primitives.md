@@ -38,12 +38,12 @@ Verified requires exact test and executed result evidence.
 | SP-02 | `String` keeps a separate semantic CC shape and is a GC byte sequence, linearized only at the canonical ABI boundary. | Positive string literal/import use and verifier rejection of numeric operations on String values. | Verified |
 | SP-03 | Every specified CC unary/binary primitive has an exact MIR instruction or helper lowering. | Exhaustive operation table matching the design vocabulary; reject missing opcode mappings and wrong operand/result types. | Verified |
 | SP-04 | Integer add/subtract/multiply and bitwise operations wrap at 32 bits; shift counts follow the specified modulo-32 behavior. | Source or verified Core execution at overflow/underflow and shift counts 0, 31, 32, 33; compare exact bits/results. | Verified |
-| SP-05 | Integer quotient/remainder truncate toward zero and trap for divisor zero and signed minimum divided by -1. | Positive signed combinations and expected-trap component cases; distinguish quotient/remainder from floor division/modulo. | Verified |
-| SP-06 | Integer division/modulo helpers implement floor quotient and divisor-signed remainder without introducing unrelated traps. | Positive/negative dividend-divisor matrix, zero/overflow trap cases, helper interning, and execution with multiple call sites. | Verified |
+| SP-05 | Integer quotient/remainder truncate toward zero and trap for divisor zero and signed minimum divided by -1. | Positive signed combinations and expected-trap component cases; distinguish raw primitives from library Euclidean division/modulo. | Verified |
+| SP-06 | Library division/modulo own nonnegative Euclidean remainder and zero handling; no duplicate compiler arithmetic policy remains. | Source execution for all signs, negative divisors, zero divisors, and case branches; retired bindings rejected. | Verified |
 | SP-07 | Number arithmetic, comparisons, and unary operations retain Wasm/IEEE semantics including NaN and signed zero. | Value-sensitive f64 execution, bitwise inspection when sign of zero matters, and expected NaN comparison behavior. | Verified |
 | SP-08 | Boolean and character operations use their canonical shape and reject invalid values at appropriate boundaries. | True/false logical cases, Unicode scalar boundary cases, and malformed CC/MIR operation fixtures. | Verified |
 | SP-09 | `NumberToInt` truncates with saturation for finite overflow, infinities, and NaN; `IntToNumber` follows exact signed conversion. | Execute thresholds around both i32 limits, fractions, infinities, NaN, and full-width integers; assert exact results. | Verified |
-| SP-10 | Generated helpers are emitted only when reachable, with collision-free symbols and deterministic scans through nested expressions. | Compare modules with/without div/mod/conversion, nested `If` uses, user-symbol collisions, and repeated calls. | Verified |
+| SP-10 | Generated helpers are emitted only when reachable, with collision-free symbols and deterministic scans through nested expressions. | Conversion helper reachability/collisions and reserved generated binding signatures; public div/mod use ordinary library lowering. | Verified |
 | SP-11 | CC and MIR verifiers enforce exact scalar operand/result and helper-call signatures before encoding. | Negative full-module fixtures for mixed Int/Number, Boolean/i32 confusion, String arithmetic, wrong conversion types, and malformed helper calls. | Verified |
 | SP-12 | Normal optimization and Wasm encoding preserve values and expected traps under the selected target profile. | Execute optimized/unoptimized representative operations, validate core module/component, and compare against a reference arithmetic oracle. | Verified |
 | SP-13 | `stringToBytes` is lossless and `bytesToString` checks its input: every element must be a canonical byte and the sequence must be well-formed UTF-8, with a violation trapping rather than producing replacement text ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). | Executed round-trip over ASCII, two-byte, four-byte, and empty text; the exact encoded bytes; an out-of-range element; and a malformed UTF-8 sequence. | Verified |
@@ -159,7 +159,7 @@ SP-02:
 ```text
 SP-03:
   Implementation: cc/scalar.rs (full CC vocabularies), mir/numeric.rs
-    (`From<cc::UnaryOp>`, `TryFrom<cc::BinaryOp>`), mir/scalar_helpers.rs,
+    (`From<cc::UnaryOp>`, `TryFrom<cc::BinaryOp>`), target_intrinsics/,
     wasm/lower/structure/ops.rs::primitive, wasm/lower/structure/unary.rs
   Tests: mir/gc_tests/binary_matrix::verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets
     (all CC binary variants), mir/gc_tests/unary::lowers_unary_and_conversion_operations_on_both_targets
@@ -189,38 +189,14 @@ SP-04:
 
 ```text
 SP-05:
-  Implementation: mir/numeric.rs IntQuot/IntRem -> I32DivS/I32RemS;
-    wasm/lower/structure/ops.rs
-  Tests: mir/gc_tests/binary_matrix (IntQuot 7 2 = 3, IntRem 7 2 = 1);
-    driver tests/scalars.rs::truncated_and_floor_division_trap_on_zero_divisor_and_signed_overflow
-    asserts runtime traps `integer divide by zero` for `1 / 0`, `1 % 0`,
-    `intDiv 1 0`, `intMod 1 0` and `integer overflow` for
-    `i32.min / -1` through both `intQuot` and `intDiv`
-  Input boundary: source and executed Wasm
-  Commands: common commands above
-  Result: pass; executed under Wasmtime
-  Revision: cc5d0f4 + uncommitted
-  Gaps: none
+  Updated obligation (2026-10-07): Raw IntQuot/% remain truncating; zero and quotient overflow trap. Public library div/mod handle zero. The previous record incorrectly claimed public division traps on zero.
+  Evidence: intrinsic-implementations-2026-10-07.md
 ```
 
 ```text
 SP-06:
-  Implementation: mir/scalar_helpers.rs (`lower_scalar_helpers`,
-    `contains_operation`, `euclidean_helper`, `ScalarHelpers::binary_instruction`)
-  Tests: mir/gc_tests/div_mod::lowers_euclidean_integer_division_and_modulo_on_both_targets
-    (all four dividend/divisor sign combinations, expected 3),
-    ...::detects_division_and_modulo_nested_in_tag_switch_cases (case-nested
-    `intDiv`/`intMod` lower and execute to 4),
-    driver tests/scalars.rs::generates_floor_helpers_for_division_nested_in_case_branches
-    (asserts both helpers exist once and `7 div 2 = 3` at runtime)
-  Input boundary: CC fixtures and source
-  Commands: common commands above
-  Result: pass; executed under Wasmtime; before the `contains_operation`
-    fix the nested case failed with `missing MIR helper for scalar operation
-    IntDiv`
-  Revision: cc5d0f4 + uncommitted (fix: recurse into `TagSwitch` cases and the
-    default arm, not only `If`/`Primitive`)
-  Gaps: none
+  Updated obligation (2026-10-07): The former compiler floor helpers have been removed. Their old signed-divisor tests did not prove official Euclidean behavior. Replacement source evidence covers the ordinary library wrappers and retired bindings.
+  Evidence: intrinsic-implementations-2026-10-07.md
 ```
 
 ```text
@@ -278,21 +254,8 @@ SP-09:
 
 ```text
 SP-10:
-  Implementation: mir/scalar_helpers.rs `lower_scalar_helpers`
-  Tests: mir/gc_tests/div_mod::does_not_emit_helpers_without_division_or_modulo
-    (a module using only IntAdd/IntQuot keeps one function);
-    ...::skips_helper_symbols_used_by_module_functions (a module symbol at
-    `(ModuleId(0), u32::MAX)` forces the allocator to skip it; helper symbols
-    stay distinct); ...::detects_division_and_modulo_nested_in_tag_switch_cases
-    (nested case); ...::detects_modulo_nested_in_a_tag_switch_default_arm
-    (nested default arm); ...::lowers_euclidean_integer_division_and_modulo_on_both_targets
-    (repeated call sites)
-  Input boundary: CC fixtures
-  Commands: common commands above
-  Result: pass; executed under Wasmtime
-  Revision: cc5d0f4 + uncommitted
-  Gaps: none. Conversion helpers named in the matrix belong to
-    generic-aggregate-erasure and are unchanged.
+  Updated obligation (2026-10-07): Scalar division no longer generates helpers. Conversion reachability remains in its owning generic-erasure topic. Reserved allocator/codec providers share signatures with the emitter and reject malformed MIR consumers.
+  Evidence: intrinsic-implementations-2026-10-07.md
 ```
 
 ```text
@@ -372,8 +335,55 @@ SP-13:
 - There is still no source-level string length or index operation, so a converted
   string can only be observed through `stringToBytes`.
 
-Implementation deviation: the worked example names the helpers
-`__psrs_floor_int_div`/`__psrs_floor_int_mod`, while the code emits
-`__psrs_euclidean_int_div`/`__psrs_euclidean_int_mod`. The names are cosmetic
-and the tests assert the emitted names; the design's symbol-allocation and
-operand contract are satisfied.
+The former floor-helper evidence was superseded on 2026-10-07. Public Euclidean
+arithmetic now remains library-owned; see
+[intrinsic implementation acceptance](intrinsic-implementations-2026-10-07.md).
+
+## Number truncation extension (2026-10-07)
+
+This extension adds NumberTrunc to SP-03 and SP-07; the existing NumberToInt
+saturation contract remains separate. The HIR registry owns numberTrunc's
+Number -> Number scheme. Core verification, CC lowering/verification and MIR
+numeric lowering/verification preserve that contract; Wasm emits f64.trunc.
+These mappings are in intrinsic/registry.rs, core/verify/types/mod.rs,
+cc/lower/scalar.rs, cc/verify/scalar.rs, mir/numeric.rs,
+mir/verify/instruction/unary.rs and wasm/lower/structure/unary.rs.
+
+SP-07 and SP-12 execution is supplied by driver tests/number_trunc.rs::
+number_trunc_preserves_number_range_nonfinite_values_and_signed_zero and
+backend mir/gc_tests/number_trunc.rs::
+optimized_and_unoptimized_number_trunc_preserve_zero_sign_and_range.
+The source test executes fractions, values beyond i32, both zero signs,
+NaN and infinities. The CC fixture executes both unoptimized and optimized
+MIR, observes negative zero by reciprocal sign, and retains a Number beyond
+i32 range. Both artifacts return 42 under Wasmtime 49.0.2.
+
+SP-11 rejection evidence extends the existing CC/MIR malformed unary operand
+tests to NumberTrunc/F64Trunc. The source test
+number_trunc_checks_foreign_operand_and_result_contracts additionally rejects
+unused wrong operand, result and polymorphic foreign schemes. The tested
+revision is c13a078 plus this extension; local raw reports remain regenerable.
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::number_trunc
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend optimized_and_unoptimized_number_trunc
+```
+
+Both focused commands pass (2 source tests and 1 optimization test; execution
+is mandatory). Integrated validation and the unchanged standard-library wrapper
+checks are recorded in the [checkpoint](../stdlib/number-trunc-2026-10-07.md).
+This extension does not claim support for other Number rounding operations.
+
+### Number floor and ceiling extension
+
+NumberFloor/NumberCeil extend SP-03 and SP-07 through the authoritative HIR
+registry and Core/CC/MIR operand/result checks, lowering to f64.floor/f64.ceil.
+Existing CC and MIR malformed-unary tests cover both operations. Driver
+`tests::number_rounding` executes fractions, Number range beyond i32, nonfinite
+values and reciprocal observations of signed zero, and rejects invalid foreign
+schemes. Backend `optimized_and_unoptimized_number_floor_and_ceil_preserve_sign_and_range`
+executes both optimization paths. These primitives discharge rounding only;
+library Int clamping and the ECMAScript round tie policy remain library-owned.
+
+This extension does not establish completion of the scalar topic or add MIR
+constant folding for these operations.

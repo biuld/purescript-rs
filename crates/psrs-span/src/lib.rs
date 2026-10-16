@@ -91,6 +91,19 @@ impl SourceFile {
     }
 }
 
+/// Runs `work` where a nested expression spine cannot exhaust the native stack.
+///
+/// Fixity resolution rebuilds a flat operator chain as a nested application or
+/// operator spine. Walks, clones, and equality of that spine follow the source
+/// length. Each recursive entry checks the remaining stack and continues on a
+/// fresh heap segment before the platform stack is exhausted. The red zone
+/// covers one walker frame and the unguarded callees that run before the next
+/// entry.
+#[inline(never)]
+pub fn with_sufficient_stack<R>(work: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(256 * 1024, 8 * 1024 * 1024, work)
+}
+
 impl fmt::Display for TextRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}..{}", self.start, self.end)
@@ -100,6 +113,25 @@ impl fmt::Display for TextRange {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deep_expression_walk_grows_onto_a_heap_stack() {
+        fn descend(depth: usize) -> usize {
+            with_sufficient_stack(|| {
+                let padding = std::hint::black_box([depth as u8; 24 * 1024]);
+                let here = usize::from(padding[depth % padding.len()]);
+                if depth == 0 {
+                    here
+                } else {
+                    here + descend(depth - 1)
+                }
+            })
+        }
+
+        let depth = 300;
+        let expected = (0..=depth).map(|value| value % 256).sum();
+        assert_eq!(descend(depth), expected);
+    }
 
     #[test]
     fn maps_byte_offsets_to_unicode_columns() {

@@ -7,6 +7,19 @@
 
 ## Scope
 
+Executable provider selection and artifact dependency closure are owned by the
+draft [linking and runtime](linking-and-runtime.md) design. Resolving a WIT
+interface checks a definition; it does not prove that a host or guest implements
+it. ABI lowering supplies checked source/WIT and resource-ownership contracts to
+the linker. Changing providers does not authorize a new source-type projection
+or pointer/handle reinterpretation.
+
+The same proposal moves compiler-owned WIT source assets and the default world
+to `psrs-runtime`, exposed through its immutable target catalog. `psrs-linker`
+loads definitions and supplies one resolved-world context; the backend validates
+source/WIT contracts and lowers canonical calls against that context. ABI lookup and
+component assembly consume the same catalog.
+
 This document owns source WIT bindings, the ABI registry, argument classification
 and flattening, result recovery, signature validation, and the ownership rules
 at the boundary. It does not own the linear-memory layout and allocator used by
@@ -477,8 +490,11 @@ backend/src/
       parameters/
         mod.rs         direct parameter flattening, records, flags
         indirect.rs    Canonical ABI parameter-record layout and stores
-  component.rs         vendored WIT loading and component packaging
+  linking/            checked target requirements and plan/diagnostic mapping
 ```
+
+WIT definition loading and component packaging now live in `psrs-linker`, over
+the pinned definitions owned by `psrs-runtime/wit/`.
 
 `abi.rs` and `abi/` own resolving source WIT bindings and must define:
 
@@ -531,20 +547,22 @@ It flattens arguments into canonical parameters, appends the return pointer when
 record and flags flattening. Every adaptation instruction must be an ordinary
 MIR operation, and no WIT name, interface, or canonical signature may enter MIR.
 
-`component.rs` owns vendored WIT loading and packaging and must provide:
+`psrs-linker` owns WIT definition loading and composition and provides:
 
 ```rust
-pub fn load_vendored_wasi(resolve: &mut Resolve) -> Result<(), String>;
-pub fn command_world() -> Result<(Resolve, WorldId), String>;
-pub fn componentize(core: &[u8], resolve: &Resolve, world: WorldId) -> Result<Vec<u8>, String>;
+pub fn resolve_default_definitions() -> Result<ResolvedWorldContext, LinkErrors>;
+pub fn compose(context: &ResolvedWorldContext, plan: &CheckedLinkPlan, application: &[u8])
+    -> Result<LinkedArtifact, LinkErrors>;
 ```
 
-It also owns the supported-interface set. `abi.rs` owns the
+The backend's `abi` module loads the same pinned WIT from the `psrs-runtime`
+catalog for isolated ABI fixtures and derives the supported-interface set from
+the resolved default world. `abi` owns the
 `wasi_interface_enabled(target, interface)` package gate consulted before
 resolving a WASI import ([capability profile](capability-profile.md)).
 Dependencies must stay one-directional: `abi` and `mir/wit` may depend on
-`capability` and shared types; `component` may depend on `abi` and `capability`;
-none may depend on the front end.
+`capability` and shared types; the backend `linking` module may depend on `abi`
+and `capability`; none may depend on the front end.
 
 ## Invariants and verification
 

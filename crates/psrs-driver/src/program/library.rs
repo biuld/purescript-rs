@@ -1,11 +1,10 @@
 //! Prepends the on-disk standard library as the trusted source prefix.
 
 use super::{
-    Artifact, check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
-    compile_program_sources_with_trusted_prefix, diagnostic,
+    check_program_kinds_lenient, check_program_lenient, check_program_types_lenient, diagnostic,
 };
 use crate::prelude;
-use crate::{DiagnosticOrigin, ProgramDiagnostic};
+use crate::{Artifact, CompilationReport, DiagnosticOrigin, ProgramDiagnostic};
 
 /// Compiles user sources together with the on-disk standard library.
 ///
@@ -16,9 +15,58 @@ use crate::{DiagnosticOrigin, ProgramDiagnostic};
 pub fn compile_program_sources_with_prelude(
     sources: &[(&str, &str)],
 ) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let (all_sources, trusted_prefix) = with_prelude(sources)?;
-    compile_program_sources_with_trusted_prefix(&all_sources, trusted_prefix)
-        .map_err(|errors| shift(errors, trusted_prefix))
+    let report = compile_library(sources, false, false);
+    match report.artifact {
+        Some(artifact) => Ok(artifact),
+        None => Err(report.diagnostics),
+    }
+}
+
+/// Compiles with the package and retains the last successful IR stages.
+pub fn compile_program_sources_with_prelude_report(sources: &[(&str, &str)]) -> CompilationReport {
+    compile_library(sources, true, false)
+}
+
+/// Compiles with the package and records actual frontend/backend pass events.
+pub fn compile_program_sources_with_prelude_diagnosis(
+    sources: &[(&str, &str)],
+    capture_dumps: bool,
+) -> CompilationReport {
+    compile_library(sources, capture_dumps, true)
+}
+
+fn compile_library(
+    sources: &[(&str, &str)],
+    capture_dumps: bool,
+    trace: bool,
+) -> CompilationReport {
+    let (all_sources, trusted_prefix) = match prelude::prepend_for_command(sources) {
+        Ok(sources) => sources,
+        Err(message) => return package_failure(message),
+    };
+    let info = match prelude::standard_library_info() {
+        Ok(info) => info,
+        Err(message) => return package_failure(message),
+    };
+    let mut report = super::compilation::compile_attempt(
+        &all_sources,
+        trusted_prefix,
+        capture_dumps,
+        trace,
+        info.command_runner.as_ref(),
+    );
+    report.diagnostics = shift(report.diagnostics, trusted_prefix);
+    report
+}
+
+fn package_failure(message: String) -> CompilationReport {
+    CompilationReport::failed(
+        vec![ProgramDiagnostic {
+            source: DiagnosticOrigin::Library,
+            diagnostic: diagnostic("stdlib", psrs_span::TextRange::default(), message),
+        }],
+        Default::default(),
+    )
 }
 
 /// Resolves user sources leniently together with the on-disk standard library.

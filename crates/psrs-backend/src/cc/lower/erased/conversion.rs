@@ -14,6 +14,7 @@ impl FunctionLowerer<'_> {
         source: ValueShape,
         destination: ValueShape,
         span: TextRange,
+        instantiation: Option<&psrs_core::Instantiation<'_>>,
     ) -> Result<ValueConversion, Vec<BackendError>> {
         let mut factory = self.child_lowerer();
         let value = factory.fresh(source);
@@ -24,6 +25,7 @@ impl FunctionLowerer<'_> {
             target_type,
             span,
             &mut assignments,
+            instantiation,
         )?;
         let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
         let function = Function {

@@ -1,13 +1,18 @@
 use crate::{LowerError, Name, Type};
-use psrs_cst::{self as cst, RecordField, RecordUpdateField};
+use psrs_cst as cst;
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
+mod chain;
 mod guards;
+mod records;
+pub(super) use chain::lower_operator_chain;
 pub use guards::{Guard, GuardedExpr};
 pub(super) use guards::{
-    lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs, prepend_guards,
+    lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs, lower_if,
+    prepend_guards,
 };
+pub(super) use records::{lower_record, lower_record_update};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binder {
@@ -38,9 +43,13 @@ pub enum ExprKind {
     Char(char),
     Array(Vec<Expr>),
     Record(Vec<(String, Expr)>),
+    /// An ordered product of independent match scrutinees. Unlike a source
+    /// record literal, its fields retain polymorphism until pattern checking.
+    /// P5 checks the fields and converts the product to an ordinary typed record.
+    MatchProduct(Vec<(String, Expr)>),
     RecordUpdate {
         expression: Box<Expr>,
-        fields: Vec<(String, Expr)>,
+        fields: Vec<RecordUpdateField>,
     },
     FieldAccess {
         expression: Box<Expr>,
@@ -104,6 +113,22 @@ pub enum ExprKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordUpdateField {
+    pub label: String,
+    pub value: RecordUpdateValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecordUpdateValue {
+    Expression(Expr),
+    /// A source path update, whose base is the enclosing record's field.
+    Nested {
+        fields: Vec<RecordUpdateField>,
+        span: TextRange,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaseBranch {
     pub pattern: Pattern,
     pub value: Expr,
@@ -159,36 +184,48 @@ pub enum PatternKind {
     },
 }
 
-pub(super) fn lower_record(
-    fields: Vec<RecordField>,
-    tail: Option<Box<psrs_cst::Expr>>,
+pub(super) fn lower_field_access(
+    expression: psrs_cst::Expr,
+    field: psrs_cst::CstName,
     span: TextRange,
-) -> Result<ExprKind, LowerError> {
-    if tail.is_some() {
-        return Err(LowerError::new(
-            span,
-            "open record rows are not supported yet",
-        ));
-    }
-    Ok(ExprKind::Record(
-        fields
-            .into_iter()
-            .map(|field| Ok((field.label.text, super::lower_expr(field.value)?)))
-            .collect::<Result<Vec<_>, LowerError>>()?,
-    ))
+) -> Result<Expr, LowerError> {
+    Ok(Expr {
+        kind: ExprKind::FieldAccess {
+            expression: Box::new(super::lower_expr(expression)?),
+            field: field.text,
+        },
+        span,
+    })
 }
 
-pub(super) fn lower_record_update(
-    expression: psrs_cst::Expr,
-    fields: Vec<RecordUpdateField>,
-) -> Result<ExprKind, LowerError> {
-    Ok(ExprKind::RecordUpdate {
-        expression: Box::new(super::lower_expr(expression)?),
-        fields: fields
-            .into_iter()
-            .map(|field| Ok((field.label.text, super::lower_expr(field.value)?)))
-            .collect::<Result<Vec<_>, LowerError>>()?,
-    })
+pub(super) fn lower_record_accessor(
+    marker_span: TextRange,
+    fields: Vec<psrs_cst::RecordAccessorField>,
+    span: TextRange,
+) -> Expr {
+    let binder = Binder {
+        name: format!("$psrs_record_accessor_{}", marker_span.start),
+        span: marker_span,
+    };
+    let mut body = Expr {
+        kind: ExprKind::Name(crate::Name {
+            text: binder.name.clone(),
+            span: marker_span,
+        }),
+        span: marker_span,
+    };
+    for field in fields {
+        body = Expr {
+            kind: ExprKind::FieldAccess {
+                expression: Box::new(body),
+                field: field.field.text,
+            },
+            span: TextRange::new(marker_span.start, field.field.span.end),
+        };
+    }
+    let mut accessor = super::lower_lambda(binder, body);
+    accessor.span = span;
+    accessor
 }
 
 pub(super) fn lower_pattern_lambda(

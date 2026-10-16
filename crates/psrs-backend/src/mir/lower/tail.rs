@@ -22,6 +22,13 @@ pub(super) fn mark_tail(
     function: &mut Function,
     target: TargetCapabilities,
 ) -> Result<(), Vec<BackendError>> {
+    rewrite(function, target)
+}
+
+pub(in crate::mir) fn rewrite(
+    function: &mut Function,
+    target: TargetCapabilities,
+) -> Result<(), Vec<BackendError>> {
     let returned = return_forwarded_values(function);
     let uses = use_counts(function);
     let symbol = function.symbol;
@@ -56,13 +63,14 @@ pub(super) fn mark_tail(
                 self_calls.push((block.id, arguments.clone(), *span));
             }
             Instruction::Call {
+                contract,
                 function: callee,
                 arguments,
                 span,
                 ..
             } => non_self.push((
                 block.id,
-                NonSelfCall::Direct(*callee),
+                NonSelfCall::Direct(*callee, *contract),
                 arguments.clone(),
                 *span,
             )),
@@ -99,7 +107,8 @@ pub(super) fn mark_tail(
     if target.tail_call {
         for (block_id, call, arguments, span) in non_self {
             let terminator = match call {
-                NonSelfCall::Direct(callee) => Terminator::ReturnCall {
+                NonSelfCall::Direct(callee, contract) => Terminator::ReturnCall {
+                    contract,
                     function: callee,
                     arguments,
                     span,
@@ -122,7 +131,7 @@ pub(super) fn mark_tail(
 }
 
 enum NonSelfCall {
-    Direct(psrs_hir::SymbolId),
+    Direct(psrs_hir::SymbolId, Option<crate::cc::ControlHelperId>),
     Reference(ValueId),
 }
 
@@ -311,7 +320,10 @@ fn loopify_self_calls(
         block.instructions.pop();
         block.terminator = Some(Terminator::Jump {
             target: header_id,
-            arguments: arguments.clone(),
+            arguments: arguments
+                .iter()
+                .map(|id| mapping.get(id).copied().unwrap_or(*id))
+                .collect(),
             span: *span,
         });
     }
@@ -381,6 +393,7 @@ fn use_counts(function: &Function) -> HashMap<ValueId, usize> {
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
+        Terminator::Trap { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],

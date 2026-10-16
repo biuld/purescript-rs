@@ -55,8 +55,10 @@ impl Checker {
         args: &PrimitiveArgs,
         evidence: &PrimitiveEvidence,
     ) -> bool {
-        let PrimitiveEvidence::Dictionary { arguments } = evidence else {
-            return true;
+        let arguments = match evidence {
+            PrimitiveEvidence::Dictionary { arguments }
+            | PrimitiveEvidence::DictionaryValue { arguments, .. } => arguments,
+            _ => return true,
         };
         let wanted = args.resolved(self);
         let span = args.span();
@@ -69,6 +71,18 @@ impl Checker {
                     // Official's `zipWithM_` aborts the goal at the first pair
                     // that fails, so that pair is the one reported and the rest of
                     // the check does not run.
+                    checker.state.errors.truncate(errors_before + 1);
+                    return None;
+                }
+            }
+            if let PrimitiveEvidence::DictionaryValue { value, .. } = evidence {
+                let errors_before = checker.state.errors.len();
+                checker.unify(
+                    value.ty.clone(),
+                    args.constraint.dictionary_type.clone(),
+                    span,
+                );
+                if checker.state.errors.len() > errors_before {
                     checker.state.errors.truncate(errors_before + 1);
                     return None;
                 }

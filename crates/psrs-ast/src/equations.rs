@@ -135,7 +135,7 @@ fn argument_record(arguments: &[Binder], span: TextRange) -> Expr {
         })
         .collect::<Vec<_>>();
     Expr {
-        kind: ExprKind::Record(fields),
+        kind: ExprKind::MatchProduct(fields),
         span,
     }
 }

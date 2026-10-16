@@ -109,7 +109,7 @@ pub(super) fn verify_function(
         }
     }
 
-    let dominators = compute_dominators(function.entry, &blocks);
+    let dominators = crate::mir::cfg::dominators(function);
     for block in &function.blocks {
         let mut available = block.parameters.iter().copied().collect::<HashSet<_>>();
         for instruction in &block.instructions {
@@ -195,87 +195,9 @@ fn value_available(
             .is_some_and(|set| set.contains(owner))
 }
 
-fn compute_dominators(
-    entry: BlockId,
-    blocks: &HashMap<BlockId, &BasicBlock>,
-) -> HashMap<BlockId, HashSet<BlockId>> {
-    let all = blocks.keys().copied().collect::<HashSet<_>>();
-    let mut predecessors = blocks
-        .keys()
-        .copied()
-        .map(|id| (id, HashSet::new()))
-        .collect::<HashMap<BlockId, HashSet<BlockId>>>();
-    for block in blocks.values() {
-        let Some(terminator) = &block.terminator else {
-            continue;
-        };
-        for successor in terminator_successors(terminator) {
-            if let Some(preds) = predecessors.get_mut(&successor) {
-                preds.insert(block.id);
-            }
-        }
-    }
-
-    let mut dominators = blocks
-        .keys()
-        .copied()
-        .map(|id| {
-            let initial = if id == entry {
-                HashSet::from([entry])
-            } else {
-                all.clone()
-            };
-            (id, initial)
-        })
-        .collect::<HashMap<_, _>>();
-    loop {
-        let mut changed = false;
-        for id in blocks.keys().copied().filter(|id| *id != entry) {
-            let mut next = all.clone();
-            if let Some(preds) = predecessors.get(&id) {
-                if preds.is_empty() {
-                    next.clear();
-                } else {
-                    for pred in preds {
-                        if let Some(pred_dominators) = dominators.get(pred) {
-                            next.retain(|candidate| pred_dominators.contains(candidate));
-                        }
-                    }
-                }
-            }
-            next.insert(id);
-            if dominators.get(&id) != Some(&next) {
-                dominators.insert(id, next);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-    dominators
-}
-
-fn terminator_successors(terminator: &Terminator) -> Vec<BlockId> {
-    match terminator {
-        Terminator::Return { .. } => Vec::new(),
-        Terminator::Jump { target, .. } => vec![*target],
-        Terminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
-        Terminator::Switch { cases, default, .. } => cases
-            .iter()
-            .map(|(_, block)| *block)
-            .chain(std::iter::once(*default))
-            .collect(),
-        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
-    }
-}
-
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
+        Terminator::Trap { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
@@ -293,7 +215,8 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
 
 fn terminator_span(terminator: &Terminator) -> psrs_span::TextRange {
     match terminator {
-        Terminator::Return { span, .. }
+        Terminator::Trap { span }
+        | Terminator::Return { span, .. }
         | Terminator::Jump { span, .. }
         | Terminator::Branch { span, .. }
         | Terminator::Switch { span, .. }
@@ -311,6 +234,7 @@ fn verify_terminator(
     defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
     match terminator {
+        Terminator::Trap { .. } => {}
         Terminator::Return { value, span } => {
             if require_value(definitions, *value, *span)? != function.result_type {
                 return Err(mir_error(*span, "MIR return value has the wrong type"));
@@ -403,6 +327,7 @@ fn verify_terminator(
             function: callee,
             arguments,
             span,
+            ..
         } => {
             super::call::tail::verify_return_call(
                 function,

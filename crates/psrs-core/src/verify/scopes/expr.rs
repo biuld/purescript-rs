@@ -1,9 +1,18 @@
 use super::{enter, error, leading_foralls, types::scoped_type};
-use crate::{Expr, ExprKind, Module, Pattern, PatternKind, Type, TypeId, VerifyError};
+use crate::{Expr, ExprKind, Module, Pattern, PatternKind, VerifyError};
 use psrs_hir::TypeVariableId;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub(super) fn scoped_expr(
+    expression: &Expr,
+    module: &Module,
+    scope: &mut HashSet<TypeVariableId>,
+    errors: &mut Vec<VerifyError>,
+) {
+    psrs_span::with_sufficient_stack(|| scoped_expr_inner(expression, module, scope, errors))
+}
+
+fn scoped_expr_inner(
     expression: &Expr,
     module: &Module,
     scope: &mut HashSet<TypeVariableId>,
@@ -29,8 +38,14 @@ pub(super) fn scoped_expr(
         // check, and neither mentions a binder.
         ExprKind::Unit | ExprKind::Trap => {}
         ExprKind::Constructor { arguments, .. } => {
+            // Constructor lowering collapses a THIR application spine. Its
+            // result quantifiers still bind the corresponding free variables
+            // in instantiated constructor fields, just as for Application.
+            let binders = leading_foralls(module, expression.ty);
             for argument in arguments {
-                scoped_expr(argument, module, scope, errors);
+                let mut argument_scope = scope.clone();
+                open_child_binders(argument, &binders, module, &mut argument_scope, errors);
+                scoped_expr(argument, module, &mut argument_scope, errors);
             }
         }
         ExprKind::IntrinsicCall { arguments, .. } => {
@@ -39,13 +54,24 @@ pub(super) fn scoped_expr(
             }
         }
         ExprKind::Array { elements } => {
+            let binders = leading_foralls(module, expression.ty);
             for element in elements {
-                scoped_expr(element, module, scope, errors);
+                let mut element_scope = scope.clone();
+                open_child_binders(element, &binders, module, &mut element_scope, errors);
+                scoped_expr(element, module, &mut element_scope, errors);
             }
         }
         ExprKind::Record { fields } => {
-            for (_, value) in fields {
-                scoped_expr(value, module, scope, errors);
+            let field_types = module.record_fields(expression.ty).unwrap_or_default();
+            for (label, value) in fields {
+                let binders = field_types
+                    .iter()
+                    .find(|(field_label, _)| field_label == label)
+                    .map(|(_, ty)| leading_foralls(module, *ty))
+                    .unwrap_or_default();
+                let mut field_scope = scope.clone();
+                open_child_binders(value, &binders, module, &mut field_scope, errors);
+                scoped_expr(value, module, &mut field_scope, errors);
             }
         }
         ExprKind::RecordUpdate { record, fields } => {
@@ -54,7 +80,12 @@ pub(super) fn scoped_expr(
                 scoped_expr(value, module, scope, errors);
             }
         }
-        ExprKind::FieldAccess { record, .. } => scoped_expr(record, module, scope, errors),
+        ExprKind::FieldAccess { record, .. } => {
+            let binders = leading_foralls(module, expression.ty);
+            let mut record_scope = scope.clone();
+            open_child_binders(record, &binders, module, &mut record_scope, errors);
+            scoped_expr(record, module, &mut record_scope, errors);
+        }
         ExprKind::RepresentationCast {
             value,
             source_type,
@@ -101,8 +132,10 @@ pub(super) fn scoped_expr(
             scoped_expr(body, module, &mut body_scope, errors);
         }
         ExprKind::Let { bindings, body } => {
+            let mut body_scope = scope.clone();
+            open_expression_binders(expression, module, &mut body_scope, errors);
             for binding in bindings {
-                let mut binding_scope = scope.clone();
+                let mut binding_scope = body_scope.clone();
                 enter(
                     &binding.quantified,
                     &mut binding_scope,
@@ -121,8 +154,6 @@ pub(super) fn scoped_expr(
                 );
                 scoped_expr(&binding.value, module, &mut binding_scope, errors);
             }
-            let mut body_scope = scope.clone();
-            open_expression_binders(expression, module, &mut body_scope, errors);
             scoped_expr(body, module, &mut body_scope, errors);
         }
         ExprKind::If {
@@ -182,14 +213,7 @@ fn open_child_binders(
     scope: &mut HashSet<TypeVariableId>,
     errors: &mut Vec<VerifyError>,
 ) {
-    let mut free = HashSet::new();
-    free_type_variables(
-        child.ty,
-        module,
-        &mut HashMap::new(),
-        &mut HashSet::new(),
-        &mut free,
-    );
+    let free = crate::types::free_variables(module, child.ty);
     let relevant = candidates
         .iter()
         .copied()
@@ -210,53 +234,6 @@ fn open_child_binders(
         ));
     }
     scope.extend(local);
-}
-
-fn free_type_variables(
-    id: TypeId,
-    module: &Module,
-    bound: &mut HashMap<TypeVariableId, usize>,
-    active: &mut HashSet<TypeId>,
-    free: &mut HashSet<TypeVariableId>,
-) {
-    if !active.insert(id) {
-        return;
-    }
-    match module.types.get(id.0 as usize) {
-        Some(Type::Variable(variable)) if !bound.contains_key(variable) => {
-            free.insert(*variable);
-        }
-        Some(Type::Application(function, argument)) => {
-            free_type_variables(*function, module, bound, active, free);
-            free_type_variables(*argument, module, bound, active, free);
-        }
-        Some(Type::ForAll { variables, body }) => {
-            for variable in variables {
-                *bound.entry(*variable).or_default() += 1;
-            }
-            free_type_variables(*body, module, bound, active, free);
-            for variable in variables {
-                if let Some(count) = bound.get_mut(variable) {
-                    *count -= 1;
-                    if *count == 0 {
-                        bound.remove(variable);
-                    }
-                }
-            }
-        }
-        Some(Type::RowExtend { ty, tail, .. }) => {
-            free_type_variables(*ty, module, bound, active, free);
-            free_type_variables(*tail, module, bound, active, free);
-        }
-        Some(Type::Closure { parameters, result }) => {
-            for parameter in parameters {
-                free_type_variables(*parameter, module, bound, active, free);
-            }
-            free_type_variables(*result, module, bound, active, free);
-        }
-        _ => {}
-    }
-    active.remove(&id);
 }
 
 fn scoped_pattern(

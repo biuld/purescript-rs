@@ -60,6 +60,13 @@ Rejected alternatives: parsing straight to AST would erase concrete forms;
 resolving fixities in P1 would require the module environment; and storing
 checked types on CST nodes would violate the representation boundary.
 
+Record projection and record update bind to their atom before value
+application. Thus `consume r.field` applies `consume` to the projected field,
+and `consume r { field = value }` applies it to the updated record. Projecting
+or updating the call result requires parentheses, as in `(consume r).field`.
+The parser preserves those distinctions in CST; resolving or lowering does
+not repair application grouping.
+
 ## Algorithms
 
 ```text

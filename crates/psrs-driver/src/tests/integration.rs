@@ -79,24 +79,44 @@ fn captures_number_values_in_closures() {
 
 #[test]
 fn compiles_if_expression_through_cfg_to_structured_wasm() {
-    let source =
-        "module Main where\nchoose condition = if condition then 9 else 2\nmain = choose true\n";
-    let artifact = compile_source("Main.purs", source).unwrap();
-    // The unified reducible structurer lowers a diamond to nested `block`
-    // regions with depth-relative branches, not a result-typed `if`.
-    assert!(artifact.wat.contains("block"));
-    assert!(artifact.wat.contains("br_if"));
-    assert!(artifact.wasm.len() > 8);
-    let Some(output) = run_with_wasmtime(source) else {
-        eprintln!("skipping: wasmtime is not installed");
-        return;
-    };
-    assert_eq!(output.status.code(), Some(9));
+    for (condition, expected) in [("true", 9), ("false", 2)] {
+        let source = format!(
+            "module Main where\n\
+             apply :: (Boolean -> Int) -> Boolean -> Int\n\
+             apply f condition = f condition\n\
+             choose condition = if condition then 9 else 2\n\
+             main = apply choose {condition}\n"
+        );
+        // Inspect the diamond at MIR lowering, and pass `choose` as a function
+        // value so the current optimizer retains its runtime branch body.
+        // The final encoding is free to choose any equivalent control flow.
+        let mir = lower_source_to_mir(&source);
+        let choose = mir
+            .functions
+            .iter()
+            .find(|function| function.name == "choose")
+            .expect("unoptimized choose function");
+        assert!(choose.blocks.iter().any(|block| matches!(
+            block.terminator,
+            Some(psrs_backend::mir::Terminator::Branch { then_block, else_block, .. })
+                if then_block != else_block
+        )));
+        let Some(output) = run_with_wasmtime(&source) else {
+            return;
+        };
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{condition}: {output:?}"
+        );
+    }
 }
 
 #[test]
 fn folds_top_level_scalar_references_to_constants() {
-    let source = "module Main where\nimport Prelude\nanswer = 40\nmain = answer + 2\n";
+    // `intAdd` is the scalar integer primitive; the library `+` is a class
+    // method and is not a constant-foldable scalar operation.
+    let source = "module Main where\nanswer = 40\nmain = intAdd answer 2\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("i32.const 42"));
 }
@@ -208,7 +228,7 @@ fn compiles_multiple_user_sources_with_the_embedded_prelude() {
     let helper = ("Helper.purs", "module Helper where\nanswer = 40\n");
     let main = (
         "Main.purs",
-        "module Main where\nimport Helper\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"linked\") in 0\n",
+        "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Helper\nimport Prelude\nimport WASI.Console\nmain = let ignored = unsafePerformEffect (log \"linked\") in 0\n",
     );
     let artifact = compile_program_sources_with_prelude(&[helper, main]).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));

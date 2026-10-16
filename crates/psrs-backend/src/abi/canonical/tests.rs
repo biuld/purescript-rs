@@ -70,7 +70,7 @@ fn assert_matches_oracle(resolve: &Resolve, function: &Function) {
 #[test]
 fn flatten_matches_wasm_signature_for_every_wasi_function() {
     let mut resolve = Resolve::default();
-    crate::component::load_vendored_wasi(&mut resolve).expect("vendored WASI should load");
+    crate::abi::load_wit(&mut resolve).expect("vendored WASI should load");
 
     let mut checked = 0;
     for (_, interface) in resolve.interfaces.iter() {

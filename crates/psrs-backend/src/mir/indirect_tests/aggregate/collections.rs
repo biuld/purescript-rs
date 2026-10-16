@@ -46,6 +46,7 @@ fn base(
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -67,8 +68,8 @@ fn base(
                 result: reference(0),
             }),
         }],
-        representations: cc::RepresentationTable {
-            representations: vec![
+        representations: cc::RepresentationTable::from_parts(
+            vec![
                 Representation::Variant {
                     cases: vec![
                         VariantCase {
@@ -83,9 +84,9 @@ fn base(
                 },
                 inner,
             ],
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),
@@ -100,6 +101,7 @@ fn base(
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

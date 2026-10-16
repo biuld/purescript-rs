@@ -1,5 +1,11 @@
 # CC IR: ANF and Closure Conversion
 
+> **Withdrawn extension (2026-10-11).** [State primitives and dependency
+> lowering](state-primitives-and-dependency-lowering.md) and
+> [library-owned effects](library-owned-effects.md) were removed. Any paragraph
+> that refers to State values, dependencies, or `StateExecution` is retained as
+> historical evidence, not as a current requirement.
+
 **Feature:** F-02  
 **Status:** Stable (design)  
 **Prerequisites:** the [functional core](../../frontend/semantics/functional-core.md) calculus,
@@ -20,11 +26,13 @@ operation families, the external-binding boundary, and the CC verifier. It
 specifies what CC must express and must never contain.
 
 It does not own the Core terms it lowers (see [functional core](../../frontend/semantics/functional-core.md)),
-the concrete runtime layout or Wasm type table (see [MIR](mir.md)), the pattern
+the shared representation model and checked-boundary contract (see
+[representation and evidence](representation-and-evidence.md)), the concrete
+runtime layout or Wasm type table (see [MIR](mir.md)), the pattern
 decision algorithm (see [pattern matching](pattern-matching.md)), the erased
 representation protocol (see [polymorphism and erasure](polymorphism-and-erasure.md)),
 or canonical generic aggregate layouts and conversion semantics (see
-[generic aggregate erasure](generic-aggregate-erasure.md)),
+[representation and evidence](representation-and-evidence.md)),
 the scalar operator definitions (see [scalars and primitives](scalars-and-primitives.md)),
 or the WIT/canonical-ABI binding rules (see
 [canonical ABI and WIT](../wasm/canonical-abi-and-wit.md)). Dictionary
@@ -47,6 +55,16 @@ lambda expression into a function value pairing the code with the captures.
 Steele (1978) and Appel (*Compiling with Continuations*, 1992) are the standard
 references. CC keeps captures explicit and ordered; the physical closure object
 is chosen later by [MIR](mir.md).
+
+Recursive local function groups use the same flattened callable contract as
+ordinary lambdas. When a written function body returns a closure before binding
+all arrow parameters, generated CC parameters feed the remaining closure call.
+Lambda and recursive-group lowering share that adaptation and use signatures
+reserved before lowering. Inert local aliases may participate in a recursive
+group and preserve its capture environment. A zero-binder recursive initializer
+that may call, trap or write still requires eager recursive-value support;
+current lowering rejects it rather than delaying its evaluation. The Core
+optimizer's conservative evaluation summary owns this distinction.
 
 **Evaluation order.** Because Core is strict, the order in which operands are
 evaluated is observable as soon as effects exist. CC makes Core's defined order
@@ -106,7 +124,7 @@ RepresentationTable = { representations: [Representation], signatures: [Signatur
 ReprId      -> Representation
 SignatureId -> Signature
 
-ValueShape  = Integer | Boolean | Number | String | Reference(Reference)
+ValueShape  = State | Integer | Boolean | Number | String | Reference(Reference)
 Reference   = { nullable: bool, heap: RefShape }
 RefShape    = Repr(ReprId) | Aggregate | Erased | Closure(SignatureId)
 
@@ -118,6 +136,35 @@ Representation = Box(ValueShape)
 Signature    = { parameters: [ValueShape], result: ValueShape }
 VariantCase  = { tag: u32, fields: [ValueShape] }
 ```
+
+`State` is a logical dependency shape with no physical payload. It remains in
+CC parameters, products and instruction operands until checked MIR projection
+discharges it. It is not an integer, boxed value, array element or WIT field.
+The CC state verifier derives transitions from actual calls and tracks their
+successor fields and control-flow joins. Nominal source-region agreement is
+checked by Core before this representation boundary; CC checks the dependency
+provenance expressed by its own instructions. Physical layout must reject an
+undischarged State rather than choose a storage fallback.
+Binary and multiway choices share dependency fork and join construction.
+Every case and default edge transfers the current dependency to its arm; only
+normally completing arms feed the join. The shared dependency graph records
+all edges, while CC retains switch predicates and labels for the physical
+correspondence check. Nested choices preserve these same rules.
+
+> **Withdrawn 2026-10-11.** The `runWorld`/`runRegion` intrinsics and the
+> `StateExecution` CC assignment were removed with the State mechanism. The
+> paragraph below is retained as historical evidence.
+
+Explicit `runWorld` and `runRegion` bindings lower to `StateExecution` with a
+checked closure signature and stable operation identity. Core owns RealWorld,
+rank-N region introduction and non-escape checks; CC trusts those source facts
+and checks the complete State-to-Step callable shape and payload result. Each
+instruction owns a closed dependency graph: the boundary supplies its root,
+invokes the action once and discharges its successor. Graph-local identities
+are separate namespaces, including repeated executions of the same action.
+Functions without an incoming State parameter can therefore carry an empty
+ambient region graph plus closed executions. No State literal is introduced.
+Nested runners remain ordinary calls in the enclosing instruction sequence.
 
 `String` is a semantic CC shape, distinct from numeric `Integer`; P9 alone maps
 it to the target's GC string representation. This distinction lets the CC
@@ -142,7 +189,7 @@ canonical aggregate representation with recursively normalized elements or
 fields. CC records a target-neutral aggregate conversion plan when a typed
 boundary must reconstruct a different aggregate shape; it never encodes that
 work as a nominal reference cast. See
-[generic aggregate erasure](generic-aggregate-erasure.md) for the canonical
+[representation and evidence](representation-and-evidence.md) for the canonical
 keys and conversion rules.
 
 `RepresentationTable::reserve` allocates a stable `ReprId` before its
@@ -400,16 +447,27 @@ function value without a separate calling convention.
 
 ### Partial application and erased adapters
 
-When a `Global` is applied to fewer source-arrow arguments than its signature
-has, P8 generates a wrapper closure that captures the supplied arguments and
-calls the original function with the remaining source parameters appended.
+Partial application is under-application of a source arrow: a call that
+supplies fewer arguments than the callee's arrow arity. This is the ordinary
+partial-application closure of functional-language runtimes (GHC's `PAP`
+objects, OCaml's `caml_apply`), so P8 handles it uniformly for every callee
+kind, not only `Global`:
+
+- a `Global` applied to fewer source-arrow arguments generates a wrapper
+  closure that captures the supplied arguments and calls the declaration with
+  the remaining source parameters appended; and
+- a callee value that is not a declaration — a local closure or a class method
+  reached through a dictionary field — generates a closure that captures the
+  callee and the supplied arguments, exposes the remaining parameters, and
+  calls the captured callee indirectly.
+
 `log "message"` for `log :: String -> Effect Unit` is a saturated source call;
 the effect token is not a remaining parameter of `log`. The token belongs to
-the representation closure that the call returns
-([effects](effects.md)). When a concrete function value crosses a polymorphic
-function boundary, `adapt_erased_function_value` builds an adapter closure with
-the erased signature that captures the original, boxes/unboxes each parameter,
-calls the concrete closure, and boxes/unboxes the result
+the representation closure that the call returns ([effects](effects.md)). When
+a concrete function value crosses a polymorphic function boundary,
+`adapt_erased_function_value` builds a reabstraction thunk with the erased
+signature that captures the original, boxes/unboxes each parameter, calls the
+concrete closure, and boxes/unboxes the result
 ([polymorphism and erasure](polymorphism-and-erasure.md)).
 
 ### Pattern decision and case lowering
@@ -573,13 +631,23 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
   `Module::verify` before lowering.
 - **Output.** A verified `cc::Module` carried in a `BackendInput` together with
   the bindings that P9 needs. CC is target-neutral: it names no layout.
+- **Explicit backend entry.** `compile_cc(BackendInput)` consumes this boundary
+  under the default target profile. It rechecks CC, then uses the ordinary MIR
+  lowering/optimization and checked target emission. It trusts source typing
+  and source binding conformance already discharged by P8; it does not recover
+  those contracts from erased CC. Inspection tools can add ordinary checked
+  assignments before this entry without bypassing downstream verification.
 - **To P9 (MIR).** CC supplies representation requirements, function
   signatures, aggregate conversion plans, and ordered assignments. P9 chooses
   the layout, builds the Wasm type table, lowers aggregate maps, and converts
   structured `If` into a CFG; it must not invent a requirement CC did not
   state.
-- **From Core.** Core types and names are consumed here; nothing below CC
-  depends on Core `TypeId`s except lowering-only diagnostic side data.
+- **From Core.** Core types and names are consumed here. A representation
+  decision must not read the Core type arena ambiently: checked instantiation
+  evidence and each erased value's representation policy travel with the input
+  as an explicit side table, the same way `ExternalBindings` carries the WIT
+  binding boundary. Nothing below CC depends on Core `TypeId`s except that
+  side table and lowering-only diagnostic data.
 
 ## Open questions and future work
 
@@ -595,7 +663,7 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
 - **Open rows.** Closed records only; row polymorphism needs a separate
   representation contract. Canonical closed generic aggregates and explicit
   conversion plans are specified in
-  [generic aggregate erasure](generic-aggregate-erasure.md).
+  [representation and evidence](representation-and-evidence.md).
 
 ## Implementation notes
 
@@ -627,6 +695,15 @@ canonical generic arrays and closed records. The
 [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
 documents the source and verified Typed Core paths, including cases for which
 source lowering does not yet provide the corresponding backend input.
+
+Foreign function values consume their checked Core declaration schemes just as
+partial foreign applications do. A bare callable foreign value is the
+zero-supplied-argument case of that common closure construction path. Its
+generated closure retains the declared operand/result conversion contract and
+calls the original external identity. Missing checked foreign types reject;
+they must not be reconstructed from a local declaration or a target ABI shape.
+This rule also applies to State-stepping foreign values passed to library
+newtype adapters, without consulting library type names.
 
 ## References
 

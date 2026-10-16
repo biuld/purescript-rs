@@ -7,6 +7,9 @@ use crate::types::{DefinedTypeId, ValueId, ValueType};
 use psrs_span::TextRange;
 
 impl WitCallLowerer for FunctionLowerer<'_> {
+    fn wit_value_type(&self, shape: crate::cc::ValueShape) -> Option<ValueType> {
+        self.resolved_value_type(&shape)
+    }
     fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId {
         self.fresh(ty)
     }
@@ -167,6 +170,38 @@ impl WitCallLowerer for FunctionLowerer<'_> {
 
     fn wit_guest_layout(&self, shape: crate::cc::ValueShape) -> Option<crate::cc::GuestLayout> {
         self.resolved_guest_layout(shape)
+    }
+
+    fn wit_stored_guest_layout(&self, field: &crate::cc::Field) -> Option<crate::cc::GuestLayout> {
+        crate::cc::payload::stored_guest_layout(field, self.layout.representation_table())
+    }
+
+    fn wit_payload_conversion(
+        &mut self,
+        block: BlockId,
+        value: ValueId,
+        shape: crate::cc::ValueShape,
+        entering: bool,
+        span: TextRange,
+    ) -> Result<(BlockId, ValueId), Vec<BackendError>> {
+        use crate::cc::payload::PayloadPlanner;
+        let mut planner =
+            crate::cc::payload::StoragePayloadPlanner(self.layout.representation_table());
+        let plan = if entering {
+            planner.erase_payload(shape, span)?
+        } else {
+            planner.recover_payload(shape, span)?
+        };
+        let source = if entering {
+            shape
+        } else {
+            crate::cc::ValueShape::Reference(crate::cc::Reference {
+                nullable: false,
+                heap: crate::cc::RefShape::Erased,
+            })
+        };
+        let (block, value, _) = self.lower_value_conversion(block, value, source, &plan, span)?;
+        Ok((block, value))
     }
 
     fn wit_repr_index(&self, repr: crate::cc::ReprId) -> Option<crate::types::DefinedTypeId> {

@@ -18,6 +18,18 @@ pub(crate) fn verify_expr(
     declared_locals: &mut HashSet<LocalId>,
     errors: &mut Vec<VerifyError>,
 ) {
+    psrs_span::with_sufficient_stack(|| {
+        verify_expr_inner(expression, globals, visible_locals, declared_locals, errors)
+    })
+}
+
+fn verify_expr_inner(
+    expression: &Expr,
+    globals: &HashSet<SymbolId>,
+    visible_locals: &mut HashSet<LocalId>,
+    declared_locals: &mut HashSet<LocalId>,
+    errors: &mut Vec<VerifyError>,
+) {
     match &expression.kind {
         ExprKind::Local(id) if !visible_locals.contains(id) => errors.push(VerifyError {
             span: expression.span,
@@ -38,7 +50,7 @@ pub(crate) fn verify_expr(
                 verify_expr(element, globals, visible_locals, declared_locals, errors);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 verify_expr(value, globals, visible_locals, declared_locals, errors);
             }
@@ -93,7 +105,14 @@ pub(crate) fn verify_expr(
                 });
             }
             for operator in operators {
-                if !globals.contains(&operator.symbol) {
+                if let Some(local) = operator.local {
+                    if !visible_locals.contains(&local) {
+                        errors.push(VerifyError {
+                            span: operator.operator_span,
+                            message: "backticked operator is not in scope",
+                        });
+                    }
+                } else if !globals.contains(&operator.symbol) {
                     errors.push(VerifyError {
                         span: operator.operator_span,
                         message: "operator symbol is not declared in the module or intrinsic set",
@@ -110,7 +129,14 @@ pub(crate) fn verify_expr(
             binder,
             ..
         } => {
-            if !globals.contains(&operator.symbol) {
+            if let Some(local) = operator.local {
+                if !visible_locals.contains(&local) {
+                    errors.push(VerifyError {
+                        span: operator.operator_span,
+                        message: "backticked operator is not in scope",
+                    });
+                }
+            } else if !globals.contains(&operator.symbol) {
                 errors.push(VerifyError {
                     span: operator.operator_span,
                     message: "operator symbol is not declared in the module or intrinsic set",

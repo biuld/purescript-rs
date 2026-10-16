@@ -163,6 +163,7 @@ fn mark_instruction(instruction: &mir::Instruction, required: &mut RequiredCapab
         | Instruction::ArrayNew { .. }
         | Instruction::ArrayNewDefault { .. }
         | Instruction::ArrayNewSized { .. }
+        | Instruction::ArrayNewFilled { .. }
         | Instruction::ArrayGet { .. }
         | Instruction::ArrayGetU { .. }
         | Instruction::ArrayClone { .. }
@@ -321,6 +322,7 @@ mod tests {
         let mut module = module_with_function_type(Vec::new(), Vec::new());
         module.types.clear();
         module.imports.push(mir::Import {
+            runtime: None,
             symbol: SymbolId::new(ModuleId(4), 9),
             parameters: vec![ValueType::Ref(RefType {
                 nullable: true,
@@ -467,6 +469,7 @@ mod tests {
                     parameters: Vec::new(),
                     instructions: Vec::new(),
                     terminator: Some(mir::Terminator::ReturnCall {
+                        contract: None,
                         function: SymbolId::new(ModuleId(4), 1),
                         arguments: Vec::new(),
                         span,

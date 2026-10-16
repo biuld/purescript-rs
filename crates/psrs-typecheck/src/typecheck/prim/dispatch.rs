@@ -44,7 +44,7 @@ impl Checker {
         policy: UnsolvedPolicy,
         chain: &mut RequeueChain,
     ) -> PrimitiveDispatch {
-        let Some(rule) = primitive_rule(constraint.class_id) else {
+        let Some(rule) = self.registered_primitive_rule(constraint.class_id) else {
             return PrimitiveDispatch::None;
         };
         // A wanted constraint whose arguments are not the member's own is not
@@ -62,7 +62,7 @@ impl Checker {
         self.improve_one(&mut improved);
         let snapshot = self.state.snapshot();
         let outcome = self.call_rule(
-            rule,
+            &rule,
             &PrimitiveArgs {
                 constraint: &improved,
             },

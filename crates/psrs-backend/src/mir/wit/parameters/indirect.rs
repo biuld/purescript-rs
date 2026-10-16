@@ -215,6 +215,7 @@ fn allocate_parameter_area<L: WitCallLowerer>(
     lowerer.append_wit_instruction(
         current,
         Instruction::Call {
+            contract: None,
             destination: address,
             function: abi::REALLOC_SYMBOL,
             arguments,

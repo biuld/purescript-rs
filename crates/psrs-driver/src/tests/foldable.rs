@@ -11,6 +11,8 @@ use super::*;
 fn monoid_identities_and_folds_run_under_wasmtime() {
     let source = r#"
 module Main where
+import Effect (Effect)
+import Effect.Unsafe (unsafePerformEffect)
 
 import Prelude
 import Effect.Console (log)
@@ -41,7 +43,7 @@ checks = do
   log (foldMap (\x -> x) (One "one"))
   pure unit
 
-main = let ignored = runEffect checks in 0
+main = let ignored = unsafePerformEffect checks in 0
 "#;
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");

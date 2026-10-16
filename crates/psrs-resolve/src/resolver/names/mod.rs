@@ -2,7 +2,7 @@ use super::{ResolveError, ResolveErrorKind};
 use psrs_ast::{self as ast, ExprKind as AstExprKind};
 use psrs_hir::{
     self as hir, CaseBranchCoverage, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding,
-    LocalId, ModuleId, SymbolId, TypeId, TypeReference,
+    LocalId, SymbolId, TypeId, TypeReference,
 };
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -10,12 +10,10 @@ use std::collections::{HashMap, HashSet};
 mod patterns;
 
 struct QualifiedImport {
-    module: ModuleId,
     values: HashMap<String, SymbolId>,
 }
 
 pub(super) struct QualifiedTypeImport {
-    pub(super) module: ModuleId,
     pub(super) types: HashMap<String, TypeReference>,
 }
 
@@ -86,10 +84,7 @@ impl Resolver {
             qualified
                 .entry(qualifier.clone())
                 .or_default()
-                .push(QualifiedImport {
-                    module: import.module,
-                    values,
-                });
+                .push(QualifiedImport { values });
             let types = import
                 .types
                 .iter()
@@ -98,10 +93,7 @@ impl Resolver {
             qualified_types
                 .entry(qualifier)
                 .or_default()
-                .push(QualifiedTypeImport {
-                    module: import.module,
-                    types,
-                });
+                .push(QualifiedTypeImport { types });
         }
         if !imports.iter().any(|import| import.module_name == "Prim") {
             for &(name, builtin) in &util::PRIM_TYPES {
@@ -142,7 +134,11 @@ impl Resolver {
         external: ExternalSymbol,
         span: TextRange,
     ) {
-        if self.external_globals.insert(name.clone(), symbol).is_some() {
+        if let Some(previous) = self.external_globals.insert(name.clone(), symbol)
+            && self.externals.iter().any(|external| {
+                external.symbol == previous && external.kind.requires_checked_signature()
+            })
+        {
             self.errors.push(ResolveError::named(
                 ResolveErrorKind::DuplicateExternal,
                 name,
@@ -153,6 +149,10 @@ impl Resolver {
     }
 
     pub(super) fn resolve_expr(&mut self, expression: ast::Expr) -> Option<Expr> {
+        psrs_span::with_sufficient_stack(|| self.resolve_expr_inner(expression))
+    }
+
+    fn resolve_expr_inner(&mut self, expression: ast::Expr) -> Option<Expr> {
         let span = expression.span;
         let kind = match expression.kind {
             AstExprKind::Name(name) => {
@@ -173,6 +173,12 @@ impl Resolver {
                     .collect::<Option<Vec<_>>>()?,
             ),
             AstExprKind::Record(fields) => ExprKind::Record(
+                fields
+                    .into_iter()
+                    .map(|(label, value)| Some((label, self.resolve_expr(value)?)))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            AstExprKind::MatchProduct(fields) => ExprKind::MatchProduct(
                 fields
                     .into_iter()
                     .map(|(label, value)| Some((label, self.resolve_expr(value)?)))
@@ -300,7 +306,7 @@ impl Resolver {
     fn resolve_record_update(
         &mut self,
         expression: ast::Expr,
-        fields: Vec<(String, ast::Expr)>,
+        fields: Vec<ast::RecordUpdateField>,
         span: TextRange,
     ) -> Option<ExprKind> {
         let record = self.resolve_expr(expression)?;
@@ -330,19 +336,17 @@ impl Resolver {
     fn resolve_record_update_fields(
         &mut self,
         base: &Expr,
-        fields: Vec<(String, ast::Expr)>,
+        fields: Vec<ast::RecordUpdateField>,
     ) -> Option<Vec<(String, Expr)>> {
         fields
             .into_iter()
-            .map(|(label, value)| {
-                let value_span = value.span;
-                let value = match value.kind {
-                    AstExprKind::RecordUpdate { expression, fields }
-                        if matches!(
-                            expression.kind,
-                            AstExprKind::Name(ref name) if name.text == label
-                        ) =>
-                    {
+            .map(|field| {
+                let label = field.label;
+                let value = match field.value {
+                    ast::RecordUpdateValue::Nested {
+                        fields,
+                        span: value_span,
+                    } => {
                         let nested_record = Expr {
                             kind: ExprKind::FieldAccess {
                                 expression: Box::new(base.clone()),
@@ -360,17 +364,14 @@ impl Resolver {
                             span: value_span,
                         }
                     }
-                    kind => self.resolve_expr(ast::Expr {
-                        kind,
-                        span: value_span,
-                    })?,
+                    ast::RecordUpdateValue::Expression(value) => self.resolve_expr(value)?,
                 };
                 Some((label, value))
             })
             .collect()
     }
 
-    fn lookup_local(&self, name: &str) -> Option<&LocalBinder> {
+    pub(super) fn lookup_local(&self, name: &str) -> Option<&LocalBinder> {
         self.scopes.iter().rev().find_map(|scope| scope.get(name))
     }
 
@@ -381,9 +382,6 @@ impl Resolver {
         if let Some(symbol) = self.globals.get(text) {
             return Some(*symbol);
         }
-        if let Some(symbol) = self.external_globals.get(text) {
-            return Some(*symbol);
-        }
         if let Some(symbols) = self.unqualified.get(text) {
             let first = symbols[0];
             if symbols.iter().all(|symbol| *symbol == first) {
@@ -391,6 +389,9 @@ impl Resolver {
             }
             self.report_conflict(text.to_string(), span);
             return None;
+        }
+        if let Some(symbol) = self.external_globals.get(text) {
+            return Some(*symbol);
         }
         self.report(ResolveErrorKind::UnknownName, text.to_string(), span);
         None
@@ -407,15 +408,15 @@ impl Resolver {
             self.report(ResolveErrorKind::UnknownName, text.to_string(), span);
             return None;
         };
-        let mut found: Option<(ModuleId, SymbolId)> = None;
+        let mut found: Option<SymbolId> = None;
         let mut conflict = false;
         for candidate in candidates {
             let Some(symbol) = candidate.values.get(member) else {
                 continue;
             };
             match found {
-                None => found = Some((candidate.module, *symbol)),
-                Some((module, existing)) if module != candidate.module || existing != *symbol => {
+                None => found = Some(*symbol),
+                Some(existing) if existing != *symbol => {
                     conflict = true;
                 }
                 _ => {}
@@ -425,7 +426,7 @@ impl Resolver {
             self.report_conflict(text.to_string(), span);
             return None;
         }
-        if let Some((_, symbol)) = found {
+        if let Some(symbol) = found {
             return Some(symbol);
         }
         self.report(ResolveErrorKind::UnknownName, text.to_string(), span);
@@ -465,4 +466,6 @@ fn ast_expr_is_guarded(expression: &ast::Expr) -> bool {
     }
 }
 
-pub(super) use util::{PRIM_TYPES, builtin_type, is_uppercase, prim_type, split_qualified};
+pub(super) use util::{
+    PRIM_TYPES, builtin_type, implicit_prim_class, is_uppercase, prim_type, split_qualified,
+};

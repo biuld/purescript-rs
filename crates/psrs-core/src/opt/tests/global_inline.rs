@@ -40,7 +40,7 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
             }],
             body: Box::new(expression(
                 ExprKind::IntrinsicCall {
-                    intrinsic: Intrinsic::I32Add,
+                    intrinsic: Intrinsic::IntAdd,
                     arguments: vec![call, expression(ExprKind::Local(LocalId(0)), 0, 40, 45)],
                 },
                 int_type.0,
@@ -80,7 +80,7 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
                             quantified: Vec::new(),
                             value: expression(
                                 ExprKind::IntrinsicCall {
-                                    intrinsic: Intrinsic::IntDiv,
+                                    intrinsic: Intrinsic::IntQuot,
                                     arguments: vec![
                                         expression(ExprKind::Integer(1), 0, 70, 71),
                                         expression(ExprKind::Integer(0), 0, 72, 73),
@@ -117,7 +117,7 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
         panic!("the caller binding should remain in scope")
     };
     let ExprKind::IntrinsicCall {
-        intrinsic: Intrinsic::I32Add,
+        intrinsic: Intrinsic::IntAdd,
         arguments,
         ..
     } = &body.kind
@@ -146,7 +146,7 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
     assert!(matches!(
         callee_bindings[0].value.kind,
         ExprKind::IntrinsicCall {
-            intrinsic: Intrinsic::IntDiv,
+            intrinsic: Intrinsic::IntQuot,
             ..
         }
     ));
@@ -257,11 +257,11 @@ fn evaluate(
                 return Err(());
             };
             match intrinsic {
-                Intrinsic::I32Add => Ok(Value::Integer(left.wrapping_add(right))),
-                Intrinsic::IntDiv if right != 0 => {
-                    left.checked_div_euclid(right).map(Value::Integer).ok_or(())
+                Intrinsic::IntAdd => Ok(Value::Integer(left.wrapping_add(right))),
+                Intrinsic::IntQuot if right != 0 => {
+                    left.checked_div(right).map(Value::Integer).ok_or(())
                 }
-                Intrinsic::IntDiv => Err(()),
+                Intrinsic::IntQuot => Err(()),
                 _ => Err(()),
             }
         }

@@ -3,13 +3,14 @@ use super::*;
 #[test]
 fn runs_a_do_notation_effect_sequence_when_wasmtime_is_available() {
     // `do` desugars to `bind`/`discard`/`let`. The block runs the two writes
-    // left to right, binds a value for the final `pure`, and `runEffect` yields
+    // left to right, binds a value for the final `pure`, and `unsafePerformEffect` yields
     // the entry's exit code.
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import WASI.Console
 
-main = runEffect
+main = unsafePerformEffect
   do
     log "first"
     let label = "second"

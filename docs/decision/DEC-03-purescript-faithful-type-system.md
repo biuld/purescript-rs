@@ -1,7 +1,12 @@
 # DEC-03 — PureScript-Faithful Type System and Effect Encoding
 
 **Status:** Accepted  
-**Date:** 2026-09-19
+**Date:** 2026-09-19  
+**Amended by:** [DEC-19](DEC-19-compiler-generated-resumable-frames.md)
+(2026-10-11). DEC-19 narrows this record's blanket exclusion of delimited
+continuations: a generic, effect-agnostic control mechanism may be lowered below
+Typed Core. The type-system decision here is unchanged — effects remain a library
+encoding with no frontend effect rows and no compiler-known handlers.
 
 ## Context
 

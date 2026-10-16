@@ -64,3 +64,28 @@ pub struct AggregateConvert {
     pub destination: ValueShape,
     pub plan: ValueConversion,
 }
+
+impl ValueConversion {
+    /// The declared output of a conversion plan. This does not validate its
+    /// input or representation metadata; CC verification discharges those checks.
+    pub(crate) fn output_shape(&self, source: ValueShape) -> ValueShape {
+        let reference = |id| {
+            ValueShape::Reference(super::Reference {
+                nullable: false,
+                heap: super::RefShape::Repr(id),
+            })
+        };
+        match self {
+            Self::Identity => source,
+            Self::BoxScalar { representation, .. } => reference(*representation),
+            Self::UnboxScalar { destination, .. }
+            | Self::RecoverReference { destination, .. }
+            | Self::FunctionAdapter { destination, .. } => *destination,
+            Self::EraseReference => super::payload::erased_shape(),
+            Self::ArrayMap { target, .. } | Self::ProductMap { target, .. } => reference(*target),
+            Self::Sequence(steps) => steps
+                .iter()
+                .fold(source, |shape, step| step.output_shape(shape)),
+        }
+    }
+}

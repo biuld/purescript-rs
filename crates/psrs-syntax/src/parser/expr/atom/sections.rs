@@ -92,15 +92,22 @@ impl<'a> Parser<'a> {
             left,
             right,
         } = &first.kind
-            && matches!(&right.kind, ExprKind::Name(name) if name.text == "_")
+            && (matches!(&right.kind, ExprKind::Name(name) if name.text == "_")
+                || matches!(&left.kind, ExprKind::Name(name) if name.text == "_"))
         {
+            let (operand, side) = if matches!(&right.kind, ExprKind::Name(name) if name.text == "_")
+            {
+                (left.clone(), OperatorSectionSide::Left)
+            } else {
+                (right.clone(), OperatorSectionSide::Right)
+            };
             let close_paren_span = self.consume_raw(RawTokenKind::RParen)?.span;
             let span = TextRange::new(open_paren_span.start, close_paren_span.end);
             return Ok(Expr {
                 kind: ExprKind::OperatorSection {
                     operator: operator.clone(),
-                    operand: left.clone(),
-                    side: OperatorSectionSide::Left,
+                    operand,
+                    side,
                 },
                 span,
             });

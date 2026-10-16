@@ -23,25 +23,23 @@ pub(super) fn verify_type(
 pub(super) fn primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId, TypeId) {
     use TypeConstructor::{Boolean, Char, Int, Number};
     let (operand_type, result_type) = match intrinsic {
-        Intrinsic::I32Add
-        | Intrinsic::I32Sub
-        | Intrinsic::I32Mul
-        | Intrinsic::I32DivS
-        | Intrinsic::I32RemS
-        | Intrinsic::IntDiv
-        | Intrinsic::IntMod
+        Intrinsic::IntAdd
+        | Intrinsic::IntSub
+        | Intrinsic::IntMul
+        | Intrinsic::IntQuot
+        | Intrinsic::IntRem
         | Intrinsic::IntAnd
         | Intrinsic::IntOr
         | Intrinsic::IntXor
         | Intrinsic::IntShl
         | Intrinsic::IntShr
         | Intrinsic::IntZshr => (Int, Int),
-        Intrinsic::I32Eq
-        | Intrinsic::I32Ne
-        | Intrinsic::I32LtS
-        | Intrinsic::I32LeS
-        | Intrinsic::I32GtS
-        | Intrinsic::I32GeS => (Int, Boolean),
+        Intrinsic::IntEq
+        | Intrinsic::IntNe
+        | Intrinsic::IntLt
+        | Intrinsic::IntLe
+        | Intrinsic::IntGt
+        | Intrinsic::IntGe => (Int, Boolean),
         Intrinsic::CharEq
         | Intrinsic::CharNe
         | Intrinsic::CharLt
@@ -51,7 +49,12 @@ pub(super) fn primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId,
         Intrinsic::NumberAdd
         | Intrinsic::NumberSub
         | Intrinsic::NumberMul
-        | Intrinsic::NumberDiv => (Number, Number),
+        | Intrinsic::NumberDiv
+        | Intrinsic::NumberAtan2
+        | Intrinsic::NumberPow
+        | Intrinsic::NumberMin
+        | Intrinsic::NumberMax
+        | Intrinsic::NumberRemainder => (Number, Number),
         Intrinsic::NumberEq
         | Intrinsic::NumberNe
         | Intrinsic::NumberLt
@@ -73,13 +76,30 @@ pub(super) fn primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId,
 }
 
 pub(super) fn unary_primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId, TypeId) {
-    use TypeConstructor::{Boolean, Char, Int, Number};
+    use TypeConstructor::{Boolean, Char, Int, Number, String};
     let (operand, result) = match intrinsic {
         Intrinsic::IntNeg | Intrinsic::IntComplement => (Int, Int),
-        Intrinsic::NumberNeg => (Number, Number),
+        Intrinsic::NumberNeg
+        | Intrinsic::NumberTrunc
+        | Intrinsic::NumberFloor
+        | Intrinsic::NumberCeil
+        | Intrinsic::NumberAbs
+        | Intrinsic::NumberSqrt
+        | Intrinsic::NumberAcos
+        | Intrinsic::NumberAsin
+        | Intrinsic::NumberAtan
+        | Intrinsic::NumberSin
+        | Intrinsic::NumberCos
+        | Intrinsic::NumberTan
+        | Intrinsic::NumberExp
+        | Intrinsic::NumberLog
+        | Intrinsic::NumberSign => (Number, Number),
+        Intrinsic::NumberIsNaN => (Number, Boolean),
         Intrinsic::BooleanNot => (Boolean, Boolean),
         Intrinsic::IntToNumber => (Int, Number),
         Intrinsic::NumberToInt => (Number, Int),
+        Intrinsic::NumberToString => (Number, String),
+        Intrinsic::NumberFromDecimal => (String, Number),
         Intrinsic::BooleanToInt => (Boolean, Int),
         Intrinsic::IntToBoolean => (Int, Boolean),
         Intrinsic::CharToInt => (Char, Int),
@@ -126,6 +146,7 @@ pub(super) fn record_field(id: TypeId, label: &str, module: &Module) -> Option<T
 
 mod matching;
 pub(crate) use matching::equivalent_types;
+pub(crate) use matching::instantiation;
 pub(super) use matching::{
     application_matches, compatible, constructor_fields_match, scheme_instance,
 };

@@ -33,7 +33,7 @@ impl FunctionLowerer<'_> {
         Ok(block)
     }
 
-    fn lower_value_conversion(
+    pub(in crate::mir) fn lower_value_conversion(
         &mut self,
         block: BlockId,
         value: ValueId,
@@ -169,6 +169,7 @@ impl FunctionLowerer<'_> {
                 self.append_instruction(
                     block,
                     Instruction::Call {
+                        contract: None,
                         destination: result,
                         function: *function,
                         arguments: vec![value],

@@ -81,10 +81,45 @@ impl Checker {
         }
         let source = self.resolve_type(source.clone());
         let target = self.resolve_type(target.clone());
+        // Reflexivity does not depend on learning a kind: identical types
+        // necessarily have the same representation, even while their kind is
+        // still being inferred.
+        if self.infer_types_equal(&source, &target) {
+            return true;
+        }
+        // A constrained function is represented as one dictionary argument per
+        // constraint followed by its body. When the constraints are identical,
+        // the dictionary prefix has the same representation on both sides and
+        // the body can be checked using the ordinary coercion rules.
+        if let (
+            InferType::Constrained {
+                constraints: source_constraints,
+                body: source_body,
+            },
+            InferType::Constrained {
+                constraints: target_constraints,
+                body: target_body,
+            },
+        ) = (&source, &target)
+        {
+            if !constraints_equal(source_constraints, target_constraints, self) {
+                // Constraints are part of the representation prefix, so
+                // different dictionaries cannot be skipped.
+                return false;
+            }
+            let mut nested = path.clone();
+            return self.proves_coercible_inner(
+                source_body,
+                target_body,
+                span,
+                depth + 1,
+                &mut nested,
+            );
+        }
         if !self.coercion_kinds_compatible(&source, &target, span) {
             return false;
         }
-        if self.infer_types_equal(&source, &target) || self.given_coercible(&source, &target) {
+        if self.given_coercible(&source, &target) {
             return true;
         }
         match (&source, &target) {
@@ -236,6 +271,23 @@ impl Checker {
             .collect::<HashMap<_, _>>();
         Some(self.elaborate_type(&field, &mut variables))
     }
+}
+
+fn constraints_equal(
+    left: &[ClassConstraint],
+    right: &[ClassConstraint],
+    checker: &Checker,
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.class_id == right.class_id
+                && left.arguments.len() == right.arguments.len()
+                && left
+                    .arguments
+                    .iter()
+                    .zip(&right.arguments)
+                    .all(|(left, right)| checker.infer_types_equal(left, right))
+        })
 }
 
 pub(super) fn flatten_infer_spine(ty: &InferType) -> (&InferType, Vec<InferType>) {

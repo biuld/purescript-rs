@@ -31,7 +31,7 @@ pub(super) fn wrap_lambdas(parameters: Vec<LocalBinder>, body: Expr, span: TextR
 pub(super) fn product_expression(value: Expr) -> Expr {
     let span = value.span;
     Expr {
-        kind: ExprKind::Record(vec![("_1".into(), value)]),
+        kind: ExprKind::MatchProduct(vec![("_1".into(), value)]),
         span,
     }
 }

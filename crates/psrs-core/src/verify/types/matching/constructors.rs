@@ -1,5 +1,5 @@
-use super::TypeMatcher;
-use crate::{Module, Type, TypeId};
+use super::{TypeMatcher, Variance};
+use crate::{Module, TypeId};
 use std::collections::{HashMap, HashSet};
 
 pub(in crate::verify) fn constructor_fields_match(
@@ -23,12 +23,8 @@ pub(in crate::verify) fn constructor_fields_match(
     // A parameter may never appear as its own type node. Nullary constructors
     // still quantify it, and the pattern's type arguments are that instantiation.
     for (parameter, argument) in parameters.iter().zip(type_arguments) {
-        if matches!(
-            module.types.get(argument.0 as usize),
-            Some(Type::ForAll { .. })
-        ) {
-            return false;
-        }
+        // Checked explicit arguments may themselves be universal types. Keep
+        // those binders intact when checking the constructor's field instances.
         if !matcher.bind_flexible(*parameter, *argument) {
             return false;
         }
@@ -36,5 +32,7 @@ pub(in crate::verify) fn constructor_fields_match(
     field_templates
         .iter()
         .zip(field_instances)
-        .all(|(template, instance)| matcher.matches(*template, *instance, false))
+        .all(|(template, instance)| {
+            matcher.relate(*template, *instance, Variance::Invariant, false)
+        })
 }

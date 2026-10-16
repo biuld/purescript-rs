@@ -87,6 +87,7 @@ pub(super) struct FundepInfo {
 /// functional dependencies.
 #[derive(Clone, Debug)]
 pub(super) struct ClassInfo {
+    pub(super) compiler_class: Option<hir::CompilerClass>,
     pub(super) parameters: Vec<String>,
     pub(super) superclasses: Vec<SuperclassInfo>,
     pub(super) fundeps: Vec<FundepInfo>,
@@ -103,7 +104,10 @@ pub(super) struct InstanceInfo {
     pub(super) chain_id: u32,
     pub(super) chain_position: u32,
     pub(super) head_arguments: Vec<InferType>,
-    pub(super) head_variables: HashMap<String, InferType>,
+    /// Every type variable shared by the instance head and context. Context
+    /// variables determined through fundeps still need one identity in method
+    /// bodies and their type annotations.
+    pub(super) instance_variables: HashMap<String, InferType>,
     pub(super) context: Vec<ClassConstraint>,
     pub(super) context_parameters: Vec<(LocalId, InferType)>,
 }
@@ -114,6 +118,8 @@ pub(super) struct InstanceInfo {
 /// whose dictionaries it applies the constructor to.
 #[derive(Clone, Debug)]
 pub(super) enum WantedSolution {
+    /// A compiler-constructed dictionary with checked ordinary term fields.
+    DictionaryValue(Box<InferredExpr>),
     Given(LocalId),
     Global(SymbolId),
     Instance {

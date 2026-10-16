@@ -14,6 +14,7 @@ use crate::types::{
 use std::collections::HashMap;
 
 mod accessors;
+mod groups;
 mod validate;
 use validate::validate_selected;
 
@@ -341,12 +342,29 @@ impl PlannedLayout {
             signature_indices.insert(*id, index);
         }
 
+        let (types, mapping) = groups::partition(definitions)?;
+        let remap = |id: DefinedTypeId| mapping[id.0 as usize];
+        for id in repr_indices.values_mut() {
+            *id = remap(*id);
+        }
+        for id in variant_indices.values_mut() {
+            *id = remap(*id);
+        }
+        for id in signature_indices.values_mut() {
+            *id = remap(*id);
+        }
+        let product_fields = product_fields
+            .into_iter()
+            .map(|(id, fields)| (remap(id), fields))
+            .collect();
+        let closure_index = closure_index.map(remap);
+        let capture_array_index = capture_array_index.map(remap);
+        let boxed_integer_index = boxed_integer_index.map(remap);
+        let boxed_number_index = boxed_number_index.map(remap);
+        let string_index = string_index.map(remap);
+
         Ok(Self {
-            types: if definitions.is_empty() {
-                Vec::new()
-            } else {
-                vec![RecGroup(definitions)]
-            },
+            types,
             repr_indices,
             product_fields,
             array_elements,
@@ -368,9 +386,10 @@ impl PlannedLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum LayoutError {
     UnknownRepresentation,
+    InvalidPayloadConversion(String),
     UnknownSignature,
     UnknownField,
     MissingIntegerBox,
@@ -380,6 +399,17 @@ pub(crate) enum LayoutError {
     UnsupportedClosureTarget,
     IncompatibleVariant,
     UnsupportedValue,
+}
+
+impl std::fmt::Display for LayoutError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidPayloadConversion(message) => {
+                write!(f, "invalid payload storage conversion: {message}")
+            }
+            other => write!(f, "{other:?}"),
+        }
+    }
 }
 
 /// The concrete Wasm value type behind a MIR value type. `Boolean` and `I32`
@@ -457,3 +487,6 @@ fn array_storage_type(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod storage_tests;

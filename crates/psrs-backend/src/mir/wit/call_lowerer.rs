@@ -8,6 +8,10 @@ use crate::types::{DefinedTypeId, ValueId, ValueType};
 use psrs_span::TextRange;
 
 pub(crate) trait WitCallLowerer {
+    /// The physical type of a checked concrete result before payload erasure.
+    fn wit_value_type(&self, _shape: ValueShape) -> Option<ValueType> {
+        None
+    }
     fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId;
     fn append_wit_instruction(
         &mut self,
@@ -123,6 +127,26 @@ pub(crate) trait WitCallLowerer {
     /// or the shape names an unknown representation.
     fn wit_guest_layout(&self, _shape: ValueShape) -> Option<GuestLayout> {
         None
+    }
+
+    fn wit_stored_guest_layout(&self, field: &crate::cc::Field) -> Option<GuestLayout> {
+        self.wit_guest_layout(field.stored)
+    }
+
+    /// Converts an aggregate into or out of its bare-slot storage protocol.
+    fn wit_payload_conversion(
+        &mut self,
+        _block: BlockId,
+        _value: ValueId,
+        _shape: ValueShape,
+        _entering: bool,
+        span: TextRange,
+    ) -> Result<(BlockId, ValueId), Vec<BackendError>> {
+        Err(vec![BackendError::new(
+            "P9 MIR lowering",
+            span,
+            "canonical aggregate payload has no storage conversion",
+        )])
     }
 
     /// The concrete GC type of a representation handle.

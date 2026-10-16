@@ -8,15 +8,21 @@ use std::collections::{HashMap, HashSet};
 
 mod aggregate;
 mod captures;
+pub(in crate::cc) mod control;
+mod declaration;
 mod functions;
+pub(crate) mod protocols;
 mod scalar;
+mod type_dependency;
 
 #[cfg(test)]
 mod tests;
 
 use captures::module_has_integer_capture;
+pub(super) use declaration::declaration_call_parts;
 pub(crate) use functions::function_signature;
 pub(super) use scalar::{declaration_shape, is_abstract_type, scalar_type};
+use type_dependency::depends_on_type_variable;
 
 /// The runtime value shape of a Core primitive constructor, keyed by the
 /// constructor. This is the single mapping from a source primitive to its
@@ -149,6 +155,11 @@ fn layoutable_field_type_inner(
             let Some(type_id) = user_type_id(module, id) else {
                 return false;
             };
+            // An uninhabited applied data type is an erased reference, which a
+            // variant case may carry like any other referenced payload.
+            if is_uninhabited_data_type(module, type_id) {
+                return true;
+            }
             if !newtype_ids.contains(&type_id) {
                 return false;
             }
@@ -185,6 +196,11 @@ pub(super) fn type_layout(
             .any(|declaration| depends_on_type_variable(module, declaration.ty))
         || module_has_integer_capture(module)
         || module
+            .types
+            .iter()
+            .enumerate()
+            .any(|(index, _)| array_element_type(module, TypeId(index as u32)).is_some())
+        || module
             .constructors
             .iter()
             .flat_map(|constructor| &constructor.field_types)
@@ -216,6 +232,14 @@ pub(super) fn type_layout(
         None
     };
 
+    let uses_control = module.types.iter().any(|ty| matches!(ty,
+        Type::Constructor(TypeConstructor::User(id)) if *id == HirTypeId::CONTROL || *id == HirTypeId::RESUMPTION));
+    let nominal_types = if uses_control {
+        control::reserve(&mut representations)
+    } else {
+        HashMap::new()
+    };
+
     // Reserve aggregate handles before signatures so closure types can refer
     // to them. Normalize afterward and rewrite signature references to the
     // canonical handles.
@@ -225,6 +249,7 @@ pub(super) fn type_layout(
         enum_types,
         aggregate_types,
         newtype_ids,
+        &nominal_types,
         &reserved_aggregates.arrays,
         &reserved_aggregates.records,
         &mut representations,
@@ -234,6 +259,7 @@ pub(super) fn type_layout(
         enum_types,
         aggregate_types,
         newtype_ids,
+        &nominal_types,
         function_layout.function_types,
         reserved_aggregates,
         &mut representations,
@@ -242,7 +268,11 @@ pub(super) fn type_layout(
     let record_types = aggregate_layouts.records;
 
     let mut constructor_types = HashMap::new();
-    let mut aggregate_ids = aggregate_types.iter().copied().collect::<Vec<_>>();
+    let mut aggregate_ids = aggregate_types
+        .iter()
+        .copied()
+        .filter(|id| *id != HirTypeId::CONTROL && *id != HirTypeId::RESUMPTION)
+        .collect::<Vec<_>>();
     aggregate_ids.sort_by_key(|id| (id.module.0, id.index));
     for type_id in aggregate_ids {
         let id = representations.reserve();
@@ -273,6 +303,7 @@ pub(super) fn type_layout(
                         enum_types,
                         aggregate_types,
                         newtype_ids,
+                        &nominal_types,
                         &array_types,
                         &record_types,
                         &function_types,
@@ -287,25 +318,53 @@ pub(super) fn type_layout(
         representations.set(id, Representation::Variant { cases });
     }
 
+    protocols::append(&mut representations);
+    let function_slot = crate::boundary::function_slot_protocol(&mut representations);
+    let protocols = crate::boundary::payload_erased_protocols(
+        &mut representations,
+        &function_types,
+        module.span,
+    )?;
+    let control_layout =
+        uses_control.then(|| control::append(&mut representations, function_slot, &nominal_types));
+    let control_owner = match control_layout {
+        Some(control) => control::append_contracts(module, &mut representations, control)?,
+        None => None,
+    };
     Ok(TypeLayout {
+        function_slot,
+        protocols,
         representations,
         array_types,
         record_types,
         constructor_types,
+        nominal_types,
         boxed_integer_type,
         boxed_number_type,
         function_types,
+        control_layout,
+        control_owner,
     })
 }
 
 pub(super) struct TypeLayout {
+    pub(super) function_slot: SignatureId,
+    /// The payload-erased protocol signature of each callable constructor,
+    /// keyed by its concrete signature. Built from the registered
+    /// representation owners and the module's callable signatures.
+    pub(super) protocols: HashMap<SignatureId, SignatureId>,
     pub(super) representations: RepresentationTable,
     pub(super) array_types: HashMap<TypeId, ReprId>,
     pub(super) record_types: HashMap<TypeId, ReprId>,
     pub(super) constructor_types: HashMap<SymbolId, ReprId>,
+    pub(super) nominal_types: HashMap<HirTypeId, ReprId>,
     pub(super) boxed_integer_type: Option<ReprId>,
     pub(super) boxed_number_type: Option<ReprId>,
     pub(super) function_types: HashMap<TypeId, SignatureId>,
+    /// Source module of the first declaration that emits machine helpers.
+    pub(super) control_owner: Option<psrs_hir::ModuleId>,
+    /// The shared frame representation for `Control f a` values.
+    pub(super) control_layout: Option<control::ControlLayout>,
 }
 
 pub(super) fn newtype_field_type(module: &CoreModule, type_id: HirTypeId) -> Option<TypeId> {
@@ -331,40 +390,28 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
     }
 }
 
+/// A user `data` declaration with no constructors is uninhabited: no expression
+/// can build one, so its only values come from unchecked coercions. It therefore
+/// crosses the erased boundary like any other abstract type. Foreign data is
+/// excluded — a nullary foreign type is a resource handle with its own layout,
+/// and an applied foreign type is already handled as an erased reference.
+pub(super) fn is_uninhabited_data_type(module: &CoreModule, type_id: HirTypeId) -> bool {
+    !module.opaque_ids.contains(&type_id)
+        && !module
+            .constructors
+            .iter()
+            .any(|constructor| constructor.type_id == type_id)
+}
+
 /// Whether a Core type is a callable closure value: an ordinary function arrow
 /// or a closure born with a fixed parameter list.
-pub(super) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
+pub(crate) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
     let id = unquantified_type(module, id);
     psrs_core::arrow_parts(&module.types, id).is_some()
         || psrs_core::closure_parts(&module.types, id).is_some()
 }
 
-/// Derives the calling convention of a value.
-///
-/// A closure contributes exactly the parameter list it was born with. Its
-/// result stays a value, even when that value is a function or another
-/// closure. An ordinary function flattens every arrow: the parameters are the
-/// arrow domains and the result is the codomain. A quantifier in a codomain
-/// stops the walk so that polymorphic result stays a separate closure.
-pub(crate) fn function_arrow_parameters(module: &CoreModule, id: TypeId) -> (Vec<TypeId>, TypeId) {
-    let id = unquantified_type(module, id);
-    if let Some((parameters, result)) = psrs_core::closure_parts(&module.types, id) {
-        return (parameters.to_vec(), result);
-    }
-    let mut parameters = Vec::new();
-    let mut current = id;
-    while let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, current) {
-        parameters.push(parameter);
-        current = result;
-        // A quantifier in the codomain starts a new polymorphic closure
-        // boundary. Keep that type intact as the result value; unwrapping it
-        // there would merge its arrows into the current closure's arity.
-        if psrs_core::forall_parts(&module.types, current).is_some() {
-            break;
-        }
-    }
-    (parameters, current)
-}
+pub(crate) use functions::parts::{checked_function_arrow_parameters, function_arrow_parameters};
 
 /// Returns the runtime-facing body of a type after removing quantifiers that
 /// wrap the value itself. A quantifier reached in an arrow's codomain is kept
@@ -405,34 +452,4 @@ pub(super) fn array_element_type(module: &CoreModule, id: TypeId) -> Option<Type
         Type::Constructor(TypeConstructor::Array) => Some(*element),
         _ => None,
     }
-}
-
-pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool {
-    fn visit(module: &CoreModule, id: TypeId, visiting: &mut HashSet<TypeId>) -> bool {
-        if !visiting.insert(id) {
-            return false;
-        }
-        let result = match module.types.get(id.0 as usize) {
-            Some(Type::Variable(_)) => true,
-            Some(Type::Application(function, argument)) => {
-                visit(module, *function, visiting) || visit(module, *argument, visiting)
-            }
-            Some(Type::ForAll { body, .. }) => visit(module, *body, visiting),
-            Some(Type::RowExtend { ty, tail, .. }) => {
-                visit(module, *ty, visiting) || visit(module, *tail, visiting)
-            }
-            Some(Type::Closure { parameters, result }) => {
-                parameters
-                    .iter()
-                    .any(|parameter| visit(module, *parameter, visiting))
-                    || visit(module, *result, visiting)
-            }
-            Some(Type::RowEmpty) => false,
-            _ => false,
-        };
-        visiting.remove(&id);
-        result
-    }
-
-    visit(module, id, &mut HashSet::new())
 }

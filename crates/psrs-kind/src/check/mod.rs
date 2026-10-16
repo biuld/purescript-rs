@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 mod infer;
 mod roles;
+pub(crate) mod synonyms;
 
 /// Official `errorCode`s this pass reports.
 pub const KINDS_DO_NOT_UNIFY: &str = "KindsDoNotUnify";
@@ -71,7 +72,7 @@ struct Checker<'a> {
     /// The schemes this run knows: the program's checked schemes, overwritten by
     /// the declarations this run checks.
     schemes: HashMap<TypeId, KindScheme>,
-    synonym_arity: HashMap<TypeId, usize>,
+    synonyms: synonyms::SynonymMap,
     state: KindState,
     errors: Vec<KindDiagnostic>,
 }
@@ -88,7 +89,7 @@ impl<'a> Checker<'a> {
             declaring,
             names,
             schemes: HashMap::new(),
-            synonym_arity: synonym_arities(modules),
+            synonyms: synonyms::collect(modules),
             state: coercible_state(),
             errors: Vec::new(),
         }
@@ -99,13 +100,15 @@ impl<'a> Checker<'a> {
         let (declaring, names) = declaration_index(modules);
         let mut schemes = imported.kinds.clone();
         schemes.extend(coercible_scheme());
+        let mut synonyms = imported.synonyms.clone();
+        synonyms.extend(synonyms::collect(modules));
         Self {
             current: module.id,
             modules,
             declaring,
             names,
             schemes,
-            synonym_arity: synonym_arities(modules),
+            synonyms,
             state: coercible_state(),
             errors: Vec::new(),
         }
@@ -158,6 +161,7 @@ impl<'a> Checker<'a> {
             roles,
             kinds: self.checked_schemes(),
             declaring_module,
+            synonyms: self.synonyms.clone(),
         }
     }
 
@@ -193,11 +197,9 @@ impl<'a> Checker<'a> {
     fn check_defined_variables(&mut self) {
         for module in self.modules {
             self.current = module.id;
-            for declaration in &module.declarations {
-                if let Some(signature) = &declaration.signature {
-                    let mut bound = Vec::new();
-                    self.check_references(signature, &mut bound);
-                }
+            for signature in module.declared_value_signatures() {
+                let mut bound = Vec::new();
+                self.check_references(signature, &mut bound);
             }
             for declaration in &module.types {
                 let mut bound: Vec<String> = Vec::new();
@@ -388,16 +390,4 @@ fn declaration_index(
         }
     }
     (declaring, names)
-}
-
-fn synonym_arities(modules: &[hir::Module]) -> HashMap<TypeId, usize> {
-    let mut arities = HashMap::new();
-    for module in modules {
-        for declaration in &module.types {
-            if declaration.kind == TypeDeclarationKind::TypeSynonym {
-                arities.insert(declaration.id, declaration.parameters.len());
-            }
-        }
-    }
-    arities
 }

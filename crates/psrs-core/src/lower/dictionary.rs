@@ -2,10 +2,25 @@ use super::{Expr, ExprKind, LowerError, TypeId};
 use psrs_thir::{Evidence, EvidenceKind, Type};
 
 /// Erases checked class evidence into the existing Core value and call forms.
-pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr, LowerError> {
+pub(super) fn lower_evidence(
+    evidence: &Evidence,
+    types: &[Type],
+    externals: &std::collections::HashMap<psrs_hir::SymbolId, psrs_hir::ExternalKind>,
+    constructors: &std::collections::HashMap<psrs_hir::SymbolId, psrs_thir::ConstructorInfo>,
+    context: &mut super::module::LowerContext,
+) -> Result<Expr, LowerError> {
     let span = evidence.span;
     let ty = TypeId(evidence.ty.0);
     let kind = match &evidence.kind {
+        EvidenceKind::DictionaryValue(value) => {
+            return super::lower_expr(
+                value.as_ref().clone(),
+                externals,
+                constructors,
+                types,
+                context,
+            );
+        }
         EvidenceKind::Given(id) => ExprKind::Local(*id),
         EvidenceKind::Global(symbol) => ExprKind::Global(*symbol),
         EvidenceKind::Coercible { .. } | EvidenceKind::Primitive { .. } => {
@@ -14,14 +29,50 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
             // dictionary type the evidence already carries.
             ExprKind::Record { fields: Vec::new() }
         }
-        EvidenceKind::Superclass { parent, field } => ExprKind::FieldAccess {
-            record: Box::new(lower_evidence(parent, types)?),
-            field: field.clone(),
-        },
+        EvidenceKind::Superclass { parent, field } => {
+            let fields = psrs_thir::record_fields(types, parent.ty).ok_or(LowerError {
+                span,
+                message: "superclass evidence parent is not a dictionary record",
+            })?;
+            let field_type = fields
+                .iter()
+                .find(|(label, _)| label == field)
+                .map(|(_, ty)| *ty)
+                .ok_or(LowerError {
+                    span,
+                    message: "superclass dictionary has no selected field",
+                })?;
+            let (parameter, _) = psrs_thir::arrow_parts(types, field_type).ok_or(LowerError {
+                span,
+                message: "superclass dictionary field is not a thunk",
+            })?;
+            let function = Expr {
+                kind: ExprKind::FieldAccess {
+                    record: Box::new(lower_evidence(
+                        parent,
+                        types,
+                        externals,
+                        constructors,
+                        context,
+                    )?),
+                    field: field.clone(),
+                },
+                ty: TypeId(field_type.0),
+                span,
+            };
+            ExprKind::Application(
+                Box::new(function),
+                Box::new(Expr {
+                    kind: ExprKind::Unit,
+                    ty: TypeId(parameter.0),
+                    span,
+                }),
+            )
+        }
         EvidenceKind::Instance {
             constructor,
             constructor_type,
-            context,
+            context: arguments,
         } => {
             let mut function_type = *constructor_type;
             let mut function = Expr {
@@ -29,20 +80,18 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
                 ty: TypeId(function_type.0),
                 span,
             };
-            for evidence_argument in context {
-                let Some((parameter, result)) = psrs_thir::arrow_parts(types, function_type) else {
+            for evidence_argument in arguments {
+                let Some((_, result)) = psrs_thir::arrow_parts(types, function_type) else {
                     return Err(LowerError {
                         span: evidence_argument.span,
                         message: "instance dictionary constructor takes too few context arguments",
                     });
                 };
-                let argument = lower_evidence(evidence_argument, types)?;
-                if argument.ty != TypeId(parameter.0) {
-                    return Err(LowerError {
-                        span: evidence_argument.span,
-                        message: "instance evidence does not match its context parameter",
-                    });
-                }
+                let argument =
+                    lower_evidence(evidence_argument, types, externals, constructors, context)?;
+                // lower_module_inner verifies THIR before lowering. Context
+                // types are compared there by semantic equality, which also
+                // accepts separately interned alpha-equivalent method foralls.
                 function = Expr {
                     kind: ExprKind::Application(Box::new(function), Box::new(argument)),
                     ty: TypeId(result.0),
@@ -50,12 +99,11 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
                 };
                 function_type = result;
             }
-            if function.ty != ty {
-                return Err(LowerError {
-                    span,
-                    message: "instance evidence result has the wrong dictionary type",
-                });
-            }
+            // THIR has already checked this application with semantic type
+            // equality. Its result can be represented by a distinct TypeId
+            // (for example, after solving a derived Generic representation),
+            // so leave the applied constructor's result type intact; Core's
+            // verifier compares it semantically at the evidence use site.
             return Ok(function);
         }
     };

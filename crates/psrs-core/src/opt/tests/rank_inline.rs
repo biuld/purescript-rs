@@ -175,3 +175,59 @@ fn global_inline_keeps_a_forall_signature_with_an_empty_quantified_list() {
             if matches!(&head.kind, ExprKind::Global(symbol) if *symbol == function)
     ));
 }
+
+#[test]
+fn local_inline_keeps_a_result_quantifier_on_the_enclosing_let() {
+    let variable = TypeId(0);
+    let int_type = TypeId(1);
+    let mut types = vec![
+        Type::Variable(TypeVariableId(0)),
+        Type::Constructor(TypeConstructor::Int),
+    ];
+    let function_type = arrow_type(&mut types, variable, variable);
+    let quantified = TypeId(types.len() as u32);
+    types.push(Type::ForAll {
+        variables: vec![TypeVariableId(0)],
+        body: variable,
+    });
+    let argument = expression(
+        ExprKind::RepresentationCast {
+            value: Box::new(expression(ExprKind::Integer(1), int_type.0, 1, 2)),
+            source_type: int_type,
+            target_type: variable,
+        },
+        variable.0,
+        1,
+        2,
+    );
+    let lambda = expression(
+        ExprKind::Lambda {
+            binder: Binder {
+                id: LocalId(0),
+                name: "value".into(),
+                ty: variable,
+                span: span(3, 8),
+            },
+            body: Box::new(expression(ExprKind::Local(LocalId(0)), variable.0, 9, 14)),
+        },
+        function_type.0,
+        3,
+        14,
+    );
+    let input = module(
+        types,
+        quantified.0,
+        expression(
+            ExprKind::Application(Box::new(lambda), Box::new(argument)),
+            quantified.0,
+            1,
+            14,
+        ),
+    );
+
+    let optimized = optimize(input, Budget::default()).expect("the cast variable stays bound");
+    let ExprKind::Let { bindings, .. } = &optimized.declarations[0].value.kind else {
+        panic!("the coercion lambda should beta-reduce: {optimized:?}");
+    };
+    assert!(bindings[0].quantified.is_empty());
+}

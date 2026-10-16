@@ -417,3 +417,17 @@ fn dispatcher_uses_a_br_table_and_explicit_trap_for_invalid_state() {
         )
     ));
 }
+
+#[test]
+fn dispatcher_accepts_an_explicit_trap_exit_without_return_operands() {
+    let mut function = irreducible_function();
+    function
+        .blocks
+        .iter_mut()
+        .find(|block| block.id == BlockId(9))
+        .unwrap()
+        .terminator = Some(Terminator::Trap { span: span() });
+    // The cyclic multiple-entry region still requires a dispatcher. Its trap
+    // exit has no normal successor or result operand.
+    lower_and_validate(&function);
+}

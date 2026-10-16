@@ -11,6 +11,10 @@ pub(super) fn module_has_integer_capture(module: &CoreModule) -> bool {
 }
 
 fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> bool {
+    psrs_span::with_sufficient_stack(|| expression_has_integer_capture_inner(expression, module))
+}
+
+fn expression_has_integer_capture_inner(expression: &Expr, module: &CoreModule) -> bool {
     match &expression.kind {
         ExprKind::Lambda { binder, body } => {
             let mut bound = HashSet::from([binder.id]);
@@ -76,6 +80,14 @@ fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> boo
 }
 
 fn free_integer_local(
+    expression: &Expr,
+    module: &CoreModule,
+    bound: &mut HashSet<LocalId>,
+) -> bool {
+    psrs_span::with_sufficient_stack(|| free_integer_local_inner(expression, module, bound))
+}
+
+fn free_integer_local_inner(
     expression: &Expr,
     module: &CoreModule,
     bound: &mut HashSet<LocalId>,

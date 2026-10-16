@@ -28,8 +28,12 @@ fn typed_thir_instance_and_superclass_evidence_lower_to_ordinary_products() {
         panic!("expected method selection to remain an ordinary Core projection");
     };
     assert_eq!(field, "isPositive");
-    let psrs_core::ExprKind::FieldAccess { record, field } = &record.kind else {
-        panic!("expected superclass evidence to remain an ordinary Core projection");
+    let psrs_core::ExprKind::Application(thunk, unit) = &record.kind else {
+        panic!("expected superclass selection to force its thunk");
+    };
+    assert!(matches!(unit.kind, psrs_core::ExprKind::Unit));
+    let psrs_core::ExprKind::FieldAccess { record, field } = &thunk.kind else {
+        panic!("expected superclass selection to project its thunk");
     };
     assert_eq!(field, "super");
     assert!(matches!(
@@ -69,9 +73,18 @@ fn typed_thir_instance_and_superclass_evidence_lower_to_ordinary_products() {
     for (argument, field) in ord_arguments.iter().zip(fields) {
         assert_eq!(value_shape(make_ord, *argument), Some(*field));
     }
+    let ValueShape::Reference(crate::cc::Reference {
+        heap: crate::cc::RefShape::Closure(thunk),
+        ..
+    }) = fields[2]
+    else {
+        panic!("superclass field must be a callable thunk");
+    };
+    let thunk = cc.representations.signature(thunk).unwrap();
+    assert_eq!(thunk.parameters, vec![ValueShape::Integer]);
     assert_eq!(
-        value_shape(make_ord, ord_arguments[2]),
-        Some(make_ord.values[make_ord.parameters[0].0 as usize].ty)
+        thunk.result,
+        make_ord.values[make_ord.parameters[0].0 as usize].ty
     );
 
     let main = cc
@@ -166,12 +179,15 @@ fn dictionary_evidence_module() -> thir::Module {
     ];
     let method = push_arrow(&mut types, integer, boolean);
     let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
+    let unit = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Constructor(thir::TypeConstructor::Unit));
+    let superclass_thunk = push_arrow(&mut types, unit, eq_dictionary);
     let ord_dictionary = push_record(
         &mut types,
         vec![
             ("compare".into(), method),
             ("rank".into(), method),
-            ("super".into(), eq_dictionary),
+            ("super".into(), superclass_thunk),
         ],
     );
     let make_ord_type = push_arrow(&mut types, eq_dictionary, ord_dictionary);
@@ -253,7 +269,18 @@ fn dictionary_evidence_module() -> thir::Module {
                     ),
                     (
                         "super".into(),
-                        typed(thir::ExprKind::Local(LocalId(2)), eq_dictionary, span),
+                        typed(
+                            thir::ExprKind::Lambda {
+                                binder: binder(4, "superclass_unit", unit, span),
+                                body: Box::new(typed(
+                                    thir::ExprKind::Local(LocalId(2)),
+                                    eq_dictionary,
+                                    span,
+                                )),
+                            },
+                            superclass_thunk,
+                            span,
+                        ),
                     ),
                 ]),
                 ord_dictionary,

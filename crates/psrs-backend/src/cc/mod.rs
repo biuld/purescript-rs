@@ -1,3 +1,4 @@
+use crate::boundary::{BoundaryEvidence, RepresentationRegistry};
 use crate::{BackendError, BackendInput, ExternalBindings, annotate_errors};
 use psrs_core::Module as CoreModule;
 use psrs_hir::{SymbolId, TypeId as HirTypeId};
@@ -6,19 +7,33 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+pub(crate) mod branch_facts;
 mod case;
+mod control;
+pub(crate) mod value_identity;
+pub(crate) use control::ControlSchema;
+pub use control::FrozenControlPlan;
+pub use control::{
+    ControlContract, ControlContractId, ControlDomain, ControlHelperContract, ControlHelperId,
+    ControlHelperRole, ControlResumptionContract, SourceTypeIdentityId, TypeConstructorIdentity,
+    TypeIdentity,
+};
+pub(crate) use lower::{Family, Shape, plan_external_targets, plan_shape_for};
 mod convert;
 mod layout;
 mod lower;
+pub(crate) mod payload;
 mod projection;
 mod representation;
 mod scalar;
 mod source_abi;
 mod verify;
+pub use verify::verify_module;
 
 pub(crate) use source_abi::abstract_signature;
 
 use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
+pub(crate) use layout::{checked_function_arrow_parameters, is_callable_type};
 use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
 
 pub use crate::types::ValueId;
@@ -79,6 +94,14 @@ pub struct Assignment {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssignmentKind {
+    /// Retains the checked source operation at its explicit P8 erasure boundary.
+    /// The runtime result is the existing value; Wasm encoding erases this witness.
+    ControlEvidence {
+        value: ValueId,
+        implementation: ValueId,
+        arguments: Vec<ValueId>,
+        contract: ControlContractId,
+    },
     Constant(i32),
     NumberConstant(String),
     StringConstant(String),
@@ -92,6 +115,8 @@ pub enum AssignmentKind {
         value: ValueId,
     },
     DirectCall {
+        /// Required for predeclared machine helpers; absent for ordinary calls.
+        contract: Option<ControlHelperId>,
         function: SymbolId,
         arguments: Vec<ValueId>,
     },
@@ -105,6 +130,7 @@ pub enum AssignmentKind {
         signature: SignatureId,
         arguments: Vec<ValueId>,
     },
+    /// A checked source runner supplies and discharges one logical root.
     ClosureGetCapture {
         closure: ValueId,
         index: u32,
@@ -158,6 +184,12 @@ pub enum AssignmentKind {
         representation: ReprId,
         elements: Vec<ValueId>,
     },
+    ArrayFill {
+        destination: ValueId,
+        representation: ReprId,
+        length: ValueId,
+        value: ValueId,
+    },
     ArrayLen {
         destination: ValueId,
         value: ValueId,
@@ -177,6 +209,11 @@ pub enum AssignmentKind {
         destination: ValueId,
         representation: ReprId,
         value: ValueId,
+    },
+    /// Artifact-backed operation with checked language arguments before ABI erasure.
+    RuntimeCall {
+        intrinsic: psrs_hir::Intrinsic,
+        arguments: Vec<ValueId>,
     },
     /// An `Array Int` read as a source `String`. Every element must be a
     /// canonical byte and the bytes must be well-formed UTF-8.
@@ -248,8 +285,33 @@ pub fn lower_module_with_bindings(
     module: CoreModule,
     bindings: ExternalBindings,
 ) -> Result<BackendInput, Vec<BackendError>> {
+    lower_module_with_relations(module, bindings, None, RepresentationRegistry::new())
+}
+
+/// Lowers Core using the Core-to-CC boundary side table: an immutable source
+/// program for checked instantiation evidence and the registered representation
+/// policies. `source` is the pre-lowering module when effect applications have
+/// been rewritten; otherwise it is absent and relations are read from `module`.
+pub(crate) fn lower_module_with_relations(
+    mut module: CoreModule,
+    bindings: ExternalBindings,
+    source: Option<&CoreModule>,
+    mut registry: RepresentationRegistry,
+) -> Result<BackendInput, Vec<BackendError>> {
+    crate::bindings::lower_primitives(&mut module, source)?;
     bindings.validate_core(&module)?;
-    if let Err(errors) = module.verify() {
+    module = psrs_core::instantiate_local_rows(module, source).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|error| {
+                BackendError::new("P8 local row instantiation", error.span, error.message)
+                    .with_module(error.module)
+            })
+            .collect::<Vec<_>>()
+    })?;
+    let relations = source.unwrap_or(&module);
+    registry.register_newtypes(relations);
+    if let Err(errors) = module.verify_with_source(relations) {
         return Err(annotate_errors(
             errors
                 .into_iter()
@@ -261,7 +323,7 @@ pub fn lower_module_with_bindings(
     let newtype_ids = module.newtype_ids.iter().copied().collect();
     let enum_types = enum_type_ids(&module, &newtype_ids);
     let aggregate_types = aggregate_type_ids(&module, &newtype_ids);
-    let layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
+    let mut layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
     let mut constructor_tags = HashMap::new();
     let mut constructors_by_type: HashMap<HirTypeId, Vec<(SymbolId, u32)>> = HashMap::new();
     for constructor in &module.constructors {
@@ -279,6 +341,7 @@ pub fn lower_module_with_bindings(
             &enum_types,
             &aggregate_types,
             &newtype_ids,
+            &layout.nominal_types,
             &layout.array_types,
             &layout.record_types,
             &layout.function_types,
@@ -323,8 +386,47 @@ pub fn lower_module_with_bindings(
             projection,
         });
     }
+    for binding in &bindings.runtime {
+        let type_id = binding.type_id.ok_or_else(|| {
+            vec![
+                BackendError::invalid_ir(
+                    "P8 closure conversion",
+                    binding.span,
+                    "runtime binding has no checked source scheme",
+                )
+                .with_module(binding.source_module),
+            ]
+        })?;
+        let signature = layout::function_signature(
+            &module,
+            type_id,
+            &enum_types,
+            &aggregate_types,
+            &newtype_ids,
+            &layout.nominal_types,
+            &layout.array_types,
+            &layout.record_types,
+            &layout.function_types,
+        )
+        .map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(binding.source_module))
+                .collect::<Vec<_>>()
+        })?;
+        let signature =
+            crate::bindings::runtime_cc_signature(binding, &signature, &layout.representations)?;
+        signatures.insert(binding.symbol, signature.clone());
+        externals.push(External {
+            symbol: binding.symbol,
+            signature: Some(signature),
+            projection: None,
+        });
+    }
     let mut functions = Vec::with_capacity(module.declarations.len());
     let generated_symbols = Rc::new(RefCell::new(GeneratedSymbolAllocator::new(&module)));
+    let generated_signatures: Rc<RefCell<HashMap<SymbolId, Signature>>> =
+        Rc::new(RefCell::new(HashMap::new()));
     let function_wrappers = module
         .declarations
         .iter()
@@ -335,15 +437,27 @@ pub fn lower_module_with_bindings(
             (declaration.symbol, wrapper)
         })
         .collect::<HashMap<_, _>>();
+    let control_functions = lower::plan_control_helpers(&mut layout, &generated_symbols);
+    let boundary = BoundaryEvidence::new(
+        relations,
+        &module,
+        registry,
+        layout.protocols,
+        Some(layout.function_slot),
+    );
     let context = LoweringContext {
         module: &module,
+        boundary: &boundary,
         signatures: &signatures,
         representations: &layout.representations,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
+        nominal_types: &layout.nominal_types,
         boxed_integer_type: layout.boxed_integer_type,
         boxed_number_type: layout.boxed_number_type,
+        control_layout: layout.control_layout,
+        control_functions: Rc::new(RefCell::new(control_functions)),
         array_types: &layout.array_types,
         record_types: &layout.record_types,
         constructor_tags: &constructor_tags,
@@ -352,6 +466,7 @@ pub fn lower_module_with_bindings(
         function_types: &layout.function_types,
         function_wrappers: &function_wrappers,
         generated_symbols,
+        generated_signatures,
     };
     let mut warnings = Vec::new();
     for declaration in &module.declarations {

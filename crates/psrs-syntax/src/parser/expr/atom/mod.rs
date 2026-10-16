@@ -1,3 +1,4 @@
+mod postfix;
 mod records;
 mod sections;
 
@@ -9,22 +10,8 @@ use super::super::{ParseError, Parser};
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_application(&mut self) -> Result<Expr, ParseError> {
-        let mut function = self.parse_atom()?;
+        let mut function = self.parse_postfix_atom()?;
         loop {
-            if self.at_raw(&RawTokenKind::Dot) && self.starts_label_at(1) {
-                let dot_span = self.bump().span;
-                let field = self.parse_label("record field")?;
-                let span = TextRange::new(function.span.start, field.span.end);
-                function = Expr {
-                    kind: ExprKind::FieldAccess {
-                        expression: Box::new(function),
-                        dot_span,
-                        field,
-                    },
-                    span,
-                };
-                continue;
-            }
             if let LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) = &self.current().kind
                 && operator == "@"
                 && self.starts_type_atom_at(1)
@@ -42,22 +29,10 @@ impl<'a> Parser<'a> {
                 };
                 continue;
             }
-            if self.current().kind == LayoutTokenKind::Raw(RawTokenKind::LBrace) {
-                let checkpoint = self.cursor;
-                match self.parse_record_update(function.clone()) {
-                    Ok(updated) => {
-                        function = updated;
-                        continue;
-                    }
-                    Err(_) => {
-                        self.cursor = checkpoint;
-                    }
-                }
-            }
-            if !self.starts_atom() {
+            if self.qualified_operator().is_some() || !self.starts_atom() {
                 break;
             }
-            let argument = self.parse_atom()?;
+            let argument = self.parse_postfix_atom()?;
             let span = TextRange::new(function.span.start, argument.span.end);
             function = Expr {
                 kind: ExprKind::Application(Box::new(function), Box::new(argument)),
@@ -285,7 +260,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_qualified_value_name(&mut self) -> Result<CstName, ParseError> {
+    pub(super) fn parse_qualified_value_name(&mut self) -> Result<CstName, ParseError> {
         let token = self.current().clone();
         let allow_qualification = matches!(
             &token.kind,
@@ -331,6 +306,14 @@ impl<'a> Parser<'a> {
                 self.bump();
                 let operator_token = self.current().clone();
                 let operator = match operator_token.kind {
+                    LayoutTokenKind::Raw(RawTokenKind::Colon) => {
+                        self.bump();
+                        ":".to_owned()
+                    }
+                    LayoutTokenKind::Raw(RawTokenKind::DotDot) => {
+                        self.bump();
+                        "..".to_owned()
+                    }
                     LayoutTokenKind::Raw(RawTokenKind::Operator(text))
                     | LayoutTokenKind::Raw(RawTokenKind::LowerIdent(text))
                     | LayoutTokenKind::Raw(RawTokenKind::UpperIdent(text)) => {

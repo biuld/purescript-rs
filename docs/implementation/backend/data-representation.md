@@ -259,7 +259,8 @@ The physical layout families are verified on this revision. Open items outside
 this topic:
 
 - Open record rows and unknown foreign aggregate layouts remain unsupported
-  conversions, owned by [generic aggregate erasure](../../design/backend/fp/generic-aggregate-erasure.md).
+  conversions, owned by [representation and
+  evidence](../../design/backend/fp/representation-and-evidence.md).
 - The `i31` optimization for nullary cases of mixed sums and GC strings remain
   future work in the design.
 - The capture-array element mutability bit is part of the planned layout but is

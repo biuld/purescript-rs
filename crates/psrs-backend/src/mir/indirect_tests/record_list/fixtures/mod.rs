@@ -40,8 +40,8 @@ pub(super) fn fixture() -> (cc::Module, ExternalBindings, Resolve) {
         )
         .expect("the record list WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             cc::Representation::Product {
                 fields: vec![ValueShape::Integer, ValueShape::Number],
             },
@@ -49,11 +49,11 @@ pub(super) fn fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 element: reference(0),
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(cc::ReprId(0), vec!["x".to_string(), "y".to_string()])]
+        Vec::new(),
+        [(cc::ReprId(0), vec!["x".to_string(), "y".to_string()])]
             .into_iter()
             .collect(),
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -111,6 +111,7 @@ pub(super) fn fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(4),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(3)],
             },
@@ -143,6 +144,7 @@ pub(super) fn fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -164,8 +166,8 @@ pub(super) fn result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         )
         .expect("the record list WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             cc::Representation::Product {
                 fields: vec![ValueShape::Integer, ValueShape::Number],
             },
@@ -173,11 +175,11 @@ pub(super) fn result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 element: reference(0),
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(cc::ReprId(0), vec!["x".to_string(), "y".to_string()])]
+        Vec::new(),
+        [(cc::ReprId(0), vec!["x".to_string(), "y".to_string()])]
             .into_iter()
             .collect(),
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -210,6 +212,7 @@ pub(super) fn result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 Assignment {
                     destination: ValueId(0),
                     kind: AssignmentKind::DirectCall {
+                        contract: None,
                         function: external_symbol,
                         arguments: Vec::new(),
                     },
@@ -229,6 +232,7 @@ pub(super) fn result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -253,8 +257,8 @@ pub(super) fn string_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     // Source record fields are sorted alphabetically: `code` then `text`. WIT
     // declares `text` before `code`, so the canonical layout and the GC struct
     // order differ and the plan must project by name.
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             cc::Representation::Product {
                 fields: vec![ValueShape::Integer, ValueShape::String],
             },
@@ -262,11 +266,11 @@ pub(super) fn string_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 element: reference(0),
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(cc::ReprId(0), vec!["code".to_string(), "text".to_string()])]
+        Vec::new(),
+        [(cc::ReprId(0), vec!["code".to_string(), "text".to_string()])]
             .into_iter()
             .collect(),
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -324,6 +328,7 @@ pub(super) fn string_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(4),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(3)],
             },
@@ -356,6 +361,7 @@ pub(super) fn string_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

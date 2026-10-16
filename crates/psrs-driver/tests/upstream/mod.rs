@@ -3,9 +3,14 @@ use std::process::Command;
 
 mod coercion;
 mod deriving;
+mod guard_continuations;
+mod import_aliases;
+mod library_foreign;
 mod rank_n;
 mod reports;
+mod residual_constraints;
 mod rows;
+mod symbol_reflection;
 
 type SourceFile = (&'static str, &'static str);
 type SourceSet<'a> = &'a [SourceFile];
@@ -45,6 +50,20 @@ fn purs_accepts(source: &Path) -> bool {
 }
 
 fn purs_accepts_sources(name: &str, sources: &[SourceFile]) -> bool {
+    purs_sources_output(name, sources).status.success()
+}
+
+/// Runs `purs` on the sources and returns its captured output. Used to compare
+/// diagnostic codes, not only acceptance.
+fn purs_sources_output(name: &str, sources: &[(&str, &str)]) -> std::process::Output {
+    purs_sources_with_foreign_output(name, sources, &[])
+}
+
+fn purs_sources_with_foreign_output(
+    name: &str,
+    sources: &[(&str, &str)],
+    foreign_sources: &[(&str, &str)],
+) -> std::process::Output {
     let case_dir =
         std::env::temp_dir().join(format!("psrs-purs-upstream-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&case_dir);
@@ -64,18 +83,35 @@ fn purs_accepts_sources(name: &str, sources: &[SourceFile]) -> bool {
             path
         })
         .collect::<Vec<_>>();
+    for (name, source) in foreign_sources {
+        std::fs::write(case_dir.join(name), source).expect("write supplied official FFI fixture");
+    }
     let output_dir = case_dir.join("output");
-    let accepted = Command::new("purs")
+    let output = Command::new("purs")
         .arg("compile")
         .args(&paths)
         .arg("-o")
         .arg(output_dir)
         .output()
-        .expect("failed to run purs")
-        .status
-        .success();
+        .expect("failed to run purs");
     let _ = std::fs::remove_dir_all(case_dir);
-    accepted
+    output
+}
+
+/// The `errorCode`s in a `purs` output, read from the `.../errors/<Code>.md`
+/// links each diagnostic prints.
+fn purs_error_codes(output: &std::process::Output) -> Vec<String> {
+    let text = String::from_utf8_lossy(&output.stdout).into_owned()
+        + &String::from_utf8_lossy(&output.stderr);
+    text.lines()
+        .filter_map(|line| {
+            let marker = "/errors/";
+            let start = line.find(marker)? + marker.len();
+            let rest = &line[start..];
+            let end = rest.find(".md")?;
+            Some(rest[..end].to_owned())
+        })
+        .collect()
 }
 
 #[test]

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Shared CFG edge analysis for MIR.
 //!
 //! MIR terminators carry no structuring hint: `Branch` has no `merge_block`,
@@ -8,10 +9,118 @@
 use super::{BasicBlock, BlockId, Function, Terminator};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// Every normal path after `start` must cross a required instruction before a
+/// normal exit, checked publication, or another execution of `start`. Trapping
+/// paths are excluded; this does not establish caught-host-trap cleanup.
+pub(crate) fn normal_paths_cross(
+    function: &Function,
+    start: (BlockId, usize),
+    required: impl Fn(&super::Instruction) -> bool,
+    publication: impl Fn(&super::Instruction) -> bool,
+) -> bool {
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
+    if blocks
+        .get(&start.0)
+        .is_none_or(|block| start.1 >= block.instructions.len())
+    {
+        return false;
+    }
+    let mut pending = vec![(start.0, start.1 + 1)];
+    let mut seen = HashSet::new();
+    while let Some((id, index)) = pending.pop() {
+        if !seen.insert((id, index)) {
+            continue;
+        }
+        let Some(block) = blocks.get(&id) else {
+            return false;
+        };
+        let mut crossed = false;
+        for (offset, instruction) in block.instructions[index..].iter().enumerate() {
+            if required(instruction)
+                || matches!(instruction, super::Instruction::Unreachable { .. })
+            {
+                crossed = true;
+                break;
+            }
+            if (id, index + offset) == start || publication(instruction) {
+                return false;
+            }
+        }
+        if crossed {
+            continue;
+        }
+        match &block.terminator {
+            Some(Terminator::Trap { .. }) => {}
+            Some(
+                Terminator::Jump { .. } | Terminator::Branch { .. } | Terminator::Switch { .. },
+            ) => {
+                pending.extend(
+                    successors(block.terminator.as_ref().unwrap())
+                        .into_iter()
+                        .map(|id| (id, 0)),
+                );
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Can a later instruction be reached before the producer executes again?
+/// `None` denotes malformed point/edge metadata, not an empty path set.
+pub(crate) fn reachable_without(
+    function: &Function,
+    source: (BlockId, usize),
+    target: (BlockId, usize),
+    producer: (BlockId, usize),
+) -> Option<bool> {
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
+    for point in [source, target, producer] {
+        if point.1 >= blocks.get(&point.0)?.instructions.len() {
+            return None;
+        }
+    }
+    let mut pending = vec![(source.0, source.1 + 1)];
+    let mut seen = HashSet::new();
+    while let Some((id, index)) = pending.pop() {
+        if !seen.insert((id, index)) {
+            continue;
+        }
+        let block = blocks.get(&id)?;
+        let mut stopped = false;
+        for (offset, instruction) in block.instructions[index..].iter().enumerate() {
+            let point = (id, index + offset);
+            if point == producer || matches!(instruction, super::Instruction::Unreachable { .. }) {
+                stopped = true;
+                break;
+            }
+            if point == target {
+                return Some(true);
+            }
+        }
+        if !stopped {
+            pending.extend(
+                successors(block.terminator.as_ref()?)
+                    .into_iter()
+                    .map(|id| (id, 0)),
+            );
+        }
+    }
+    Some(false)
+}
+
 /// The successor blocks named by a terminator.
 pub(crate) fn successors(terminator: &Terminator) -> Vec<BlockId> {
     match terminator {
-        Terminator::Return { .. } => Vec::new(),
+        Terminator::Return { .. } | Terminator::Trap { .. } => Vec::new(),
         Terminator::Jump { target, .. } => vec![*target],
         Terminator::Branch {
             then_block,
@@ -87,7 +196,8 @@ pub(crate) fn join_blocks(function: &Function) -> HashSet<BlockId> {
                 .map(|(_, target)| *target)
                 .chain(std::iter::once(*default))
                 .collect(),
-            Terminator::Return { .. }
+            Terminator::Trap { .. }
+            | Terminator::Return { .. }
             | Terminator::Jump { .. }
             | Terminator::ReturnCall { .. }
             | Terminator::ReturnCallRef { .. } => continue,
@@ -118,6 +228,108 @@ fn block_distances(by_id: &HashMap<BlockId, &BasicBlock>, entry: BlockId) -> Has
         }
     }
     distances
+}
+
+/// Block dominators shared by SSA and lifecycle verification.
+///
+/// Dominance is only defined along paths from the entry. Blocks with no such
+/// path are excluded from the result so that an unreachable predecessor cannot
+/// shrink a reachable block's dominator set to nothing.
+pub(crate) fn dominators(function: &Function) -> HashMap<BlockId, HashSet<BlockId>> {
+    dominators_from(function, function.entry, None)
+}
+
+/// Reachability within a semantic region. `stop` belongs to the next region.
+pub(crate) fn reachable_from(
+    function: &Function,
+    entry: BlockId,
+    stop: Option<BlockId>,
+) -> HashSet<BlockId> {
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
+    let mut reachable = HashSet::new();
+    let mut pending = vec![entry];
+    while let Some(id) = pending.pop() {
+        if Some(id) == stop || !reachable.insert(id) {
+            continue;
+        }
+        if let Some(terminator) = blocks.get(&id).and_then(|block| block.terminator.as_ref()) {
+            pending.extend(successors(terminator));
+        }
+    }
+    reachable
+}
+
+/// Dominance in the same CFG region used to resolve returned join values.
+pub(crate) fn dominators_from(
+    function: &Function,
+    entry: BlockId,
+    stop: Option<BlockId>,
+) -> HashMap<BlockId, HashSet<BlockId>> {
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
+    let reachable = reachable_from(function, entry, stop);
+    let all = reachable.iter().copied().collect::<HashSet<_>>();
+    let mut predecessors = reachable
+        .iter()
+        .copied()
+        .map(|id| (id, HashSet::new()))
+        .collect::<HashMap<BlockId, HashSet<BlockId>>>();
+    for id in &reachable {
+        let Some(terminator) = blocks.get(id).and_then(|block| block.terminator.as_ref()) else {
+            continue;
+        };
+        for successor in successors(terminator) {
+            if let Some(preds) = predecessors.get_mut(&successor) {
+                preds.insert(*id);
+            }
+        }
+    }
+
+    let mut dominators = reachable
+        .iter()
+        .copied()
+        .map(|id| {
+            let initial = if id == entry {
+                HashSet::from([entry])
+            } else {
+                all.clone()
+            };
+            (id, initial)
+        })
+        .collect::<HashMap<_, _>>();
+    loop {
+        let mut changed = false;
+        for id in reachable.iter().copied().filter(|id| *id != entry) {
+            let mut next = all.clone();
+            if let Some(preds) = predecessors.get(&id) {
+                if preds.is_empty() {
+                    next.clear();
+                } else {
+                    for pred in preds {
+                        if let Some(pred_dominators) = dominators.get(pred) {
+                            next.retain(|candidate| pred_dominators.contains(candidate));
+                        }
+                    }
+                }
+            }
+            next.insert(id);
+            if dominators.get(&id) != Some(&next) {
+                dominators.insert(id, next);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    dominators
 }
 
 #[cfg(test)]

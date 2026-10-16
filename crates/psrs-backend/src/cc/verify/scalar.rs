@@ -14,8 +14,8 @@ pub(super) fn verify_binary_operation(
     use BinaryOp::*;
 
     let (operand, result) = match op {
-        IntAdd | IntSub | IntMul | IntQuot | IntRem | IntDiv | IntMod | IntAnd | IntOr | IntXor
-        | IntShl | IntShr | IntZshr => (ValueShape::Integer, ValueShape::Integer),
+        IntAdd | IntSub | IntMul | IntQuot | IntRem | IntAnd | IntOr | IntXor | IntShl | IntShr
+        | IntZshr => (ValueShape::Integer, ValueShape::Integer),
         IntEq | IntNe | IntLt | IntLe | IntGt | IntGe | CharEq | CharNe | CharLt | CharLe
         | CharGt | CharGe => (ValueShape::Integer, ValueShape::Boolean),
         NumberAdd | NumberSub | NumberMul | NumberDiv => (ValueShape::Number, ValueShape::Number),
@@ -49,7 +49,9 @@ pub(super) fn verify_unary_operation(
         IntNeg | IntComplement | CharToInt | IntToChar => {
             (ValueShape::Integer, ValueShape::Integer)
         }
-        NumberNeg => (ValueShape::Number, ValueShape::Number),
+        NumberAbs | NumberSqrt | NumberNeg | NumberTrunc | NumberFloor | NumberCeil => {
+            (ValueShape::Number, ValueShape::Number)
+        }
         BooleanNot => (ValueShape::Boolean, ValueShape::Boolean),
         IntToNumber => (ValueShape::Integer, ValueShape::Number),
         NumberToInt => (ValueShape::Number, ValueShape::Integer),

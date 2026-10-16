@@ -4,7 +4,6 @@ use crate::{
         apply, guarded_rhs_exhaustive, is_guarded_rhs, product_expression, product_pattern,
         wrap_lambdas,
     },
-    free_vars,
 };
 use psrs_hir::{
     self as hir, CaseBranch, CaseBranchCoverage, Expr, ExprKind, LocalBinder, LocalBinding,
@@ -33,6 +32,10 @@ impl Desugarer {
     }
 
     pub(super) fn expr(&mut self, expression: Expr) -> Expr {
+        psrs_span::with_sufficient_stack(|| self.expr_inner(expression))
+    }
+
+    fn expr_inner(&mut self, expression: Expr) -> Expr {
         let span = expression.span;
         let kind = match expression.kind {
             ExprKind::OperatorChain { .. } | ExprKind::OperatorSection { .. } => {
@@ -68,6 +71,12 @@ impl Desugarer {
                 ExprKind::Array(elements.into_iter().map(|item| self.expr(item)).collect())
             }
             ExprKind::Record(fields) => ExprKind::Record(
+                fields
+                    .into_iter()
+                    .map(|(label, value)| (label, self.expr(value)))
+                    .collect(),
+            ),
+            ExprKind::MatchProduct(fields) => ExprKind::MatchProduct(
                 fields
                     .into_iter()
                     .map(|(label, value)| (label, self.expr(value)))
@@ -136,8 +145,10 @@ impl Desugarer {
 
     fn case(&mut self, scrutinee: Expr, mut branches: Vec<CaseBranch>, span: TextRange) -> Expr {
         let mut scrutinee = self.expr(scrutinee);
-        let has_guards = branches.iter().any(|branch| is_guarded_rhs(&branch.value));
-        if !has_guards {
+        let first_guard = branches
+            .iter()
+            .position(|branch| is_guarded_rhs(&branch.value));
+        let Some(first_guard) = first_guard else {
             return Expr {
                 kind: ExprKind::Case {
                     scrutinee: Box::new(scrutinee),
@@ -151,7 +162,7 @@ impl Desugarer {
                 },
                 span,
             };
-        }
+        };
 
         if !branches
             .iter()
@@ -163,39 +174,38 @@ impl Desugarer {
             }
         }
 
-        let captures = free_vars::captures(&branches);
+        // Fallthrough helpers stay in this `let`, so they see the same outer
+        // locals as the source branch. Passing those locals in as arguments
+        // would instantiate a polymorphic scheme once, before the guard body
+        // applies the arguments that determine its constraints. The scrutinee
+        // product is captured too: passing it would instantiate polymorphic
+        // fields across fallthrough rows. An empty token keeps helpers lazy.
         let temp = self.local_binder("case_scrutinee", span);
-        let helper_binders = (1..=branches.len() + 1)
+        // Only rows after the first guarded row can be entered through a
+        // fallthrough helper. Earlier rows are checked directly at the case's
+        // expected result type, and must not acquire unused inferred copies.
+        let first_helper_row = first_guard + 1;
+        let helper_binders = (first_helper_row..=branches.len())
             .map(|index| self.local_binder(&format!("guard_fallthrough_{index}"), span))
             .collect::<Vec<_>>();
-        let mut bindings = Vec::with_capacity(helper_binders.len() + 1);
-        bindings.push(LocalBinding {
+        let mut bindings = Vec::with_capacity(helper_binders.len());
+        let scrutinee_binding = LocalBinding {
             binder: temp.clone(),
             value: scrutinee,
             span,
-        });
+        };
 
-        for row_index in 0..=branches.len() {
-            let next_functions = helper_binders[row_index + 1..]
+        for (helper_index, row_index) in (first_helper_row..=branches.len()).enumerate() {
+            let next_functions = helper_binders[helper_index + 1..]
                 .iter()
                 .map(|_| self.local_binder("next_guard", span))
                 .collect::<Vec<_>>();
-            let capture_parameters = captures
-                .iter()
-                .map(|_| self.local_binder("guard_capture", span))
-                .collect::<Vec<_>>();
-            let temp_parameter = self.local_binder("guard_scrutinee", span);
-            let mut local_mapping = captures
-                .iter()
-                .zip(&capture_parameters)
-                .map(|(id, binder)| (*id, binder.id))
-                .collect::<std::collections::HashMap<_, _>>();
-            local_mapping.insert(temp.id, temp_parameter.id);
+            let temp_parameter = self.local_binder("guard_token", span);
 
             let body = if row_index == branches.len() {
                 Expr {
                     kind: ExprKind::Case {
-                        scrutinee: Box::new(self.local_expr(&temp_parameter, span)),
+                        scrutinee: Box::new(self.local_expr(&temp, span)),
                         branches: Vec::new(),
                     },
                     span,
@@ -203,18 +213,15 @@ impl Desugarer {
             } else {
                 let mut source = alpha::clone_branch(&branches[row_index], &mut self.fresh);
                 source.coverage = CaseBranchCoverage::Generated;
-                source.value = free_vars::rebind(source.value, &local_mapping);
                 let failure = apply(
                     self.local_expr(&next_functions[0], span),
                     next_functions[1..]
                         .iter()
                         .map(|binder| self.local_expr(binder, span))
-                        .chain(
-                            capture_parameters
-                                .iter()
-                                .map(|binder| self.local_expr(binder, span)),
-                        )
-                        .chain(std::iter::once(self.local_expr(&temp_parameter, span))),
+                        .chain(std::iter::once(Expr {
+                            kind: ExprKind::Record(Vec::new()),
+                            span,
+                        })),
                     span,
                 );
                 let guard_failure = self.clone_expression(&failure);
@@ -230,7 +237,7 @@ impl Desugarer {
                 };
                 Expr {
                     kind: ExprKind::Case {
-                        scrutinee: Box::new(self.local_expr(&temp_parameter, span)),
+                        scrutinee: Box::new(self.local_expr(&temp, span)),
                         branches: vec![source, wildcard],
                     },
                     span,
@@ -238,12 +245,11 @@ impl Desugarer {
             };
             let parameters = next_functions
                 .into_iter()
-                .chain(capture_parameters)
                 .chain(std::iter::once(temp_parameter))
                 .collect::<Vec<_>>();
             let value = wrap_lambdas(parameters, body, span);
             bindings.push(LocalBinding {
-                binder: helper_binders[row_index].clone(),
+                binder: helper_binders[helper_index].clone(),
                 value,
                 span,
             });
@@ -259,17 +265,16 @@ impl Desugarer {
                     branch.coverage = CaseBranchCoverage::Source;
                 }
                 if is_guarded_rhs(&branch.value) {
-                    let start = index + 2;
+                    let next_helper = index - first_guard;
                     let failure = apply(
-                        self.local_expr(&helper_binders[start - 1], branch.span),
-                        helper_binders[start..]
+                        self.local_expr(&helper_binders[next_helper], branch.span),
+                        helper_binders[next_helper + 1..]
                             .iter()
                             .map(|binder| self.local_expr(binder, branch.span))
-                            .chain(captures.iter().map(|id| Expr {
-                                kind: ExprKind::Local(*id),
+                            .chain(std::iter::once(Expr {
+                                kind: ExprKind::Record(Vec::new()),
                                 span: branch.span,
-                            }))
-                            .chain(std::iter::once(self.local_expr(&temp, branch.span))),
+                            })),
                         branch.span,
                     );
                     branch.value = self.branch_value(branch.value, failure);
@@ -288,8 +293,14 @@ impl Desugarer {
         };
         Expr {
             kind: ExprKind::Let {
-                bindings,
-                body: Box::new(body),
+                bindings: vec![scrutinee_binding],
+                body: Box::new(Expr {
+                    kind: ExprKind::Let {
+                        bindings,
+                        body: Box::new(body),
+                    },
+                    span,
+                }),
             },
             span,
         }

@@ -179,11 +179,7 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    if let CanonicalType::Handle {
-        ownership: crate::abi::canonical::Ownership::Borrow,
-        ..
-    } = element
-    {
+    if crate::abi::canonical::reject_borrowed_control_capture(std::iter::once(element)).is_err() {
         // A borrowed handle must not escape the call that produced it. An owned
         // handle list is an ordinary `i32` array: the standard library drops
         // each extracted handle (DEC-14), so the compiler copies the indices.
@@ -269,7 +265,7 @@ fn element_guest<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<GuestLayout, Vec<BackendError>> {
     if let Some(GuestLayout::Array { element: field, .. }) = list
-        && let Some(layout) = lowerer.wit_guest_layout(field.stored)
+        && let Some(layout) = lowerer.wit_stored_guest_layout(field)
     {
         return Ok(layout);
     }
@@ -382,6 +378,7 @@ pub(super) fn allocate<L: WitCallLowerer>(
     lowerer.append_wit_instruction(
         current,
         Instruction::Call {
+            contract: None,
             destination: address,
             function: abi::REALLOC_SYMBOL,
             arguments,

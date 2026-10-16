@@ -312,10 +312,10 @@ pub(super) fn recover_payload<L: WitCallLowerer>(
     kind: &CanonicalType,
     block: BlockId,
     span: TextRange,
-) -> Result<(ValueId, crate::cc::GuestLayout), Vec<BackendError>> {
+) -> Result<(ValueId, crate::cc::GuestLayout, BlockId), Vec<BackendError>> {
     // A concrete storage slot already stores the source value.
     if !is_erased(field.stored) {
-        return Ok((value, field.value.clone()));
+        return Ok((value, field.value.clone(), block));
     }
     // An erased slot holds a reference (scalar box or erased aggregate).
     // Recover the concrete source value from the projected node; when the node
@@ -327,6 +327,16 @@ pub(super) fn recover_payload<L: WitCallLowerer>(
     } else {
         field.value.clone()
     };
+    if matches!(field.stored, ValueShape::Reference(reference) if reference.heap == RefShape::Erased)
+        && matches!(
+            concrete,
+            GuestLayout::Array { .. } | GuestLayout::Product { .. }
+        )
+    {
+        let (block, recovered) =
+            lowerer.wit_payload_conversion(block, value, concrete.shape(), false, span)?;
+        return Ok((recovered, concrete, block));
+    }
     let recovered = match &concrete {
         crate::cc::GuestLayout::Scalar { shape } => match shape {
             ValueShape::Integer => unbox_scalar(lowerer, value, false, block, span)?,
@@ -337,7 +347,7 @@ pub(super) fn recover_payload<L: WitCallLowerer>(
         },
         other => cast_reference(lowerer, value, &other.shape(), block, span)?,
     };
-    Ok((recovered, concrete))
+    Ok((recovered, concrete, block))
 }
 
 /// Whether a projected node is the storage fallback rather than a concrete

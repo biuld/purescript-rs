@@ -8,6 +8,7 @@ fn fixture() -> Module {
         id: ModuleId(2),
         name: "ExternalScheme".into(),
         externals: vec![ExternalSymbol {
+            source_module: None,
             symbol,
             name: "clock".into(),
             kind: ExternalKind::Wit {
@@ -45,6 +46,17 @@ fn rejects(module: &Module, fragment: &str) {
 #[test]
 fn a_wit_scheme_is_required_even_without_a_raw_annotation() {
     let mut module = fixture();
+    module.verify().unwrap();
+    module.external_types.clear();
+    rejects(&module, "no checked signature");
+}
+
+#[test]
+fn a_library_scheme_is_required_even_without_a_raw_annotation() {
+    let mut module = fixture();
+    module.externals[0].kind = ExternalKind::Library {
+        module: "Native".into(),
+    };
     module.verify().unwrap();
     module.external_types.clear();
     rejects(&module, "no checked signature");

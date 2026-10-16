@@ -45,6 +45,7 @@ flowchart LR
 | [Kinds](type-system/kinds.md) | Kinds, constructor application, synonym legality | Checked kinds |
 | [Type inference](type-system/type-inference.md) | Schemes, unification, signatures, typed terms | THIR types |
 | [Classes and evidence](type-system/classes-and-evidence.md) | Constraint solving, coherence, explicit dictionaries | THIR evidence |
+| [Deriving](type-system/deriving.md) | Known deriving rules, field usage, generated members | Generated instance members |
 | [Rows and records](type-system/rows-and-records.md) | Row unification and record typing | Typed row operations |
 
 Each arrow is an explicit conversion or a verified same-representation pass.

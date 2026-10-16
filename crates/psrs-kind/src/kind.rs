@@ -117,9 +117,18 @@ pub struct CheckedKindEnv {
     /// The module that declares each entry, so a use in one module is checked
     /// against, and reported against, the module that declared the type.
     pub declaring_module: HashMap<TypeId, ModuleId>,
+    /// Checked synonym templates retained for expansion during module rechecks.
+    pub(crate) synonyms: crate::check::synonyms::SynonymMap,
 }
 
 impl CheckedKindEnv {
+    /// Expands saturated synonyms with capture-avoiding substitution before
+    /// consumers elaborate their arguments. Returns `None` for a declaration
+    /// cycle or when the bounded expansion cannot finish.
+    pub fn expand_synonyms(&self, ty: &psrs_hir::Type) -> Option<psrs_hir::Type> {
+        crate::check::synonyms::expand(ty, &self.synonyms)
+    }
+
     pub fn roles(&self, id: TypeId) -> Option<&[Role]> {
         self.roles.get(&id).map(Vec::as_slice)
     }

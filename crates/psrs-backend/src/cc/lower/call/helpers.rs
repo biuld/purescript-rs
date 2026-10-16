@@ -160,11 +160,16 @@ pub(super) fn declaration_parameter_types(
     else {
         return Vec::new();
     };
-    function_arrow_parameters(module, declaration.ty).0
+    super::super::super::layout::declaration_call_parts(module, declaration)
+        .expect("declaration calling boundary was checked before expression lowering")
+        .parameters
+        .into_iter()
+        .map(|(ty, _)| ty)
+        .collect()
 }
 
 /// The value type a declaration produces after its ordinary arguments: its
-/// declared type with every arrow peeled, stopping before a callable
+/// declared type with its leading lambda parameters peeled, stopping before a callable
 /// constructor's hidden parameters. For `discard :: Effect a -> (a -> Effect
 /// b) -> Effect b` this is `Effect b`, not the value `b` inside the effect.
 pub(super) fn declaration_result_type(
@@ -175,7 +180,11 @@ pub(super) fn declaration_result_type(
         .declarations
         .iter()
         .find(|declaration| declaration.symbol == symbol)?;
-    Some(function_arrow_parameters(module, declaration.ty).1)
+    Some(
+        super::super::super::layout::declaration_call_parts(module, declaration)
+            .expect("declaration calling boundary was checked before expression lowering")
+            .result,
+    )
 }
 
 /// The result type of a (possibly curried) function type: the value produced
@@ -200,7 +209,12 @@ pub(super) fn callable_parameter_types(
     {
         return declaration_parameter_types(module, symbol);
     }
-    function_parameter_types(module, callable_type)
+    let scheme = module
+        .external_types
+        .iter()
+        .find(|external| external.symbol == symbol)
+        .map_or(callable_type, |external| external.ty);
+    function_parameter_types(module, scheme)
 }
 
 pub(super) fn callable_result_type(
@@ -209,9 +223,34 @@ pub(super) fn callable_result_type(
     callable_type: psrs_core::TypeId,
 ) -> Option<psrs_core::TypeId> {
     declaration_result_type(module, symbol).or_else(|| {
-        let (_, result) = function_arrow_parameters(module, callable_type);
+        let scheme = module
+            .external_types
+            .iter()
+            .find(|external| external.symbol == symbol)
+            .map_or(callable_type, |external| external.ty);
+        let (_, result) = function_arrow_parameters(module, scheme);
         module.types.get(result.0 as usize).map(|_| result)
     })
+}
+
+pub(super) fn callable_instantiation<'a>(
+    module: &'a CoreModule,
+    boundary: &crate::boundary::BoundaryEvidence<'a>,
+    symbol: SymbolId,
+    instance: psrs_core::TypeId,
+) -> Option<psrs_core::Instantiation<'a>> {
+    if let Some(declaration) = module
+        .declarations
+        .iter()
+        .find(|declaration| declaration.symbol == symbol)
+    {
+        return boundary.checked_instantiation(declaration.ty, &declaration.quantified, instance);
+    }
+    let external = module
+        .external_types
+        .iter()
+        .find(|external| external.symbol == symbol)?;
+    boundary.instantiation_at(external.ty, instance)
 }
 
 fn function_parameter_types(

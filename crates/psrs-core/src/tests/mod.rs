@@ -1,11 +1,15 @@
 use super::*;
 use psrs_hir::{Intrinsic, LocalId, ModuleId, SymbolId};
 
-mod effects;
+mod command;
+mod control;
+mod deep_expr;
 mod external_types;
+mod instantiation;
 mod link;
 mod patterns;
 mod rank_n;
+mod record_scope;
 mod rows;
 
 /// Appends an arrow `parameter -> result` as the application spine and returns

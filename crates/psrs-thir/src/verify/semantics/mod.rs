@@ -6,6 +6,10 @@ use std::collections::HashMap;
 
 mod matching;
 
+pub(super) fn types_equal(left: TypeId, right: TypeId, module: &Module) -> bool {
+    matching::equivalent(left, right, module)
+}
+
 #[derive(Clone)]
 struct Scheme {
     ty: TypeId,
@@ -47,7 +51,27 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
+    fn evidence(&mut self, evidence: &crate::Evidence) {
+        match &evidence.kind {
+            crate::EvidenceKind::DictionaryValue(value) => self.expr(value, Some(evidence.ty)),
+            crate::EvidenceKind::Superclass { parent, .. } => self.evidence(parent),
+            crate::EvidenceKind::Instance { context, .. } => {
+                for child in context {
+                    self.evidence(child);
+                }
+            }
+            crate::EvidenceKind::Given(_)
+            | crate::EvidenceKind::Global(_)
+            | crate::EvidenceKind::Coercible { .. }
+            | crate::EvidenceKind::Primitive { .. } => {}
+        }
+    }
+
     fn expr(&mut self, expression: &Expr, expected: Option<TypeId>) {
+        psrs_span::with_sufficient_stack(|| self.expr_inner(expression, expected))
+    }
+
+    fn expr_inner(&mut self, expression: &Expr, expected: Option<TypeId>) {
         if let Some(expected) = expected {
             self.compatible(expression.ty, expected, expression.span);
         }
@@ -143,8 +167,17 @@ impl Context<'_> {
                     self.error(expression.span, "record field is not declared");
                 }
             }
-            ExprKind::Evidence(_) => {}
+            ExprKind::Evidence(evidence) => self.evidence(evidence),
             ExprKind::Coerce {
+                value,
+                source_type,
+                target_type,
+                ..
+            } => {
+                self.expr(value, Some(*source_type));
+                self.compatible(*target_type, expression.ty, expression.span);
+            }
+            ExprKind::UnsafeCoerce {
                 value,
                 source_type,
                 target_type,
@@ -351,6 +384,7 @@ fn primitive_type(module: &Module, constructor: TypeConstructor) -> Option<TypeI
 }
 
 fn array_element(module: &Module, id: TypeId) -> Option<TypeId> {
+    let id = strip_leading_foralls(module, id);
     let Type::Application(head, element) = module.types.get(id.0 as usize)? else {
         return None;
     };

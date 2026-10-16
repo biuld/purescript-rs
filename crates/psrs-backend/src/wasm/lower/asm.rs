@@ -75,10 +75,6 @@ impl Asm {
         self.stack.push(id);
     }
 
-    pub(crate) fn else_(&mut self) {
-        self.leaf(Instruction::Else);
-    }
-
     pub(crate) fn end(&mut self) {
         self.leaf(Instruction::End);
         self.stack.pop();

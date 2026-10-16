@@ -20,6 +20,7 @@ pub(super) fn verify_tag_switch(
     table: &crate::cc::RepresentationTable,
     functions: Option<&HashMap<SymbolId, &Function>>,
     function_span: TextRange,
+    function_name: &str,
 ) -> Result<(), Vec<BackendError>> {
     require_value_shape(declared, value, ValueShape::Integer, assignment)?;
     if cases.is_empty()
@@ -52,6 +53,7 @@ pub(super) fn verify_tag_switch(
         table,
         functions,
         function_span,
+        function_name,
     )?;
     if !default_available.contains(&default_value) {
         return Err(undef_error(assignment.span, function_span));
@@ -67,6 +69,7 @@ pub(super) fn verify_tag_switch(
             table,
             functions,
             function_span,
+            function_name,
         )?;
         if !case_available.contains(&case.value)
             || declared_shape(declared, case.value, assignment)? != expected

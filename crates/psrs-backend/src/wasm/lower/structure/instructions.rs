@@ -12,6 +12,12 @@ impl Structurer<'_> {
                     destination,
                     value,
                     span,
+                }
+                | MirInstruction::ControlEvidence {
+                    destination,
+                    value,
+                    span,
+                    ..
                 } => {
                     self.load(body, *value, *span)?;
                     self.store(body, *destination, *span)?;
@@ -122,6 +128,7 @@ impl Structurer<'_> {
                     function,
                     arguments,
                     span,
+                    ..
                 } => {
                     for argument in arguments {
                         self.load(body, *argument, *span)?;
@@ -296,6 +303,18 @@ impl Structurer<'_> {
                     span,
                 } => {
                     self.emit_array_new_default(body, *destination, *type_index, *length, *span)?
+                }
+                MirInstruction::ArrayNewFilled {
+                    destination,
+                    type_index,
+                    length,
+                    value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    self.load(body, *length, *span)?;
+                    body.push(Op::Leaf(Instruction::ArrayNew(type_index.0)));
+                    self.store(body, *destination, *span)?;
                 }
                 MirInstruction::ArrayGet {
                     destination,

@@ -120,12 +120,23 @@ impl FunctionLowerer<'_> {
                         "constructor field storage does not match its normalized template",
                     )]);
                 }
-                let conversion = self.typed_conversion(
+                let evidence = self
+                    .boundary
+                    .checked_instantiation(template_type, &constructor.parameters, argument.ty)
+                    .ok_or_else(|| {
+                        vec![BackendError::invalid_ir(
+                            "P8 closure conversion",
+                            expression.span,
+                            "constructor field has no checked scoped instantiation",
+                        )]
+                    })?;
+                let conversion = self.typed_conversion_with_instantiation(
                     argument.ty,
                     template_type,
                     source_shape,
                     template_shape,
                     expression.span,
+                    Some(&evidence),
                 )?;
                 let value = self.emit_conversion(
                     value,

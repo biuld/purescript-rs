@@ -21,8 +21,8 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
         )
         .expect("the record field WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -57,11 +57,11 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(ReprId(2), vec!["inner".to_string()])]
+        Vec::new(),
+        [(ReprId(2), vec!["inner".to_string()])]
             .into_iter()
             .collect(),
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -87,6 +87,7 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -123,6 +124,7 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -148,8 +150,8 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
         )
         .expect("the record field parameter WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -184,11 +186,11 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(ReprId(2), vec!["inner".to_string()])]
+        Vec::new(),
+        [(ReprId(2), vec!["inner".to_string()])]
             .into_iter()
             .collect(),
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -316,6 +318,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
         Assignment {
             destination: ValueId(7),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(6)],
             },
@@ -347,6 +350,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

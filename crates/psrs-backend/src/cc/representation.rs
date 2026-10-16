@@ -225,6 +225,8 @@ fn storage_case(
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct RepresentationTable {
+    /// Source planning publishes immutable machine metadata before CC lowering.
+    pub(in crate::cc) control: super::control::ControlPlanning,
     pub representations: Vec<Representation>,
     pub signatures: Vec<Signature>,
     /// Canonical logical labels for record products; positional products do
@@ -233,6 +235,20 @@ pub struct RepresentationTable {
 }
 
 impl RepresentationTable {
+    /// Construct ordinary IR layouts without publishing control-machine metadata.
+    pub fn from_parts(
+        representations: Vec<Representation>,
+        signatures: Vec<Signature>,
+        product_labels: std::collections::HashMap<ReprId, Vec<String>>,
+    ) -> Self {
+        Self {
+            representations,
+            signatures,
+            product_labels,
+            ..Self::default()
+        }
+    }
+
     pub fn reserve(&mut self) -> ReprId {
         let id = ReprId(self.representations.len() as u32);
         // A temporary product is replaced before the table leaves P8. Keeping

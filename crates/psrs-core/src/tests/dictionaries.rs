@@ -56,9 +56,12 @@ fn lowering_erases_instance_and_superclass_evidence_to_calls_and_projections() {
     ];
     let i32_to_boolean = push_arrow(&mut types, thir::TypeId(0), thir::TypeId(1));
     let dictionary = push_record(&mut types, vec![("isPositive", i32_to_boolean)]);
+    let unit = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Constructor(thir::TypeConstructor::Unit));
+    let superclass_thunk = push_arrow(&mut types, unit, dictionary);
     let parent_dictionary = push_record(
         &mut types,
-        vec![("rank", thir::TypeId(0)), ("super", dictionary)],
+        vec![("rank", thir::TypeId(0)), ("super", superclass_thunk)],
     );
     let identity_type = push_arrow(&mut types, parent_dictionary, parent_dictionary);
     let main_type = push_arrow(&mut types, parent_dictionary, thir::TypeId(1));
@@ -183,8 +186,12 @@ fn lowering_erases_instance_and_superclass_evidence_to_calls_and_projections() {
         panic!("expected method selection to be an ordinary field projection");
     };
     assert_eq!(field, "isPositive");
-    let ExprKind::FieldAccess { record, field } = &record.kind else {
-        panic!("expected superclass evidence to be an ordinary field projection");
+    let ExprKind::Application(thunk, unit) = &record.kind else {
+        panic!("expected superclass selection to force its thunk");
+    };
+    assert!(matches!(unit.kind, ExprKind::Unit));
+    let ExprKind::FieldAccess { record, field } = &thunk.kind else {
+        panic!("expected superclass selection to project its thunk");
     };
     assert_eq!(field, "super");
     assert!(matches!(record.kind, ExprKind::Application(_, _)));

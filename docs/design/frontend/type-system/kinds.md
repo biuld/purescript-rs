@@ -29,7 +29,8 @@ Kind = Builtin(BuiltinType) | Named(TypeId)    # a constructor read as a kind
      | App(Kind, Kind) | Function(Kind, Kind) | Variable(KindVarId)
 KindScheme = { quantified_kind_vars, kind }
 CheckedKindEnv = { kind_schemes: TypeId -> KindScheme, roles: TypeId -> [Role],
-                   declaring_module: TypeId -> ModuleId }
+                   declaring_module: TypeId -> ModuleId,
+                   synonym_templates: TypeId -> { parameters, body } }
 KindDiagnostic = { code, span, message, origin: ModuleId }
 CheckedTypeConstructor = { id, kind_scheme, arity, roles, origin }
 ```
@@ -75,7 +76,17 @@ wrong number of arguments is an arity error owned by the class environment, so
 the kind check leaves it alone rather than reporting `KindsDoNotUnify` where
 `ClassInstanceArityMismatch` is the official code.
 
-Reject cyclic synonyms and unsaturated synonym use, including a partial synonym in a higher-kinded position. Ordinary data/newtype constructors may be partially applied when the expected kind allows it. Infer data/newtype roles from constructor fields to a fixed point across the resolved module graph, then check explicit annotations. Foreign data has no constructor fields from which to infer roles, so it is nominal by default; an explicit role annotation is its trusted interface contract. Keep source ranges on all kind uses and role annotations.
+Reject cyclic synonyms and unsaturated synonym use that remains after
+capture-avoiding substitution of saturated outer aliases. A partially supplied
+alias argument is valid when that substitution applies its remaining parameters
+or discards it: `Apply (Wrap Int) Boolean` and `Ignore (Wrap Int)` are accepted,
+while `Holder (Wrap Int)` still rejects. Infer kinds from the original application
+so discarded arguments must satisfy the alias's declared parameter kinds.
+Checked environments retain imported synonym templates. Kind saturation, role
+analysis and checked signature elaboration consume the same HIR expansion;
+term elaboration expands before converting arguments into inference types.
+Declaration-cycle guards are distinct from repeated higher-order application of
+an acyclic alias. Ordinary data/newtype constructors may be partially applied when the expected kind allows it. Infer data/newtype roles from constructor fields to a fixed point across the resolved module graph, then check explicit annotations. Foreign data has no constructor fields from which to infer roles, so it is nominal by default; an explicit role annotation is its trusted interface contract. Keep source ranges on all kind uses and role annotations.
 
 A `Type | Row(Type) | Arrow` enum is rejected because it cannot express `Symbol` or polymorphic kinds. Eager synonym expansion before cycle checking is rejected because it may diverge. Two kind checkers, one per module, are rejected because a program-level conflict found by one run is not guaranteed to be found again by the other, so the diagnostic that matters depends on which entry point the driver chose.
 

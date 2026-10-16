@@ -14,6 +14,7 @@ fn input(call: bool) -> (cc::Module, ExternalBindings) {
         Assignment {
             destination: crate::types::ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external,
                 arguments: Vec::new(),
             },
@@ -54,6 +55,7 @@ fn input(call: bool) -> (cc::Module, ExternalBindings) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external,
             source_module: ModuleId(0),
@@ -144,6 +146,7 @@ fn p9_exposes_an_owned_handle_without_dropping_it() {
                 Assignment {
                     destination: crate::types::ValueId(0),
                     kind: AssignmentKind::DirectCall {
+                        contract: None,
                         function: external,
                         arguments: Vec::new(),
                     },
@@ -163,6 +166,7 @@ fn p9_exposes_an_owned_handle_without_dropping_it() {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external,
             source_module: ModuleId(0),

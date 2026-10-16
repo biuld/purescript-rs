@@ -28,6 +28,18 @@ impl Interface {
             class_members: HashMap::new(),
             opaque: HashSet::new(),
         };
+        let registered = hir::compiler_interface(name)
+            .filter(|entry| entry.implementation == hir::InterfaceImplementation::Compiler);
+        if let Some(registered) = registered {
+            for &(name, intrinsic) in registered.values {
+                interface.values.insert(name.into(), intrinsic.symbol());
+            }
+            for &(name, id) in registered.types {
+                interface
+                    .types
+                    .insert(name.into(), TypeReference::Named(id));
+            }
+        }
         match name {
             "Prim" => {
                 for &(member, builtin) in &PRIM_TYPES {
@@ -42,16 +54,8 @@ impl Interface {
                     .values
                     .insert("undefined".to_owned(), Intrinsic::Undefined.symbol());
             }
-            "Safe.Coerce" => {
-                interface
-                    .values
-                    .insert("coerce".to_owned(), Intrinsic::Coerce.symbol());
-                interface.types.insert(
-                    "Coercible".to_owned(),
-                    TypeReference::Named(TypeId::COERCIBLE),
-                );
-            }
-            _ if name != "Prim.Coerce"
+            _ if registered.is_none()
+                && name != "Prim.Coerce"
                 && !hir::primitive_type_declarations()
                     .iter()
                     .any(|(owner, _)| *owner == name) =>
@@ -143,6 +147,28 @@ impl Interface {
                         class_members.insert(exported.name.clone(), members);
                     }
                 }
+                for exported in &exports.types {
+                    let TypeReference::Named(id) = exported.reference else {
+                        continue;
+                    };
+                    if declarations.contains_key(&id) {
+                        continue;
+                    }
+                    let Some(symbols) = &exported.constructors else {
+                        continue;
+                    };
+                    let mut members = Vec::new();
+                    for symbol in symbols {
+                        let Some(value) =
+                            exports.values.iter().find(|value| value.symbol == *symbol)
+                        else {
+                            continue;
+                        };
+                        values.entry(value.name.clone()).or_insert(*symbol);
+                        members.push((value.name.clone(), *symbol));
+                    }
+                    constructors.insert(exported.name.clone(), members);
+                }
                 for operator in &exports.type_operators {
                     types.insert(operator.name.clone(), operator.reference);
                     if let Some(fixity) = find_fixity(module, &operator.name) {
@@ -155,7 +181,7 @@ impl Interface {
                     values.insert(declaration.name.clone(), declaration.symbol);
                 }
                 for external in &module.externals {
-                    if matches!(external.kind, hir::ExternalKind::Wit { .. }) {
+                    if external.kind.requires_checked_signature() {
                         values.insert(external.name.clone(), external.symbol);
                     }
                 }

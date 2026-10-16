@@ -1,0 +1,530 @@
+{
+  "node": "v26.10.0",
+  "inputs": [
+    {
+      "path": "/tmp/ps-pkgs/purescript-integers/src/Data/Int.js",
+      "sha256": "35ff31f29f669c4c5d2ab3baee06b74a30b8cf5fcad77d25390158593ab9ac26"
+    },
+    {
+      "path": "/tmp/ps-pkgs/purescript-integers/src/Data/Int/Bits.js",
+      "sha256": "4e253dbde0792507b4ed73f5f7c6409f1e297e84a4c481fda159a66842159343"
+    },
+    {
+      "path": "/tmp/purescript-prelude/src/Data/Eq.js",
+      "sha256": "0a322f9252ba18de27c1dbb8fec560b44dfd4f2b4c82b3a51fde82af4d871ffe"
+    },
+    {
+      "path": "/tmp/purescript-prelude/src/Data/Ring.js",
+      "sha256": "cbddf7ed3d4c34c775dffd9534719fc20f980d6063edbffcf1ac2bd436b59131"
+    },
+    {
+      "path": "/tmp/purescript-prelude/src/Data/Semiring.js",
+      "sha256": "fb5e09243e90fcde78f52b15d56a07216a8bea1267db2e12d46ff07c8e0334c9"
+    },
+    {
+      "path": "/tmp/purescript-prelude/src/Data/HeytingAlgebra.js",
+      "sha256": "c047b0c397ee4127c2e14ac297f97f9e8deddcb1bace7bcecb2ee1d3117bb70b"
+    }
+  ],
+  "observations": [
+    {
+      "module": "Data/Int.purs",
+      "name": "toNumber",
+      "arguments": [
+        42
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int.purs",
+      "name": "toNumber",
+      "arguments": [
+        -2147483648
+      ],
+      "official_result": -2147483648,
+      "target_result": -2147483648,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int.purs",
+      "name": "toNumber",
+      "arguments": [
+        2147483647
+      ],
+      "official_result": 2147483647,
+      "target_result": 2147483647,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "and",
+      "arguments": [
+        63,
+        42
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "and",
+      "arguments": [
+        -1,
+        42
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "or",
+      "arguments": [
+        32,
+        10
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "or",
+      "arguments": [
+        -1,
+        0
+      ],
+      "official_result": -1,
+      "target_result": -1,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "xor",
+      "arguments": [
+        63,
+        21
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "xor",
+      "arguments": [
+        -1,
+        0
+      ],
+      "official_result": -1,
+      "target_result": -1,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "shl",
+      "arguments": [
+        21,
+        1
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "shl",
+      "arguments": [
+        21,
+        33
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "shl",
+      "arguments": [
+        1,
+        -1
+      ],
+      "official_result": -2147483648,
+      "target_result": -2147483648,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "shr",
+      "arguments": [
+        -84,
+        1
+      ],
+      "official_result": -42,
+      "target_result": -42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "shr",
+      "arguments": [
+        -84,
+        33
+      ],
+      "official_result": -42,
+      "target_result": -42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "shr",
+      "arguments": [
+        1,
+        -1
+      ],
+      "official_result": 0,
+      "target_result": 0,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "zshr",
+      "arguments": [
+        -1,
+        1
+      ],
+      "official_result": 2147483647,
+      "target_result": 2147483647,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "zshr",
+      "arguments": [
+        -1,
+        0
+      ],
+      "official_result": 4294967295,
+      "target_result": -1,
+      "representation_difference": true
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "zshr",
+      "arguments": [
+        -1,
+        32
+      ],
+      "official_result": 4294967295,
+      "target_result": -1,
+      "representation_difference": true
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "complement",
+      "arguments": [
+        -43
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Int/Bits.purs",
+      "name": "complement",
+      "arguments": [
+        -2147483648
+      ],
+      "official_result": 2147483647,
+      "target_result": 2147483647,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqBooleanImpl",
+      "arguments": [
+        true,
+        true
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqBooleanImpl",
+      "arguments": [
+        true,
+        false
+      ],
+      "official_result": false,
+      "target_result": false,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqIntImpl",
+      "arguments": [
+        42,
+        42
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqIntImpl",
+      "arguments": [
+        -2147483648,
+        2147483647
+      ],
+      "official_result": false,
+      "target_result": false,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqNumberImpl",
+      "arguments": [
+        0,
+        "-0"
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqNumberImpl",
+      "arguments": [
+        "NaN",
+        "NaN"
+      ],
+      "official_result": false,
+      "target_result": false,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqNumberImpl",
+      "arguments": [
+        "Infinity",
+        "Infinity"
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqCharImpl",
+      "arguments": [
+        "λ",
+        "λ"
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqCharImpl",
+      "arguments": [
+        "😀",
+        "😀"
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Eq.purs",
+      "name": "eqCharImpl",
+      "arguments": [
+        "λ",
+        "😀"
+      ],
+      "official_result": false,
+      "target_result": false,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Ring.purs",
+      "name": "intSub",
+      "arguments": [
+        44,
+        2
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Ring.purs",
+      "name": "intSub",
+      "arguments": [
+        -2147483648,
+        1
+      ],
+      "official_result": 2147483647,
+      "target_result": 2147483647,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Ring.purs",
+      "name": "numSub",
+      "arguments": [
+        44,
+        2
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Ring.purs",
+      "name": "numSub",
+      "arguments": [
+        "-0",
+        0
+      ],
+      "official_result": "-0",
+      "target_result": "-0",
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "intAdd",
+      "arguments": [
+        40,
+        2
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "intAdd",
+      "arguments": [
+        2147483647,
+        1
+      ],
+      "official_result": -2147483648,
+      "target_result": -2147483648,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "numAdd",
+      "arguments": [
+        40,
+        2
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "numAdd",
+      "arguments": [
+        "Infinity",
+        "-Infinity"
+      ],
+      "official_result": "NaN",
+      "target_result": "NaN",
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "numMul",
+      "arguments": [
+        21,
+        2
+      ],
+      "official_result": 42,
+      "target_result": 42,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/Semiring.purs",
+      "name": "numMul",
+      "arguments": [
+        "-0",
+        2
+      ],
+      "official_result": "-0",
+      "target_result": "-0",
+      "representation_difference": false
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolConj",
+      "arguments": [
+        true,
+        true
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolConj",
+      "arguments": [
+        true,
+        false
+      ],
+      "official_result": false,
+      "target_result": false,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolDisj",
+      "arguments": [
+        false,
+        true
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolDisj",
+      "arguments": [
+        false,
+        false
+      ],
+      "official_result": false,
+      "target_result": false,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolNot",
+      "arguments": [
+        true
+      ],
+      "official_result": false,
+      "target_result": false,
+      "representation_difference": false
+    },
+    {
+      "module": "Data/HeytingAlgebra.purs",
+      "name": "boolNot",
+      "arguments": [
+        false
+      ],
+      "official_result": true,
+      "target_result": true,
+      "representation_difference": false
+    }
+  ]
+}

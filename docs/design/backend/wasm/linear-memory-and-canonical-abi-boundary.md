@@ -7,6 +7,12 @@
 
 ## Scope
 
+The [linking and runtime](linking-and-runtime.md) design extends the
+canonical-only contract with explicit artifact-owned static data and execution
+stacks. The linker reserves these regions outside canonical scratch, allocator
+state, and transient allocations; the formatter slice implements this. This does
+not add a linear language heap.
+
 This document owns the address model, the string and byte-list representation,
 the scratch return area, data-segment use, and the MIR byte-operation contract at
 the boundary. It does not own canonical ABI adaptation itself

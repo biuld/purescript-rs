@@ -124,6 +124,7 @@ fn rejects_a_direct_return_call_whose_result_differs_from_its_caller() {
         Vec::new(),
         Vec::new(),
         Terminator::ReturnCall {
+            contract: None,
             function: symbol(1),
             arguments: Vec::new(),
             span: span(),
@@ -159,6 +160,7 @@ fn rejects_a_direct_return_call_with_the_wrong_argument_type() {
             span: span(),
         }],
         Terminator::ReturnCall {
+            contract: None,
             function: symbol(1),
             arguments: vec![ValueId(0)],
             span: span(),

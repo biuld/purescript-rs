@@ -10,6 +10,7 @@
 //! conformance, and MIR lowering all read a [`CanonicalType`] directly.
 //! `dead_code` is not allowed; every operation has a caller.
 
+mod control;
 mod flatten;
 mod leaves;
 mod memory;
@@ -19,6 +20,7 @@ mod resolve;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use control::reject_borrowed_control_capture;
 pub(crate) use flatten::flatten;
 pub(crate) use leaves::{FlatLeaf, flat_leaves_of, handle_at_flat_index};
 #[allow(unused_imports)]

@@ -136,22 +136,6 @@ pub(super) fn enum_cases(
     )
 }
 
-pub(super) fn wasi_interface_enabled(target: TargetCapabilities, module: &str) -> bool {
-    let package_path = module
-        .split_once('/')
-        .map_or(module, |(package, _)| package);
-    let package = package_path
-        .split_once('@')
-        .map_or(package_path, |(package, _)| package);
-    match package {
-        "wasi:cli" => target.wasi_cli,
-        "wasi:io" => target.wasi_io,
-        "wasi:clocks" => target.wasi_clocks,
-        "wasi:random" => target.wasi_random,
-        "wasi:filesystem" => target.wasi_filesystem,
-        "wasi:sockets" => target.wasi_sockets,
-        "wasi:http" => target.wasi_http,
-        "wasi:tls" => target.wasi_tls,
-        _ => false,
-    }
+pub(crate) fn wasi_interface_enabled(target: TargetCapabilities, module: &str) -> bool {
+    target.wasi_interface_enabled(module)
 }

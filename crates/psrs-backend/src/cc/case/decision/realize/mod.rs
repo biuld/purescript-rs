@@ -201,7 +201,7 @@ impl FunctionLowerer<'_> {
                     ));
                 };
                 let stored_shape = *stored_shape;
-                let declared_type = array_element_type(self.module, *source_type)
+                let _declared_type = array_element_type(self.module, *source_type)
                     .ok_or_else(|| case_error(*span, "array pattern type is not an array"))?;
                 let index_value = self.fresh(ValueShape::Integer);
                 assignments.push(Assignment {
@@ -224,13 +224,7 @@ impl FunctionLowerer<'_> {
                     span: *span,
                 });
                 let target_shape = self.value_shape(*target_type, *span)?;
-                let conversion = self.typed_conversion(
-                    declared_type,
-                    *target_type,
-                    stored_shape,
-                    target_shape,
-                    *span,
-                )?;
+                let conversion = self.recover_payload(target_shape, *span)?;
                 let value = self.emit_conversion(
                     stored_value,
                     stored_shape,
@@ -307,6 +301,16 @@ impl FunctionLowerer<'_> {
                     tag: *tag,
                     field: *field,
                     template_type: *declared_type,
+                    parameters: self
+                        .module
+                        .constructors
+                        .iter()
+                        .find(|constructor| constructor.symbol == *symbol)
+                        .ok_or_else(|| {
+                            case_error(*span, "variant field has no source constructor owner")
+                        })?
+                        .parameters
+                        .clone(),
                     target_type: *target_type,
                     target_shape,
                     stored_shape,

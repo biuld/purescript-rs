@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "diagnoses": {
+    "c": {
+      "before": {
+        "compiler": {
+          "head": "11db1757c20b76b5231e033395f000714f279baa",
+          "dirty": true,
+          "working_tree_fingerprint": "fnv1a64:35c7343b32dd42cc",
+          "binary_fingerprint": "fnv1a64:6e3f9e8e06b2a857"
+        },
+        "cohort": {
+          "mode": "file",
+          "corpus": null,
+          "filter": null,
+          "limit": null,
+          "timeout_seconds": 30,
+          "trusted_stdlib_fingerprint": "fnv1a64-v1:b2890fecd9c42aa3"
+        },
+        "input_fingerprint": "fnv1a64:e4f7f9a8beba4416",
+        "status": "failed",
+        "first_blocker": {
+          "stage": "P7 Core verification",
+          "category": "uncoded",
+          "message": "Core expression type is inconsistent with its context"
+        },
+        "diagnostics": [
+          {
+            "origin": "source",
+            "source": "/tmp/psrs-c-union.purs",
+            "stage": "P7 Core verification",
+            "start": 476,
+            "end": 482,
+            "code": null,
+            "kind": null,
+            "message": "Core expression type is inconsistent with its context"
+          }
+        ]
+      },
+      "after": {
+        "compiler": {
+          "head": "11db1757c20b76b5231e033395f000714f279baa",
+          "dirty": true,
+          "working_tree_fingerprint": "fnv1a64:790e9733c3f1e58b",
+          "binary_fingerprint": "fnv1a64:0532bc7848f9b3ae"
+        },
+        "cohort": {
+          "mode": "file",
+          "corpus": null,
+          "filter": null,
+          "limit": null,
+          "timeout_seconds": 30,
+          "trusted_stdlib_fingerprint": "fnv1a64-v1:b2890fecd9c42aa3"
+        },
+        "input_fingerprint": "fnv1a64:e4f7f9a8beba4416",
+        "status": "passed",
+        "first_blocker": null,
+        "diagnostics": []
+      }
+    }
+  },
+  "runtime": {
+    "fixture": "crates/psrs-driver/tests/prim_row/deferred_execution.rs::SOURCE",
+    "wasm_sha256": "d172428ce1bf5735e67b9c055de0906a864e23b1df0502028f941f266c775d42",
+    "wasmtime_version": "wasmtime 49.0.2 (3c8a3e79a 2026-10-02)",
+    "exit_code": 42,
+    "stdout": "",
+    "stderr": ""
+  }
+}

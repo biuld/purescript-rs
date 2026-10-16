@@ -1,0 +1,102 @@
+{
+  "node": "v26.10.0",
+  "upstream_commit": "f4cad0ae8106185c9ab407f43cf9abf05c256af4",
+  "official_js_sha256": "f05d5b14753a4b190b448fda0bfac66f97765bf5835f55c8e9c22dcbe5188543",
+  "observations": [
+    {
+      "name": "variable_chunks_and_capture",
+      "values": [
+        4,
+        0,
+        9
+      ],
+      "result": [
+        5,
+        8,
+        10,
+        18
+      ]
+    },
+    {
+      "name": "number_results",
+      "values": [
+        4,
+        8
+      ],
+      "result": [
+        4.5,
+        8.5
+      ]
+    },
+    {
+      "name": "records",
+      "values": [
+        40
+      ],
+      "result": [
+        {
+          "value": 42
+        }
+      ]
+    },
+    {
+      "name": "nested_arrays",
+      "values": [
+        1,
+        2
+      ],
+      "result": [
+        [
+          1
+        ],
+        [
+          11
+        ],
+        [
+          2
+        ],
+        [
+          12
+        ]
+      ]
+    },
+    {
+      "name": "utf8_results",
+      "values": [
+        1,
+        2
+      ],
+      "result": [
+        "λ",
+        "😀"
+      ]
+    },
+    {
+      "name": "empty_input",
+      "values": [],
+      "result": []
+    },
+    {
+      "name": "empty_chunks",
+      "values": [
+        1,
+        2
+      ],
+      "result": []
+    },
+    {
+      "name": "returned_function",
+      "result": 42
+    },
+    {
+      "name": "callback_count_and_shared_chunk_snapshot",
+      "result": [
+        10,
+        1,
+        20,
+        2
+      ],
+      "calls": 2
+    }
+  ]
+}

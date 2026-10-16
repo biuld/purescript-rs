@@ -22,8 +22,8 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
         )
         .expect("the resource result WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -40,9 +40,9 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-    };
+        Vec::new(),
+        Default::default(),
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -60,6 +60,7 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -96,6 +97,7 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

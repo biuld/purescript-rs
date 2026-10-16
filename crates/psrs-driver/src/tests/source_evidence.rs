@@ -64,6 +64,10 @@ fn walk_expr(expression: &psrs_thir::Expr, seen: &mut Seen) {
             walk_evidence(evidence, seen);
             seen.coercible = true;
         }
+        ExprKind::UnsafeCoerce { value, .. } => {
+            walk_expr(value, seen);
+            seen.coercible = true;
+        }
         ExprKind::Array(elements) => {
             for element in elements {
                 walk_expr(element, seen);
@@ -123,6 +127,7 @@ fn walk_expr(expression: &psrs_thir::Expr, seen: &mut Seen) {
 fn walk_evidence(evidence: &psrs_thir::Evidence, seen: &mut Seen) {
     use psrs_thir::EvidenceKind;
     match &evidence.kind {
+        EvidenceKind::DictionaryValue(value) => walk_expr(value, seen),
         EvidenceKind::Given(_) => seen.given = true,
         EvidenceKind::Global(_) => seen.global = true,
         EvidenceKind::Superclass { parent, .. } => {

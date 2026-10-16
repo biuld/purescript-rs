@@ -5,16 +5,13 @@
 **Design:** [Kinds and type constructors](../../design/frontend/type-system/kinds.md), [classes and evidence](../../design/frontend/type-system/classes-and-evidence.md), [primitives](../../design/frontend/type-system/prim.md), and [polymorphism and erasure](../../design/backend/fp/polymorphism-and-erasure.md).
 
 **Progress:** Partial. Role inference/checking and the covered role-aware
-`Coercible` rules are implemented through source, Typed Core, and CC. Structural
-`Eq`/`Ord`, nested `Functor.map`, direct `Bifunctor.bimap`, and checked
-`derive newtype` method adapters execute through ordinary dictionaries.
-`Contravariant.cmap` follows the resolved `Profunctor.lcmap` dictionary and
-matches the upstream source rule. Known deriving rules are selected by the
-resolved class owner and name, so a re-export keeps its defining identity.
-Other upstream deriving classes remain incomplete. Rank-1 method `forall`
+`Coercible` rules are implemented through source, Typed Core, and CC. Deriving is
+a distinct topic: its selected rules, coverage, and requirement IDs are recorded
+in the [deriving acceptance record](deriving.md). Rank-1 method `forall`
 signatures and scoped method-local constraints are checked and instantiated
 independently at use sites, including quantifiers that shadow class parameters.
-The acceptance evidence and remaining runtime limits are recorded below.
+The roles and `Coercible` acceptance evidence and remaining runtime limits are
+recorded below.
 
 ## Scope
 
@@ -37,7 +34,7 @@ polymorphism-and-erasure design.
 | RC-06 | Newtype unwrapping requires its constructor to be visible. Nested visible newtypes and imported constructors are supported; visible nominal newtypes unwrap before parameter roles are compared. | `an_imported_newtype_requires_its_constructor_for_unwrapping`; Wasmtime tests `unwraps_nested_visible_newtypes_when_wasmtime_is_available`, `coerces_through_an_imported_visible_newtype_when_wasmtime_is_available`, and `unwraps_both_sides_before_applying_a_nominal_newtype_role_when_wasmtime_is_available`. | Verified for covered cases |
 | RC-07 | Checked coercion evidence retains source/target types through THIR and Core; malformed evidence cannot authorize a different boundary. | THIR `verifier_rejects_coercion_evidence_for_a_different_boundary`; Core verifier checks cast source and target against its value and result. | Verified |
 | RC-08 | Lowering uses the existing typed value-conversion protocol, including nested ADT fields, arrays, and function adapters; a source proof never becomes an arbitrary Wasm reference cast. | Wasmtime tests cover coercing parameterized newtypes to scalar, function, and array payloads; visible nested newtypes; phantom sums with constructor-tag preservation; representational data fields and imported aliases; imported generic constrained functions; and cross-module given transitivity. | Verified for listed shapes |
-| RC-09 | FE-16 deriving generates checked instance evidence and handles newtype deriving rules. | AST/HIR retain the derivation strategy. Source and runtime tests cover structural `Eq` and `Ord`, `Functor` through imported and nested dictionaries, `Bifunctor`, recursive `Eq`, constructor and field order, rank-1 method polymorphism, cross-module newtype-derived dictionaries with checked coercion adapters, and partially applied higher-kinded newtype heads. Source/differential cases also cover `Contravariant` through `Profunctor.lcmap`, function-result traversal, alias expansion, empty-class validation, re-exported canonical class identity, and rejection of same-name user classes. `differential_deriving_rules_against_purs` compares 18 accepted/rejected cases. | Partial |
+| RC-09 | Deriving is its own topic with requirement IDs DR-01..DR-20; this record does not own its rules or coverage. | See the [deriving acceptance record](deriving.md). | Moved |
 
 ## Source and runtime coverage
 
@@ -47,30 +44,28 @@ hidden newtype constructors, imported aliases in data fields, higher-kinded
 given rewriting, kind mismatch, open-row alignment, and recursive given
 interactions. Value-sensitive Wasmtime tests execute the conversions, including
 parameterized newtype payloads represented as scalars, functions, and arrays;
-a multi-constructor phantom value verifies its tag survives coercion. Separate
-class tests execute structural `Eq`, recursive `Eq`, structural `Ord`, nested
-`Functor.map`, `Bifunctor.bimap`, rank-1 method polymorphism, and the
-cross-module newtype-derived dictionary. `Contravariant` and function-result
-mapping type-check against upstream rules. The `Contravariant` function
-adapter's source implementation currently reaches a P8 closure-capture limit,
-so that case has no Wasmtime execution evidence yet. Focused runtime commands:
+a multi-constructor phantom value verifies its tag survives coercion. Derived
+instance tests are owned by the [deriving acceptance record](deriving.md).
+Focused runtime commands:
 
 ```sh
 PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi::coercion
-PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi::classes::deriving
 ```
 
+Deriving runtime commands are in the [deriving acceptance record](deriving.md).
+
 The compiler-provided value shim follows upstream's `Safe.Coerce.coerce`
-source API; `Prim.Coerce.Coercible` remains the compiler-owned class. The
+source API; `Prim.Coerce.Coercible` remains the compiler-owned class, and
+`Unsafe.Coerce.unsafeCoerce` is the compiler-owned intrinsic that `coerce` is
+defined from upstream. A focused execution case
+(`tests::coercion::unsafe_coerce_is_a_compiler_primitive_identity_cast`) lowers a
+newtype through `unsafeCoerce` and runs to its value under mandatory Wasmtime. The
 durable `differential_role_and_coercible_rules_against_purs` test compares 20
 accepted and rejected fixtures with `purs 0.15.16`, including role
 decomposition, higher-kinded given rewriting, checked kind compatibility,
-open-row label alignment, and recursive-given behavior. The
-`differential_deriving_rules_against_purs` test compares 18 deriving cases,
-including structural `Eq` and `Ord`, alias and function-result `Functor.map`,
-`Bifunctor`, `Contravariant` through a `Profunctor` instance, ordinary and
-higher-kinded newtype adaptation, re-exported canonical classes, same-name
-user classes, and empty-class derivation validation.
+open-row label alignment, and recursive-given behavior. The deriving
+differential battery is recorded in the
+[deriving acceptance record](deriving.md).
 
 ## Known boundaries
 
@@ -82,26 +77,17 @@ call-site special case rather than the primitive rule table the [primitives
 design](../../design/frontend/type-system/prim.md) specifies; both are recorded
 there as the deviations they are. Open-row values still have no runtime layout in
 the current CC path, while closed reordered records execute through Wasmtime.
-The structural deriving subset covers `Eq`, `Ord`, `Functor.map` through
-direct, nested application, and result-position function fields,
-`Bifunctor.bimap` for final parameter pairs, and `Contravariant.cmap` through
-the `Profunctor.lcmap` dictionary. `Eq1`, `Ord1`, `Foldable`, `Traversable`,
-`Bifoldable`, `Bitraversable`, and deriving `Profunctor` still need their
-upstream rules. Class-method `forall` and scoped method-local constraints are supported,
-with evidence in the [rank-N acceptance record](rank-n.md). Record-field
-traversal and full deriving variance checking remain open. Runtime closure capture limits also leave the function-based
-Contravariant example unexecuted. Polymorphic newtype-derived methods share a
-single method-quantifier instantiation at the checked adaptation boundary;
-their source/typecheck regression passes, but their Wasmtime execution remains
-unverified because the generated adapter reaches the same P8 closure-capture
-limit. Existing non-polymorphic newtype-derived methods have runtime evidence.
-FE-16 remains Partial until the other upstream deriving rules and remaining
-official coercion cases have source and runtime evidence.
+Class-method `forall` and scoped method-local constraints are supported, with
+evidence in the [rank-N acceptance record](rank-n.md). Deriving boundaries,
+including its variance checks, `Eq1`/`Ord1`, and the remaining upstream classes,
+are owned by the [deriving acceptance record](deriving.md). FE-16 remains Partial
+until the remaining official coercion cases have source and runtime evidence.
 
 ## Completion rule
 
-Do not mark FE-16 complete until RC-01..RC-09 have implementation and
+Do not mark FE-16 complete until RC-01..RC-08 have implementation and
 source-level acceptance/rejection evidence, every runtime requirement executes
 with `PSRS_REQUIRE_WASMTIME=1`, and the official compatibility set includes the
-remaining coercion solver cases and deriving behavior. Run the workspace test,
-format, and Clippy gates after code changes.
+remaining coercion solver cases. Deriving has its own completion rule in the
+[deriving acceptance record](deriving.md). Run the workspace test, format, and
+Clippy gates after code changes.

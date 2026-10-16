@@ -106,3 +106,31 @@ and supersedes this record's mechanism clause and its rule against recognizing
 wraps foreign imports in ordinary PureScript, and the compiler does not grow a
 parallel type vocabulary. The amendment above that admitted non-byte `Array`
 lists is subsumed by DEC-13.
+
+## Amendment — source target implementations over array storage primitives
+
+Array algorithms belong in the target standard library. Wasm requires concrete
+allocation and element-storage operations, but it does not require compiler
+implementations of `arrayApply`, `arrayBind` or `arrayExtend`. These
+implementation slots may
+use ordinary PureScript source over private `arrayFill`, `arrayWrite`, length
+and index primitives while preserving the official signatures, exports and
+other pure declarations. Mutating primitives require fresh buffer ownership;
+fully initialized allocation avoids exposing invalid default reference slots.
+The compiler owns checked primitive identity, typed occurrence elaboration,
+representation and Wasm encoding. The library owns loops, callback sequencing,
+snapshot/flatten behavior and overflow policy. Mandatory primitive elaboration
+must retain aliasing instead of copying arrays through a polymorphic wrapper.
+This amendment does not authorize rewriting valid official pure definitions,
+introducing per-function naming heuristics, or treating unimplemented FFI as an
+empty result. Source diffs and official behavior evidence remain required.
+
+The same boundary covers mutable references. `Control.Monad.ST` keeps its
+official `ST`/`STRef` newtypes and class instances in the library module, because
+a class instance whose type is imported from another module is an orphan that
+this compiler does not resolve. A Prelude-free target module owns the suspended
+action, the fresh cell over the private storage primitives, and the loops; the
+official module's operations are thin adapters. A representation that differs
+from the compiler's scalar-token `Effect` closure makes `unsafeCoerce`-based
+conversions such as `Control.Monad.ST.Global.toEffect` linked but unsound, and
+that limit must be recorded rather than hidden.

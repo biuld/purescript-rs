@@ -49,6 +49,10 @@ pub(super) fn declaration_order(module: &hir::Module) -> Vec<BindingGroup> {
 }
 
 fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
+    psrs_span::with_sufficient_stack(|| collect_globals_inner(expression, out))
+}
+
+fn collect_globals_inner(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
         hir::ExprKind::Local(_)
         | hir::ExprKind::Integer(_)
@@ -60,7 +64,7 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
                 collect_globals(element, out);
             }
         }
-        hir::ExprKind::Record(fields) => {
+        hir::ExprKind::Record(fields) | hir::ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 collect_globals(value, out);
             }
@@ -97,7 +101,12 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
             operands,
             operators,
         } => {
-            out.extend(operators.iter().map(|operator| operator.symbol));
+            out.extend(
+                operators
+                    .iter()
+                    .filter(|operator| operator.local.is_none())
+                    .map(|operator| operator.symbol),
+            );
             for operand in operands {
                 collect_globals(operand, out);
             }
@@ -105,7 +114,9 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
         hir::ExprKind::OperatorSection {
             operator, operand, ..
         } => {
-            out.push(operator.symbol);
+            if operator.local.is_none() {
+                out.push(operator.symbol);
+            }
             collect_globals(operand, out);
         }
         hir::ExprKind::Application(function, argument) => {

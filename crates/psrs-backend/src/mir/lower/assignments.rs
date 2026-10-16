@@ -8,6 +8,44 @@ impl FunctionLowerer<'_> {
     ) -> Result<BlockId, Vec<BackendError>> {
         for assignment in assignments {
             match &assignment.kind {
+                AssignmentKind::ControlEvidence {
+                    value,
+                    implementation,
+                    contract,
+                    arguments,
+                } => {
+                    let proof = self
+                        .layout
+                        .representation_table()
+                        .control_contracts()
+                        .get(contract.0 as usize)
+                        .ok_or_else(|| {
+                            vec![BackendError::invalid_ir(
+                                "P9 MIR lowering",
+                                assignment.span,
+                                "control evidence has no checked source contract",
+                            )]
+                        })?;
+                    if proof.arguments().len() != arguments.len() {
+                        return Err(vec![BackendError::invalid_ir(
+                            "P9 MIR lowering",
+                            assignment.span,
+                            "control evidence argument count disagrees with its checked source contract",
+                        )]);
+                    }
+                    self.append_instruction(
+                        current,
+                        Instruction::ControlEvidence {
+                            destination: assignment.destination,
+                            value: *value,
+                            implementation: *implementation,
+                            arguments: arguments.clone(),
+                            contract: *contract,
+                            span: assignment.span,
+                        },
+                        assignment.span,
+                    )?;
+                }
                 AssignmentKind::AggregateConvert {
                     value, conversion, ..
                 } => {
@@ -19,6 +57,7 @@ impl FunctionLowerer<'_> {
                         self.append_instruction(
                             current,
                             Instruction::Call {
+                                contract: None,
                                 destination: assignment.destination,
                                 function: helper,
                                 arguments: vec![*value],
@@ -91,14 +130,33 @@ impl FunctionLowerer<'_> {
                         )?;
                         continue;
                     }
-                    let instruction = self.scalar_helpers.binary_instruction(
-                        *op,
+                    let operation = super::super::NumericOp::try_from(*op).map_err(|op| {
+                        vec![BackendError::invalid_ir(
+                            "P9 MIR lowering",
+                            assignment.span,
+                            format!("unsupported scalar operation {op:?}"),
+                        )]
+                    })?;
+                    let instruction = Instruction::Primitive {
+                        destination: assignment.destination,
+                        op: operation,
+                        left: *left,
+                        right: *right,
+                        span: assignment.span,
+                    };
+                    self.append_instruction(current, instruction, assignment.span)?;
+                }
+                AssignmentKind::RuntimeCall {
+                    intrinsic,
+                    arguments,
+                } => {
+                    self.lower_runtime_call(
+                        current,
                         assignment.destination,
-                        *left,
-                        *right,
+                        *intrinsic,
+                        arguments,
                         assignment.span,
                     )?;
-                    self.append_instruction(current, instruction, assignment.span)?;
                 }
                 AssignmentKind::Unary { op, value } => self.append_instruction(
                     current,
@@ -188,6 +246,7 @@ impl FunctionLowerer<'_> {
                 AssignmentKind::ArrayNew { .. }
                 | AssignmentKind::ArrayLen { .. }
                 | AssignmentKind::ArrayAppend { .. }
+                | AssignmentKind::ArrayFill { .. }
                 | AssignmentKind::StringToBytes { .. }
                 | AssignmentKind::BytesToString { .. }
                 | AssignmentKind::ArrayGet { .. }
@@ -196,24 +255,35 @@ impl FunctionLowerer<'_> {
                     current = self.lower_array_assignment(current, assignment)?;
                 }
                 AssignmentKind::DirectCall {
+                    contract,
                     function,
                     arguments,
                 } => {
+                    self.layout
+                        .representation_table()
+                        .verify_control_call(*function, *contract)
+                        .map_err(|message| {
+                            vec![BackendError::invalid_ir(
+                                "P9 MIR lowering",
+                                assignment.span,
+                                message,
+                            )]
+                        })?;
                     if let Some(import) = self.wit_imports.get(function).cloned() {
-                        current = wit::lower(
-                            self,
-                            &import.import,
-                            &import.signature,
-                            import.projection.as_ref(),
+                        current = self.lower_wit_call(&import, assignment, current)?;
+                    } else if let Some(import) = self.runtime_imports.get(function).cloned() {
+                        self.lower_storage_call(
+                            current,
                             assignment.destination,
+                            &import,
                             arguments,
                             assignment.span,
-                            current,
                         )?;
                     } else {
                         self.append_instruction(
                             current,
                             Instruction::Call {
+                                contract: *contract,
                                 destination: assignment.destination,
                                 function: *function,
                                 arguments: arguments.clone(),
@@ -306,7 +376,7 @@ impl FunctionLowerer<'_> {
                 } => {
                     let then_block = self.new_block(Vec::new());
                     let else_block = self.new_block(Vec::new());
-                    let merge = self.new_block(vec![assignment.destination]);
+                    let merge = self.new_block(self.control_values(assignment.destination));
                     self.set_terminator(
                         current,
                         Terminator::Branch {
@@ -322,7 +392,7 @@ impl FunctionLowerer<'_> {
                         then_end,
                         Terminator::Jump {
                             target: merge,
-                            arguments: vec![*then_value],
+                            arguments: self.control_values(*then_value),
                             span: assignment.span,
                         },
                         assignment.span,
@@ -332,7 +402,7 @@ impl FunctionLowerer<'_> {
                         else_end,
                         Terminator::Jump {
                             target: merge,
-                            arguments: vec![*else_value],
+                            arguments: self.control_values(*else_value),
                             span: assignment.span,
                         },
                         assignment.span,
@@ -350,7 +420,7 @@ impl FunctionLowerer<'_> {
                         .map(|_| self.new_block(Vec::new()))
                         .collect::<Vec<_>>();
                     let default_block = self.new_block(Vec::new());
-                    let merge = self.new_block(vec![assignment.destination]);
+                    let merge = self.new_block(self.control_values(assignment.destination));
                     self.set_terminator(
                         current,
                         Terminator::Switch {
@@ -371,7 +441,7 @@ impl FunctionLowerer<'_> {
                             end,
                             Terminator::Jump {
                                 target: merge,
-                                arguments: vec![case.value],
+                                arguments: self.control_values(case.value),
                                 span: assignment.span,
                             },
                             assignment.span,
@@ -382,7 +452,7 @@ impl FunctionLowerer<'_> {
                         end,
                         Terminator::Jump {
                             target: merge,
-                            arguments: vec![*default_value],
+                            arguments: self.control_values(*default_value),
                             span: assignment.span,
                         },
                         assignment.span,

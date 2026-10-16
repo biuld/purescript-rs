@@ -3,6 +3,7 @@ use super::{
     Assignment, AssignmentKind, Function, ReprId, RepresentationTable, Signature, SignatureId,
     ValueDecl, ValueId, ValueShape,
 };
+use crate::boundary::BoundaryEvidence;
 use crate::{BackendError, BackendWarning};
 use psrs_core::{Expr, ExprKind, Module as CoreModule, dictionary::ClassLayout};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
@@ -13,6 +14,7 @@ use std::rc::Rc;
 mod array;
 mod call;
 mod constructor;
+mod control;
 mod conversion;
 mod dictionary;
 mod erased;
@@ -22,10 +24,11 @@ mod lambda;
 mod letrec;
 mod literals;
 mod record;
-mod scalar;
 mod string_bytes;
 mod symbols;
 use call::ApplicationLowering;
+pub(super) use control::plan_control_helpers;
+pub(crate) use control::{Family, Shape, plan_external_targets, plan_shape_for, verify_boundary};
 pub(in crate::cc) use conversion::VariantFieldConversion;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
@@ -34,13 +37,20 @@ pub(in crate::cc) use symbols::GeneratedSymbolAllocator;
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
+    /// The Core-to-CC boundary side table: checked instantiation evidence and
+    /// the registered representation policies. Replaces ambient reads of the
+    /// Core arena and any HIR-keyed protocol table.
+    pub(super) boundary: &'a BoundaryEvidence<'a>,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) representations: &'a RepresentationTable,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
+    pub(super) nominal_types: &'a HashMap<HirTypeId, ReprId>,
     pub(super) boxed_integer_type: Option<ReprId>,
     pub(super) boxed_number_type: Option<ReprId>,
+    pub(super) control_layout: Option<super::layout::control::ControlLayout>,
+    pub(super) control_functions: Rc<RefCell<Option<control::ControlFunctions>>>,
     pub(super) array_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) record_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
@@ -49,6 +59,10 @@ pub(super) struct LoweringContext<'a> {
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, SignatureId>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
     pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
+    /// Signatures of functions generated during lowering (for example the
+    /// control executor). The per-function verifier resolves calls against these
+    /// in addition to the declared signatures.
+    pub(super) generated_signatures: Rc<RefCell<HashMap<SymbolId, Signature>>>,
 }
 
 pub(super) fn lower_function(
@@ -64,11 +78,15 @@ pub(super) fn lower_function(
         signatures: context.signatures,
         representations: context.representations,
         module,
+        boundary: context.boundary,
         enum_types: context.enum_types,
         aggregate_types: context.aggregate_types,
         newtype_ids: context.newtype_ids,
+        nominal_types: context.nominal_types,
         boxed_integer_type: context.boxed_integer_type,
         boxed_number_type: context.boxed_number_type,
+        control_layout: context.control_layout,
+        control_functions: Rc::clone(&context.control_functions),
         array_types: context.array_types,
         record_types: context.record_types,
         constructor_tags: context.constructor_tags,
@@ -77,6 +95,7 @@ pub(super) fn lower_function(
         function_types: context.function_types,
         function_wrappers: context.function_wrappers,
         generated_symbols: Rc::clone(&context.generated_symbols),
+        generated_signatures: Rc::clone(&context.generated_signatures),
         owner: declaration.symbol.module,
         warnings: Vec::new(),
         generated: Vec::new(),
@@ -102,6 +121,7 @@ pub(super) fn lower_function(
                 context.enum_types,
                 context.aggregate_types,
                 context.newtype_ids,
+                context.nominal_types,
                 context.array_types,
                 context.record_types,
                 context.function_types,
@@ -140,6 +160,7 @@ pub(super) fn lower_function(
             context.enum_types,
             context.aggregate_types,
             context.newtype_ids,
+            context.nominal_types,
             context.array_types,
             context.record_types,
             context.function_types,
@@ -166,6 +187,7 @@ pub(super) fn lower_function(
         context.enum_types,
         context.aggregate_types,
         context.newtype_ids,
+        context.nominal_types,
         context.array_types,
         context.record_types,
         context.function_types,
@@ -180,7 +202,11 @@ pub(super) fn lower_function(
         result_type,
         span: declaration.span,
     };
-    super::verify::verify_function(&function, context.signatures, context.representations)?;
+    let mut all_signatures = context.signatures.clone();
+    for (symbol, signature) in state.generated_signatures.borrow().iter() {
+        all_signatures.insert(*symbol, signature.clone());
+    }
+    super::verify::verify_function(&function, &all_signatures, context.representations)?;
     let mut generated = state.generated;
     generated.push(lambda::make_wrapper(&function, declaration, context));
     let warnings = state
@@ -203,11 +229,17 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) representations: &'a RepresentationTable,
     pub(super) module: &'a CoreModule,
+    /// Checked instantiation evidence and registered representation policies,
+    /// supplied by the Core-to-CC boundary.
+    pub(super) boundary: &'a BoundaryEvidence<'a>,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
+    pub(super) nominal_types: &'a HashMap<HirTypeId, ReprId>,
     pub(super) boxed_integer_type: Option<ReprId>,
     pub(super) boxed_number_type: Option<ReprId>,
+    pub(super) control_layout: Option<super::layout::control::ControlLayout>,
+    pub(super) control_functions: Rc<RefCell<Option<control::ControlFunctions>>>,
     pub(super) array_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) record_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
@@ -216,13 +248,40 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, SignatureId>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
     pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
+    /// Signatures of functions generated during lowering (for example the
+    /// control executor). The per-function verifier resolves calls against these
+    /// in addition to the declared signatures.
+    pub(super) generated_signatures: Rc<RefCell<HashMap<SymbolId, Signature>>>,
     pub(super) owner: ModuleId,
     pub(super) warnings: Vec<BackendWarning>,
     pub(super) generated: Vec<Function>,
 }
 
 impl FunctionLowerer<'_> {
+    pub(in crate::cc::lower) fn verify_synthesized(
+        &self,
+        function: &Function,
+    ) -> Result<(), Vec<BackendError>> {
+        let mut signatures: std::collections::HashMap<SymbolId, Signature> =
+            self.signatures.clone();
+        signatures.extend(
+            self.generated_signatures
+                .borrow()
+                .iter()
+                .map(|(symbol, signature)| (*symbol, signature.clone())),
+        );
+        crate::cc::verify::verify_function(function, &signatures, self.representations)
+    }
+
     pub(super) fn lower_value(
+        &mut self,
+        expression: &Expr,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        psrs_span::with_sufficient_stack(|| self.lower_value_inner_entry(expression, assignments))
+    }
+
+    fn lower_value_inner_entry(
         &mut self,
         expression: &Expr,
         assignments: &mut Vec<Assignment>,
@@ -234,6 +293,7 @@ impl FunctionLowerer<'_> {
             self.enum_types,
             self.aggregate_types,
             self.newtype_ids,
+            self.nominal_types,
             self.array_types,
             self.record_types,
             self.function_types,

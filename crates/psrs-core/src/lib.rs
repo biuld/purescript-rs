@@ -1,17 +1,30 @@
+pub mod command;
+mod control;
+pub use control::{CheckedControlContract, ControlDomain, checked_control_contract};
+/// The Core owner's rigid type relation, including lexical alpha-equivalence.
+pub fn equivalent_types(left: TypeId, right: TypeId, module: &Module) -> bool {
+    verify::equivalent_types(left, right, module)
+}
 pub mod dictionary;
-pub mod effect;
+mod instantiation;
 mod link;
+mod locals;
 mod lower;
 pub mod opt;
 mod pattern;
+pub mod primitive;
 mod records;
+pub use instantiation::{Instantiation, RowInstantiation, instantiate_local_rows};
 mod types;
 mod verify;
 
 pub use link::{link, prune_unreachable};
 pub use pattern::{Literal, Pattern, PatternKind};
 pub use records::{record_row, row_fields};
-pub use types::{Type, TypeConstructor, TypeId, arrow_parts, closure_parts, forall_parts};
+pub use types::{
+    Type, TypeConstructor, TypeId, arrow_parts, call_parts, closure_parts, forall_parts,
+    scheme_parts,
+};
 
 use psrs_hir::{
     CaseBranchCoverage, ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId,
@@ -36,8 +49,9 @@ pub struct ConstructorInfo {
     pub parameters: Vec<TypeVariableId>,
 }
 
-/// The checked, synonym-expanded signature of a WIT value import. Compiler
-/// intrinsics use registry-owned contracts and do not appear in this table.
+/// The checked, synonym-expanded signature of a source foreign value import.
+/// Bootstrap intrinsics use registry-owned contracts and do not appear here;
+/// explicit primitive bindings retain their source signature until linking.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalType {
     pub symbol: SymbolId,
@@ -53,7 +67,7 @@ pub struct Module {
     pub id: ModuleId,
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
-    /// Checked WIT import signatures projected from THIR. Backend binding and
+    /// Checked source foreign signatures projected from THIR. Backend binding and
     /// representation lowering must consume these schemes rather than
     /// reconstructing types from raw HIR annotations.
     pub external_types: Vec<ExternalType>,
@@ -111,7 +125,7 @@ pub struct Binding {
     pub span: TextRange,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Eq)]
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: TypeId,
@@ -191,6 +205,32 @@ pub enum ExprKind {
     },
 }
 
+impl Clone for Expr {
+    fn clone(&self) -> Self {
+        psrs_span::with_sufficient_stack(|| clone_expr(self))
+    }
+}
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        psrs_span::with_sufficient_stack(|| expr_eq(self, other))
+    }
+}
+
+#[inline(never)]
+fn clone_expr(expression: &Expr) -> Expr {
+    Expr {
+        kind: expression.kind.clone(),
+        ty: expression.ty,
+        span: expression.span,
+    }
+}
+
+#[inline(never)]
+fn expr_eq(left: &Expr, right: &Expr) -> bool {
+    left.ty == right.ty && left.span == right.span && left.kind == right.kind
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaseBranch {
     pub pattern: Pattern,
@@ -225,7 +265,35 @@ pub fn lower_module_unverified(module: psrs_thir::Module) -> Result<Module, Vec<
 
 impl Module {
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
-        verify::module(self)
+        verify::module(self, None)
+    }
+
+    /// Verifies this physical module while checking declaration instantiation
+    /// against `source` whenever both type ids still exist there.
+    ///
+    /// Representation lowering may replace a source application with a closure
+    /// at the same type id. Those relations stay on the immutable source
+    /// module. Types allocated only in this module, including synthesized
+    /// operation closures, are checked against this module's own type table.
+    pub fn verify_with_source(&self, source: &Module) -> Result<(), Vec<VerifyError>> {
+        verify::module(self, Some(source))
+    }
+
+    /// Checks a declaration use with the same relation as Core verification,
+    /// retaining its solved constructor bindings without changing acceptance.
+    pub fn checked_instantiation(
+        &self,
+        scheme: TypeId,
+        quantified: &[TypeVariableId],
+        instance: TypeId,
+    ) -> Option<Instantiation<'_>> {
+        verify::instantiation(self, scheme, quantified, instance)
+    }
+
+    /// Compares types with the same semantic relation used by Core verification,
+    /// including separately interned alpha-equivalent quantified types.
+    pub fn types_equivalent(&self, left: TypeId, right: TypeId) -> bool {
+        verify::equivalent_types(left, right, self)
     }
 
     /// The hidden calling-convention parameter count registered for a callable
@@ -242,7 +310,9 @@ impl Module {
     /// applied to it, in order. A non-constructor head yields `None`.
     pub fn applied_constructor(&self, mut id: TypeId) -> Option<(TypeConstructor, Vec<TypeId>)> {
         let mut arguments = Vec::new();
+        let mut remaining = self.types.len();
         while let Some(Type::Application(function, argument)) = self.types.get(id.0 as usize) {
+            remaining = remaining.checked_sub(1)?;
             arguments.push(*argument);
             id = *function;
         }

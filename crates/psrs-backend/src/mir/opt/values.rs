@@ -98,6 +98,7 @@ fn eliminate_function(function: &mut Function) {
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
+        Terminator::Trap { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
@@ -122,6 +123,20 @@ pub(crate) fn remap_instruction(
         *value = mapping.get(value).copied().unwrap_or(*value);
     };
     match instruction {
+        I::ControlEvidence {
+            destination,
+            value,
+            implementation,
+            arguments,
+            ..
+        } => {
+            replace(destination);
+            replace(value);
+            replace(implementation);
+            for argument in arguments {
+                replace(argument);
+            }
+        }
         I::Copy {
             destination, value, ..
         } => {
@@ -223,6 +238,16 @@ pub(crate) fn remap_instruction(
         } => {
             replace(destination);
             replace(length);
+        }
+        I::ArrayNewFilled {
+            destination,
+            length,
+            value,
+            ..
+        } => {
+            replace(destination);
+            replace(length);
+            replace(value);
         }
         I::CallRef {
             destination,
@@ -348,6 +373,7 @@ pub(crate) fn remap_terminator(terminator: &mut Terminator, mapping: &HashMap<Va
         *value = mapping.get(value).copied().unwrap_or(*value);
     };
     match terminator {
+        Terminator::Trap { .. } => {}
         Terminator::Return { value, .. } => replace(value),
         Terminator::Jump { arguments, .. } => arguments.iter_mut().for_each(replace),
         Terminator::Branch { condition, .. } => replace(condition),

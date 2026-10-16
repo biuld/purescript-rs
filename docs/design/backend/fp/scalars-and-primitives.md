@@ -3,7 +3,7 @@
 **Feature:** F-02  
 **Status:** Stable (design)  
 **Prerequisites:** [CC IR](cc-ir.md) and [MIR](mir.md); two's-complement
-integer arithmetic, IEEE-754 binary64, floor division, and the Wasm numeric
+integer arithmetic, IEEE-754 binary64, Euclidean division, and the Wasm numeric
 instruction set. Read [IR boundaries](../00-ir-boundaries.md) first.  
 **Summary:** Scalars are the unboxed Wasm value types the backend uses for
 `Int`, `Number`, `Boolean`, `Char`, and `Unit`; `String` is a GC array of
@@ -11,16 +11,14 @@ canonical UTF-8 bytes
 ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)),
 copied only at the canonical ABI boundary, and not a scalar. This document
 fixes the complete unary and binary operation
-vocabulary, the concrete Wasm lowering of every operation, the module-local
-floor division and modulo helpers, and the saturating `Number`-to-`Int`
+vocabulary, the concrete Wasm lowering of every operation, the library-owned Euclidean division policy, and the saturating `Number`-to-`Int`
 conversion. It is the reference a frontend uses to lower every built-in scalar
 operator without adding representation special cases.
 
 ## Scope
 
 This document owns the scalar value model shared by CC and MIR, the unary and
-binary operation vocabularies and their lowering, the generated floor
-helpers, the saturating float-to-int sequence, and scalar verification. It does
+binary operation vocabularies and their lowering, the boundary to library arithmetic, the saturating float-to-int sequence, and scalar verification. It does
 not own the byte-oriented string and ABI boundary (see
 [linear memory and the canonical ABI
 boundary](../wasm/linear-memory-and-canonical-abi-boundary.md) and
@@ -37,12 +35,13 @@ the Wasm `i32.add`/`sub`/`mul` behavior. The official compiler realizes `Int` on
 JavaScript with `| 0`, giving the same wrapping semantics; that behavior is the
 reference.
 
-**Truncated versus floor division.** Truncated division rounds toward zero
-and its remainder takes the sign of the dividend. `Data.Int`'s `div` rounds
-toward negative infinity, and `mod` satisfies `a = b * div a b + mod a b`:
-for nonzero `b`, the remainder is zero or has the sign of `b` and magnitude
-less than `|b|`. Wasm `i32.div_s`/`i32.rem_s` provide the truncated pair, so
-the floor pair is computed by a helper.
+**Truncated versus Euclidean division.** The primitive quotient truncates toward
+zero and its remainder takes the dividend's sign. Official `Data.EuclideanRing`
+`div/mod` instead satisfy `a = b * div a b + mod a b` with a nonnegative
+remainder below `abs b` for nonzero divisors; both return zero for divisor zero.
+The ordinary target library implements that policy using the truncating
+primitives. For example, `div 3 (-2) = -1` and `mod 3 (-2) = 1`.
+The compiler does not provide a second floor-division policy.
 
 **IEEE-754 binary64.** `Number` is an IEEE-754 binary64 value. The ordered
 comparisons follow the usual rules: a `NaN` is unequal to everything including
@@ -92,7 +91,7 @@ CC UnaryOp  = IntNeg | IntComplement | NumberNeg | BooleanNot
             | CharToInt | IntToChar
 
 CC BinaryOp = IntAdd | IntSub | IntMul
-            | IntQuot | IntRem | IntDiv | IntMod
+            | IntQuot | IntRem
             | IntAnd | IntOr | IntXor | IntShl | IntShr | IntZshr
             | IntEq | IntNe | IntLt | IntLe | IntGt | IntGe
             | NumberAdd | NumberSub | NumberMul | NumberDiv
@@ -129,8 +128,8 @@ reachable from the CC vocabulary.
 - `StringEq` takes two `ValueShape::String` values and produces `Boolean`.
   Canonical UTF-8 byte length and contents define equality; object identity is
   not observable.
-- floor helpers are ordinary MIR functions with `i32` parameters and
-  result, generated only when the module contains `IntDiv` or `IntMod`.
+- Euclidean division and modulo remain ordinary library functions, composed
+  from checked primitive arithmetic and conditionals.
 
 ## Design
 
@@ -144,7 +143,6 @@ chosen mapping is:
 | --- | --- | --- |
 | `IntAdd` / `IntSub` / `IntMul` | `I32Add` / `I32Sub` / `I32Mul` | `i32.add` / `i32.sub` / `i32.mul` |
 | `IntQuot` / `IntRem` | `I32DivS` / `I32RemS` | `i32.div_s` / `i32.rem_s` |
-| `IntDiv` / `IntMod` | helper `Call` | module-local MIR function |
 | `IntAnd` / `IntOr` / `IntXor` | `I32And` / `I32Or` / `I32Xor` | `i32.and` / `i32.or` / `i32.xor` |
 | `IntShl` / `IntShr` / `IntZshr` | `I32Shl` / `I32ShrS` / `I32ShrU` | `i32.shl` / `i32.shr_s` / `i32.shr_u` |
 | `IntEq`..`IntGe` | `I32Eq`..`I32GeS` | `i32.eq`/`ne`/`lt_s`/`le_s`/`gt_s`/`ge_s` |
@@ -157,6 +155,10 @@ chosen mapping is:
 | `IntNeg` | `I32Neg` | `0 - x` |
 | `IntComplement` | `I32Complement` | `x ^ -1` |
 | `NumberNeg` | `F64Neg` | `f64.neg` |
+| `NumberAbs` | `F64Abs` | `f64.abs` |
+| `NumberSqrt` | `F64Sqrt` | `f64.sqrt` |
+| `NumberTrunc` | `F64Trunc` | `f64.trunc` |
+| `NumberFloor` / `NumberCeil` | `F64Floor` / `F64Ceil` | `f64.floor` / `f64.ceil` |
 | `BooleanNot` | `BoolNot` | `i32.eqz` |
 | `IntToNumber` | `I32ToF64` | `f64.convert_i32_s` |
 | `NumberToInt` | `F64ToI32Sat` | saturating sequence (below) |
@@ -180,21 +182,94 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
   dividend. Division or remainder by zero traps because the Wasm instruction
   traps; `i32.div_s` also traps on `i32.min / -1`, and that is the defined
   two's-complement overflow behavior.
-- `IntDiv`/`IntMod` use floor division and a remainder with the divisor's sign,
-  matching `Data.Int`; they are computed by
-  the helpers below.
+- Public `div/mod` belong to the library and use nonnegative Euclidean
+  remainders and explicit zero handling; see the background above.
 - Comparisons are signed; shifts and bitwise operations act on the 32-bit
   pattern.
 
 ### Number arithmetic
 
 - Arithmetic maps to the four `f64` operations and negation to `f64.neg`.
+- `NumberAbs` (`numberAbs :: Number -> Number`) lowers to `f64.abs`, clearing
+  the sign bit without changing the magnitude or NaN payload. Negative zero
+  becomes positive zero, either infinity becomes positive infinity, and NaN
+  remains NaN. Core, CC and MIR require Number/F64 operands and results. This
+  implements the official Data.Number.abs foreign slot; no integer conversion
+  or library-name recognition is involved. The primitive remains explicit for
+  constant operands; no new constant folding is claimed. See the
+  [WebAssembly absolute-value semantics](https://webassembly.github.io/spec/core/exec/numerics.html#op-fabs).
+- `NumberSqrt` (`numberSqrt :: Number -> Number`) lowers to `f64.sqrt`. It
+  follows IEEE-754 square root: exact squares stay exact, positive infinity
+  stays positive infinity, a negative finite value or negative infinity becomes
+  NaN, NaN stays NaN, and negative zero stays negative zero. The operation does
+  not trap. It implements the official Data.Number.sqrt foreign slot and is not
+  folded when its operand is constant. See the
+  [WebAssembly square-root semantics](https://webassembly.github.io/spec/core/exec/numerics.html#op-fsqrt).
+- `NumberAcos` (`numberAcos :: Number -> Number`) has no Wasm opcode. Core and
+  CC require Number operands and results, then MIR calls the checked scalar
+  export `number_acos` in the numeric runtime. The pinned upstream libm 0.2.15
+  routine returns radians. Finite inputs outside [-1, 1], infinities, and
+  NaN produce NaN, and the operation does not trap. NaN payloads are not a
+  public guarantee. It implements the official Data.Number.acos foreign slot.
+  A whole inverse-cosine algorithm does not become a compiler intrinsic, and
+  the result is not folded when its operand is constant.
+- `NumberAsin` (`numberAsin :: Number -> Number`) uses the same checked
+  scalar-runtime boundary. The pinned libm 0.2.15 fdlibm polynomial returns
+  radians and preserves the sign of zero. Finite inputs outside [-1, 1],
+  infinities, and NaN produce NaN, and the operation does not trap. NaN
+  payloads are not a public guarantee. It implements the official
+  Data.Number.asin foreign slot and is not folded when its operand is constant.
+- `NumberAtan` (`numberAtan :: Number -> Number`) uses the same checked
+  scalar-runtime boundary. The runtime calls pinned upstream libm 0.2.15
+  and returns radians, preserving the sign of zero. Inputs whose magnitude
+  is below 2^-27, including subnormals, return unchanged. The artifact build
+  applies `-C no-redzone=yes` to the runtime and its dependencies, so `force_eval` temporaries reserve explicit stack frames
+  that the linker can measure. This routine is neither copied nor patched.
+  Positive and negative infinity produce positive and negative pi/2. NaN
+  produces NaN, and the operation does not trap. NaN payloads are not a public guarantee. It
+  implements the official Data.Number.atan foreign slot and is not folded
+  when its operand is constant.
+- `NumberAtan2` (`numberAtan2 :: Number -> Number -> Number`) uses the same
+  checked scalar-runtime boundary with two Number arguments. The argument
+  order is `y` then `x`, matching official `Math.atan2`. The runtime follows
+  the fdlibm exponent-gap cutoff of 60 and calls the checked inverse-tangent
+  export for moderate ratios. An exponent gap above 60 returns a signed
+  half-pi, and a negative `x` whose gap is below -60 contributes zero before
+  the pi adjustment. libm 0.2.15's own two-argument routine uses a wider gap
+  and is not the oracle. Returned bits match official `Math.atan2`, including
+  the sign of zero. Either NaN produces NaN, and the operation does not trap.
+  NaN payloads are not a public guarantee. It implements the official
+  Data.Number.atan2 foreign slot and is not folded when its operands are
+  constant. Wasm has no two-argument inverse-tangent instruction.
+- `NumberSin`, `NumberCos`, `NumberTan`, and `NumberExp` use the same checked
+  scalar-runtime boundary. The runtime calls pinned upstream libm 0.2.15
+  with red-zone use disabled for the artifact and its dependencies.
+  Returned bits follow those routines. On a measured sample they usually
+  match official `Math`, and some inputs still differ by one ulp. Infinities
+  produce NaN for the three trigonometric operations. Exponential overflow produces infinity and
+  underflow produces zero. NaN produces NaN. None of these operations trap,
+  and none are folded when an operand is constant. Wasm has no sine, cosine,
+  tangent, or exponential instruction.
+- `NumberLog` and `NumberPow` call pinned libm 0.2.15. `NumberPow` then
+  applies the JavaScript exceptions libm does not: a NaN exponent produces
+  NaN, and ±1 raised to an infinity produces NaN. An exponent of zero still
+  produces 1, including a NaN base. A negative logarithm argument produces
+  NaN, and either signed zero produces negative infinity. Neither operation
+  traps.
+- `NumberMin` and `NumberMax` return NaN when either argument is NaN. A zero
+  minimum is negative when either zero is negative. A zero maximum is negative
+  only when both zeros are negative. They are not IEEE `minNum`.
+- `NumberSign` returns NaN and both zeros unchanged, and every other finite or
+  infinite value becomes ±1.
+- `NumberRemainder` is JavaScript `%`: the exact remainder, with a zero result
+  taking the dividend's sign. An infinite dividend or a zero divisor produces
+  NaN. It does not trap.
+- `NumberIsNaN` is `Number -> Boolean` and is true for every NaN payload.
+  `NumberNaN` and `NumberInfinity` are nullary Number constants. Only these two
+  nullary primitives are accepted as foreign bindings. Negative infinity is
+  negation of `NumberInfinity`.
 - Comparisons use the ordered `f64` operations; `NumberEq`/`NumberNe` are
   `f64.eq`/`f64.ne`, so `NaN` is unequal to itself and `+0 = -0`.
-- The current vocabulary has no `Number` remainder. If the standard library
-  exposes one, it needs a helper that realizes the required semantics (for
-  example the JavaScript `%` semantics `x - trunc(x / y) * y`), decided when
-  that operation is added.
 
 ### Boolean and character operations
 
@@ -204,6 +279,50 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
 - `Char` reuses the signed integer comparisons; `CharToInt` and `IntToChar`
   are representation identities, and the source layer is responsible for the
   validity of the scalar value.
+
+### Number integral rounding
+
+`NumberTrunc` (`numberTrunc :: Number -> Number`) lowers to `f64.trunc`:
+finite values round toward zero without converting to i32. It preserves zero
+signs and infinities; NaN produces NaN without a payload-bit guarantee. Core,
+CC and MIR verify Number/F64 operand and result types. The primitive remains
+available for constant operands even when the MIR optimizer does not fold it.
+The library uses it for the official Data.Number.trunc foreign slot; public
+Int.trunc retains its official finite check and range clamping wrapper.
+
+`NumberFloor` and `NumberCeil` have the same Number/F64 type contract and
+nonfinite/zero-sign guarantees, with rounding toward negative and positive
+infinity, respectively. They lower directly to `f64.floor` and `f64.ceil`,
+without an integer representation boundary. The library owns ECMAScript
+round-to-nearest with ties toward positive infinity: this differs from Wasm
+`f64.nearest` and cannot be replaced by adding 0.5 before flooring. Public
+Int.floor/ceil/round retain their unchanged finite checks and clamping wrappers.
+
+### Complete decimal conversion
+
+`NumberFromDecimal` (`numberFromDecimal :: String -> Number`) converts a complete
+ASCII signed decimal token, with an optional decimal exponent, to binary64.
+It uses the pinned Rust core parser's nearest-representable rounding, including
+ties to even, signed underflow zero, and overflow to signed infinity. Empty,
+partial, nondecimal, non-ASCII, and whitespace-containing tokens produce NaN.
+`Infinity` and `NaN` spellings are outside this primitive's grammar.
+
+Core and CC validate String input and Number output before ABI erasure. MIR
+copies canonical UTF-8 to a transient linear-memory buffer using the shared
+string boundary protocol, calls the checked numeric-runtime export, and frees
+the buffer. The runtime allocates nothing and retains no pointer. Its artifact
+contract declares both numeric exports and private table initialization;
+static stack analysis covers every path reachable from its entry points.
+The compiler preserves potentially trapping canonical-buffer allocation for
+both numeric formatting and conversion, even when the result is unused.
+
+The library owns ECMAScript whitespace, longest-prefix recognition, rollback of
+an incomplete exponent, `Infinity` recognition, and ordinary predicate/builder
+calls. It preserves the official public `Data.Number.fromString` wrapper and
+the foreign slot's rank-N `Fn4` signature. Whole parsing functions are not
+compiler intrinsics. The contracts are
+[ECMAScript parseFloat](https://tc39.es/ecma262/multipage/global-object.html#sec-parsefloat-string)
+and [Rust f64::from_str](https://doc.rust-lang.org/std/primitive.f64.html#impl-FromStr-for-f64).
 
 ### Conversions
 
@@ -218,9 +337,9 @@ scalar sequence one byte sequence, so byte equality is scalar String equality.
 
 ### Rejected alternatives
 
-- **Map `IntDiv`/`IntMod` to `i32.div_s`/`i32.rem_s`.** Rejected: these are
-  truncated, not floor, and produce the wrong remainder sign for negative
-  operands (`-5` by `3` would give remainder `-2` instead of `1`).
+- **Compiler-owned Euclidean or floor helpers.** Rejected: public arithmetic
+  policy belongs to ordinary library definitions. The old `intDiv/intMod`
+  bindings implemented a different signed-divisor policy and are retired.
 - **Trapping `Number`-to-`Int`.** Rejected: an out-of-range or `NaN` operand
   would trap a type-correct program. The saturating lowering keeps the
   conversion total.
@@ -250,63 +369,25 @@ The emitter builds this as nested `if` expressions over `f64.le`, `f64.ge`,
 and `f64.ne` and calls the trapping `i32.trunc_f64_s` only inside the safe
 range, so it never traps.
 
-### Floor division and modulo
+### Library division and modulo
 
-Both helpers read their operands as `i32` parameters `a` and `b`. They first
-compute the truncated remainder and decide whether an adjustment is needed:
-
-```text
-r             = a rem_s b          # truncated remainder
-nonzero       = r != 0
-remainder_neg = r < 0
-divisor_neg   = b < 0
-adjust        = nonzero && (remainder_neg != divisor_neg)
-
-# divide:
-if adjust: a div_s b - 1 else: a div_s b
-
-# modulo:
-if adjust: r + b        else: r
-```
-
-The adjustment changes a quotient or remainder only when the truncated remainder
-and the divisor have opposite signs. Thus `a = b * div a b + mod a b`, with
-`mod a b` taking the sign of `b` (or zero). This is floor division; the
-nonnegative-remainder convention is a different rule. Both paths
-execute `a rem_s b` (and `a div_s b` for the divide helper), so `b = 0` traps as
-the underlying instruction does. This matches the official `Data.Int`
-semantics.
-
-### Helper generation and linking
-
-```text
-lower_scalar_helpers(module, first_function_id):
-    needs_div = any assignment (including nested if branches) is IntDiv
-    needs_mod = any assignment is IntMod
-    symbol_module = first function's module, else the intrinsics module
-    allocate each needed helper symbol downward from u32::MAX, skipping symbols
-      used by the module's functions and externals
-    emit each helper as an ordinary MIR Function with consecutive FunctionIds
-      starting at first_function_id
-```
-
-Each helper is a four-block MIR function (entry, then-block, else-block, merge
-block) with a `Branch`, two `Jump`s with the computed value, and a `Return`. The
-helper symbols are held beside the module in `ScalarHelpers`; when lowering an
-`IntDiv`/`IntMod` assignment, P9 emits an `Instruction::Call` to the
-corresponding helper instead of a `Primitive`. A module that uses neither
-operation generates neither helper.
+The official pure wrappers retain their source signatures and branches. The
+Wasm-specific foreign delegates expose truncating quotient/remainder and wrapping
+arithmetic. Their callers implement Euclidean adjustment and zero handling.
+There is no `IntDiv` or `IntMod` CC operation or generated MIR helper. Retired
+intrinsic IDs 26 and 27 remain reserved; the names are rejected rather than
+being silently rebound to a different policy.
 
 ## Code map
 
-The scalar design is owned by three module groups: the MIR operation
-vocabularies, the MIR helper generator, and the Wasm emission modules. The
-intended structure is:
+The language vocabulary, exhaustive target selection, concrete MIR operations,
+and Wasm emission have separate owners. See
+[intrinsic implementations](intrinsic-implementations.md). The structure is:
 
 ```text
 mir/numeric.rs                  UnaryOp and NumericOp; CC -> MIR operation selection
-mir/scalar_helpers.rs           floor helper detection, generation, and
-                                helper symbol allocation
+target_intrinsics/             exhaustive language-to-target selection
+mir/lower/runtime_call.rs      artifact protocol adaptation
 wasm/lower/structure/ops.rs     binary NumericOp -> wasm_encoder::Instruction,
                                 plus reference and memory operand helpers
 wasm/lower/structure/unary.rs   UnaryOp emission, including the saturating
@@ -320,30 +401,19 @@ vocabularies and the total conversion from the CC vocabularies:
 pub enum UnaryOp { I32Neg, I32Complement, F64Neg, BoolNot, I32ToF64, F64ToF32, F32ToF64, F64ToI32Sat, BoolToI32, I32ToBool, I32Identity }
 pub enum NumericOp { I32Add, I32Sub, I32Mul, I32DivS, I32RemS, I32And, I32Or, I32Xor, I32Shl, I32ShrS, I32ShrU, I32Eq, I32Ne, I32LtS, I32LeS, I32GtS, I32GeS, BoolAnd, BoolOr, BoolEq, BoolNe, F64Add, F64Sub, F64Mul, F64Div, F64Eq, F64Ne, F64Lt, F64Le, F64Gt, F64Ge }
 impl From<cc::UnaryOp> for UnaryOp;   // total
-impl TryFrom<cc::BinaryOp> for NumericOp;   // IntDiv/IntMod have no instruction
+impl TryFrom<cc::BinaryOp> for NumericOp;   // StringEq is lowered as a byte comparison
 ```
 
 Every CC unary operation MUST map to exactly one `UnaryOp`, and every CC binary
-operation except `IntDiv` and `IntMod` MUST map to exactly one `NumericOp`.
+operation except `StringEq` MUST map to exactly one `NumericOp`. String equality
+uses its checked GC byte-array lowering.
 
-**Helper generation.** `mir/scalar_helpers.rs` MUST detect the
-helper-requiring operations, allocate their symbols, and emit the helpers:
-
-```rust
-pub fn lower_scalar_helpers(module: &cc::Module, first_function_id: u32) -> (ScalarHelpers, Vec<Function>);
-impl ScalarHelpers {
-    pub fn binary_instruction(&self, op: cc::BinaryOp, destination: ValueId, left: ValueId, right: ValueId, span: TextRange) -> Result<Instruction, Vec<BackendError>>;
-}
-```
-
-`lower_scalar_helpers` MUST emit each needed helper as an ordinary `Function`
-with consecutive `FunctionId`s starting at `first_function_id`, MUST allocate
-each helper symbol downward from `u32::MAX` while skipping symbols already used
-by the module's functions and externals, and MUST return the symbol table. A
-module that uses neither `IntDiv` nor `IntMod` MUST generate no helper.
-`ScalarHelpers::binary_instruction` MUST select a `Call` to the matching
-generated helper for `IntDiv`/`IntMod` and MUST otherwise select the
-corresponding `Primitive` from `mir/numeric.rs`.
+**Implementation selection.** `target_intrinsics::implementation` MUST classify
+all active HIR identities exhaustively as direct operations, generated operations,
+artifact exports, elaborated values, or explicit unsupported values. This table
+selects the implementation; the consuming pass performs its own typed conversion.
+Artifact adaptation validates the language scheme before erasure, and linking
+checks the actual MIR consumer signature against the provider.
 
 **Wasm emission.** `wasm/lower/structure/ops.rs` MUST expose:
 
@@ -384,8 +454,7 @@ exactly; the MIR verifier checks each lowered operation's operand and result
   produce `Boolean`;
 - unary negation/complement match their operand and result types;
 - `I32ToF64` is `I32 -> F64`, `F64ToI32Sat` is `F64 -> I32`, `BoolToI32` is
-  `Boolean -> I32`, and `I32ToBool` is `I32 -> Boolean`; and
-- the floor helper signatures are `(I32, I32) -> I32`.
+  `Boolean -> I32`, and `I32ToBool` is `I32 -> Boolean`.
 
 A mismatch is reported with the operation's source span. Every operation in
 this vocabulary is part of the core WebAssembly baseline; the target capability
@@ -393,34 +462,12 @@ gate needs no new proposal for it.
 
 ## Worked example
 
-floor division of `-5` by `3`. The CC fragment
-
-```text
-v0 = -5
-v1 = 3
-v2 = IntDiv(v0, v1)
-v3 = IntMod(v0, v1)
-result = v2 + v3*...          // in source, `div (-5) 3` and `mod (-5) 3`
-```
-
-has both operations replaced by helper calls, and the module gains
-`__psrs_floor_int_div` and `__psrs_floor_int_mod`. Tracing the divide
-helper:
-
-```text
-a = -5, b = 3
-r             = -5 rem_s 3   = -2
-nonzero       = true
-remainder_neg = true
-divisor_neg   = false
-adjust        = true
-result        = (-5 div_s 3) - 1 = -1 - 1 = -2
-```
-
-The modulo helper computes `r + b = -2 + 3 = 1`. Substituting into
-`a = b * div a b + mod a b` gives `-5 = 3 * (-2) + 1`, the floor identity.
-The `div_mod` and `binary_matrix` fixtures execute this and the other sign
-combinations through Wasm GC and check the combined boolean result.
+For `a = -5` and `b = 3`, raw quotient/remainder produce `-1` and `-2`.
+The library adjusts them to `div a b = -2` and `mod a b = 1`, satisfying
+`-5 = 3 * (-2) + 1`. For `a = 3` and `b = -2`, the raw remainder is already
+nonnegative: the library returns quotient `-1` and remainder `1`.
+For `b = 0`, the wrapper returns zero before executing either trapping primitive.
+Source tests exercise these wrappers through case branches and all operand signs.
 
 ## Boundaries and interfaces
 
@@ -439,24 +486,24 @@ combinations through Wasm GC and check the combined boolean result.
 ## Open questions and future work
 
 - **`Number` remainder.** If a source `mod` for `Number` is added, its exact
-  semantics (JavaScript `%` versus floor) and helper must be fixed here.
+  semantics (JavaScript `%` versus Euclidean policy) must be owned by the
+  library wrapper rather than a new compiler arithmetic operation.
 - **Saturating-capability switch.** The profile enables the saturating
   float-to-int proposal; if the sequence were replaced by `i32.trunc_sat_f64_s`
   the capability gate would have to require it.
 - **`i64`/`f32` source types.** Adding them is a vocabulary extension with no
   change to the operand/result model.
-- **Fast paths for known-sign constants.** The helper could inline the
-  adjustment when both operands are statically non-negative; this is an
-  optimization that must preserve the floor result.
+- **Fast paths for known-sign constants.** Ordinary library code may inline its
+  adjustment when operands are known, preserving the Euclidean result.
 
 ## Implementation notes
 
 The CC and MIR vocabularies, lowerings, and verifiers implement the full unary
 and binary set above. The source bootstrap exposes the operations that do not
 already have symbolic integer syntax as specialized functions: `intNeg`,
-`intComplement`, `numberNeg`, `booleanNot`, the six conversion names from the
+`intComplement`, `numberNeg`, `numberTrunc`, `numberFloor`, `numberCeil`, `booleanNot`, the six conversion names from the
 table (`intToNumber`, `numberToInt`, `booleanToInt`, `intToBoolean`,
-`charToInt`, and `intToChar`), `intDiv`, `intMod`, the six integer bitwise
+`charToInt`, and `intToChar`), the six integer bitwise
 and shift names, all `number*`, `boolean*`, and `char*` binary names in the
 table.
 The existing symbols `+`, `-`, `*`, `/`, `%`, `==`, `/=`, `<`, `<=`, `>`, and
@@ -464,7 +511,7 @@ The existing symbols `+`, `-`, `*`, `/`, `%`, `==`, `/=`, `<`, `<=`, `>`, and
 Fully saturated intrinsic applications lower to typed Core unary or binary
 primitives; Core verification checks their exact scalar operand and result
 types before P8 maps them into CC. A source-level driver fixture compiles every
-operation and executes the documented floor, conversion, comparison, and
+operation and executes the documented Euclidean, conversion, comparison, and
 wrapping behaviors through Wasmtime when it is available.
 
 ## References

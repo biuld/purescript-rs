@@ -10,6 +10,14 @@ impl<'a> Parser<'a> {
         let mut operands = vec![first];
         let mut operators = Vec::new();
         loop {
+            if let Some((operator, _, tokens)) = self.qualified_operator() {
+                for _ in 0..tokens {
+                    self.bump();
+                }
+                operators.push(operator);
+                operands.push(self.parse_pattern_prefix()?);
+                continue;
+            }
             let operator = match &self.current().kind {
                 LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) if operator != "@" => {
                     operator.clone()
@@ -96,23 +104,24 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn starts_pattern_atom(&self) -> bool {
-        matches!(
-            &self.current().kind,
-            LayoutTokenKind::Raw(
-                RawTokenKind::LowerIdent(_)
-                    | RawTokenKind::UpperIdent(_)
-                    | RawTokenKind::Integer(_)
-                    | RawTokenKind::Number(_)
-                    | RawTokenKind::String(_)
-                    | RawTokenKind::Char(_)
-                    | RawTokenKind::LParen
-                    | RawTokenKind::LBracket
-                    | RawTokenKind::LBrace
-                    | RawTokenKind::As
-                    | RawTokenKind::Hiding
-                    | RawTokenKind::Role
+        self.qualified_operator().is_none()
+            && matches!(
+                &self.current().kind,
+                LayoutTokenKind::Raw(
+                    RawTokenKind::LowerIdent(_)
+                        | RawTokenKind::UpperIdent(_)
+                        | RawTokenKind::Integer(_)
+                        | RawTokenKind::Number(_)
+                        | RawTokenKind::String(_)
+                        | RawTokenKind::Char(_)
+                        | RawTokenKind::LParen
+                        | RawTokenKind::LBracket
+                        | RawTokenKind::LBrace
+                        | RawTokenKind::As
+                        | RawTokenKind::Hiding
+                        | RawTokenKind::Role
+                )
             )
-        )
     }
 
     pub(crate) fn parse_pattern_atom(&mut self) -> Result<Pattern, ParseError> {
@@ -224,10 +233,29 @@ impl<'a> Parser<'a> {
                     RawTokenKind::Hiding => "hiding",
                     _ => "role",
                 };
-                Ok(Pattern {
+                let pattern = Pattern {
                     kind: PatternKind::Var(CstName::new(text, token.span)),
                     span: token.span,
-                })
+                };
+                // `as` is the fixity keyword, and it is also a legal binder.
+                // `merge as@(a : as')` is a named pattern, same as a lower-ident binder.
+                if self.at_operator_text("@") {
+                    let at_span = self.bump().span;
+                    let inner = self.parse_pattern_atom()?;
+                    let span = TextRange::new(pattern.span.start, inner.span.end);
+                    let PatternKind::Var(name) = pattern.kind else {
+                        unreachable!("just constructed a variable pattern")
+                    };
+                    return Ok(Pattern {
+                        kind: PatternKind::Named {
+                            name,
+                            at_span,
+                            pattern: Box::new(inner),
+                        },
+                        span,
+                    });
+                }
+                Ok(pattern)
             }
             LayoutTokenKind::Raw(RawTokenKind::LParen) => self.parse_parenthesized_pattern(),
             LayoutTokenKind::Raw(RawTokenKind::LBracket) => self.parse_array_pattern(),

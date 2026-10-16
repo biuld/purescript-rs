@@ -58,6 +58,7 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     assignments.push(Assignment {
         destination: call_result,
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: external_symbol,
             arguments,
         },
@@ -89,6 +90,7 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

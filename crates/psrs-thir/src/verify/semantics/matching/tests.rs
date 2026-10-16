@@ -158,6 +158,51 @@ fn alpha_equal_foralls_match_reordered_rows_inside_nested_proxy_types() {
 }
 
 #[test]
+fn a_more_polymorphic_function_matches_a_rank_n_instance_method() {
+    let mut types = Vec::new();
+    let x = TypeVariableId(50);
+    let y = TypeVariableId(51);
+    let z = TypeVariableId(52);
+    let x_ty = push(&mut types, Type::Variable(x));
+    let y_ty = push(&mut types, Type::Variable(y));
+    let z_ty = push(&mut types, Type::Variable(z));
+    let y_to_z = arrow(&mut types, y_ty, z_ty);
+    let x_to_y = arrow(&mut types, x_ty, y_ty);
+    let x_to_z = arrow(&mut types, x_ty, z_ty);
+    let function_after_first = arrow(&mut types, x_to_y, x_to_z);
+    let actual_body = arrow(&mut types, y_to_z, function_after_first);
+    let actual = push(
+        &mut types,
+        Type::ForAll {
+            variables: vec![x, y, z],
+            body: actual_body,
+        },
+    );
+
+    let a = TypeVariableId(53);
+    let b = TypeVariableId(54);
+    let r = TypeVariableId(55);
+    let a_ty = push(&mut types, Type::Variable(a));
+    let b_ty = push(&mut types, Type::Variable(b));
+    let r_ty = push(&mut types, Type::Variable(r));
+    let a_to_b = arrow(&mut types, a_ty, b_ty);
+    let r_to_a = arrow(&mut types, r_ty, a_ty);
+    let r_to_b = arrow(&mut types, r_ty, b_ty);
+    let function_after_first = arrow(&mut types, r_to_a, r_to_b);
+    let expected_body = arrow(&mut types, a_to_b, function_after_first);
+    let expected = push(
+        &mut types,
+        Type::ForAll {
+            variables: vec![a, b],
+            body: expected_body,
+        },
+    );
+    let module = module(types, Vec::new());
+
+    assert!(compatible(actual, expected, &module));
+}
+
+#[test]
 fn scheme_instantiation_rejects_inconsistent_reuses_of_a_generic_row_tail() {
     let mut types = vec![Type::RowEmpty];
     let empty = TypeId(0);

@@ -14,6 +14,14 @@ pub(in crate::cc::lower) fn collect_captures(
     bound: &mut HashSet<LocalId>,
     captures: &mut Vec<LocalId>,
 ) {
+    psrs_span::with_sufficient_stack(|| collect_captures_inner(expression, bound, captures))
+}
+
+fn collect_captures_inner(
+    expression: &Expr,
+    bound: &mut HashSet<LocalId>,
+    captures: &mut Vec<LocalId>,
+) {
     match &expression.kind {
         ExprKind::Local(local) => {
             if !bound.contains(local) && !captures.contains(local) {

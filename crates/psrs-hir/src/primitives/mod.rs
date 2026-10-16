@@ -4,6 +4,7 @@ use crate::{
 };
 use psrs_span::TextRange;
 
+mod control;
 mod core;
 mod numbers;
 mod rows;
@@ -16,6 +17,7 @@ mod tests;
 /// shared type spine. Each declaration is owned by its virtual interface.
 pub fn primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)> {
     [
+        control::declarations(),
         core::declarations(),
         rows::declarations(),
         numbers::declarations(),
@@ -38,6 +40,7 @@ fn class(
         name: name.to_owned(),
         name_span: empty_span(),
         kind: TypeDeclarationKind::Class,
+        compiler_class: None,
         parameters: parameters
             .iter()
             .map(|name| TypeParameter {
@@ -63,6 +66,7 @@ fn foreign_type(id: TypeId, name: &str, declared_kind: Type, roles: &[Role]) -> 
         name: name.to_owned(),
         name_span: empty_span(),
         kind: TypeDeclarationKind::Foreign,
+        compiler_class: None,
         parameters: Vec::new(),
         constructors: Vec::new(),
         members: Vec::new(),

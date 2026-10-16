@@ -23,8 +23,11 @@ interfaces already require them:
   `result<list<incoming-datagram>, error-code>`.
 
 PureScript already has idiomatic, common types for every one of these forms.
-No new compiler type vocabulary is required: records (the frontend already treats a tuple as a closed record, FE-06), `Data.Maybe.Maybe`, `Data.Either.Either`, and
-ordinary user data types. The functional shape of WIT maps directly onto them.
+Native tuple syntax is a closed record (FE-06). The core library's
+`Data.Tuple.Tuple` is an ordinary algebraic data type with a `Tuple` data
+constructor; it is a separate library type. WIT tuples map to the closed-record
+form so the ABI mapping remains structural and does not depend on importing
+`Data.Tuple`.
 
 ## Decision
 
@@ -70,6 +73,10 @@ source field is `Unit`. There is no `Unit`/trap special case: a unit-success
   type, the linking stage interns it and validates it against the WIT
   descriptor, CC derives the layout, and MIR lowers from the CC signature and
   the descriptor. `SourceType` is not reintroduced.
+- FE-06 native tuple syntax and `Data.Tuple.Tuple` remain separate source forms:
+  `(a, b)` is the closed record `{ _1 :: a, _2 :: b }`, while `Tuple a b` is the
+  library ADT. This decision does not add a compiler tuple type or make the two
+  source forms interchangeable.
 - DEC-11's mechanism clause ("do not grow `SourceType`"; "do not recognize
   `Maybe`/`Either`/tuples") is superseded by this decision. DEC-11's two-layer
   rule stands: the standard library wraps foreign imports in ordinary
@@ -92,14 +99,10 @@ source field is `Unit`. There is no `Unit`/trap special case: a unit-success
 
 Rejected alternatives:
 
-- **Compiler builtins for `Maybe`, `Either`, or tuples.** The library types are
-  the idiomatic ones; a builtin would duplicate them and force a name on user
-  code.
+- **Compiler builtins for `Maybe` or `Either`.** The library types are the
+  idiomatic ones; a builtin would duplicate them and force a name on user code.
 - **A dedicated WIT aggregate type in the compiler.** Reintroduces the
   vocabulary DEC-12 removed.
 - **Structural recognition of any two-case ADT by constructor shape.** Two
   unrelated ADTs would be treated as `option`/`result`; recognition is by the
   named library type instead.
-- **A project-specific encoding of tuples as anything other than a record.**
-  FE-06 already fixes a tuple as `{ _1, _2, ... }`.
-

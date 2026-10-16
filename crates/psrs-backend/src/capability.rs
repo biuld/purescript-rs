@@ -52,9 +52,9 @@ pub struct TargetCapabilities {
 impl TargetCapabilities {
     /// The stable target used by `compile`.
     ///
-    /// GC and typed function references are required by the current runtime
-    /// representation.  Other Tier 1 Wasmtime proposals remain opt-in until
-    /// a lowering and an execution test actually use them.
+    /// GC, typed function references and tail calls are required by the current
+    /// runtime representation and stack-safe callable execution. Other proposals
+    /// remain opt-in until a lowering and an execution test actually use them.
     pub const fn wasmtime_wasi_0_2() -> Self {
         Self {
             mutable_globals: true,
@@ -67,7 +67,7 @@ impl TargetCapabilities {
             gc: true,
             simd: false,
             relaxed_simd: false,
-            tail_call: false,
+            tail_call: true,
             multi_memory: false,
             memory64: false,
             exceptions: false,
@@ -92,8 +92,29 @@ impl TargetCapabilities {
         }
     }
 
+    /// Whether the selected profile permits a WASI interface family.
+    pub fn wasi_interface_enabled(self, module: &str) -> bool {
+        let package_path = module
+            .split_once('/')
+            .map_or(module, |(package, _)| package);
+        let package = package_path
+            .split_once('@')
+            .map_or(package_path, |(package, _)| package);
+        match package {
+            "wasi:cli" => self.wasi_cli,
+            "wasi:io" => self.wasi_io,
+            "wasi:clocks" => self.wasi_clocks,
+            "wasi:random" => self.wasi_random,
+            "wasi:filesystem" => self.wasi_filesystem,
+            "wasi:sockets" => self.wasi_sockets,
+            "wasi:http" => self.wasi_http,
+            "wasi:tls" => self.wasi_tls,
+            _ => false,
+        }
+    }
+
     /// Converts the profile to the validator feature set.
-    pub(crate) fn wasm_features(self) -> wasmparser::WasmFeatures {
+    pub fn wasm_features(self) -> wasmparser::WasmFeatures {
         use wasmparser::WasmFeatures;
 
         let mut features = WasmFeatures::MVP;
@@ -154,7 +175,7 @@ mod tests {
             gc: true,
             simd: false,
             relaxed_simd: false,
-            tail_call: false,
+            tail_call: true,
             multi_memory: false,
             memory64: false,
             exceptions: false,

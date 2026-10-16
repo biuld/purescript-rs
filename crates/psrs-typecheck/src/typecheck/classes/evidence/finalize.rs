@@ -128,6 +128,9 @@ impl Checker {
         generics: &HashSet<u32>,
     ) -> Option<thir::EvidenceKind> {
         Some(match solution {
+            WantedSolution::DictionaryValue(value) => thir::EvidenceKind::DictionaryValue(
+                Box::new(self.finalize_expr(*value, interner, generics)?),
+            ),
             WantedSolution::Given(id) | WantedSolution::Abstracted(id) => {
                 thir::EvidenceKind::Given(id)
             }

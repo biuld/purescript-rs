@@ -103,6 +103,16 @@ Row equality is independent of source label order; matched fields have equal che
 
 P5 receives kind-checked row expressions and resolved record operations from HIR. It supplies type equations and evidence to [type inference](type-inference.md) and emits verified THIR. Row normalization and the primitive row relations are internal to P5 and share the kind and evidence contracts of [kinds](kinds.md) and [classes](classes-and-evidence.md); a later stage receives only checked row types. The backend chooses record and variant representation only after Core lowering.
 
+Core checks bare rows inside nominal type arguments with the same label-based
+row relation as record rows. Nominal arguments stay invariant: fields must have
+matching types, repeated bare-row labels retain their occurrence order, closed
+rows must have the same label occurrences, and rigid tails cannot
+absorb extra fields. Only quantified flexible tails receive checked residual
+substitutions. Those residuals remain in instantiation evidence even when no
+existing type-arena node represents them; later local-row materialization uses
+that evidence rather than reconstructing the match.
+
+
 ## Open questions and future work
 
 Use official tests to pin down duplicate-label diagnostics, record-update edge cases, and primitive row improvement order; [primitives](prim.md) owns the rules those tests exercise. [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) tracks implementation coverage.

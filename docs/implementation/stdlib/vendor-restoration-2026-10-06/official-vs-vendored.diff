@@ -1,0 +1,261 @@
+--- purescript-prelude@v6.0.1/src/Data/Unit.purs
++++ stdlib/lib/Data/Unit.purs
+@@ -1,14 +1,5 @@
+-module Data.Unit where
+-
+--- | The `Unit` type has a single inhabitant, called `unit`. It represents
+--- | values with no computational content.
+--- |
+--- | `Unit` is often used, wrapped in a monadic type constructor, as the
+--- | return type of a computation where only the _effects_ are important.
+--- |
+--- | When returning a value of type `Unit` from an FFI function, it is
+--- | recommended to use `undefined`, or not return a value at all.
+-foreign import data Unit :: Type
+-
+--- | `unit` is the sole inhabitant of the `Unit` type.
+-foreign import unit :: Unit
++-- | `Unit` is a compiler builtin, the same type as an unqualified
++-- | `Unit`. This module re-exports that builtin and the `unit`
++-- | primitive so `import Data.Unit` matches the official library
++-- | without declaring a second unit type.
++module Data.Unit (Unit, unit) where
+--- purescript-console@v6.0.0/src/Effect/Console.purs
++++ stdlib/lib/Effect/Console.purs
+@@ -1,14 +1,15 @@
+ module Effect.Console where
+ 
+ import Effect (Effect)
++import WASI.Console as Console
+ 
+ import Data.Show (class Show, show)
+ import Data.Unit (Unit)
+ 
+ -- | Write a message to the console.
+-foreign import log
+-  :: String
+-  -> Effect Unit
++-- WASI routes log to its log stream operation.
++log :: String -> Effect Unit
++log = Console.log
+ 
+ -- | Write a value to the console, using its `Show` instance to produce a
+ -- | `String`.
+@@ -16,9 +17,9 @@
+ logShow a = log (show a)
+ 
+ -- | Write an warning to the console.
+-foreign import warn
+-  :: String
+-  -> Effect Unit
++-- WASI routes warn to its warn stream operation.
++warn :: String -> Effect Unit
++warn = Console.warn
+ 
+ -- | Write an warning value to the console, using its `Show` instance to produce
+ -- | a `String`.
+@@ -26,9 +27,9 @@
+ warnShow a = warn (show a)
+ 
+ -- | Write an error to the console.
+-foreign import error
+-  :: String
+-  -> Effect Unit
++-- WASI routes error to its error stream operation.
++error :: String -> Effect Unit
++error = Console.error
+ 
+ -- | Write an error value to the console, using its `Show` instance to produce a
+ -- | `String`.
+@@ -36,9 +37,9 @@
+ errorShow a = error (show a)
+ 
+ -- | Write an info message to the console.
+-foreign import info
+-  :: String
+-  -> Effect Unit
++-- WASI routes info to its log stream operation.
++info :: String -> Effect Unit
++info = Console.log
+ 
+ -- | Write an info value to the console, using its `Show` instance to produce a
+ -- | `String`.
+@@ -46,9 +47,9 @@
+ infoShow a = info (show a)
+ 
+ -- | Write an debug message to the console.
+-foreign import debug
+-  :: String
+-  -> Effect Unit
++-- WASI routes debug to its log stream operation.
++debug :: String -> Effect Unit
++debug = Console.log
+ 
+ -- | Write an debug value to the console, using its `Show` instance to produce a
+ -- | `String`.
+--- purescript-effect@v4.0.0/src/Effect.purs
++++ stdlib/lib/Effect.purs
+@@ -13,27 +13,14 @@
+ -- | A native effect. The type parameter denotes the return type of running the
+ -- | effect, that is, an `Effect Int` is a possibly-effectful computation which
+ -- | eventually produces a value of the type `Int` when it finishes.
+-foreign import data Effect :: Type -> Type
++-- The Wasm state-token type and core instances are owned by Prelude.
+ 
+-type role Effect representational
++-- Target adapters retain the private upstream operation contracts.
++pureE :: forall a. a -> Effect a
++pureE = pure
+ 
+-instance functorEffect :: Functor Effect where
+-  map = liftA1
+-
+-instance applyEffect :: Apply Effect where
+-  apply = ap
+-
+-instance applicativeEffect :: Applicative Effect where
+-  pure = pureE
+-
+-foreign import pureE :: forall a. a -> Effect a
+-
+-instance bindEffect :: Bind Effect where
+-  bind = bindE
+-
+-foreign import bindE :: forall a b. Effect a -> (a -> Effect b) -> Effect b
+-
+-instance monadEffect :: Monad Effect
++bindE :: forall a b. Effect a -> (a -> Effect b) -> Effect b
++bindE = bind
+ 
+ -- | The `Semigroup` instance for effects allows you to run two effects, one
+ -- | after the other, and then combine their results using the result type's
+@@ -50,23 +37,36 @@
+ -- |
+ -- | `untilE b` is an effectful computation which repeatedly runs the effectful
+ -- | computation `b`, until its return value is `true`.
+-foreign import untilE :: Effect Boolean -> Effect Unit
++untilE :: Effect Boolean -> Effect Unit
++untilE action = bind action \done ->
++  if done then pure unit else untilE action
+ 
+ -- | Loop while a condition is `true`.
+ -- |
+ -- | `whileE b m` is effectful computation which runs the effectful computation
+ -- | `b`. If its result is `true`, it runs the effectful computation `m` and
+ -- | loops. If not, the computation ends.
+-foreign import whileE :: forall a. Effect Boolean -> Effect a -> Effect Unit
++whileE :: forall a. Effect Boolean -> Effect a -> Effect Unit
++whileE condition action = bind condition \continue ->
++  if continue then bind action (\_ -> whileE condition action) else pure unit
+ 
+ -- | Loop over a consecutive collection of numbers.
+ -- |
+ -- | `forE lo hi f` runs the computation returned by the function `f` for each
+ -- | of the inputs between `lo` (inclusive) and `hi` (exclusive).
+-foreign import forE :: Int -> Int -> (Int -> Effect Unit) -> Effect Unit
++forE :: Int -> Int -> (Int -> Effect Unit) -> Effect Unit
++forE lower upper action =
++  if lower < upper then bind (action lower) (\_ -> forE (lower + 1) upper action)
++  else pure unit
+ 
+ -- | Loop over an array of values.
+ -- |
+ -- | `foreachE xs f` runs the computation returned by the function `f` for each
+ -- | of the inputs `xs`.
+-foreign import foreachE :: forall a. Array a -> (a -> Effect Unit) -> Effect Unit
++foreachE :: forall a. Array a -> (a -> Effect Unit) -> Effect Unit
++foreachE values action = go 0
++  where
++  go index =
++    if intLt index (arrayLength values)
++    then bind (action (arrayIndex values index)) (\_ -> go (intAdd index 1))
++    else pure unit
+--- purescript-prelude@v6.0.1/src/Prelude.purs
++++ stdlib/lib/Prelude.purs
+@@ -1,17 +1,20 @@
+--- | `Prelude` is a module that re-exports many other foundational modules from the `purescript-prelude` library
+--- | (e.g. the Monad type class hierarchy, the Monoid type classes, Eq, Ord, etc.).
++-- | The primitive surface the rest of the library and the corpus build on.
+ -- |
+--- | Typically, this module will be imported in most other libraries and projects as an open import.
++-- | The class hierarchy is the official `purescript-prelude` v6.0.1 re-export
++-- | list. `Effect` stays in this module: `check_run_effect_scope` resolves
++-- | `Prelude.runEffect`, and `psrs_core::effect::operations` synthesizes
++-- | `effectPure`, `effectBind`, `runEffect`, and `trap` from the `psrs:effect`
++-- | bindings declared here. The class methods `pure` and `bind` are the
++-- | official `Applicative` and `Bind` methods; the `Effect` instances call
++-- | those bindings, so creating an action still does not run it.
+ -- |
+--- | ```
+--- | module MyModule where
+--- |
+--- | import Prelude -- open import
+--- |
+--- | import Data.Maybe (Maybe(..)) -- closed import
+--- | ```
++-- | `unit` is not declared here. `Unit` is a builtin, re-exported through
++-- | `Data.Unit`, and the one `Unit` value is `Intrinsic::Unit`.
+ module Prelude
+-  ( module Control.Applicative
++  ( Effect
++  , runEffect
++  , trap
++  , module Control.Applicative
+   , module Control.Apply
+   , module Control.Bind
+   , module Control.Category
+@@ -68,3 +71,34 @@
+ import Data.Show (class Show, show)
+ import Data.Unit (Unit, unit)
+ import Data.Void (Void, absurd)
++
++foreign import data Effect :: Type -> Type
++type role Effect representational
++
++-- | Builds an `Effect` that returns `value`. Lowering replaces this binding;
++-- | the `Applicative` instance is what user code calls `pure`.
++foreign import "psrs:effect#pure" effectPure :: forall a. a -> Effect a
++
++-- | Sequences two effects. The `Bind` instance is what user code calls `bind`.
++foreign import "psrs:effect#bind" effectBind :: forall a b. Effect a -> (a -> Effect b) -> Effect b
++
++foreign import "psrs:effect#run" runEffect :: forall a. Effect a -> a
++
++-- | The effect that escapes instead of returning. An uncaught failure on this
++-- | target is a guest trap, so this is the one operation whose result never
++-- | exists; it is how a library reports an assertion that did not hold.
++foreign import "psrs:effect#trap" trap :: Effect Unit
++
++instance functorEffect :: Functor Effect where
++  map = liftA1
++
++instance applyEffect :: Apply Effect where
++  apply = ap
++
++instance applicativeEffect :: Applicative Effect where
++  pure = effectPure
++
++instance bindEffect :: Bind Effect where
++  bind = effectBind
++
++instance monadEffect :: Monad Effect
+--- purescript-assert@v6.0.0/src/Test/Assert.purs
++++ stdlib/lib/Test/Assert.purs
+@@ -26,10 +26,13 @@
+ assert' :: String -> Boolean -> Effect Unit
+ assert' = assertImpl
+ 
+-foreign import assertImpl
+-  :: String
+-  -> Boolean
+-  -> Effect Unit
++-- Wasm/WASI implementation: failure writes its message before trapping.
++assertImpl :: String -> Boolean -> Effect Unit
++assertImpl message condition =
++  if condition then pure unit
++  else do
++    _ <- error message
++    trap
+ 
+ -- | Throws a runtime exception with message "Assertion failed: An error should
+ -- | have been thrown", unless the argument throws an exception when evaluated.

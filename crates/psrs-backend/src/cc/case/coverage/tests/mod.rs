@@ -4,6 +4,7 @@ use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::rc::Rc;
 
+mod recursive_products;
 mod scalar_array;
 
 fn symbol(index: u32) -> SymbolId {
@@ -295,7 +296,7 @@ fn recursive_adt_analysis_finds_a_finite_uncovered_witness() {
         },
     ));
     let report = analyze(&module, TypeId(0), &[cons_nil]);
-    assert_eq!(report.witness.as_deref(), Some("Cons (Cons Nil)"));
+    assert_eq!(report.witness.as_deref(), Some("Nil"));
 }
 
 #[derive(Clone, Debug)]
@@ -410,4 +411,41 @@ fn recursive_coverage_agrees_with_a_bounded_first_match_oracle() {
             "redundancy disagreed for {matrix:?}"
         );
     }
+}
+
+#[test]
+fn a_field_of_an_uninhabited_type_does_not_make_its_constructor_redundant() {
+    // `data View a b = Return a | Bind b Int` checked at `b` uninhabited, like
+    // the reference `Free` instantiated at `Val`. `Val` has no constructors, but
+    // unchecked coercions still produce `Return` values, so coverage must treat
+    // the uninhabited field as an unknown shape rather than a complete empty
+    // signature and must not call `Return` redundant.
+    let module = module(
+        vec![
+            Type::Constructor(TypeConstructor::User(hir_type_id(0))),
+            Type::Constructor(TypeConstructor::User(hir_type_id(1))),
+            Type::Constructor(TypeConstructor::Int),
+        ],
+        vec![
+            constructor(0, "Return", 0, vec![TypeId(1)]),
+            constructor(1, "Bind", 0, vec![TypeId(1), TypeId(2)]),
+        ],
+    );
+    let return_branch = branch(pat(
+        0,
+        PatternKind::Constructor {
+            symbol: symbol(0),
+            arguments: vec![binder(1)],
+        },
+    ));
+    let bind_branch = branch(pat(
+        0,
+        PatternKind::Constructor {
+            symbol: symbol(1),
+            arguments: vec![binder(1), binder(2)],
+        },
+    ));
+    let report = analyze(&module, TypeId(0), &[return_branch, bind_branch]);
+    assert!(report.exhaustive, "{report:?}");
+    assert!(report.redundant_branches.is_empty(), "{report:?}");
 }

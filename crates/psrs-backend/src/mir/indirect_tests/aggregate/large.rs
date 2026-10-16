@@ -22,8 +22,8 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
         )
         .expect("the large record WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -43,14 +43,14 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(
+        Vec::new(),
+        [(
             ReprId(1),
             vec!["a".to_string(), "b".to_string(), "c".to_string()],
         )]
         .into_iter()
         .collect(),
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -72,6 +72,7 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
         Assignment {
             destination: ValueId(0),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: Vec::new(),
             },
@@ -108,6 +109,7 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -132,8 +134,8 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
         )
         .expect("the large unit result WIT fixture should resolve");
 
-    let representations = cc::RepresentationTable {
-        representations: vec![
+    let representations = cc::RepresentationTable::from_parts(
+        vec![
             Representation::Box {
                 value: ValueShape::Integer,
             },
@@ -155,14 +157,14 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
                 ],
             },
         ],
-        signatures: Vec::new(),
-        product_labels: [(
+        Vec::new(),
+        [(
             ReprId(1),
             vec!["a".to_string(), "b".to_string(), "c".to_string()],
         )]
         .into_iter()
         .collect(),
-    };
+    );
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -195,6 +197,7 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
                 Assignment {
                     destination: ValueId(0),
                     kind: AssignmentKind::DirectCall {
+                        contract: None,
                         function: external_symbol,
                         arguments: Vec::new(),
                     },
@@ -214,6 +217,7 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

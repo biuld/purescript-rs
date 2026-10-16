@@ -13,35 +13,24 @@ impl Checker {
             ..
         } = self.normalize_row_or_report(expected_row, span);
         let expected_fields = expected_fields.into_iter().collect::<HashMap<_, _>>();
-        let mut inferred = Vec::with_capacity(fields.len());
-        let mut labels = HashSet::new();
-        for (label, value) in fields {
-            if !labels.insert(label) {
-                self.state.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::TypeMismatch,
-                    span,
-                    format!("record label `{label}` occurs more than once"),
-                ));
-                return None;
-            }
-            let value =
-                self.infer_expr_with_expected(value, expected_fields.get(label).cloned())?;
-            inferred.push((label.clone(), value));
-        }
-        let actual = record_type(
-            inferred
-                .iter()
-                .map(|(label, value)| (label.clone(), value.ty.clone()))
-                .collect(),
-            InferType::RowEmpty,
-        );
-        Some((InferredExprKind::Record(inferred), actual))
+        self.infer_record_fields(fields, span, |checker, label, value| {
+            checker.infer_expr_with_expected(value, expected_fields.get(label).cloned())
+        })
     }
 
     pub(super) fn infer_record(
         &mut self,
         fields: &[(String, hir::Expr)],
         span: TextRange,
+    ) -> Option<(InferredExprKind, InferType)> {
+        self.infer_record_fields(fields, span, |checker, _, value| checker.infer_expr(value))
+    }
+
+    pub(super) fn infer_record_fields(
+        &mut self,
+        fields: &[(String, hir::Expr)],
+        span: TextRange,
+        mut infer_field: impl FnMut(&mut Self, &str, &hir::Expr) -> Option<InferredExpr>,
     ) -> Option<(InferredExprKind, InferType)> {
         let mut inferred = Vec::with_capacity(fields.len());
         let mut labels = HashSet::new();
@@ -54,13 +43,15 @@ impl Checker {
                 ));
                 return None;
             }
-            inferred.push((label.clone(), self.infer_expr(value)?));
+            inferred.push((label.clone(), infer_field(self, label, value)?));
         }
-        let record_fields = inferred
-            .iter()
-            .map(|(label, value)| (label.clone(), value.ty.clone()))
-            .collect::<Vec<_>>();
-        let ty = record_type(record_fields, InferType::RowEmpty);
+        let ty = record_type(
+            inferred
+                .iter()
+                .map(|(label, value)| (label.clone(), value.ty.clone()))
+                .collect(),
+            InferType::RowEmpty,
+        );
         Some((InferredExprKind::Record(inferred), ty))
     }
 

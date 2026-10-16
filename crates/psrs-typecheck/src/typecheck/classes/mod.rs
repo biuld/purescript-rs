@@ -12,6 +12,7 @@ mod coherence;
 mod deriving;
 mod environment;
 mod evidence;
+pub(in crate::typecheck) use evidence::record_field_type;
 mod fundeps;
 mod instance;
 mod locals;
@@ -19,6 +20,7 @@ mod matching;
 mod solve;
 mod superclass;
 
+pub(in crate::typecheck) use deriving::DerivingRegistry;
 pub(in crate::typecheck) use fundeps::collect_infer_variables;
 pub(in crate::typecheck) use locals::next_local_id;
 pub(in crate::typecheck) use solve::{SolveDepth, UnsolvedPolicy};

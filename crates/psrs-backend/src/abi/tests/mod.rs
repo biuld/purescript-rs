@@ -5,6 +5,7 @@ use psrs_core::{Type as CoreType, TypeConstructor as CoreTypeConstructor, TypeId
 use wit_parser::Type as WitType;
 
 mod aggregates;
+mod borrowed_results;
 mod capability_gates;
 mod enums;
 mod indirect;

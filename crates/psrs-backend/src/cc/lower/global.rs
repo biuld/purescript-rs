@@ -31,6 +31,21 @@ impl GlobalLowering for FunctionLowerer<'_> {
             ));
         };
         if !signature.parameters.is_empty() && is_function_type(self.module, expression.ty) {
+            if self
+                .module
+                .external_types
+                .iter()
+                .any(|external| external.symbol == function)
+            {
+                let signature = signature.clone();
+                return self.lower_external_function_value(
+                    expression,
+                    function,
+                    &signature,
+                    result_type,
+                    assignments,
+                );
+            }
             let Some(source_type) = self
                 .module
                 .declarations
@@ -81,12 +96,27 @@ impl GlobalLowering for FunctionLowerer<'_> {
             if source_type == expression.ty {
                 Ok(destination)
             } else {
+                let declaration = self
+                    .module
+                    .declarations
+                    .iter()
+                    .find(|declaration| declaration.symbol == function)
+                    .expect("the source declaration was found above");
+                // Evidence is required only if the adaptation reaches an
+                // abstract constructor boundary; `constructor_transport`
+                // reports the missing binding where the boundary applies.
+                let evidence = self.boundary.checked_instantiation(
+                    source_type,
+                    &declaration.quantified,
+                    expression.ty,
+                );
                 self.adapt_erased_function_value(
                     destination,
                     source_type,
                     expression.ty,
                     expression.span,
                     assignments,
+                    evidence.as_ref(),
                 )
             }
         } else {
@@ -101,6 +131,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
             assignments.push(Assignment {
                 destination,
                 kind: AssignmentKind::DirectCall {
+                    contract: None,
                     function,
                     arguments: Vec::new(),
                 },
@@ -109,21 +140,40 @@ impl GlobalLowering for FunctionLowerer<'_> {
             if source_shape == result_type {
                 return Ok(destination);
             }
-            let source_type = self
+            let (source_type, quantified) = if let Some(declaration) = self
                 .module
                 .declarations
                 .iter()
                 .find(|declaration| declaration.symbol == function)
-                .map(|declaration| declaration.ty)
-                .ok_or_else(|| {
-                    global_error(expression, "global value has no source declaration type")
-                })?;
-            let conversion = self.typed_conversion(
+            {
+                (declaration.ty, declaration.quantified.clone())
+            } else if let Some(external) = self
+                .module
+                .external_types
+                .iter()
+                .find(|external| external.symbol == function)
+            {
+                let (quantified, _) = psrs_core::scheme_parts(&self.module.types, external.ty)
+                    .ok_or_else(|| {
+                        global_error(expression, "external value has an invalid source scheme")
+                    })?;
+                (external.ty, quantified)
+            } else {
+                return Err(global_error(
+                    expression,
+                    "global value has no source declaration type",
+                ));
+            };
+            let evidence =
+                self.boundary
+                    .checked_instantiation(source_type, &quantified, expression.ty);
+            let conversion = self.typed_conversion_with_instantiation(
                 source_type,
                 expression.ty,
                 source_shape,
                 result_type,
                 expression.span,
+                evidence.as_ref(),
             )?;
             Ok(self.emit_conversion(
                 destination,

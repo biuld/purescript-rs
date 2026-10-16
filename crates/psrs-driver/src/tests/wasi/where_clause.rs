@@ -7,6 +7,7 @@ fn runs_a_program_with_where_clauses_when_wasmtime_is_available() {
     // The effect block logs and then returns `describe 39 + fromJust (Just 0) 0
     // = 42` as the entry's exit code.
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import WASI.Console
 
@@ -23,7 +24,7 @@ fromJust m fallback = case m of
     result = value + 1
   Nothing -> fallback
 
-main = runEffect
+main = unsafePerformEffect
   do
     log "where clauses"
     pure (describe 39 + fromJust (Just 0) 0)

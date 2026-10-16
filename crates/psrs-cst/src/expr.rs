@@ -48,6 +48,10 @@ pub enum ExprKind {
         dot_span: TextRange,
         field: CstName,
     },
+    RecordAccessor {
+        marker_span: TextRange,
+        fields: Vec<RecordAccessorField>,
+    },
     Operator {
         operator: CstName,
         left: Box<Expr>,
@@ -110,6 +114,12 @@ pub enum ExprKind {
         items: Vec<Expr>,
         close_paren_span: TextRange,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordAccessorField {
+    pub dot_span: TextRange,
+    pub field: CstName,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

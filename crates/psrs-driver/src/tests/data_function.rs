@@ -8,9 +8,31 @@
 use super::*;
 
 #[test]
+fn uncurried_foreign_signatures_retain_polymorphic_arguments_in_core() {
+    // Like Data.Number.fromStringImpl, this foreign signature supplies a
+    // checked universal argument to a parameterized uncurried newtype.
+    let source = r#"
+module Main where
+newtype Fn2 a b c = Fn2 (a -> b -> c)
+run :: forall a b c. Fn2 a b c -> a -> b -> c
+run (Fn2 f) a b = f a b
+identity :: forall a. a -> a
+identity x = x
+foreign import choose :: Fn2 (forall a. a -> a) Int Int
+main :: Int
+main = run choose identity 42
+"#;
+    let core = lower_program_to_core(&[("Main.purs", source)])
+        .expect("an explicit universal argument survives scheme instantiation");
+    core.verify()
+        .expect("the checked foreign call remains valid Core");
+}
+
+#[test]
 fn the_application_operators_resolve_through_the_library_re_export() {
     let source = r#"
 module Main where
+import Effect.Unsafe (unsafePerformEffect)
 
 import Prelude
 import Effect (Effect)
@@ -44,7 +66,7 @@ checks = do
   log (if viaConst == 1 then "const" else "const-wrong")
   pure unit
 
-main = let ignored = runEffect checks in 0
+main = let ignored = unsafePerformEffect checks in 0
 "#;
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");

@@ -311,7 +311,12 @@ impl<'a> Parser<'a> {
             let close_paren_span = self.bump().span;
             let span = TextRange::new(open_paren_span.start, close_paren_span.end);
             return Ok(TypeExpr {
-                kind: TypeExprKind::Name(CstName::new("Unit", span)),
+                kind: TypeExprKind::Row {
+                    open_paren_span,
+                    fields: Vec::new(),
+                    tail: None,
+                    close_paren_span,
+                },
                 span,
             });
         }

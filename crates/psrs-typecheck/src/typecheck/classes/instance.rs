@@ -21,7 +21,7 @@ impl Checker {
         instance: &hir::InstanceDeclaration,
     ) -> Option<InferredDeclaration> {
         let class = self.env.classes.get(&instance.class_id).cloned()?;
-        let (head_arguments, head_variables, context, context_parameters) = {
+        let (head_arguments, instance_variables, context, context_parameters) = {
             let info = self
                 .env
                 .instances
@@ -29,7 +29,7 @@ impl Checker {
                 .find(|info| info.symbol == instance.symbol)?;
             (
                 info.head_arguments.clone(),
-                info.head_variables.clone(),
+                info.instance_variables.clone(),
                 info.context.clone(),
                 info.context_parameters.clone(),
             )
@@ -53,12 +53,19 @@ impl Checker {
         }
         let derived_newtype_underlying = match instance.derivation {
             Some(hir::DerivationStrategy::KnownClass) => {
-                self.validate_known_deriving_class(instance.class_id, &class, instance.span)?;
+                self.validate_known_deriving_class(
+                    instance.class_id,
+                    &class,
+                    &instance.head,
+                    &head_arguments,
+                    instance.span,
+                )?;
                 None
             }
             Some(hir::DerivationStrategy::Newtype) => {
                 if class.parameters.len() != head_arguments.len() {
                     return self.deriving_error(
+                        TypeCheckErrorKind::InvalidNewtypeInstance,
                         instance.span,
                         "derive newtype class head has the wrong arity",
                     );
@@ -94,11 +101,30 @@ impl Checker {
         {
             let super_dictionary = self.dictionary_type(&super_constraint);
             let wanted = self.push_wanted(super_constraint, super_dictionary.clone());
+            // Superclass construction must be delayed: method closures may
+            // reference a subclass instance whose superclass is this instance.
+            let parameter = InferType::Constructor(TypeConstructor::Unit);
+            let id = LocalId(self.state.next_dictionary_local);
+            self.state.next_dictionary_local += 1;
             fields.push((
                 field,
                 InferredExpr {
-                    kind: InferredExprKind::Evidence(wanted),
-                    ty: super_dictionary,
+                    kind: InferredExprKind::Lambda {
+                        binder: InferredBinder {
+                            binder: LocalBinder {
+                                id,
+                                name: "superclass_unit".into(),
+                                span: instance.span,
+                            },
+                            scheme: Scheme::monomorphic(parameter.clone()),
+                        },
+                        body: Box::new(InferredExpr {
+                            kind: InferredExprKind::Evidence(wanted),
+                            ty: super_dictionary.clone(),
+                            span: instance.span,
+                        }),
+                    },
+                    ty: arrow(parameter, super_dictionary),
                     span: instance.span,
                 },
             ));
@@ -116,9 +142,9 @@ impl Checker {
                 Some(member) => {
                     let mut method_variables = variables.clone();
                     let expected = self.elaborate_type(&method.signature, &mut method_variables);
-                    let head_variables = head_variables.clone();
+                    let annotation_variables = instance_variables.clone();
                     let value = self.with_scope(|checker| {
-                        checker.scope.annotation_variables = head_variables;
+                        checker.scope.annotation_variables = annotation_variables;
                         checker.in_nested_level(|checker| {
                             checker.infer_expr_with_expected(&member.value, Some(expected))
                         })
@@ -200,8 +226,19 @@ impl Checker {
         );
         // An instance head may contain type variables (for example a
         // `ToInt (Array a)` head); generalize the dictionary constructor over
-        // them so the declaration is polymorphic in the head variables.
-        let scheme = self.generalize(&[], &value.ty, &[], TOP_LEVEL);
+        // them so the declaration is polymorphic in the head variables. Keep
+        // variables that only occur in erased evidence too: a `Coercible`
+        // superclass proof still needs them while its type is finalized.
+        let mut head_variables = HashSet::new();
+        for variable in instance_variables.values() {
+            super::fundeps::collect_infer_variables(
+                &self.resolve_type(variable.clone()),
+                &mut head_variables,
+            );
+        }
+        let head_variables = head_variables.into_iter().collect::<Vec<_>>();
+        let scheme = self.generalize_instance_dictionary(&head_variables, &value.ty);
+        let scheme = self.generalize_body(scheme, &value, TOP_LEVEL);
         Some(InferredDeclaration {
             symbol: instance.symbol,
             name: instance.name.clone(),

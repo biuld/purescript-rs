@@ -1,5 +1,9 @@
 # Control-Flow Lowering and Tail Calls
 
+> **Withdrawn extension (2026-10-11).** The State dependency projection and
+> tail-transfer proof replay described below were removed. Any paragraph that
+> refers to State dependencies is retained as historical evidence.
+
 **Feature:** F-02  
 **Status:** Stable (design)  
 **Prerequisites:** [MIR](mir.md) and its SSA/CFG model, [CC IR](cc-ir.md);
@@ -187,12 +191,24 @@ with the tail-call proposal disabled. Non-self tail calls use
 
 ### Tail calls and the capability profile
 
-Tail calls are a target capability: the stable profile currently disables them
+Tail calls are a target capability: the stable profile enables them
 ([capability profile](../wasm/capability-profile.md),
 [DEC-05](../../../decision/DEC-05-wasmtime-feature-set.md)). Enabling the
-emission path requires revising that profile to expose `tail_call` and adding
-execution evidence; the lowering must not emit a `return_call*` when the flag is
+emission path uses the explicit `tail_call` profile flag and runtime evidence;
+the lowering must not emit a `return_call*` when the flag is
 off, and must fall back to an ordinary call plus return.
+
+The profile enables physical tail calls whose result is returned unchanged.
+It does not establish constant-stack execution for every source tail position.
+An erased/concrete function adapter may call its producer and then box, recover
+or rebuild the result. That producer invocation has a continuation and cannot
+be replaced with `return_call*` by dropping its result conversion. The shared
+[polymorphic callable representation](polymorphism-and-erasure.md) and
+[Core optimization](../opt/core.md) own removal or prevention of redundant
+adaptation. State dependency transfer verifies a legal physical tail rewrite;
+it does not authorize a different result representation or erase post-call
+work. Execution evidence must distinguish direct/reference physical tail calls
+from source recursion through such adapters.
 
 ### Rejected alternatives
 
@@ -603,8 +619,14 @@ specific areas:
   closure call becomes `ReturnCallRef` after projecting the code reference and
   passing the closure as the receiver. When the flag is disabled, the call is
   left as an ordinary call plus return and the verifier rejects a forced
-  `ReturnCall*`. The stable profile keeps the flag disabled; the enabled path is
-  exercised by driver tests under an explicit `tail_call` profile.
+  `ReturnCall*`. The stable profile enables the flag; driver tests cover deep
+  direct, indirect and State self-recursion under that default
+  and retain an explicitly disabled-profile regression.
+- State-bearing functions retain immutable pre-tail physical MIR tied to their
+  checked CC source. Verification replays the common tail rewrite and compares
+  the actual instructions/control with that conversion; independently checked
+  scalar folding and function-position compaction remain admissible. This is a
+  bounded transfer contract, not general arbitrary CFG optimization support.
 
 ## References
 

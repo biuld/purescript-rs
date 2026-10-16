@@ -110,6 +110,7 @@ fn typechecks_do_notation_over_effect() {
     let source = "\
 module Main where
 import Prelude
+import Effect (Effect)
 import WASI.Console
 action :: Effect Int
 action = do
@@ -117,7 +118,8 @@ action = do
   let doubled = handle + handle
   _ <- log \"value\"
   pure doubled
-main = runEffect action
+main :: Effect Int
+main = action
 ";
     assert!(check_source("Main.purs", source).is_ok());
 }
@@ -129,12 +131,14 @@ fn typechecks_a_non_variable_do_binder() {
     let source = "\
 module Main where
 import Prelude
+import Effect (Effect)
 data Pair = Pair Int Int
 action :: Effect Int
 action = do
   Pair x y <- pure (Pair 1 2)
   pure (x + y)
-main = runEffect action
+main :: Effect Int
+main = action
 ";
     assert!(check_source("Main.purs", source).is_ok());
 }
@@ -144,12 +148,14 @@ fn rejects_a_do_binder_with_the_wrong_case_type() {
     let source = "\
 module Main where
 import Prelude
+import Effect (Effect)
 data Pair = Pair Int Int
 action :: Effect Int
 action = do
   Pair x y <- pure 1
   pure (x + y)
-main = runEffect action
+main :: Effect Int
+main = action
 ";
     assert!(check_source("Main.purs", source).is_err());
 }
@@ -161,12 +167,14 @@ fn typechecks_ado_notation_over_effect() {
     let source = "\
 module Main where
 import Prelude
+import Effect (Effect)
 action :: Effect Int
 action = ado
   x <- pure 20
   y <- pure 22
   in x + y
-main = runEffect action
+main :: Effect Int
+main = action
 ";
     assert!(check_source("Main.purs", source).is_ok());
 }
@@ -176,12 +184,14 @@ fn typechecks_an_ado_value_and_let() {
     let source = "\
 module Main where
 import Prelude
+import Effect (Effect)
 action :: Effect Int
 action = ado
   _ <- pure 1
   let base = 40
     in base + 2
-main = runEffect action
+main :: Effect Int
+main = action
 ";
     assert!(check_source("Main.purs", source).is_ok());
 }
@@ -289,12 +299,14 @@ fn a_lenient_type_check_type_checks_a_module_whose_sibling_is_missing() {
 
 #[test]
 fn a_lenient_type_check_attributes_a_diagnostic_to_the_user_source_not_the_library() {
-    let source = "module Main where\nimport Prelude\nmain = runEffect (pure missingName)\n";
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nmain = unsafePerformEffect (pure missingName)\n";
     let errors = check_program_types_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
     assert!(
         errors.iter().any(|error| {
             error.source == DiagnosticOrigin::Source(0)
                 && error.diagnostic.code == Some("UnknownName")
+                && &source[error.diagnostic.span.start as usize..error.diagnostic.span.end as usize]
+                    == "missingName"
         }),
         "the trusted prefix must not shift a user's diagnostic: {errors:?}"
     );

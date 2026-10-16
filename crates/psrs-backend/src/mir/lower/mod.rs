@@ -6,7 +6,6 @@ use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
 use crate::cc::{self, AssignmentKind};
 use crate::mir::instruction::Instruction;
-use crate::mir::scalar_helpers::ScalarHelpers;
 use crate::types::{FunctionId, HeapType, ValueDecl, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -18,8 +17,11 @@ mod assignment_array;
 mod assignment_string;
 mod assignments;
 mod conversion_helpers;
-mod tail;
+mod runtime_call;
+mod storage_call;
+pub(in crate::mir) mod tail;
 mod variant;
+mod wit_call;
 pub(super) use conversion_helpers::ConversionHelpers;
 #[cfg(test)]
 mod wit_tests;
@@ -28,7 +30,7 @@ fn layout_error(span: TextRange, error: LayoutError) -> Vec<BackendError> {
     vec![BackendError::new(
         "P9 MIR lowering",
         span,
-        format!("invalid concrete layout request: {error:?}"),
+        format!("invalid concrete layout request: {error}"),
     )]
 }
 
@@ -45,7 +47,7 @@ pub(super) fn lower_function(
     source: &cc::Function,
     id: FunctionId,
     wit_imports: &HashMap<SymbolId, BoundWasiImport>,
-    scalar_helpers: &ScalarHelpers,
+    runtime_imports: &HashMap<SymbolId, super::Import>,
     layout: &PlannedLayout,
     conversion_helpers: Option<&mut ConversionHelpers>,
     literals: Option<&mut StringLiterals>,
@@ -53,6 +55,8 @@ pub(super) fn lower_function(
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
     let mut lowerer = FunctionLowerer {
+        owner: source.symbol,
+        wit_calls: Vec::new(),
         next_block: 1,
         blocks: vec![BasicBlock {
             id: entry,
@@ -79,7 +83,7 @@ pub(super) fn lower_function(
             .max()
             .map_or(0, |max| max + 1),
         wit_imports,
-        scalar_helpers,
+        runtime_imports,
         layout,
         conversion_helpers,
         literals,
@@ -107,23 +111,32 @@ pub(super) fn lower_function(
             .map_err(|error| layout_error(source.span, error))?,
         span: source.span,
     };
+    for plan in &lowerer.wit_calls {
+        plan.verify(&function)?;
+    }
+    super::control::verify_helper_calls(&function, Some(layout.representation_table()))?;
     tail::mark_tail(&mut function, target)?;
     wit::verify_function(&function, wit_imports)?;
     Ok(function)
 }
 pub(super) struct FunctionLowerer<'a> {
+    owner: SymbolId,
+    wit_calls: Vec<super::wit::CallPlan>,
     next_block: u32,
     blocks: Vec<BasicBlock>,
     values: Vec<ValueDecl>,
     next_value: u32,
     wit_imports: &'a HashMap<SymbolId, BoundWasiImport>,
-    scalar_helpers: &'a ScalarHelpers,
-    layout: &'a PlannedLayout,
+    runtime_imports: &'a HashMap<SymbolId, super::Import>,
+    pub(in crate::mir) layout: &'a PlannedLayout,
     conversion_helpers: Option<&'a mut ConversionHelpers>,
     literals: Option<&'a mut StringLiterals>,
 }
 
 impl FunctionLowerer<'_> {
+    fn control_values(&self, value: ValueId) -> Vec<ValueId> {
+        vec![value]
+    }
     pub(super) fn value_type(&self, id: ValueId) -> Option<ValueType> {
         self.values
             .iter()
@@ -268,13 +281,24 @@ impl FunctionLowerer<'_> {
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
         let target = self.find_block_mut(block, span)?;
-        if target.terminator.replace(terminator).is_some() {
+        if target.terminator.is_some() {
             return Err(vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
                 "basic block already has a terminator",
             )]);
         }
+        target.terminator = Some(
+            if matches!(
+                target.instructions.last(),
+                Some(Instruction::Unreachable { .. })
+            ) {
+                // A static trap has no normal return or jump successor.
+                Terminator::Trap { span }
+            } else {
+                terminator
+            },
+        );
         Ok(())
     }
 

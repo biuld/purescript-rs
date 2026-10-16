@@ -18,7 +18,7 @@ impl Checker {
                 }
             }
             hir::PatternKind::Integer(text) => {
-                let Ok(value) = text.parse::<i32>() else {
+                let Some(value) = super::parse_int_literal(text) else {
                     self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::IntegerOutOfRange,
                         span,

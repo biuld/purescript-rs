@@ -71,6 +71,7 @@ pub(crate) fn fixed_list_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Assignment {
             destination: ValueId(4),
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: external_symbol,
                 arguments: vec![ValueId(3)],
             },
@@ -87,13 +88,13 @@ pub(crate) fn fixed_list_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 result: ValueShape::Integer,
             }),
         }],
-        representations: cc::RepresentationTable {
-            representations: vec![Representation::Array {
+        representations: cc::RepresentationTable::from_parts(
+            vec![Representation::Array {
                 element: ValueShape::Integer,
             }],
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),
@@ -108,6 +109,7 @@ pub(crate) fn fixed_list_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),
@@ -141,13 +143,13 @@ pub(crate) fn fixed_list_result_fixture() -> (cc::Module, ExternalBindings, Reso
                 result: reference(0),
             }),
         }],
-        representations: cc::RepresentationTable {
-            representations: vec![Representation::Array {
+        representations: cc::RepresentationTable::from_parts(
+            vec![Representation::Array {
                 element: ValueShape::Integer,
             }],
-            signatures: Vec::new(),
-            product_labels: Default::default(),
-        },
+            Vec::new(),
+            Default::default(),
+        ),
         functions: vec![cc::Function {
             symbol: main_symbol,
             name: "main".into(),
@@ -166,6 +168,7 @@ pub(crate) fn fixed_list_result_fixture() -> (cc::Module, ExternalBindings, Reso
                 Assignment {
                     destination: ValueId(0),
                     kind: AssignmentKind::DirectCall {
+                        contract: None,
                         function: external_symbol,
                         arguments: Vec::new(),
                     },
@@ -185,6 +188,7 @@ pub(crate) fn fixed_list_result_fixture() -> (cc::Module, ExternalBindings, Reso
         span: span(),
     };
     let bindings = ExternalBindings {
+        runtime: Vec::new(),
         imports: vec![ExternalBinding {
             symbol: external_symbol,
             source_module: ModuleId(0),

@@ -107,20 +107,35 @@ main = identity 42
 
 #[test]
 fn runs_a_polymorphic_identity_with_a_number() {
-    let source = r#"module Main where
+    for (input, expected) in [("1.5", 42), ("2.5", 1)] {
+        let source = format!(
+            r#"module Main where
+foreign import "psrs:intrinsic#numberEq" equalNumber :: Number -> Number -> Boolean
 identity :: forall a. a -> a
 identity value = value
 use :: Number -> Int
-use value = 42
-main = use (identity 1.5)
-"#;
-    let artifact = compile_source("Main.purs", source).expect("lowering a polymorphic Number");
-    assert!(artifact.wat.contains("f64"));
-    let Some(output) = run_with_wasmtime(source) else {
-        eprintln!("skipping: wasmtime is not installed");
-        return;
-    };
-    assert_eq!(output.status.code(), Some(42));
+use value = if equalNumber value 1.5 then 42 else 1
+main = use (identity {input})
+"#
+        );
+        // The optimized artifact may fold the identity and comparison. Number
+        // representation belongs to MIR lowering, before those optimizations.
+        let mir = lower_source_to_mir(&source);
+        assert!(
+            mir.functions
+                .iter()
+                .flat_map(|function| &function.blocks)
+                .flat_map(|block| &block.instructions)
+                .any(|instruction| matches!(
+                    instruction,
+                    psrs_backend::mir::Instruction::NumberConstant { value, .. } if value == input
+                ))
+        );
+        let Some(output) = run_with_wasmtime(&source) else {
+            return;
+        };
+        assert_eq!(output.status.code(), Some(expected), "{input}: {output:?}");
+    }
 }
 
 #[test]
@@ -197,6 +212,7 @@ fn runs_a_recursive_polymorphic_reference_identity() {
     // optimizer must prune that dead arm before verifying.
     let source = r#"module Main where
 import Data.Eq ((==))
+import Data.Ring ((-))
 lastArr :: forall a. Int -> Array a -> Array a
 lastArr n x = if n == 0 then x else lastArr (n - 1) x
 main = arrayIndex (lastArr 3 [40, 42]) 1

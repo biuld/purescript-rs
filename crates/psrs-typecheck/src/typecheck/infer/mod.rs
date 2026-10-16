@@ -5,6 +5,7 @@ mod case;
 mod construct;
 mod expected;
 mod intrinsics;
+mod let_expr;
 mod pattern;
 mod records;
 mod visible_type_application;
@@ -81,6 +82,10 @@ impl Checker {
     }
 
     pub(super) fn infer_expr(&mut self, expression: &hir::Expr) -> Option<InferredExpr> {
+        psrs_span::with_sufficient_stack(|| self.infer_expr_inner(expression))
+    }
+
+    fn infer_expr_inner(&mut self, expression: &hir::Expr) -> Option<InferredExpr> {
         let span = expression.span;
         let (kind, ty) = match &expression.kind {
             hir::ExprKind::Local(id) => match self.scope.locals.get(id).cloned() {
@@ -139,17 +144,25 @@ impl Checker {
                         Some(ExternalKind::Intrinsic(Intrinsic::Coerce)) => {
                             self.coercion_function(span)
                         }
+                        Some(ExternalKind::Intrinsic(Intrinsic::UnsafeCoerce)) => {
+                            self.unsafe_coercion_function(span)
+                        }
                         Some(ExternalKind::Intrinsic(intrinsic)) => (
                             InferredExprKind::Global(*symbol),
                             self.intrinsic_type(intrinsic),
                         ),
-                        Some(ExternalKind::Wit { .. }) => {
+                        Some(
+                            ExternalKind::Wit { .. }
+                            | ExternalKind::Library { .. }
+                            | ExternalKind::Runtime { .. }
+                            | ExternalKind::Primitive(_),
+                        ) => {
                             let Some(signature) = self.env.external_signatures.get(symbol).cloned()
                             else {
                                 self.state.errors.push(TypeCheckError::new(
                                     TypeCheckErrorKind::InvalidHir,
                                     span,
-                                    "WIT import has no declared type",
+                                    "foreign import has no declared type",
                                 ));
                                 return None;
                             };
@@ -167,12 +180,12 @@ impl Checker {
                     }
                 }
             }
-            hir::ExprKind::Integer(text) => match text.parse::<i32>() {
-                Ok(value) => (
+            hir::ExprKind::Integer(text) => match parse_int_literal(text) {
+                Some(value) => (
                     InferredExprKind::Integer(value),
                     InferType::Constructor(TypeConstructor::Int),
                 ),
-                Err(_) => {
+                None => {
                     self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::IntegerOutOfRange,
                         span,
@@ -235,6 +248,11 @@ impl Checker {
                 }
             }
             hir::ExprKind::Record(fields) => self.infer_record(fields, span)?,
+            hir::ExprKind::MatchProduct(fields) => {
+                self.infer_record_fields(fields, span, |checker, _, value| {
+                    checker.infer_pattern_scrutinee(value, false)
+                })?
+            }
             hir::ExprKind::RecordUpdate { expression, fields } => {
                 self.infer_record_update(expression, fields, span)?
             }
@@ -345,60 +363,24 @@ impl Checker {
         };
         Some(InferredExpr { kind, ty, span })
     }
+}
 
-    pub(super) fn infer_let_expression(
-        &mut self,
-        bindings: &[hir::LocalBinding],
-        body: &hir::Expr,
-        expected: Option<InferType>,
-    ) -> Option<(InferredExprKind, InferType)> {
-        // The binding bodies are inferred one level deeper, so their unknowns are
-        // generalized against this level; the body is checked back at it.
-        let outer_level = self.state.level;
-        let (inferred_bindings, body) = self.in_nested_level(|checker| {
-            let mut binders = Vec::with_capacity(bindings.len());
-            for binding in bindings {
-                let ty = checker.fresh();
-                checker
-                    .scope
-                    .locals
-                    .insert(binding.binder.id, Scheme::monomorphic(ty.clone()));
-                binders.push(InferredBinder {
-                    binder: binding.binder.clone(),
-                    scheme: Scheme::monomorphic(ty),
-                });
-            }
-            let mut inferred_bindings = Vec::with_capacity(bindings.len());
-            for (binding, binder) in bindings.iter().zip(binders) {
-                if let Some(value) = checker.infer_expr(&binding.value) {
-                    checker.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
-                    inferred_bindings.push(InferredBinding {
-                        binder,
-                        value,
-                        span: binding.span,
-                    });
-                }
-            }
-            for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
-                let scheme = checker.generalize(&[], &inferred.binder.scheme.ty, &[], outer_level);
-                inferred.binder.scheme = scheme.clone();
-                checker.scope.locals.insert(binding.binder.id, scheme);
-            }
-            checker.state.level = outer_level;
-            let body = checker.infer_expr_with_expected(body, expected);
-            for binding in bindings {
-                checker.scope.locals.remove(&binding.binder.id);
-            }
-            (inferred_bindings, body)
-        });
-        let body = body?;
-        let ty = body.ty.clone();
-        Some((
-            InferredExprKind::Let {
-                bindings: inferred_bindings,
-                body: Box::new(body),
-            },
-            ty,
-        ))
-    }
+/// Decimal and hexadecimal integer literals, within signed 32-bit `Int`.
+pub(super) fn parse_int_literal(text: &str) -> Option<i32> {
+    let (sign, digits) = if let Some(digits) = text.strip_prefix('-') {
+        (-1i64, digits)
+    } else if let Some(digits) = text.strip_prefix('+') {
+        (1, digits)
+    } else {
+        (1, text)
+    };
+    let magnitude = if let Some(hexadecimal) = digits
+        .strip_prefix("0x")
+        .or_else(|| digits.strip_prefix("0X"))
+    {
+        i64::from_str_radix(hexadecimal, 16).ok()?
+    } else {
+        digits.parse::<i64>().ok()?
+    };
+    i32::try_from(magnitude.checked_mul(sign)?).ok()
 }

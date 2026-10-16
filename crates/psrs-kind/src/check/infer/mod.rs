@@ -170,12 +170,10 @@ impl Checker<'_> {
     }
 
     fn check_module_definitions(&mut self, module: &hir::Module) {
-        for declaration in &module.declarations {
-            if let Some(signature) = &declaration.signature {
-                let mut scope = HashMap::new();
-                let kind = self.kind_of_type(signature, &mut scope);
-                self.unify(kind, type_kind(), signature.span);
-            }
+        for signature in module.declared_value_signatures() {
+            let mut scope = HashMap::new();
+            let kind = self.kind_of_type(signature, &mut scope);
+            self.unify(kind, type_kind(), signature.span);
         }
         for declaration in &module.types {
             let Some(scheme) = self.schemes.get(&declaration.id).cloned() else {

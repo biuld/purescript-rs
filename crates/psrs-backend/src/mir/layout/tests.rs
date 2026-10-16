@@ -3,6 +3,10 @@ use crate::cc::{Function, Module as CcModule, Reference, Signature, ValueDecl, V
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 
+fn flattened_definitions(layout: &PlannedLayout) -> Vec<&DefinedType> {
+    layout.types.iter().flat_map(|group| &group.0).collect()
+}
+
 #[test]
 fn planner_owns_the_gc_closure_and_capture_layouts() {
     let mut table = RepresentationTable::default();
@@ -13,7 +17,7 @@ fn planner_owns_the_gc_closure_and_capture_layouts() {
 
     let layout = PlannedLayout::plan(&table, TargetCapabilities::default())
         .expect("planning a closure signature");
-    let definitions = &layout.types[0].0;
+    let definitions = flattened_definitions(&layout);
 
     assert!(matches!(definitions[0].composite, CompositeType::Array(_)));
     assert!(matches!(definitions[1].composite, CompositeType::Struct(_)));
@@ -45,9 +49,10 @@ fn signatures_that_lower_to_the_same_wasm_type_share_one_definition() {
         layout.signature_index(SignatureId(1)).unwrap(),
         "Boolean and Integer both lower to i32 and must share a function type"
     );
-    let function_types = layout.types[0]
-        .0
+    let function_types = layout
+        .types
         .iter()
+        .flat_map(|group| &group.0)
         .filter(|definition| matches!(definition.composite, CompositeType::Func { .. }))
         .count();
     assert_eq!(
@@ -58,16 +63,16 @@ fn signatures_that_lower_to_the_same_wasm_type_share_one_definition() {
 
 #[test]
 fn planner_rejects_a_dangling_closure_signature() {
-    let table = RepresentationTable {
-        representations: vec![Representation::Product {
+    let table = RepresentationTable::from_parts(
+        vec![Representation::Product {
             fields: vec![CcValueShape::Reference(Reference {
                 nullable: false,
                 heap: CcRefShape::Closure(SignatureId(0)),
             })],
         }],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-    };
+        Vec::new(),
+        Default::default(),
+    );
     assert!(matches!(
         PlannedLayout::plan(&table, TargetCapabilities::default()),
         Err(LayoutError::UnknownSignature)
@@ -75,11 +80,11 @@ fn planner_rejects_a_dangling_closure_signature() {
 }
 #[test]
 fn gc_planner_rejects_an_mvp_only_target() {
-    let table = RepresentationTable {
-        representations: vec![Representation::Product { fields: Vec::new() }],
-        signatures: Vec::new(),
-        product_labels: Default::default(),
-    };
+    let table = RepresentationTable::from_parts(
+        vec![Representation::Product { fields: Vec::new() }],
+        Vec::new(),
+        Default::default(),
+    );
 
     let mvp_only = TargetCapabilities {
         gc: false,
@@ -155,7 +160,7 @@ fn maps_every_cc_value_shape_to_its_specified_mir_type() {
 
     let layout = PlannedLayout::plan(&table, TargetCapabilities::default())
         .expect("planning every scalar and reference shape");
-    let definitions = &layout.types[0].0;
+    let definitions = flattened_definitions(&layout);
     let product_index = layout.repr_index(product).unwrap();
     let closure_index = layout.closure_layout().unwrap().0;
 
@@ -253,7 +258,7 @@ fn maps_every_cc_value_shape_to_its_specified_mir_type() {
 }
 
 #[test]
-fn plans_mutually_recursive_requirements_in_one_recursion_group() {
+fn plans_dependency_order_for_recursive_variant_requirements() {
     let mut table = RepresentationTable::default();
     let variant = table.reserve();
     let product = table.reserve();
@@ -293,10 +298,10 @@ fn plans_mutually_recursive_requirements_in_one_recursion_group() {
         PlannedLayout::plan(&table, TargetCapabilities::default()).expect("planning recursion");
     assert_eq!(
         layout.types.len(),
-        1,
-        "all definitions share one recursion group"
+        4,
+        "the tag base, product, array and case have acyclic concrete type dependencies"
     );
-    let definitions = &layout.types[0].0;
+    let definitions = flattened_definitions(&layout);
     assert_eq!(
         definitions.len(),
         4,
@@ -326,7 +331,7 @@ fn plans_mutually_recursive_requirements_in_one_recursion_group() {
         Some(variant_index)
     );
 
-    for definition in definitions {
+    for definition in &definitions {
         for field in match &definition.composite {
             CompositeType::Struct(fields) => fields.clone(),
             CompositeType::Array(field) => vec![*field],
@@ -376,7 +381,7 @@ fn plans_field_bearing_variants_as_tag_carrying_supertypes() {
     );
     let layout =
         PlannedLayout::plan(&table, TargetCapabilities::default()).expect("planning a mixed sum");
-    let definitions = &layout.types[0].0;
+    let definitions = flattened_definitions(&layout);
     let supertype = layout.repr_index(variant).unwrap();
     assert!(
         !definitions[supertype.0 as usize].final_type,
@@ -423,7 +428,7 @@ fn plans_the_uniform_closure_and_capture_array_layout() {
     });
     let layout =
         PlannedLayout::plan(&table, TargetCapabilities::default()).expect("planning a closure");
-    let definitions = &layout.types[0].0;
+    let definitions = flattened_definitions(&layout);
     let (closure, capture) = layout.closure_layout().unwrap();
 
     let CompositeType::Array(element) = &definitions[capture.0 as usize].composite else {

@@ -28,6 +28,7 @@ fn proxy_declaration() -> hir::TypeDeclaration {
         name: "Proxy".into(),
         name_span: TextRange::new(0, 5),
         kind: hir::TypeDeclarationKind::Data,
+        compiler_class: None,
         parameters: vec![psrs_hir::TypeParameter {
             name: "a".into(),
             name_span: TextRange::new(6, 7),

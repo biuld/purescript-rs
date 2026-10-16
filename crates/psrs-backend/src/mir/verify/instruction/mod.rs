@@ -29,7 +29,9 @@ pub(super) fn verify_instruction(
     defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
     match instruction {
-        Instruction::Copy { .. } => copy::verify_copy(function, instruction, definitions)?,
+        Instruction::Copy { .. } | Instruction::ControlEvidence { .. } => {
+            copy::verify_copy(function, instruction, definitions)?
+        }
         Instruction::Constant { .. } | Instruction::NumberConstant { .. } => {
             constant::verify_constant(function, instruction, definitions)?
         }
@@ -53,6 +55,7 @@ pub(super) fn verify_instruction(
             function: callee,
             arguments,
             span,
+            ..
         } => {
             let Some(Some(signature)) = signatures.get(callee) else {
                 return Err(mir_error(*span, "MIR call target has no valid signature"));
@@ -377,6 +380,9 @@ pub(super) fn verify_instruction(
         }
         Instruction::ArrayGet { .. } => {
             arrays::verify_array_get(function, instruction, false, definitions, defined)?
+        }
+        Instruction::ArrayNewFilled { .. } => {
+            arrays::verify_array_new_filled(function, instruction, definitions, defined)?;
         }
         Instruction::ArrayGetU { .. } => {
             arrays::verify_array_get(function, instruction, true, definitions, defined)?

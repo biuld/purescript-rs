@@ -17,11 +17,11 @@ pub(super) fn declared_signatures(
                     .clone()
                     .map(|signature| (declaration.symbol, signature))
             });
-            // Only a source `foreign import` (a WIT external) is declared in a
+            // Only a source `foreign import` is declared in a
             // module; a compiler intrinsic is not, even though its descriptor
             // gives it a signature.
             let externals = module.externals.iter().filter_map(|external| {
-                if matches!(external.kind, psrs_hir::ExternalKind::Wit { .. }) {
+                if external.kind.requires_checked_signature() {
                     external
                         .signature
                         .clone()

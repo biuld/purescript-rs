@@ -2,6 +2,8 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 use verify::verify_expr;
 
+mod compiler_class;
+mod compiler_interface;
 mod expr;
 mod module;
 mod primitives;
@@ -9,6 +11,10 @@ mod substitution;
 mod ty;
 mod types;
 
+pub use compiler_class::CompilerClass;
+pub use compiler_interface::{
+    COMPILER_INTERFACES, CompilerInterface, InterfaceImplementation, compiler_interface,
+};
 pub use expr::{
     CaseBranch, CaseBranchCoverage, Declaration, Expr, ExprKind, Guard, GuardedExpr, LocalBinder,
     LocalBinding, Pattern, PatternKind, RecordPatternMode, ResolvedOperator, SectionSide,
@@ -100,6 +106,11 @@ impl TypeId {
     pub const PRIM_TYPE_ERROR_QUOTE_LABEL: Self = Self::new(ModuleId::INTRINSICS, 28);
     pub const PRIM_TYPE_ERROR_BESIDE: Self = Self::new(ModuleId::INTRINSICS, 29);
     pub const PRIM_TYPE_ERROR_ABOVE: Self = Self::new(ModuleId::INTRINSICS, 30);
+    /// Stable identity of the compiler-owned `Prim.Control.Control` carrier, the
+    /// effect-agnostic delimited-control computation type.
+    pub const CONTROL: Self = Self::new(ModuleId::INTRINSICS, 31);
+    /// Opaque owner of one continuation use; argument roles are nominal.
+    pub const RESUMPTION: Self = Self::new(ModuleId::INTRINSICS, 32);
 }
 
 mod intrinsic;
@@ -119,10 +130,31 @@ pub enum ExternalKind {
     /// resolves the canonical signature from the vendored WIT and lowers calls
     /// generically. See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
     Wit { interface: String, function: String },
+    /// An ordinary library foreign declaration awaiting target implementation.
+    /// Its identity is the declaring module and the external value's name;
+    /// absence of an implementation must remain an explicit linking failure.
+    Library { module: String },
+    /// A source value explicitly bound to a compiler primitive. Its checked
+    /// declaration type remains authoritative until target linking verifies it.
+    Primitive(Intrinsic),
+    /// An explicitly named runtime provider/export. Source resolution records
+    /// identity only; target linking owns the checked ABI and implementation.
+    Runtime { module: String, function: String },
+}
+
+impl ExternalKind {
+    /// Source declarations must retain a checked signature across IR boundaries.
+    pub fn requires_checked_signature(&self) -> bool {
+        !matches!(self, Self::Intrinsic(_))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalSymbol {
+    /// The declaring source module, retained when an import copies this symbol.
+    /// Compiler-provided intrinsics and post-checking synthetic externals have
+    /// no source declaration.
+    pub source_module: Option<ModuleId>,
     pub symbol: SymbolId,
     pub name: String,
     pub kind: ExternalKind,
@@ -155,6 +187,20 @@ pub struct Module {
 }
 
 impl Module {
+    /// Value annotations declared by this source module. Imported external
+    /// signatures retain their original owner and are checked there.
+    pub fn declared_value_signatures(&self) -> impl Iterator<Item = &Type> {
+        self.declarations
+            .iter()
+            .filter_map(|declaration| declaration.signature.as_ref())
+            .chain(
+                self.externals
+                    .iter()
+                    .filter(|external| external.source_module == Some(self.id))
+                    .filter_map(|external| external.signature.as_ref()),
+            )
+    }
+
     /// Checks that every reference targets a declaration visible in this module.
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
         let mut errors = Vec::new();
@@ -180,6 +226,18 @@ impl Module {
             }
         }
         for external in &self.externals {
+            if external.kind.requires_checked_signature() && external.source_module.is_none() {
+                errors.push(VerifyError {
+                    span: self.span,
+                    message: "source external has no declaring module",
+                });
+            }
+            if external.kind.requires_checked_signature() && external.signature.is_none() {
+                errors.push(VerifyError {
+                    span: self.span,
+                    message: "source external has no declared signature",
+                });
+            }
             if external.symbol.module != ModuleId::INTRINSICS {
                 errors.push(VerifyError {
                     span: self.span,

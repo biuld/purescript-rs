@@ -322,6 +322,7 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
     );
 
     let intrinsic = |symbol, name: &str, intrinsic| ExternalSymbol {
+        source_module: None,
         symbol,
         name: name.into(),
         kind: ExternalKind::Intrinsic(intrinsic),
@@ -332,8 +333,8 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
         id: module_id,
         name: "Main".into(),
         externals: vec![
-            intrinsic(int_sub, "intSub", Intrinsic::I32Sub),
-            intrinsic(int_le, "intLe", Intrinsic::I32LeS),
+            intrinsic(int_sub, "intSub", Intrinsic::IntSub),
+            intrinsic(int_le, "intLe", Intrinsic::IntLe),
         ],
         external_types: Vec::new(),
         types,

@@ -1,32 +1,36 @@
-use super::{Signature, function_arrow_parameters, is_callable_type, scalar_type};
+use super::{Signature, is_callable_type, scalar_type};
 use crate::BackendError;
 use crate::cc::{RefShape, ReprId, Representation, RepresentationTable, SignatureId, ValueShape};
 use psrs_core::{Module as CoreModule, TypeId};
 use psrs_hir::TypeId as HirTypeId;
 use std::collections::{HashMap, HashSet};
 
+pub(crate) mod parts;
+mod projection;
 mod reachable;
 
+use projection::CallProjection;
 use reachable::referenced_types;
 
+pub(super) fn live_type_ids(module: &CoreModule) -> HashSet<TypeId> {
+    reachable::live_type_ids(module)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn append_function_types(
     module: &CoreModule,
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
+    nominal_types: &HashMap<HirTypeId, ReprId>,
     array_types: &HashMap<TypeId, ReprId>,
     record_types: &HashMap<TypeId, ReprId>,
     representations: &mut RepresentationTable,
 ) -> Result<FunctionLayouts, Vec<BackendError>> {
     // Constructor schemes and unused library declarations leave callable types
-    // in the linked table. Laying those out would demand a runtime shape for an
-    // ADT the program never references. Both source arrows and the closure
-    // representation of a registered callable constructor are callable, so both
-    // receive a signature here.
-    let referenced = referenced_types(
-        module,
-        array_types.keys().chain(record_types.keys()).copied(),
-    );
+    // in the linked table. Only types referenced by remaining declarations and
+    // constructor fields need runtime signatures.
+    let referenced = referenced_types(module, std::iter::empty());
     let function_ids = module
         .types
         .iter()
@@ -61,6 +65,7 @@ pub(super) fn append_function_types(
             enum_types,
             aggregate_types,
             newtype_ids,
+            nominal_types,
             array_types,
             record_types,
             &provisional_function_types,
@@ -106,39 +111,27 @@ pub(crate) fn function_signature(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
+    nominal_types: &HashMap<HirTypeId, ReprId>,
     array_types: &HashMap<TypeId, ReprId>,
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<Signature, Vec<BackendError>> {
-    let (parameter_ids, result_id) = function_arrow_parameters(module, id);
-    let parameters = parameter_ids
-        .into_iter()
-        .map(|parameter| {
-            scalar_type(
-                module,
-                parameter,
-                module.span,
-                enum_types,
-                aggregate_types,
-                newtype_ids,
-                array_types,
-                record_types,
-                function_types,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let result = scalar_type(
-        module,
-        result_id,
-        module.span,
-        enum_types,
-        aggregate_types,
-        newtype_ids,
-        array_types,
-        record_types,
-        function_types,
-    )?;
-    Ok(Signature { parameters, result })
+    let projection = CallProjection::checked(module, id)?;
+    let signature = projection.physical_signature(|source, ty| {
+        scalar_type(
+            source,
+            ty,
+            module.span,
+            enum_types,
+            aggregate_types,
+            newtype_ids,
+            nominal_types,
+            array_types,
+            record_types,
+            function_types,
+        )
+    })?;
+    Ok(signature)
 }
 
 /// Re-interns the signature table after aggregate normalization has rewritten

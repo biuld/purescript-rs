@@ -11,10 +11,12 @@ use std::collections::{HashMap, HashSet};
 mod array_map;
 mod call;
 mod capability;
+mod captures;
 mod function;
 mod instruction;
 mod subtype;
 mod util;
+mod variants;
 
 #[cfg(test)]
 mod tests;
@@ -31,7 +33,9 @@ struct Signature {
 
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
+    super::control::verify(module, &mut errors);
     verify_defined_types(module, &mut errors);
+    variants::verify(module, &mut errors);
     let mut signatures = module
         .functions
         .iter()
@@ -65,6 +69,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     }
     let defined_types = defined_type_count(module);
     let defined = defined_types_list(module);
+    captures::verify(module, &defined, &mut errors);
     let mut function_ids = HashSet::new();
     for (position, function) in module.functions.iter().enumerate() {
         if !function_ids.insert(function.id) || function.id != FunctionId(position as u32) {
@@ -133,8 +138,14 @@ fn defined_types_list(module: &Module) -> Vec<&DefinedType> {
 }
 
 fn verify_defined_types(module: &Module, errors: &mut Vec<BackendError>) {
-    let count = defined_type_count(module);
+    let mut count = DefinedTypeId(0);
     for group in &module.types {
+        if group.0.is_empty() {
+            errors.extend(mir_error(module.span, "MIR recursion group is empty"));
+        }
+        // A definition can refer to earlier groups or its own group, but
+        // never a later group. Runtime values use the full module type scope.
+        count.0 += group.0.len() as u32;
         for def in &group.0 {
             if let Some(supertype) = def.supertype
                 && supertype.0 >= count.0

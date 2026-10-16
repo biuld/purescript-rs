@@ -19,6 +19,15 @@ pub enum ListDirection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
+    /// Source proof retained beside an already represented runtime value.
+    ControlEvidence {
+        destination: ValueId,
+        value: ValueId,
+        implementation: ValueId,
+        arguments: Vec<ValueId>,
+        contract: crate::cc::ControlContractId,
+        span: TextRange,
+    },
     Copy {
         destination: ValueId,
         value: ValueId,
@@ -56,6 +65,8 @@ pub enum Instruction {
         span: TextRange,
     },
     Call {
+        /// Retained until a checked call conversion discharges its callee binding.
+        contract: Option<crate::cc::ControlHelperId>,
         destination: ValueId,
         function: SymbolId,
         arguments: Vec<ValueId>,
@@ -188,6 +199,14 @@ pub enum Instruction {
         destination: ValueId,
         type_index: DefinedTypeId,
         length: ValueId,
+        span: TextRange,
+    },
+    /// Fresh fully initialized allocation; the element must fit the storage type.
+    ArrayNewFilled {
+        destination: ValueId,
+        type_index: DefinedTypeId,
+        length: ValueId,
+        value: ValueId,
         span: TextRange,
     },
     ArrayGet {

@@ -706,8 +706,8 @@ the free plan frees the record after the call.
   lowering into loops and leaf loads/stores carrying the `MemoryId` and `MemArg`
   ([linear memory and the canonical ABI boundary](linear-memory-and-canonical-abi-boundary.md)).
 - **To the componentizer.** `FnAbi` must match `Resolve::wasm_signature` so
-  `componentize` links the core import
-  (`crates/psrs-backend/src/component.rs:74`).
+  `psrs_linker::compose` links the core import
+  (`crates/psrs-linker/src/compose.rs`).
 - **To the allocator.** The generic parameter record and return area allocate
   and free through `cabi_realloc`, following
   [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).

@@ -82,6 +82,7 @@ fn folds_branch_merges_prunes_blocks_and_projects_imports() {
         span: span(),
     };
     let imports = vec![Import {
+        runtime: None,
         symbol: import,
         parameters: Vec::new(),
         result: None,

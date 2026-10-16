@@ -1,5 +1,11 @@
 # Typed Core Optimization
 
+> **Withdrawn extension (2026-10-11).** [State primitives and dependency
+> lowering](../fp/state-primitives-and-dependency-lowering.md) and
+> [library-owned effects](../fp/library-owned-effects.md) were removed. Any
+> paragraph that refers to State dependencies or State-specific optimizer
+> exclusions is retained as historical evidence, not as a current requirement.
+
 **Feature:** F-02
 
 **Status:** Draft

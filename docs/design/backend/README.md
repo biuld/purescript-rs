@@ -45,6 +45,7 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 
 | Document | Owns | Depends on |
 | --- | --- | --- |
+| [representation-and-evidence.md](fp/representation-and-evidence.md) | The shared RuntimeRep model, generic aggregate normalization, and the checked-boundary conversion contract every adaptation uses | frontend classes and evidence; functional core |
 | [cc-ir.md](fp/cc-ir.md) | ANF, closure conversion, CC operations and verifier | frontend Functional Core |
 | [mir.md](fp/mir.md) | SSA/CFG model, representation planning, MIR verifier | cc-ir |
 | [polymorphism-and-erasure.md](fp/polymorphism-and-erasure.md) | Rank-1 polymorphism, erased representation, adapters | mir |
@@ -53,7 +54,13 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [pattern-matching.md](fp/pattern-matching.md) | Pattern decision trees and exhaustiveness | cc-ir |
 | [control-flow-and-tail-calls.md](fp/control-flow-and-tail-calls.md) | CFG structuring, `Switch`, tail calls | mir |
 | [type-classes-and-dictionaries.md](fp/type-classes-and-dictionaries.md) | Dictionary passing and instance evidence | functional-core |
-| [effects.md](fp/effects.md) | Effect representation and the platform boundary | functional-core |
+| [algebraic-effects-and-handlers.md](fp/algebraic-effects-and-handlers.md) | Library operation functors, handlers, residual rows, and the `Run` wrapper over the control surface (AE-01–AE-11 and AC-01–AC-05 Verified) | DEC-03, delimited control, ordinary rows/classes, functional-core |
+| [delimited-control-and-resumable-frames.md](fp/delimited-control-and-resumable-frames.md) | Effect-agnostic delimited control (`Control f a` with `return`/`bind`/`perform`/`run`), the design-space selection, handler interface and lifetime semantics (**Draft design**) | DEC-03, DEC-19, cc-ir, mir, control-flow-and-tail-calls, capability-profile |
+| [control-machine.md](fp/control-machine.md) | The compiler-generated continuation machine: node inventory, per-IR representation, lowering, flat driver and sequence replay (**Draft design**) | delimited control, control elimination, cc-ir, mir, data-representation |
+| [native-effect-and-st-handlers.md](fp/native-effect-and-st-handlers.md) | Official Effect/ST facades, common native computation, typed storage/host handlers, and region safety (NE-01–NE-13 Verified 2026-10-16) | algebraic effects, delimited control, roles, rank-N, runtime linking |
+| [effects.md](fp/effects.md) | Effect representation and the platform boundary (**withdrawn 2026-10-11**; replacement is native Effect/ST) | functional-core |
+| [state-primitives-and-dependency-lowering.md](fp/state-primitives-and-dependency-lowering.md) | Primitive State semantics and cross-pass dependencies (**withdrawn 2026-10-11**) | primitive types, functional-core, CC, MIR |
+| [library-owned-effects.md](fp/library-owned-effects.md) | Ordinary Effect/ST newtypes, runtime adapters, command runner (**withdrawn 2026-10-11**) | State primitives and dependency lowering, source fidelity |
 
 ### Wasm/WASI (`wasm/`)
 
@@ -62,6 +69,9 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [encoding-and-structuring.md](wasm/encoding-and-structuring.md) | Structured Wasm encoding and binary emission | 00-ir-boundaries |
 | [capability-profile.md](wasm/capability-profile.md) | Target capability profile and gating | encoding-and-structuring |
 | [canonical-abi-and-wit.md](wasm/canonical-abi-and-wit.md) | WIT bindings and canonical ABI adaptation | encoding-and-structuring |
+| [linking-and-runtime.md](wasm/linking-and-runtime.md) | Intrinsic implementations, WIT providers, checked target link plans, and artifact composition (Draft) | primitive FFI, canonical-abi-and-wit |
+| [core-object-linking-and-compilation-units.md](wasm/core-object-linking-and-compilation-units.md) | Source/Core/Wasm/component units, compiler-owned emission, structured runtime closure and bindings (Draft) | linking-and-runtime, encoding-and-structuring |
+| [canonical-realloc-runtime-adapter.md](wasm/canonical-realloc-runtime-adapter.md) | Rust allocator selection, canonical adapter, and runtime-provider replacement (Draft) | canonical-buffer-allocation-and-lifetime, linking-and-runtime |
 | [linear-memory-and-canonical-abi-boundary.md](wasm/linear-memory-and-canonical-abi-boundary.md) | Linear memory as the ABI boundary | canonical-abi-and-wit |
 | [wasi-platform-library.md](wasm/wasi-platform-library.md) | Component packaging and WASI services | canonical-abi-and-wit |
 
@@ -77,11 +87,12 @@ rules.
 
 ## Ordering
 
-Read the functional concern bottom-up: functional core, then CC and MIR, then
-representation topics (erasure, scalars, data, patterns, control flow), then
-dictionaries and effects. Read P7 optimization after Core and P10 optimization
-after MIR and the target capability profile. Wasm/WASI encoding consumes the
-optimized MIR.
+Read the functional concern bottom-up: functional core, then the shared
+[representation and evidence](fp/representation-and-evidence.md) model, then CC
+and MIR, then representation topics (erasure, scalars, data, patterns, control
+flow), then dictionaries and effects. Read P7 optimization after Core and P10
+optimization after MIR and the target capability profile. Wasm/WASI encoding
+consumes the optimized MIR.
 
 ## Writing
 

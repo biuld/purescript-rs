@@ -9,6 +9,12 @@ mod util;
 
 use crate::{Module, VerifyError};
 
+/// Whether evaluating an expression can be deferred without moving a call,
+/// trap or write. Consumers share the optimizer's conservative effect summary.
+pub fn evaluation_is_inert(expression: &crate::Expr) -> bool {
+    effects::summarize(expression).inert()
+}
+
 /// Resource limits for deterministic P7 optimization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Budget {

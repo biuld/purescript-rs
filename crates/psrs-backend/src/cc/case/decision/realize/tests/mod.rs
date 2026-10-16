@@ -1,4 +1,5 @@
 use super::*;
+use crate::boundary::BoundaryEvidence;
 use crate::cc::lower::{FunctionLowerer, GeneratedSymbolAllocator};
 use crate::cc::{
     Assignment, AssignmentKind, Function, Module as CcModule, RepresentationTable, ValueDecl,
@@ -126,6 +127,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
     let function_types = HashMap::new();
     let function_wrappers = HashMap::new();
     let generated_symbols = Rc::new(RefCell::new(GeneratedSymbolAllocator::new(&module)));
+    let boundary = BoundaryEvidence::empty(&module);
     let mut lowerer = FunctionLowerer {
         next_value: 1,
         values: vec![ValueDecl {
@@ -136,11 +138,18 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         signatures: &signatures,
         representations: &representations,
         module: &module,
+        boundary: &boundary,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
+        nominal_types: &std::collections::HashMap::new(),
         boxed_integer_type: None,
         boxed_number_type: None,
+        control_layout: None,
+        control_functions: std::rc::Rc::new(std::cell::RefCell::new(None)),
+        generated_signatures: std::rc::Rc::new(std::cell::RefCell::new(
+            std::collections::HashMap::new(),
+        )),
         array_types: &array_types,
         record_types: &record_types,
         constructor_tags: &constructor_tags,

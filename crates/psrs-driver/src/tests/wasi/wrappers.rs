@@ -2,10 +2,10 @@ use super::*;
 
 #[test]
 fn reads_the_wall_clock_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Clock\n\
-        main = let time = runEffect wallNow in time.seconds * 0\n";
+        main = let time = unsafePerformEffect wallNow in time.seconds * 0\n";
     let artifact =
         compile_source("Main.purs", source).expect("the wall-clock wrapper should lower");
     assert!(artifact.wat.contains("wasi:clocks/wall-clock@0.2.12"));
@@ -18,10 +18,10 @@ fn reads_the_wall_clock_when_wasmtime_is_available() {
 
 #[test]
 fn reads_the_wall_clock_resolution_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Clock\n\
-        main = let tick = runEffect wallResolution in tick.nanoseconds * 0\n";
+        main = let tick = unsafePerformEffect wallResolution in tick.nanoseconds * 0\n";
     let artifact = compile_source("Main.purs", source)
         .expect("the wall-clock resolution wrapper should lower");
     assert!(artifact.wat.contains("resolution"));
@@ -34,10 +34,10 @@ fn reads_the_wall_clock_resolution_when_wasmtime_is_available() {
 
 #[test]
 fn reads_the_insecure_seed_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Random\n\
-        main = let seed = runEffect insecureSeed in seed._1 * 0\n";
+        main = let seed = unsafePerformEffect insecureSeed in seed._1 * 0\n";
     let artifact =
         compile_source("Main.purs", source).expect("the insecure seed wrapper should lower");
     assert!(artifact.wat.contains("wasi:random/insecure-seed@0.2.12"));
@@ -50,10 +50,10 @@ fn reads_the_insecure_seed_when_wasmtime_is_available() {
 
 #[test]
 fn reads_insecure_random_values_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Random\n\
-        main = let noise = runEffect insecureU64 in noise * 0\n";
+        main = let noise = unsafePerformEffect insecureU64 in noise * 0\n";
     let artifact =
         compile_source("Main.purs", source).expect("the insecure random wrappers should lower");
     assert!(artifact.wat.contains("wasi:random/insecure@0.2.12"));
@@ -66,11 +66,11 @@ fn reads_insecure_random_values_when_wasmtime_is_available() {
 
 #[test]
 fn polls_a_clock_subscription_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Clock (subscribeDuration)\n\
         import WASI.IO\n\
-        main = let waiter = runEffect (subscribeDuration 0) in arrayLength (runEffect (poll [waiter])) * 0\n";
+        main = let waiter = unsafePerformEffect (subscribeDuration 0) in arrayLength (unsafePerformEffect (poll [waiter])) * 0\n";
     let artifact = compile_source("Main.purs", source).expect("the poll wrapper should lower");
     assert!(artifact.wat.contains("wasi:io/poll@0.2.12"));
     let Some(output) = run_with_wasmtime(source) else {
@@ -82,11 +82,11 @@ fn polls_a_clock_subscription_when_wasmtime_is_available() {
 
 #[test]
 fn reads_a_pollable_readiness_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.Clock (subscribeDuration)\n\
         import WASI.IO (ready, block)\n\
-        main = let waiter = runEffect (subscribeDuration 0) in let ignored = runEffect (block waiter) in if runEffect (ready waiter) then 0 else 1\n";
+        main = let waiter = unsafePerformEffect (subscribeDuration 0) in let ignored = unsafePerformEffect (block waiter) in if unsafePerformEffect (ready waiter) then 0 else 1\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -96,10 +96,10 @@ fn reads_a_pollable_readiness_when_wasmtime_is_available() {
 
 #[test]
 fn writes_to_a_stream_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.IO\n\
-        main = let out = runEffect getStdout in let ignored = runEffect (blockingWriteAndFlush out (stringToBytes \"streamed\")) in 0\n";
+        main = let out = unsafePerformEffect getStdout in let ignored = unsafePerformEffect (blockingWriteAndFlush out (stringToBytes \"streamed\")) in 0\n";
     let artifact =
         compile_source("Main.purs", source).expect("the stream write wrapper should lower");
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
@@ -113,10 +113,10 @@ fn writes_to_a_stream_when_wasmtime_is_available() {
 
 #[test]
 fn gets_stdin_when_wasmtime_is_available() {
-    let source = "module Main where\n\
+    let source = "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\n\
         import Prelude\n\
         import WASI.IO\n\
-        main = let input = runEffect getStdin in 0\n";
+        main = let input = unsafePerformEffect getStdin in 0\n";
     let artifact = compile_source("Main.purs", source).expect("the stdin wrapper should lower");
     assert!(artifact.wat.contains("wasi:cli/stdin@0.2.12"));
     let Some(output) = run_with_wasmtime(source) else {
@@ -136,9 +136,8 @@ fn lowers_the_error_debug_string_wrapper() {
 }
 
 /// A module that declares a host `foreign import` must have an explicit export
-/// list. Representation lowering suspends the host call inside the effect
-/// closure, so a name on that list is the public operation. A name left off
-/// the list stays private.
+/// list. Raw canonical imports stay private; exported wrappers use Host.lift
+/// to delay the call until native interpretation.
 #[test]
 fn stdlib_export_lists_do_not_expose_raw_foreign_imports() {
     let sources = crate::prelude::sources().expect("the standard library should load");
@@ -240,10 +239,11 @@ fn raw_foreign_value_names(text: &str) -> Vec<String> {
         let Some(close) = rest.find('"') else {
             continue;
         };
-        // `psrs:effect` names the abstract effect operations (`pure`, `bind`,
-        // `runEffect`). Those are the public library interface, not a private
-        // host import hidden behind a wrapper.
-        if rest[..close].starts_with("psrs:effect#") {
+        // `psrs:` names compiler bindings (`psrs:intrinsic` checked primitives,
+        // `psrs:runtime-*` runtime providers). Those are the public library
+        // interface, not a private host import hidden behind a wrapper; only
+        // `wasi:` bindings name host imports.
+        if rest[..close].starts_with("psrs:") {
             continue;
         }
         let after = rest[close + 1..].trim_start();
@@ -261,10 +261,11 @@ fn lowers_a_mapped_result_with_a_variant_payload() {
     // whose case field is a resource handle, so the decode has to build the
     // nested source value before erasing it into the `Either` case field.
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import Data.Either (Either(..))
 import WASI.IO (getStdin, blockingRead, StreamError(..))
-main = case runEffect (blockingRead (runEffect getStdin) 1) of
+main = case unsafePerformEffect (blockingRead (unsafePerformEffect getStdin) 1) of
         Right bytes -> 0
         Left (LastOperationFailed _) -> 1
         Left Closed -> 2
@@ -295,10 +296,11 @@ fn lowers_an_opaque_handle_resource_drop() {
     // The synthesized `[resource-drop]` intrinsic takes the opaque handle type,
     // so a source declaration may name it rather than a bare `Int`.
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import WASI.IO (getStdin)
 import WASI.IO (dropInputStream)
-main = let ignored = runEffect (dropInputStream (runEffect getStdin)) in 0
+main = let ignored = unsafePerformEffect (dropInputStream (unsafePerformEffect getStdin)) in 0
 "#;
     let artifact = compile_source("Main.purs", source)
         .expect("an explicit drop of the opaque input-stream handle should lower");
@@ -308,15 +310,16 @@ main = let ignored = runEffect (dropInputStream (runEffect getStdin)) in 0
 #[test]
 fn reads_stdin_with_blocking_read_when_wasmtime_is_available() {
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import Data.Either (Either(..))
 import WASI.Console (log)
 import WASI.IO (getStdin)
 import WASI.IO (blockingRead, StreamError(..))
 main =
-  let result = runEffect (blockingRead (runEffect getStdin) 5) in
+  let result = unsafePerformEffect (blockingRead (unsafePerformEffect getStdin) 5) in
   case result of
-    Right text -> let ignored = runEffect (log (bytesToString text)) in 0
+    Right text -> let ignored = unsafePerformEffect (log (bytesToString text)) in 0
     Left (LastOperationFailed _) -> 1
     Left Closed -> 2
 "#;
@@ -336,35 +339,36 @@ fn lowers_the_filesystem_wrapper_surface() {
     // parameters, a `result<T, error-code>` result, an owned handle result,
     // and stream handles.
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import Data.Either (Either(..))
 import WASI.FileSystem
 main =
-  let dirs = runEffect preopens in
+  let dirs = unsafePerformEffect preopens in
   let dir = arrayIndex dirs 0 in
   let d = dir._1 in
-  let opened = runEffect (openRead d "a.txt") in
-  let wrote = runEffect (writeFile d (stringToBytes "x") 0) in
-  let bytes = runEffect (readFile d 1 0) in
-  let hash = runEffect (metadataHash d) in
-  let kind = runEffect (getType d) in
-  let flags = runEffect (getFlags d) in
-  let target = runEffect (readlinkAt d "a") in
-  let same = runEffect (isSameObject d d) in
-  let stats = runEffect (stat d) in
-  let statsAt = runEffect (statAt d { symlinkFollow: true } "a") in
-  let entries = runEffect (readDirectory d) in
+  let opened = unsafePerformEffect (openRead d "a.txt") in
+  let wrote = unsafePerformEffect (writeFile d (stringToBytes "x") 0) in
+  let bytes = unsafePerformEffect (readFile d 1 0) in
+  let hash = unsafePerformEffect (metadataHash d) in
+  let kind = unsafePerformEffect (getType d) in
+  let flags = unsafePerformEffect (getFlags d) in
+  let target = unsafePerformEffect (readlinkAt d "a") in
+  let same = unsafePerformEffect (isSameObject d d) in
+  let stats = unsafePerformEffect (stat d) in
+  let statsAt = unsafePerformEffect (statAt d { symlinkFollow: true } "a") in
+  let entries = unsafePerformEffect (readDirectory d) in
   let readEntry = case entries of
         Left _ -> 1
         Right stream ->
-          let entry = runEffect (readDirectoryEntry stream) in
-          let dropped = runEffect (dropDirectoryEntryStream stream) in
+          let entry = unsafePerformEffect (readDirectoryEntry stream) in
+          let dropped = unsafePerformEffect (dropDirectoryEntryStream stream) in
           0
   in
-  let ignoredTimes = runEffect (setTimes d NoChange NoChange) in
-  let ignoredTimesAt = runEffect (setTimesAt d { symlinkFollow: true } "a" NoChange NoChange) in
-  let bracketed = runEffect (withDescriptor d (\handle -> getType handle)) in
-  let ignored = runEffect (setSize d 0) in
+  let ignoredTimes = unsafePerformEffect (setTimes d NoChange NoChange) in
+  let ignoredTimesAt = unsafePerformEffect (setTimesAt d { symlinkFollow: true } "a" NoChange NoChange) in
+  let bracketed = unsafePerformEffect (withDescriptor d (\handle -> getType handle)) in
+  let ignored = unsafePerformEffect (setSize d 0) in
   0
 "#;
     let artifact =
@@ -376,6 +380,7 @@ main =
 #[test]
 fn lowers_the_sockets_wrapper_surface() {
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
@@ -383,26 +388,26 @@ import WASI.Network
 addr :: IpSocketAddress
 addr = IpV4SocketAddress { port: 0, address: { _1: 0, _2: 0, _3: 0, _4: 0 } }
 main =
-  let network = runEffect instanceNetwork in
-  let created = runEffect (createTcpSocket Ipv4) in
+  let network = unsafePerformEffect instanceNetwork in
+  let created = unsafePerformEffect (createTcpSocket Ipv4) in
   let tcp = case created of
         Right socket ->
-          let ignored = runEffect (tcpStartBind socket network addr) in
-          let ignoredFinish = runEffect (tcpFinishBind socket) in
-          let family = runEffect (tcpAddressFamily socket) in
-          let local = runEffect (tcpLocalAddress socket) in
-          let remote = runEffect (tcpRemoteAddress socket) in
-          let dropped = runEffect (dropTcpSocket socket) in
+          let ignored = unsafePerformEffect (tcpStartBind socket network addr) in
+          let ignoredFinish = unsafePerformEffect (tcpFinishBind socket) in
+          let family = unsafePerformEffect (tcpAddressFamily socket) in
+          let local = unsafePerformEffect (tcpLocalAddress socket) in
+          let remote = unsafePerformEffect (tcpRemoteAddress socket) in
+          let dropped = unsafePerformEffect (dropTcpSocket socket) in
           0
         Left _ -> 1
   in
-  let createdUdp = runEffect (createUdpSocket Ipv4) in
+  let createdUdp = unsafePerformEffect (createUdpSocket Ipv4) in
   let udp = case createdUdp of
         Right socket ->
-          let local = runEffect (udpLocalAddress socket) in
-          let remote = runEffect (udpRemoteAddress socket) in
-          let streams = runEffect (udpSocketStream socket Nothing) in
-          let dropped = runEffect (dropUdpSocket socket) in
+          let local = unsafePerformEffect (udpLocalAddress socket) in
+          let remote = unsafePerformEffect (udpRemoteAddress socket) in
+          let streams = unsafePerformEffect (udpSocketStream socket Nothing) in
+          let dropped = unsafePerformEffect (dropUdpSocket socket) in
           0
         Left _ -> 1
   in
@@ -455,10 +460,11 @@ fn rejects_a_raw_sockets_import_from_the_library() {
 #[test]
 fn drops_a_stream_handle_when_wasmtime_is_available() {
     let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
 import Prelude
 import WASI.IO (getStdin)
 import WASI.IO (dropInputStream)
-main = let ignored = runEffect (dropInputStream (runEffect getStdin)) in 7
+main = let ignored = unsafePerformEffect (dropInputStream (unsafePerformEffect getStdin)) in 7
 "#;
     let artifact = compile_source("Main.purs", source).expect("the drop wrapper should lower");
     assert!(artifact.wat.contains("[resource-drop]input-stream"));

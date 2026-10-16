@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 mod program;
 
 pub use program::{
-    ProgramError, ResolveOptions, resolve_program, resolve_program_partial,
-    resolve_program_with_options,
+    ProgramError, ResolveOptions, compiler_provided_module, resolve_program,
+    resolve_program_partial, resolve_program_with_options,
 };
 
 mod bootstrap;

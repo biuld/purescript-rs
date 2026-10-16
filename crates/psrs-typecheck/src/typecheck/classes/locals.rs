@@ -32,7 +32,7 @@ fn scan_expr(expression: &hir::Expr, max: &mut Option<u32>) {
                 scan_expr(element, max);
             }
         }
-        hir::ExprKind::Record(fields) => {
+        hir::ExprKind::Record(fields) | hir::ExprKind::MatchProduct(fields) => {
             for (_, value) in fields {
                 scan_expr(value, max);
             }

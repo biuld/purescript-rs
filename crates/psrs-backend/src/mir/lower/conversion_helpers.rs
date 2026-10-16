@@ -1,5 +1,4 @@
 use crate::cc::{self, AggregateConvert, ValueConversion};
-use crate::mir::Function;
 use crate::types::ValueId;
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
@@ -15,13 +14,12 @@ pub(in crate::mir) struct ConversionHelpers {
 }
 
 impl ConversionHelpers {
-    pub(in crate::mir) fn new(module: &cc::Module, scalar_helpers: &[Function]) -> Self {
+    pub(in crate::mir) fn new(module: &cc::Module) -> Self {
         let mut used: HashSet<SymbolId> = module
             .functions
             .iter()
             .map(|function| function.symbol)
             .chain(module.externals.iter().map(|external| external.symbol))
-            .chain(scalar_helpers.iter().map(|function| function.symbol))
             .collect();
         // Intrinsic symbols are allocated downward from `u32::MAX`; the
         // canonical ABI and codec reserve the top indices.
@@ -134,7 +132,7 @@ mod tests {
             entry: None,
             span: TextRange::new(0, 1),
         };
-        let mut helpers = ConversionHelpers::new(&module, &[]);
+        let mut helpers = ConversionHelpers::new(&module);
         let span = TextRange::new(0, 1);
         let first = array_conversion(ValueConversion::Identity);
         let different = array_conversion(ValueConversion::EraseReference);

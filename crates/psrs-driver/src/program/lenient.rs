@@ -73,6 +73,10 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
             .into_iter()
             .map(|(_, declaration)| declaration),
     );
+    let known_values = resolved
+        .iter()
+        .flat_map(|module| module.declarations.iter().cloned())
+        .collect::<Vec<_>>();
     // Every per-module table below is indexed by the module's own `ModuleId`,
     // which is its position in `sources`. `resolved` holds only the sources that
     // reached resolution, so enumerating it would both attribute a diagnostic to
@@ -113,6 +117,7 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
             false,
             psrs_typecheck::TypecheckContext {
                 known_types: &known_types,
+                known_values: &known_values,
                 imported_instances: &imported_instances,
                 module_names: &module_names,
                 checked_kinds: &checked_kinds,

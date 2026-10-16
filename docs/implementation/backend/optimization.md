@@ -248,3 +248,35 @@ The optimization topic's own obligations are Verified. The broader BE-12 row
 stays `Partial` until both stages reach the official `M8-O` optimization and
 `CoreFn` compatibility gate and named-global/cross-module specialization
 coverage grows under explicit linkage rules.
+
+## Driver assertions at optimization boundaries
+
+The driver regressions `constrained_dictionary_parameters_precede_ordinary_arguments`,
+`runs_a_polymorphic_identity_with_a_number`, and
+`compiles_if_expression_through_cfg_to_structured_wasm` inspect signatures,
+Number literals, and branch edges at their pre-optimization lowering boundary.
+They do not require optimized MIR to retain an inlined function or final WAT
+to retain `f64`/`br_if` text after equivalent simplification.
+
+Runtime cases consume the Number result (1.5 and 2.5 select distinct exits),
+execute both Boolean branches through a function value, and vary the second
+dictionary method so dropping or swapping a dictionary affects the result.
+The dictionary requirement evidence is recorded under DICT-03 in
+[type classes and dictionaries](type-classes-and-dictionaries.md).
+
+Validation on 2026-10-08, starting at compiler revision `d623322`:
+
+```sh
+PSRS_STDLIB_ROOT=/Users/biu/Projects/psrs-stdlib PSRS_REQUIRE_WASMTIME=1 \
+  cargo test --workspace --no-fail-fast
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+All three formerly failing regressions passed individually with mandatory
+Wasmtime. The full workspace command then exited 0: the driver library passed
+all 716 tests, and every other workspace test target passed. Formatting and
+strict Clippy passed. The explicit development package matches the package
+used for the earlier three-failure baseline; this is not a claim that the
+uncommitted library contents match `stdlib.lock.json`. The full workspace log
+is `/private/tmp/psrs-three-regressions-workspace.log`.

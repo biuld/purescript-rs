@@ -45,6 +45,7 @@ pub(in crate::cc::lower) fn make_wrapper(
         assignments: vec![Assignment {
             destination: result,
             kind: AssignmentKind::DirectCall {
+                contract: None,
                 function: source.symbol,
                 arguments,
             },
@@ -114,6 +115,7 @@ fn eta_expanded_wrapper(
     let mut assignments = vec![Assignment {
         destination: intermediate,
         kind: AssignmentKind::DirectCall {
+            contract: None,
             function: source.symbol,
             arguments: first_parameters,
         },

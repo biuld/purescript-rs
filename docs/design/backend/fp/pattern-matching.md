@@ -216,6 +216,16 @@ frontend diagnostics; the compiler never silently emits a partial decision.
 Coverage is checked where the pattern matrix is built, so a rejected program
 keeps its source span.
 
+For an irrefutable query over a finite signature, check the default matrix first
+when the matrix does not observe every constructor, then construct a finite
+inhabitant of a missing constructor. A complete signature specializes every
+constructor; if all missing constructors are uninhabited, specialization still
+checks the observed constructors for uncovered fields. Witness construction tracks types
+along the current field path, so recursive products cannot expand the query
+indefinitely. A recursive type without a finite constructor inhabitant does not
+justify an uncovered witness. Constructor enumeration order must not affect
+termination or first-match behavior.
+
 ### Rejected alternatives
 
 - **Ordered backtracking matcher (nested if-chain).** The current lowering
@@ -305,8 +315,13 @@ useful(matrix, query):
             return useful(specialize(matrix, 0, exact_length(length(elements))),
                           elements ++ query[1..])
         Irrefutable:
-            if matrix has a full first-column signature S:
-                // Boolean and closed ADT signatures enumerate every head.
+            if column has a finite signature S:
+                if matrix does not observe all of S:
+                    if not useful(default(matrix, 0), query[1..]):
+                        return false
+                    if some missing shape in S has a finite inhabitant:
+                        return true
+                    // Missing empty constructors cannot hide observed gaps.
                 for shape in S:
                     if useful(specialize(matrix, 0, shape),
                               wildcards(field_count(shape)) ++ query[1..]):

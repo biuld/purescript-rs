@@ -1,9 +1,13 @@
 use super::super::super::*;
-use super::flatten_spine;
+use super::{KnownClass, apply_expr, flatten_spine, global_expr, is_applied_variable, local_expr};
+use crate::typecheck::classes::deriving::syntax::{
+    case_expr, lambda, symbol_pattern, variable_pattern,
+};
 
 #[derive(Clone, Copy)]
 struct OrdFieldContext {
     method: SymbolId,
+    field_method: Option<SymbolId>,
     less: SymbolId,
     equal: SymbolId,
     greater: SymbolId,
@@ -17,55 +21,126 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferredExpr> {
+        // A field whose type is an applied type variable `f a` is compared
+        // through `Ord1`'s `compare1`, exactly as the official deriving rule
+        // does. The lookup is lazy because a data type with no such field does
+        // not need `Ord1` to exist in the environment at all.
+        let needs_ord1 = class_arguments
+            .first()
+            .and_then(|argument| {
+                let instance_type = self.resolve_type(argument.clone());
+                let (head, _) = flatten_spine(&instance_type);
+                let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
+                    return None;
+                };
+                self.env.type_declarations.get(type_id).map(|declaration| {
+                    declaration.constructors.iter().any(|constructor| {
+                        constructor
+                            .fields
+                            .iter()
+                            .any(|field| is_applied_variable(&self.normalize_deriving_type(field)))
+                    })
+                })
+            })
+            .unwrap_or(false);
+        let field_method = if needs_ord1 {
+            match self.known_method(KnownClass::Ord1, "compare1") {
+                Some(method) => Some(method),
+                None => {
+                    return self.deriving_error(
+                        TypeCheckErrorKind::CannotDerive,
+                        span,
+                        "cannot find the Ord1 method for Ord deriving",
+                    );
+                }
+            }
+        } else {
+            None
+        };
+        self.derive_ord_method_using(method, class_arguments, method.symbol, field_method, span)
+    }
+
+    pub(super) fn derive_ord1_method(
+        &mut self,
+        method: &MethodInfo,
+        class_arguments: &[InferType],
+        span: TextRange,
+    ) -> Option<InferredExpr> {
+        // The official rule derives `Ord1` by delegating to `Ord` at the
+        // applied argument: `compare1 = compare`. The matching `Ord` instance
+        // supplies the dictionary, so its context must be visible alongside the
+        // method's.
+        let Some(compare_method) = self.known_method(KnownClass::Ord, "compare") else {
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotDerive,
+                span,
+                "cannot find the Ord method for Ord1 deriving",
+            );
+        };
+        let implementation = global_expr(compare_method, span);
+        self.infer_derived_method(method, class_arguments, &implementation)
+    }
+
+    fn derive_ord_method_using(
+        &mut self,
+        method: &MethodInfo,
+        class_arguments: &[InferType],
+        compare_method: SymbolId,
+        field_method: Option<SymbolId>,
+        span: TextRange,
+    ) -> Option<InferredExpr> {
         let Some(instance_type) = class_arguments.first() else {
-            return self.deriving_error(span, "Ord deriving requires one type argument");
+            return self.deriving_error(
+                TypeCheckErrorKind::InvalidDerivedInstance,
+                span,
+                "Ord deriving requires one type argument",
+            );
         };
         let instance_type = self.resolve_type(instance_type.clone());
         let (head, arguments) = flatten_spine(&instance_type);
         let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
             return self.deriving_error(
+                TypeCheckErrorKind::ExpectedTypeConstructor,
                 span,
                 "Ord deriving requires a local data or newtype constructor",
             );
         };
         let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
-            return self.deriving_error(span, "cannot find the data declaration to derive Ord");
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotFindDerivingType,
+                span,
+                "cannot find the data declaration to derive Ord",
+            );
         };
         if type_id.module != self.env.module_id
             || !matches!(
                 declaration.kind,
                 hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
             )
-            || arguments.len() != declaration.parameters.len()
+            || declaration.parameters.len() != arguments.len()
         {
             return self.deriving_error(
+                TypeCheckErrorKind::ExpectedTypeConstructor,
                 span,
                 "Ord deriving requires a locally declared, fully applied data type",
             );
         }
-        let Some(ordering_id) = ordering_result_id(&method.signature) else {
+        let Some(ordering) = self.env.deriving.ordering() else {
             return self.deriving_error(
+                TypeCheckErrorKind::CannotFindDerivingType,
                 span,
-                "Ord deriving requires a method returning the Ordering data type",
+                "cannot find the Data.Ordering data declaration",
             );
         };
-        let Some(ordering) = self.env.type_declarations.get(&ordering_id) else {
-            return self.deriving_error(span, "cannot find the Ordering data declaration");
-        };
-        let Some(less) = nullary_constructor(ordering, "LT") else {
-            return self.deriving_error(span, "Ordering must define a nullary LT constructor");
-        };
-        let Some(equal) = nullary_constructor(ordering, "EQ") else {
-            return self.deriving_error(span, "Ordering must define a nullary EQ constructor");
-        };
-        let Some(greater) = nullary_constructor(ordering, "GT") else {
-            return self.deriving_error(span, "Ordering must define a nullary GT constructor");
-        };
+        let less = ordering.lt;
+        let equal = ordering.eq;
+        let greater = ordering.gt;
 
         let left = self.fresh_deriving_binder("__derived_left", span);
         let right = self.fresh_deriving_binder("__derived_right", span);
         let field_context = OrdFieldContext {
-            method: method.symbol,
+            method: compare_method,
+            field_method,
             less,
             equal,
             greater,
@@ -77,6 +152,11 @@ impl Checker {
                 .fields
                 .iter()
                 .map(|_| self.fresh_deriving_binder("__derived_l", span))
+                .collect::<Vec<_>>();
+            let field_types = constructor
+                .fields
+                .iter()
+                .map(|field| self.normalize_deriving_type(field))
                 .collect::<Vec<_>>();
             let mut right_branches = Vec::new();
             for (right_index, other) in declaration.constructors.iter().enumerate() {
@@ -91,12 +171,7 @@ impl Checker {
                     .map(|_| self.fresh_deriving_binder("__derived_r", span))
                     .collect::<Vec<_>>();
                 let value = if left_index == right_index {
-                    derive_ord_field_tests(
-                        &constructor.fields,
-                        &left_fields,
-                        &right_fields,
-                        field_context,
-                    )
+                    derive_ord_field_tests(&field_types, &left_fields, &right_fields, field_context)
                 } else {
                     global_expr(result_symbol, span)
                 };
@@ -107,13 +182,7 @@ impl Checker {
                     span,
                 });
             }
-            let right_case = hir::Expr {
-                kind: hir::ExprKind::Case {
-                    scrutinee: Box::new(local_expr(right.id, span)),
-                    branches: right_branches,
-                },
-                span,
-            };
+            let right_case = case_expr(local_expr(right.id, span), right_branches, span);
             left_branches.push(hir::CaseBranch {
                 coverage: hir::CaseBranchCoverage::Source,
                 pattern: constructor_pattern(constructor.symbol, &left_fields, span),
@@ -124,33 +193,20 @@ impl Checker {
         if left_branches.is_empty() {
             left_branches.push(hir::CaseBranch {
                 coverage: hir::CaseBranchCoverage::Source,
-                pattern: hir::Pattern {
-                    kind: hir::PatternKind::Wildcard,
-                    span,
-                },
+                pattern: crate::typecheck::classes::deriving::syntax::wildcard_pattern(span),
                 value: global_expr(equal, span),
                 span,
             });
         }
-        let implementation = hir::Expr {
-            kind: hir::ExprKind::Lambda {
-                binder: left.clone(),
-                body: Box::new(hir::Expr {
-                    kind: hir::ExprKind::Lambda {
-                        binder: right.clone(),
-                        body: Box::new(hir::Expr {
-                            kind: hir::ExprKind::Case {
-                                scrutinee: Box::new(local_expr(left.id, span)),
-                                branches: left_branches,
-                            },
-                            span,
-                        }),
-                    },
-                    span,
-                }),
-            },
+        let implementation = lambda(
+            left.clone(),
+            lambda(
+                right.clone(),
+                case_expr(local_expr(left.id, span), left_branches, span),
+                span,
+            ),
             span,
-        };
+        );
         self.infer_derived_method(method, class_arguments, &implementation)
     }
 }
@@ -163,6 +219,7 @@ fn derive_ord_field_tests(
 ) -> hir::Expr {
     let OrdFieldContext {
         method,
+        field_method,
         less,
         equal,
         greater,
@@ -170,23 +227,26 @@ fn derive_ord_field_tests(
     } = context;
     fields.iter().zip(left).zip(right).rev().fold(
         global_expr(equal, span),
-        |rest, ((_field, left), right)| {
+        |rest, ((field, left), right)| {
+            let method = if is_applied_variable(field) {
+                field_method.unwrap_or(method)
+            } else {
+                method
+            };
             let compared = apply_expr(
                 apply_expr(global_expr(method, span), local_expr(left.id, span), span),
                 local_expr(right.id, span),
                 span,
             );
-            hir::Expr {
-                kind: hir::ExprKind::Case {
-                    scrutinee: Box::new(compared),
-                    branches: vec![
-                        ordering_branch(less, global_expr(less, span), span),
-                        ordering_branch(equal, rest, span),
-                        ordering_branch(greater, global_expr(greater, span), span),
-                    ],
-                },
+            case_expr(
+                compared,
+                vec![
+                    ordering_branch(less, global_expr(less, span), span),
+                    ordering_branch(equal, rest, span),
+                    ordering_branch(greater, global_expr(greater, span), span),
+                ],
                 span,
-            }
+            )
         },
     )
 }
@@ -205,60 +265,12 @@ fn constructor_pattern(
     arguments: &[hir::LocalBinder],
     span: TextRange,
 ) -> hir::Pattern {
-    hir::Pattern {
-        kind: hir::PatternKind::Constructor {
-            symbol,
-            name_span: span,
-            arguments: arguments
-                .iter()
-                .map(|binder| hir::Pattern {
-                    kind: hir::PatternKind::Var(binder.clone()),
-                    span,
-                })
-                .collect(),
-        },
+    symbol_pattern(
+        symbol,
+        arguments
+            .iter()
+            .map(|binder| variable_pattern(binder, span))
+            .collect(),
         span,
-    }
-}
-
-fn nullary_constructor(declaration: &hir::TypeDeclaration, name: &str) -> Option<SymbolId> {
-    declaration
-        .constructors
-        .iter()
-        .find(|constructor| constructor.name == name && constructor.fields.is_empty())
-        .map(|constructor| constructor.symbol)
-}
-
-fn ordering_result_id(mut ty: &hir::Type) -> Option<hir::TypeId> {
-    loop {
-        match &ty.kind {
-            hir::TypeKind::Forall { body, .. } | hir::TypeKind::Constrained { body, .. } => {
-                ty = body;
-            }
-            hir::TypeKind::Function { result, .. } => ty = result,
-            hir::TypeKind::Named(id) => return Some(*id),
-            _ => return None,
-        }
-    }
-}
-
-fn local_expr(local: LocalId, span: TextRange) -> hir::Expr {
-    hir::Expr {
-        kind: hir::ExprKind::Local(local),
-        span,
-    }
-}
-
-fn global_expr(symbol: SymbolId, span: TextRange) -> hir::Expr {
-    hir::Expr {
-        kind: hir::ExprKind::Global(symbol),
-        span,
-    }
-}
-
-fn apply_expr(function: hir::Expr, argument: hir::Expr, span: TextRange) -> hir::Expr {
-    hir::Expr {
-        kind: hir::ExprKind::Application(Box::new(function), Box::new(argument)),
-        span,
-    }
+    )
 }

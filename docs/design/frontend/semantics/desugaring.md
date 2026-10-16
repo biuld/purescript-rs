@@ -15,8 +15,13 @@ in-scope `negate` name. P4 rewrites surface constructs into a smaller resolved
 HIR, applying fixities, lowering unary minus, guards, equations, `do`/`ado`,
 and `where` scope while preserving source order and origins for P5 diagnostics.
 
-The generated case and equation products use exact record patterns, so P5
-infers a closed row for the helper product. A source record pattern such as
+The generated case and equation products retain an explicit `MatchProduct`
+expression through P3 and P4, with exact record patterns. Each field is an
+independent scrutinee, so P5 preserves a local field's structural `forall`
+unless the corresponding source patterns require a monotype. P5 converts the
+checked product into an ordinary typed record with a closed row. A source
+record literal still instantiates its field expressions normally; its fields
+must not acquire independent pattern-scrutinee polymorphism. A source record pattern such as
 `{ field }` remains partial and may leave the row tail open. This distinction
 keeps compiler-created products concrete without changing source record
 matching.
@@ -105,8 +110,20 @@ remain as resolved `Typed` expressions for P5.
 Every rewrite evaluates source operands in the order defined by the language.
 A failed guard proceeds to the next guard without evaluating that guard's body.
 A generated temporary binds an expression once when duplication would change
-evaluation. P4 preserves the source span of every retained user expression;
-generated scaffolding points to the construct that introduced it.
+evaluation. The saved scrutinee is bound in an outer `let`, and fallthrough helpers share
+an inner `let` with the case. They refer to outer locals and the saved product
+directly. Helpers exist only for rows after the first guarded row, including the
+final failure continuation. Earlier rows are checked directly as case branches
+and have no unused helper copies: such copies would create additional inferred
+class obligations without the original branch's expected result type.
+Separating the saved value from the helper binding group preserves
+its scope without making that group recursive. Its calls
+pass an empty token to delay evaluation, rather than passing the product's
+polymorphic fields through a newly inferred helper parameter. Passing one of those locals in as a value
+argument would instantiate a polymorphic scheme once, before the guard body
+applies the arguments that determine its constraints. P4 preserves the source
+span of every retained user expression; generated scaffolding points to the
+construct that introduced it.
 
 Rejected alternatives: desugaring operators in P2 cannot respect imported
 fixities; waiting until MIR would discard useful source types and spans; and

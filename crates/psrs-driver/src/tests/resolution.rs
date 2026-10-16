@@ -175,7 +175,7 @@ markerInt = 1\n";
 
 #[test]
 fn resolves_a_program_against_the_on_disk_standard_library() {
-    let source = "module Main where\nimport Prelude\nmain = runEffect (pure 1)\n";
+    let source = "module Main where\nimport Prelude\nimport Effect (Effect)\nmain :: Effect Int\nmain = pure 1\n";
     let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();
     assert!(
         errors
@@ -190,7 +190,7 @@ fn resolves_a_program_against_the_on_disk_standard_library() {
 
 #[test]
 fn attributes_a_library_backed_diagnostic_to_the_user_source() {
-    let source = "module Main where\nimport Prelude\nmain = runEffect (pure missingName)\n";
+    let source = "module Main where\nimport Prelude\nimport Effect (Effect)\nmain :: Effect Int\nmain = pure missingName\n";
     let errors = check_program_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
     assert!(
         errors.iter().any(|error| {

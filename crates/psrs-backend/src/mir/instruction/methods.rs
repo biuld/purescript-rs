@@ -7,6 +7,7 @@ impl Instruction {
     pub fn destination(&self) -> Option<ValueId> {
         match self {
             Self::Copy { destination, .. }
+            | Self::ControlEvidence { destination, .. }
             | Self::Constant { destination, .. }
             | Self::NumberConstant { destination, .. }
             | Self::ArrayNewData { destination, .. }
@@ -29,6 +30,7 @@ impl Instruction {
             | Self::ArrayNew { destination, .. }
             | Self::ArrayNewDefault { destination, .. }
             | Self::ArrayNewSized { destination, .. }
+            | Self::ArrayNewFilled { destination, .. }
             | Self::ArrayGet { destination, .. }
             | Self::ArrayGetU { destination, .. }
             | Self::ArrayClone { destination, .. }
@@ -69,6 +71,16 @@ impl Instruction {
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
             Self::Copy { value, .. } => vec![*value],
+            Self::ControlEvidence {
+                value,
+                implementation,
+                arguments,
+                ..
+            } => {
+                let mut uses = arguments.clone();
+                uses.extend([*value, *implementation]);
+                uses
+            }
             Self::Constant { .. } | Self::NumberConstant { .. } | Self::ArrayNewData { .. } => {
                 Vec::new()
             }
@@ -109,6 +121,7 @@ impl Instruction {
             } => arguments.clone(),
             Self::ArrayNewDefault { length, source, .. } => vec![*length, *source],
             Self::ArrayNewSized { length, .. } => vec![*length],
+            Self::ArrayNewFilled { length, value, .. } => vec![*length, *value],
             Self::StructSet {
                 value, new_value, ..
             } => vec![*value, *new_value],
@@ -159,6 +172,7 @@ impl Instruction {
     pub fn span(&self) -> TextRange {
         match self {
             Self::Copy { span, .. }
+            | Self::ControlEvidence { span, .. }
             | Self::Constant { span, .. }
             | Self::NumberConstant { span, .. }
             | Self::ArrayNewData { span, .. }
@@ -183,6 +197,7 @@ impl Instruction {
             | Self::ArrayNew { span, .. }
             | Self::ArrayNewDefault { span, .. }
             | Self::ArrayNewSized { span, .. }
+            | Self::ArrayNewFilled { span, .. }
             | Self::ArrayGet { span, .. }
             | Self::ArrayGetU { span, .. }
             | Self::ArrayClone { span, .. }

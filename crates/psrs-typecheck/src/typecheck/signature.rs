@@ -83,6 +83,11 @@ impl Checker {
         rigid: bool,
         quantified: &mut Vec<u32>,
     ) -> (Vec<ClassConstraint>, InferType) {
+        if let Some(expanded) = self.env.checked_kinds.expand_synonyms(ty)
+            && expanded != *ty
+        {
+            return self.elaborate_constraint_spine(&expanded, variables, rigid, quantified);
+        }
         match &ty.kind {
             hir::TypeKind::Forall {
                 variables: binders,
@@ -125,6 +130,13 @@ impl Checker {
         variables: &mut HashMap<String, InferType>,
         rigid_variables: bool,
     ) -> InferType {
+        // Substitute in HIR before elaborating arguments: a saturated outer
+        // alias may apply a partial alias argument or discard it altogether.
+        if let Some(expanded) = self.env.checked_kinds.expand_synonyms(ty)
+            && expanded != *ty
+        {
+            return self.elaborate_type_mode(&expanded, variables, rigid_variables);
+        }
         match &ty.kind {
             hir::TypeKind::Wildcard => self.fresh(),
             hir::TypeKind::Variable(name) => {
@@ -171,15 +183,34 @@ impl Checker {
             hir::TypeKind::Application(function, argument) => {
                 let (head, arguments) = flatten_spine(ty);
                 if let Some(id) = nominal_type_id(head)
-                    && self.env.synonyms.contains_key(&id)
+                    && let Some(arity) = self
+                        .env
+                        .synonyms
+                        .get(&id)
+                        .map(|synonym| synonym.parameters.len())
                 {
-                    let arguments = arguments
-                        .into_iter()
+                    // Arguments past the synonym's own parameters apply to the
+                    // expanded body. `C2 a z` has kind `k -> Type`, so
+                    // `C2 a z x` is `(C2 a z) x`, not a third synonym parameter.
+                    let elaborated = arguments
+                        .iter()
+                        .take(arity)
                         .map(|argument| {
                             self.elaborate_type_mode(argument, variables, rigid_variables)
                         })
                         .collect();
-                    return self.expand_synonym(id, arguments, ty.span);
+                    let mut expanded = self.expand_synonym(id, elaborated, ty.span);
+                    for argument in arguments.iter().skip(arity) {
+                        expanded = InferType::Application(
+                            Box::new(expanded),
+                            Box::new(self.elaborate_type_mode(
+                                argument,
+                                variables,
+                                rigid_variables,
+                            )),
+                        );
+                    }
+                    return expanded;
                 }
                 InferType::Application(
                     Box::new(self.elaborate_type_mode(function, variables, rigid_variables)),
