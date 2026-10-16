@@ -11,6 +11,24 @@ jobs:
       PSRS_REQUIRE_WASMTIME: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Read the locked standard-library revision
+        id: stdlib-lock
+        run: |
+          revision=$(python3 -c 'import json; print(json.load(open("stdlib.lock.json"))["revision"])')
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - name: Checkout the locked standard library
+        uses: actions/checkout@v4
+        with:
+          repository: biuld/psrs-stdlib
+          ref: ${{ steps.stdlib-lock.outputs.revision }}
+          path: psrs-stdlib-checkout
+          ssh-key: ${{ secrets.PSRS_STDLIB_DEPLOY_KEY }}
+      - name: Place the package where the lock expects it
+        run: |
+          dest="$GITHUB_WORKSPACE/../psrs-stdlib"
+          rm -rf "$dest"
+          mv "$GITHUB_WORKSPACE/psrs-stdlib-checkout" "$dest"
+          test -f "$dest/manifest.json"
       - uses: dtolnay/rust-toolchain@stable
       - name: Install pinned Wasmtime
         run: |

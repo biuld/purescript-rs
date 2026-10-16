@@ -38,10 +38,12 @@ A future cargo xtask may invoke these commands without becoming their owner.
 ## Package selection
 
 `stdlib.lock.json` records a package revision, relative local checkout path,
-and portable content fingerprint. The development default is `../psrs-stdlib`;
-no remote publishing or download mechanism is implied. A fresh checkout or CI
-worker must provision the separate package before library-dependent checks.
-Automatic CI acquisition remains pending a published source location. The default loader
+and portable content fingerprint. The development default is `../psrs-stdlib`.
+The required Wasmtime workflow checks out the private repository
+`biuld/psrs-stdlib` at that revision and places it on the lock path before
+library-dependent tests. It authenticates with a read-only deploy key stored as
+the `PSRS_STDLIB_DEPLOY_KEY` repository secret. A fresh local checkout still
+needs the sibling package; there is no public download. The default loader
 rejects a content mismatch. The revision records provenance; archives do not
 require Git. Content identity, rather than an unchecked Git HEAD, governs load.
 
