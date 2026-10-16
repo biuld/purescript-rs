@@ -98,7 +98,7 @@ fn source_build_composes_a_guest_and_joins_the_exact_artifact_lineage() {
     ))
     .unwrap();
     fs::write(root.join("seed.wasm"), &provider).unwrap();
-    fs::write(root.join("Main.purs"), "module Main where\nimport Prelude\nimport WASI.Random (insecureSeed)\nmain = let seed = runEffect insecureSeed in seed._1 + seed._2\n").unwrap();
+    fs::write(root.join("Main.purs"), "module Main where\nimport Prelude\nimport Effect.Unsafe (unsafePerformEffect)\nimport WASI.Random (insecureSeed)\nmain = let seed = unsafePerformEffect insecureSeed in seed._1 + seed._2\n").unwrap();
     let mut manifest = serde_json::json!({
         "schema_version":1,
         "providers":[{"id":"seed", "path":"seed.wasm", "sha256":psrs_linker::sha256_hex(&provider)}],
