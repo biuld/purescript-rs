@@ -9,7 +9,6 @@ mod instantiation;
 mod link;
 mod patterns;
 mod rank_n;
-mod rank_n_universals;
 mod record_scope;
 mod rows;
 

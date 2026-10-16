@@ -2,6 +2,8 @@ use super::*;
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 
+mod universals;
+
 const SPAN: TextRange = TextRange::new(0, 1);
 
 fn arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {

@@ -2,7 +2,7 @@ use super::VariantCase;
 use super::{ReprId, Representation, RepresentationTable, Signature, SignatureId, ValueShape};
 use crate::BackendError;
 use psrs_core::{Module as CoreModule, Type, TypeConstructor, TypeId};
-use psrs_hir::{SymbolId, TypeId as HirTypeId, TypeVariableId};
+use psrs_hir::{SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -13,6 +13,7 @@ mod declaration;
 mod functions;
 pub(crate) mod protocols;
 mod scalar;
+mod type_dependency;
 
 #[cfg(test)]
 mod tests;
@@ -21,6 +22,7 @@ use captures::module_has_integer_capture;
 pub(super) use declaration::declaration_call_parts;
 pub(crate) use functions::function_signature;
 pub(super) use scalar::{declaration_shape, is_abstract_type, scalar_type};
+use type_dependency::depends_on_type_variable;
 
 /// The runtime value shape of a Core primitive constructor, keyed by the
 /// constructor. This is the single mapping from a source primitive to its
@@ -450,54 +452,4 @@ pub(super) fn array_element_type(module: &CoreModule, id: TypeId) -> Option<Type
         Type::Constructor(TypeConstructor::Array) => Some(*element),
         _ => None,
     }
-}
-
-pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool {
-    fn visit(
-        module: &CoreModule,
-        id: TypeId,
-        bound: &mut HashMap<TypeVariableId, usize>,
-        visiting: &mut HashSet<TypeId>,
-    ) -> bool {
-        if !visiting.insert(id) {
-            return false;
-        }
-        let result = match module.types.get(id.0 as usize) {
-            Some(Type::Variable(variable)) => !bound.contains_key(variable),
-            Some(Type::Application(function, argument)) => {
-                visit(module, *function, bound, visiting)
-                    || visit(module, *argument, bound, visiting)
-            }
-            Some(Type::ForAll { variables, body }) => {
-                for variable in variables {
-                    *bound.entry(*variable).or_default() += 1;
-                }
-                let dependent = visit(module, *body, bound, visiting);
-                for variable in variables {
-                    if let Some(count) = bound.get_mut(variable) {
-                        *count -= 1;
-                        if *count == 0 {
-                            bound.remove(variable);
-                        }
-                    }
-                }
-                dependent
-            }
-            Some(Type::RowExtend { ty, tail, .. }) => {
-                visit(module, *ty, bound, visiting) || visit(module, *tail, bound, visiting)
-            }
-            Some(Type::Closure { parameters, result }) => {
-                parameters
-                    .iter()
-                    .any(|parameter| visit(module, *parameter, bound, visiting))
-                    || visit(module, *result, bound, visiting)
-            }
-            Some(Type::RowEmpty) => false,
-            _ => false,
-        };
-        visiting.remove(&id);
-        result
-    }
-
-    visit(module, id, &mut HashMap::new(), &mut HashSet::new())
 }

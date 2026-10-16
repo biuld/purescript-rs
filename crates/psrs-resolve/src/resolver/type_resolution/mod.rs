@@ -9,6 +9,9 @@ use psrs_hir::{
 };
 use psrs_span::TextRange;
 
+mod roles;
+use roles::lower_role_declaration;
+
 impl Resolver {
     pub(super) fn resolve_type(&mut self, expression: ast::Type) -> Option<HirType> {
         let span = expression.span;
@@ -480,24 +483,4 @@ impl Resolver {
             span,
         })
     }
-}
-
-fn lower_role_declaration(
-    declaration: Option<ast::RoleDeclaration>,
-) -> Option<hir::RoleDeclaration> {
-    declaration.map(|declaration| hir::RoleDeclaration {
-        roles: declaration
-            .roles
-            .into_iter()
-            .map(|annotation| {
-                let role = match annotation.role {
-                    ast::TypeRole::Nominal => hir::Role::Nominal,
-                    ast::TypeRole::Representational => hir::Role::Representational,
-                    ast::TypeRole::Phantom => hir::Role::Phantom,
-                };
-                (role, annotation.span)
-            })
-            .collect(),
-        span: declaration.span,
-    })
 }

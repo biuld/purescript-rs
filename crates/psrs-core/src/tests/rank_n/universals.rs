@@ -1,4 +1,7 @@
-use super::*;
+use super::super::{
+    Expr, ExprKind, Module, TextRange, Type, TypeConstructor, TypeId, arrow_type,
+    single_declaration,
+};
 use psrs_hir::TypeVariableId;
 
 fn projected_identity(reverse: bool, inconsistent: bool) -> Module {
