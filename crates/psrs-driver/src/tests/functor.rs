@@ -1,10 +1,9 @@
 //! The library's `Functor` class and its `<$>` operator.
 //!
-//! `Prelude` re-exports the class from `Data.Functor` and adds the `Effect`
-//! instance. These tests check that one `map` covers arrays, `Maybe`,
-//! `Either`, and `Effect`, and that mapping an effect does not run it.
-
-use super::*;
+//! `Prelude` re-exports the class from `Data.Functor`. The `Effect` instance
+//! comes from importing `Effect`. These tests check that one `map` covers
+//! arrays, `Maybe`, `Either`, and `Effect`, and that mapping an effect does
+//! not run it.
 
 #[test]
 fn functor_map_transforms_array_maybe_and_either() {
@@ -12,6 +11,7 @@ fn functor_map_transforms_array_maybe_and_either() {
 module Main where
 
 import Prelude
+import Effect (Effect)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Effect.Console (log)
@@ -26,7 +26,7 @@ main = do
     Right n -> show n
     Left _ -> "left")
 "#;
-    let Some(output) = run_with_wasmtime(source) else {
+    let Some(output) = super::run_program_with_prelude_wasmtime(&[("Main.purs", source)]) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
@@ -40,6 +40,7 @@ fn mapping_an_effect_does_not_run_it_until_the_action_runs() {
 module Main where
 
 import Prelude
+import Effect (Effect)
 import Effect.Console (log)
 
 tick :: Effect Int
@@ -54,7 +55,7 @@ main = do
   value <- pending
   log (show value)
 "#;
-    let Some(output) = run_with_wasmtime(source) else {
+    let Some(output) = super::run_program_with_prelude_wasmtime(&[("Main.purs", source)]) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };

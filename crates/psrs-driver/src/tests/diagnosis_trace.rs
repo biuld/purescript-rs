@@ -27,8 +27,8 @@ fn traced_and_untraced_compilation_produce_the_same_artifact_without_default_dum
 }
 
 #[test]
-fn effect_lowering_output_binding_artifact_flows_into_validation_and_cc() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain :: Effect Unit\nmain = log \"trace\"\n";
+fn external_binding_artifact_flows_into_validation_and_cc() {
+    let source = "module Main where\nimport Prelude\nimport Effect (Effect)\nimport WASI.Console\nmain :: Effect Unit\nmain = log \"trace\"\n";
     let report = compile_program_sources_with_prelude_diagnosis(&[("Main.purs", source)], false);
     assert!(
         report.artifact.is_some(),
@@ -39,10 +39,13 @@ fn effect_lowering_output_binding_artifact_flows_into_validation_and_cc() {
     let effect = trace
         .executions
         .iter()
-        .find(|execution| execution.pass_key == "backend.effect.lower")
-        .expect("effect context triggers the lowering pass");
+        .find(|execution| execution.pass_key == "backend.external_bindings.extract")
+        .expect("external bindings are extracted");
     assert_eq!(effect.status, TracePassStatus::Completed);
-    let bindings = *effect.outputs.get(1).expect("effect pass outputs bindings");
+    let bindings = *effect
+        .outputs
+        .first()
+        .expect("extract pass outputs bindings");
     let conformance = trace
         .executions
         .iter()

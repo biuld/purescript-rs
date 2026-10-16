@@ -44,6 +44,7 @@ fn fixed_unit_payload_through_a_bind_constraint_repeats_the_action() {
 module Main where
 
 import Prelude
+import Effect (Effect)
 import Effect.Console (log)
 
 again :: forall f. Bind f => f Unit -> f Unit
@@ -52,7 +53,7 @@ again action = bind action (\_ -> action)
 main :: Effect Unit
 main = again (log "again")
 "#;
-    let Some(output) = run_with_wasmtime(source) else {
+    let Some(output) = super::run_program_with_prelude_wasmtime(&[("Main.purs", source)]) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
