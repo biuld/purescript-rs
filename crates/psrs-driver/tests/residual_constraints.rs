@@ -21,6 +21,27 @@ fn rejection(source_name: &str, source: &str) -> Vec<(u32, &'static str)> {
         .collect()
 }
 
+/// The Core dump names every type variable, so `name: "f"` also matches a
+/// functor parameter. The declaration is the occurrence whose own body selects
+/// `method` from the abstracted dictionary.
+fn declaration_named<'a>(core: &'a str, name: &str) -> &'a str {
+    let needle = format!("name: \"{name}\"");
+    let mut rest = core;
+    while let Some(index) = rest.find(&needle) {
+        let body = &rest[index..];
+        let end = body[needle.len()..]
+            .find("\n        Declaration {")
+            .map(|offset| needle.len() + offset)
+            .unwrap_or(body.len());
+        let declaration = &body[..end];
+        if declaration.contains("name: \"dict\"") && declaration.contains("field: \"method\"") {
+            return declaration;
+        }
+        rest = &body[needle.len()..];
+    }
+    panic!("declaration `{name}` did not abstract a dictionary parameter");
+}
+
 fn accepts(source_name: &str, source: &str) {
     if let Err(errors) = check_source(source_name, source) {
         panic!("{source_name} was rejected: {errors:#?}");
@@ -67,11 +88,7 @@ fn abstracts_one_dictionary_parameter_per_retained_constraint() {
     // evidence the body used is a field of that parameter rather than a global
     // instance dictionary.
     let core = compilation.dumps.get("core").expect("a core dump");
-    let declaration = core
-        .split_once("name: \"f\"")
-        .expect("the declaration is in the core dump")
-        .1;
-    let declaration = &declaration[..declaration.len().min(4000)];
+    let declaration = declaration_named(core, "f");
     assert!(
         declaration.contains("name: \"dict\""),
         "the retained constraint did not become a dictionary parameter:\n{declaration}"
