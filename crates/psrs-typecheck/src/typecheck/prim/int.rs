@@ -247,6 +247,7 @@ mod tests {
             report_span: constraint.span,
             givens: Vec::new(),
             solution: None,
+            witness: None,
         }
     }
 

@@ -314,7 +314,9 @@ impl FunctionLowerer<'_> {
         let mut ty = unquantified_type(self.module, ty);
         let mut visited = std::collections::HashSet::new();
         while let Some(id) = user_type_id(self.module, ty) {
-            if !self.newtype_ids.contains(&id) {
+            if !self.newtype_ids.contains(&id)
+                || crate::cc::layout::is_uninhabited_data_type(self.module, id)
+            {
                 break;
             }
             if !visited.insert(id) {

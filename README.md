@@ -53,8 +53,8 @@ what remains in each layer.
 | L2 resolution | 72/72 failing, 403/413 passing | official `errorCode`s; 6 passing files stop at P3 and 4 at P0; no harness blockers |
 | L3 kinds | 39/48 failing | official kind `errorCode`s |
 | L4 types | 39/50 failing | official `errorCode`s |
-| L5 classes | 77/97 failing | official `errorCode`s, measured 2026-10-17 |
-| L6/M7 runtime | 284/340 programs | all exit 0; 56 do not agree; 74 support files remain program inputs, 25 FFI groups excluded |
+| L5 classes | 81/97 failing | official `errorCode`s, measured 2026-10-17 |
+| L6/M7 runtime | 287/340 programs | all exit 0; 53 do not agree; 74 support files remain program inputs, 25 FFI groups excluded |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Frontend counts use source files; runtime counts use program roots with their

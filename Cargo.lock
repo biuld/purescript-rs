@@ -323,6 +323,7 @@ name = "psrs-backend"
 version = "0.1.0"
 dependencies = [
  "psrs-core",
+ "psrs-coverage",
  "psrs-hir",
  "psrs-linker",
  "psrs-runtime",
@@ -358,6 +359,14 @@ dependencies = [
  "psrs-hir",
  "psrs-span",
  "psrs-thir",
+]
+
+[[package]]
+name = "psrs-coverage"
+version = "0.1.0"
+dependencies = [
+ "psrs-hir",
+ "psrs-span",
 ]
 
 [[package]]
@@ -480,6 +489,7 @@ name = "psrs-typecheck"
 version = "0.1.0"
 dependencies = [
  "psrs-ast",
+ "psrs-coverage",
  "psrs-desugar",
  "psrs-hir",
  "psrs-kind",

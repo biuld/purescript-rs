@@ -3,6 +3,7 @@ use super::*;
 mod application;
 mod case;
 mod construct;
+mod coverage;
 mod expected;
 mod intrinsics;
 mod let_expr;

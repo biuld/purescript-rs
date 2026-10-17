@@ -124,13 +124,25 @@ impl Checker {
                     if self.policy_keeps_unsolved(unsolved, &constraint) {
                         retained.push(index);
                     } else {
-                        let rendered =
-                            self.display_constraint(constraint.class_id, &constraint.arguments);
-                        self.state.errors.push(TypeCheckError::new(
-                            TypeCheckErrorKind::NoInstance,
-                            constraint.span,
-                            format!("no instance for constraint {rendered}"),
-                        ));
+                        if prim::is_report_only(constraint.class_id) {
+                            self.state
+                                .errors
+                                .push(prim::reports::unresolved_report_error(
+                                    self,
+                                    constraint.class_id,
+                                    &constraint.arguments,
+                                    constraint.span,
+                                    constraint.witness.as_deref(),
+                                ));
+                        } else {
+                            let rendered =
+                                self.display_constraint(constraint.class_id, &constraint.arguments);
+                            self.state.errors.push(TypeCheckError::new(
+                                TypeCheckErrorKind::NoInstance,
+                                constraint.span,
+                                format!("no instance for constraint {rendered}"),
+                            ));
+                        }
                     }
                 }
             }

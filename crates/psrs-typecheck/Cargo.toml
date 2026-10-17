@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 psrs-hir.workspace = true
+psrs-coverage.workspace = true
 psrs-kind.workspace = true
 psrs-span.workspace = true
 psrs-thir.workspace = true

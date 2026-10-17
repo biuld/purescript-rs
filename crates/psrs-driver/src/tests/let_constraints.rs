@@ -148,8 +148,6 @@ class Ord a <= BoundedEnum a where
 data Maybe a = Nothing | Just a
 data Tuple a b = Tuple a b
 
-class Partial
-
 fromJust :: forall a. Partial => Maybe a -> a
 fromJust (Just value) = value
 

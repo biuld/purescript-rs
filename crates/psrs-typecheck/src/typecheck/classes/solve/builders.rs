@@ -32,6 +32,7 @@ impl Checker {
             report_span: self.scope.report_origin.unwrap_or(span),
             givens: self.scope.givens.clone(),
             solution: Some(solution),
+            witness: None,
         }
     }
 
@@ -55,6 +56,7 @@ impl Checker {
             report_span: self.scope.report_origin.unwrap_or(span),
             givens: self.scope.givens.clone(),
             solution: None,
+            witness: None,
         }
     }
 

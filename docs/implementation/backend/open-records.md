@@ -22,8 +22,8 @@ separate. Missing Wasmtime is a failure.
 | OR-10 | Empty, Unicode, reserved-looking and absent keys; invalid unsafe-input target differences explicit | Partial: required-Wasmtime provider tests and the JS/Wasm oracle cover empty storage, private-use and supplementary Unicode labels, `__proto__` as an ordinary own key, absent/inherited get traps, and target divergence from JavaScript `undefined` and prototype lookup. Broader malformed-store, ABI and rejection-path combinations remain open. |
 | OR-11 | CC and MIR reject malformed schema, plans, missing fields, mismatched endpoints and evidence | Eight CC-schema, six CC-plan and five MIR-owner/physical mutations reject. Six P9 provider-boundary rejections cover the checked registry (a valid base passes, while a second registered provider, a missing runtime binding, an export for another operation, a direct-call bypass and a noncanonical external signature reject); five direct build-input mutations trap. Checks for remaining operations are pending. |
 | OR-12 | Canonical ABI and parameterized ADT fields use the same record storage policy | Erased record lists encode/validate both ABI directions, String and flags fields. Three filesystem programs execute; broader nested ABI execution remains required. |
-| OR-13 | Value-sensitive required-Wasmtime programs, official TCOFloated/Deriving cases, and full scoreboards | Pending |
-| OR-14 | Formatting, full workspace tests, Clippy, final diff and design review | Formatting, source layout, full workspace and Clippy pass at the final 2026-10-17 validation checkpoint: 2,084 passed / 0 failed / 5 ignored with `PSRS_REQUIRE_WASMTIME=1` and the new package, Clippy with warnings denied, and the release suite rebuilt. The final diff and design review against the complete topic remain open. |
+| OR-13 | Value-sensitive required-Wasmtime programs, official TCOFloated/Deriving cases, and full scoreboards | Partial: the shared coverage/Partial follow-through remeasures all 365 roots at 287/340 with no regressions; `Let`, `ShadowedTCOLet`, and `Where` recover, while the earlier `TCOFloated`/`Deriving` successes remain. L5 reaches 81/97, with L1–L4 unchanged. Complete topic evidence still depends on the broader interaction, malformed-IR and ABI obligations above. |
+| OR-14 | Formatting, full workspace tests, Clippy, final diff and design review | Formatting, source layout, full workspace and strict Clippy pass at the 2026-10-17 shared-coverage checkpoint: 2,093 passed / 0 failed / 5 ignored with required Wasmtime and the locked package, with all ignored scoreboard groups exercised separately. The slice diff/design review is complete; the final review against the complete topic remains open. |
 
 ## Starting evidence
 
@@ -326,3 +326,29 @@ closure/linking (3 closure capture, 1 recursive local binding, and the
 compilation, which reached the measurement cap near the 2 GiB guard before a
 diagnostic. `Test.Assert.checkThrows` remains the one record-adjacent foreign
 without a target contract. The topic is not closed; #124 stays In Progress.
+
+## Shared coverage / Partial follow-through: 2026-10-17
+
+The [handoff's final resumption](open-records-handoff-2026-10-17.md#partial-exhaustiveness-follow-through)
+records completion of the blocked checker integration. Type checking and CC now
+consume one usefulness engine. Nested pattern types are resolved after branch
+unification; inferred and declared `Partial` constraints share the existing
+elaboration convention; annotated non-exhaustive cases report at P5 with a
+witness. Transparent newtype cycles such as official `Data.Void` retain erased
+storage without recursive layout expansion. This work edits no package source.
+
+The final release runtime board is 287/340, up from 284/340 without regressions.
+`Let`, `ShadowedTCOLet`, and `Where` now execute. L5 is 81/97 (`NoInstanceFound`
+52/53), up from 77/97 (48/53), and L1–L4 stay unchanged. The full measurement,
+resource-bound outcome, and artifact identity are recorded in
+[the program scoreboard](../runtime-program-scoreboard.md#shared-coverage-and-partial-recheck-2026-10-17).
+This is progress on the topic; OR-07 and OR-10–OR-14 retain their remaining
+obligations rather than inheriting completion from the compiler-wide board.
+
+Final workspace validation for this follow-through uses the locked package via
+`PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09` and required Wasmtime:
+**2,093 passed / 0 failed / 5 ignored**, with all ignored scoreboard groups
+exercised separately. Formatting, source layout and strict full-workspace
+Clippy pass. Evidence: `/tmp/psrs-partial-workspace-final.log` and
+`/tmp/psrs-partial-clippy-accepted.log`. The final diff and design review for
+this slice are complete; that does not close the broader topic obligations.

@@ -8,7 +8,7 @@ use psrs_core::{Literal, TypeId};
 use psrs_hir::{LocalId, SymbolId};
 use psrs_span::TextRange;
 
-pub(in crate::cc::case) use compile::{canonical_literal, compile_dag, surface_pattern};
+pub(in crate::cc::case) use compile::{compile_dag, surface_pattern};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ColumnKey(Vec<PathStep>);

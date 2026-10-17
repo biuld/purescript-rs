@@ -273,8 +273,14 @@ expression can build one, so its only values come from unchecked coercions. It
 therefore uses the same erased ABI as a bare abstract type, whether it is used
 bare (`Void`) or applied (`VariantF r a`). This is not the resource-handle case:
 a nullary `foreign import data` type is opaque and stays a handle, and an
-applied foreign type already uses the erased reference. Inhabited algebraic
-types keep their enum, aggregate, or newtype layout.
+applied foreign type already uses the erased reference.
+
+A transparent newtype chain that returns to a declaration already visited
+also has no finite values (for example, `newtype Void = Void Void`). Its
+canonical storage is the same erased reference; layout and conversion stop at
+that boundary instead of recursively expanding the cycle. This is detected by
+declaration identity, including mutual cycles. Inhabited algebraic types keep
+their enum, aggregate, or newtype layout.
 
 This is viable because:
 

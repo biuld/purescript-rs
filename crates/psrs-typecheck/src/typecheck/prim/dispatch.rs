@@ -116,6 +116,7 @@ impl Checker {
                             constraint.class_id,
                             &args.resolved(self),
                             constraint.span,
+                            constraint.witness.as_deref(),
                         ));
                     return PrimitiveDispatch::Reported;
                 }

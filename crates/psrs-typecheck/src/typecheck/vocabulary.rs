@@ -164,6 +164,12 @@ pub(super) struct WantedConstraint {
     pub(super) report_span: TextRange,
     pub(super) givens: Vec<(ClassConstraint, WantedSolution)>,
     pub(super) solution: Option<WantedSolution>,
+    /// The covered-input rows the coverage engine could not see, for the only
+    /// fresh obligation that owns one: a report-only wanted whose class is
+    /// `Partial`. Re-emitted scheme constraints leave this `None`, so a later
+    /// boundary reports its obligation without restating cases it never
+    /// analyzed.
+    pub(super) witness: Option<Vec<Vec<String>>>,
 }
 
 /// A resolved type synonym, expanded during signature elaboration.

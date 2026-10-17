@@ -238,3 +238,36 @@ reached the measurement cap near the 2 GiB guard before a diagnostic. Evidence:
 `/tmp/psrs-or08-final-tree-workspace.log` for the full debug workspace at the
 same tree (2,084 passed, 0 failed, 5 ignored, with
 `PSRS_REQUIRE_WASMTIME=1`).
+
+## Shared coverage and Partial recheck: 2026-10-17
+
+Compiler `7dd45e4b` plus the shared coverage/checker `Partial` slice and the
+transparent-newtype-cycle repair, with the same clean package `e556bf2f` /
+`fnv1a64-v1:7d96f1c44d8d52cc`, required Wasmtime 49.0.3 and release suite
+SHA-256 `bab10d4c7480c7db64fce9dacba8c96c035f9e760a810679a9d2a750a59233a3`, measures **287/340**.
+All successful programs exit zero. The 365 roots include 25 excluded FFI
+groups; 74 support sources remain inputs. Relative to the preceding 284/340
+measurement, exactly `Let.purs`, `ShadowedTCOLet.purs`, and `Where.purs` recover,
+and no agreeing program regresses.
+
+The remaining 53 are 31 P5 typecheck, 11 P5 kind check, 2 P8 closure/linking
+(one recursive local binding and `TCOMutRec.purs`'s missing
+`Test.Assert.checkThrows` foreign), 5 P3 resolve, 2 P0 lex, the existing
+10-second `2288.purs` runtime timeout, and the bounded BigFunction compilation.
+BigFunction times out at 90.89 seconds with peak RSS 1,485,792 KiB under the
+90-second cap and 2 GiB guard. The three-worker run completed 364 roots; its
+sandbox blocked `ps` when starting BigFunction's RSS check, so that unfinished
+worker was stopped and BigFunction was rerun separately with the guard enabled.
+The final manifest combines those 364 completed rows with that guarded result.
+
+Evidence: `/tmp/psrs-partial-final-runtime/summary.json`, `results.jsonl`, and
+`big-function-checked.json`. The frontend boards were also rerun at this slice:
+L1 904/908, L2 72/72 (passing resolution 403/413), L3 39/48, L4 39/50,
+L5 **81/97** (`NoInstanceFound` **52/53**); see
+`/tmp/psrs-partial-frontboards-final.log`. These are compile/code agreement and
+exit-code measurements; they do not establish output-golden conformance.
+
+The same slice's full debug workspace passes 2,093 tests, zero failures and five
+ignored scoreboards (run separately as above), with required Wasmtime and the
+same package: `/tmp/psrs-partial-workspace-final.log`. Formatting, source layout,
+and strict full-workspace Clippy also pass.

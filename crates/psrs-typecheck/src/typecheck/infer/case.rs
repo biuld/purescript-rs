@@ -66,36 +66,56 @@ impl Checker {
             });
         }
         let ty = result_ty.unwrap_or_else(|| self.fresh());
-        // Report-only Partial has no runtime dictionary, but its checked
-        // authorization must survive erasure. Reuse the generated empty-case
-        // failure representation used by guard desugaring; the marked fallback
-        // contributes coverage and never hides redundant source alternatives.
-        if !branches.is_empty()
-            && self.scope.givens.iter().any(|(constraint, _)| {
-                constraint.class_id == hir::TypeId::PRIM_PARTIAL && constraint.arguments.is_empty()
-            })
-        {
-            inferred.push(InferredCaseBranch {
-                pattern: InferredPattern {
-                    kind: InferredPatternKind::Wildcard,
-                    ty: scrutinee.ty.clone(),
-                    span,
-                },
-                value: InferredExpr {
-                    kind: InferredExprKind::Case {
-                        scrutinee: Box::new(InferredExpr {
-                            kind: InferredExprKind::Integer(0),
-                            ty: InferType::Constructor(TypeConstructor::Int),
-                            span,
-                        }),
-                        branches: Vec::new(),
+        // Coverage owns the case's exhaustiveness authorization. When the
+        // alternatives cannot cover the scrutinee, the analysis supplies the
+        // missing rows for a report-only `Partial` wanted; an in-scope
+        // `Partial` given discharges that wanted at this case's own solve
+        // point. Either way the case gains the generated empty-case failure
+        // representation guard desugaring uses, so the alternatives keep
+        // contributing coverage without hiding redundant source rows.
+        if !branches.is_empty() {
+            let analysis = self.case_coverage(&scrutinee.ty, &inferred);
+            if !analysis.exhaustive {
+                let constraint = self.build_constraint(hir::TypeId::PRIM_PARTIAL, Vec::new(), span);
+                let index = self.push_wanted(
+                    ClassConstraint {
+                        class_id: hir::TypeId::PRIM_PARTIAL,
+                        arguments: Vec::new(),
+                        span,
                     },
-                    ty: ty.clone(),
-                    span,
-                },
-                span,
-                coverage: hir::CaseBranchCoverage::PartialFallback,
+                    constraint.dictionary_type,
+                );
+                // One analysis yields the first uncovered row; its atoms are
+                // the case the official report prints first.
+                self.state.wanted[index].witness =
+                    analysis.witness_atoms.clone().map(|atoms| vec![atoms]);
+            }
+            let given_discharges = self.scope.givens.iter().any(|(constraint, _)| {
+                constraint.class_id == hir::TypeId::PRIM_PARTIAL && constraint.arguments.is_empty()
             });
+            if !analysis.exhaustive || given_discharges {
+                inferred.push(InferredCaseBranch {
+                    pattern: InferredPattern {
+                        kind: InferredPatternKind::Wildcard,
+                        ty: scrutinee.ty.clone(),
+                        span,
+                    },
+                    value: InferredExpr {
+                        kind: InferredExprKind::Case {
+                            scrutinee: Box::new(InferredExpr {
+                                kind: InferredExprKind::Integer(0),
+                                ty: InferType::Constructor(TypeConstructor::Int),
+                                span,
+                            }),
+                            branches: Vec::new(),
+                        },
+                        ty: ty.clone(),
+                        span,
+                    },
+                    span,
+                    coverage: hir::CaseBranchCoverage::PartialFallback,
+                });
+            }
         }
         Some(InferredExpr {
             kind: InferredExprKind::Case {

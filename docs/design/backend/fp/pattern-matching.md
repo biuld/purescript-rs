@@ -213,8 +213,15 @@ Witness construction is a byproduct of the usefulness recursion: when a
 subproblem has no covering row, the algorithm returns a pattern that the
 existing rows cannot match. Non-exhaustive matches and redundant rows are
 frontend diagnostics; the compiler never silently emits a partial decision.
-Coverage is checked where the pattern matrix is built, so a rejected program
-keeps its source span.
+The shared `psrs-coverage` engine consumes stage-owned type facts. Type checking
+uses it after checking alternatives to issue a report-only `Partial` obligation
+with a missing-pattern witness. Inferred declarations may retain this
+constraint; declared signatures must provide it or report `NoInstanceFound` at
+P5. The existing dictionary elaboration convention is preserved consistently
+for both inferred and declared constraints; `Partial` exposes no methods.
+Authorized cases carry a generated `PartialFallback` trap through THIR/Core.
+CC uses the same analysis for decision coverage and redundancy without
+reconstructing source authorization. Diagnostics keep the case's source span.
 
 For an irrefutable query over a finite signature, check the default matrix first
 when the matrix does not observe every constructor, then construct a finite
@@ -418,19 +425,26 @@ outer value is already the tag, the target is a MIR `Switch` rather than a chain
 
 ## Code map
 
-The pattern stage has three owners: the decision compiler in `cc/case/`, which
-builds and analyzes the decision DAG; `cc/lower/`, which realizes a decision as
-CC assignments; and the MIR/Wasm side, which turns a tag dispatch into a
-`Switch` terminator and then a `br_table`. Coverage and redundancy diagnostics
-are produced by the decision compiler, not by the lowering.
+The shared `psrs-coverage` crate owns usefulness, specialization, and witness
+reconstruction. The type checker projects resolved pattern types and issues
+`Partial` obligations; `cc/case/coverage/` projects verified Core types and
+reports backend coverage or redundancy. The decision compiler in `cc/case/`
+builds the DAG; its realizer emits CC assignments. MIR/Wasm turns tag dispatch
+into a `Switch` terminator and then a `br_table`.
 
 ```text
+psrs-coverage/src/
+  engine/             # shared usefulness and specialization
+  analyze.rs          # exhaustiveness, redundancy, and witness report
+  render.rs           # missing-pattern rendering
+psrs-typecheck/src/typecheck/infer/
+  coverage.rs         # resolved checker-type adapter
+  case.rs             # Partial wanted and authorized trap fallback
 cc/
   case/
     mod.rs            # lower_case entry, coverage, and DAG dispatch
     coverage/
-      mod.rs          # source-branch provenance and diagnostic report
-      engine.rs       # shared usefulness, specialization, witnesses
+      mod.rs          # Core type adapter and backend diagnostic report
     decision/
       mod.rs          # SurfacePattern, Decision, Test, Action, ColumnKey
       compile/        # matrix construction, specialization, sharing
@@ -468,9 +482,10 @@ Required types and entry points:
   }
   ```
 
-- `cc/case/coverage/` provides shared usefulness, exhaustiveness and
-  redundancy analysis, and witness reconstruction. It reports a non-exhaustive
-  match or a redundant row with the scrutinee or alternative span.
+- `psrs-coverage` provides usefulness, exhaustiveness, redundancy, and witnesses
+  through the `Types` interface. Each adapter resolves every nested pattern
+  type after branch unification before analysis. `cc/case/coverage/` reports a
+  non-exhaustive verified-Core match or a redundant row with its source span.
 - `cc/case/decision/realize/` realizes a decision into CC assignments exactly
   once per scrutinee, in first-match order:
 
@@ -622,10 +637,11 @@ only one that projects, and it does so once.
 
 ## Implementation notes
 
-`cc/case/coverage/` now runs cycle-safe usefulness analysis over constructor
-and record patterns, including nested fields and recursive data types. It
-rejects non-exhaustive cases before CC lowering and includes a missing
-constructor pattern in the diagnostic. It also emits one source-spanned P8
+`psrs-coverage` runs cycle-safe usefulness analysis over constructor and record
+patterns, including nested fields and recursive data types. The checker issues
+witness-bearing `Partial` obligations before Core lowering; annotated values
+without authorization reject at P5. The CC adapter independently checks its
+verified-Core input and emits one source-spanned P8
 warning for each redundant row. The driver exposes warnings on compiled
 artifacts with their source index, and the CLI prints them for `build` and
 `wat` commands.
@@ -663,7 +679,7 @@ future work as described above.
 
 The regression suite exercises the mapped stage boundaries: coverage unit tests
 check useful/uncovered witnesses and redundant rows; the driver regression
-`reports_a_missing_nested_constructor_as_a_coverage_witness` checks the P8
+`reports_a_missing_nested_constructor_as_a_coverage_witness` checks the P5
 diagnostic, nested witness, and exact case-expression span; and
 `exposes_redundant_case_alternatives_as_source_spanned_warnings` checks the
 offending alternative range. Decision-compiler tests preserve the first branch

@@ -89,3 +89,46 @@ fn a_user_type_with_a_constructor_is_not_treated_as_uninhabited() {
     });
     assert!(!super::is_uninhabited_data_type(&module, inhabited));
 }
+
+#[test]
+fn transparent_newtype_cycles_use_erased_storage_without_recursing() {
+    for mutual in [false, true] {
+        let a = HirTypeId::new(ModuleId(1), 0);
+        let b = HirTypeId::new(ModuleId(1), 1);
+        let mut module = empty_module(vec![
+            Type::Constructor(TypeConstructor::User(a)),
+            Type::Constructor(TypeConstructor::User(b)),
+        ]);
+        module.newtype_ids = vec![a, b];
+        for (id, field) in [(a, if mutual { 1 } else { 0 }), (b, 0)] {
+            module.constructors.push(ConstructorInfo {
+                symbol: SymbolId::new(id.module, id.index + 2),
+                name: "Loop".into(),
+                type_id: id,
+                tag: 0,
+                field_count: 1,
+                field_types: vec![TypeId(field)],
+                parameters: Vec::new(),
+            });
+        }
+        let declaration = declaration(&mut module, TypeId(0));
+        assert_eq!(shape(&module, &declaration), erased());
+        let newtypes = module.newtype_ids.iter().copied().collect();
+        assert_eq!(
+            super::scalar_type(
+                &module,
+                TypeId(0),
+                module.span,
+                &HashSet::new(),
+                &HashSet::new(),
+                &newtypes,
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new()
+            )
+            .unwrap(),
+            erased()
+        );
+    }
+}

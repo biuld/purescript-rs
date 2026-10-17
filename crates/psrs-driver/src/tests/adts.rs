@@ -27,16 +27,14 @@ fn reports_a_missing_nested_constructor_as_a_coverage_witness() {
 module Main where
 data Inner = First | Second
 data Outer = Wrap Inner
+main :: Int
 main = case Wrap First of
   Wrap First -> 1
 ";
     let errors = compile_source("Main.purs", source).expect_err("non-exhaustive nested case");
     let diagnostic = errors
         .iter()
-        .find(|error| {
-            error.stage == "P8 closure conversion"
-                && error.message.contains("missing pattern Wrap Second")
-        })
+        .find(|error| error.stage == "P5 typecheck" && error.message.contains("Wrap Second"))
         .expect("coverage diagnostic should include its missing-pattern witness");
     let span = &source[diagnostic.span.start as usize..diagnostic.span.end as usize];
     assert_eq!(span, "case Wrap First of\n  Wrap First -> 1\n");

@@ -1,0 +1,9 @@
+[package]
+name = "psrs-coverage"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+psrs-hir = { path = "../psrs-hir" }
+psrs-span = { path = "../psrs-span" }
