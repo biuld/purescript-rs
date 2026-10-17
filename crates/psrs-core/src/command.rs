@@ -1,8 +1,10 @@
 //! Checked command entry adaptation through ordinary library functions.
-use crate::{Declaration, Expr, ExprKind, Module, Type, TypeConstructor, VerifyError, arrow_parts};
+use crate::{
+    Declaration, Expr, ExprKind, Module, Type, TypeConstructor, TypeId, VerifyError, arrow_parts,
+};
 use psrs_hir::SymbolId;
 
-/// Normalize a selected entry with a source runner of type `T -> Int`.
+/// Normalize a selected entry with a source runner instantiable at `T -> Int`.
 /// Both identities must have been resolved by the caller. This neither names
 /// an effect type nor synthesizes its operations. Failure leaves Core unchanged.
 pub fn normalize_entry(
@@ -33,14 +35,7 @@ pub fn normalize_entry(
                 "configured command runner has no source declaration",
             )
         })?;
-    if !crate::types::free_variables(module, runner_decl.ty).is_empty() {
-        return Err(error(
-            module,
-            runner,
-            "configured command runner must be monomorphic",
-        ));
-    }
-    let (input, result) = arrow_parts(&module.types, runner_decl.ty).ok_or_else(|| {
+    let (_, result) = arrow_parts(&module.types, runner_decl.ty).ok_or_else(|| {
         error(
             module,
             runner,
@@ -61,7 +56,20 @@ pub fn normalize_entry(
         module.entry = Some(entry);
         return Ok(entry);
     }
-    if !module.types_equivalent(source.ty, input) {
+    // Check the entire callable instance with Core's authoritative scheme
+    // relation. Repeated variables, row tails and nested quantifiers must obey
+    // the same rules as an ordinary source global; this is not an Effect rule.
+    let mut candidate = module.clone();
+    let function = intern(
+        &mut candidate.types,
+        Type::Constructor(TypeConstructor::Function),
+    );
+    let parameter = intern(&mut candidate.types, Type::Application(function, source.ty));
+    let runner_type = intern(&mut candidate.types, Type::Application(parameter, result));
+    if candidate
+        .checked_instantiation(runner_decl.ty, &runner_decl.quantified, runner_type)
+        .is_none()
+    {
         return Err(error(
             module,
             entry,
@@ -100,7 +108,7 @@ pub fn normalize_entry(
         ty: result,
         value: Expr {
             kind: ExprKind::Application(
-                Box::new(global(runner, runner_decl.ty)),
+                Box::new(global(runner, runner_type)),
                 Box::new(global(entry, source.ty)),
             ),
             ty: result,
@@ -108,12 +116,20 @@ pub fn normalize_entry(
         },
         span,
     };
-    let mut candidate = module.clone();
     candidate.declarations.push(wrapper);
     candidate.entry = Some(symbol);
     candidate.verify()?;
     *module = candidate;
     Ok(symbol)
+}
+
+fn intern(types: &mut Vec<Type>, ty: Type) -> TypeId {
+    if let Some(index) = types.iter().position(|existing| *existing == ty) {
+        return TypeId(index as u32);
+    }
+    let id = TypeId(types.len() as u32);
+    types.push(ty);
+    id
 }
 
 fn error(module: &Module, symbol: SymbolId, message: &'static str) -> Vec<VerifyError> {

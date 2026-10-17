@@ -397,16 +397,20 @@ Existing ordinary raw bindings retain their checked ABI and conservative effects
 they cannot be inserted into a state action without an explicit checked adapter.
 
 The package configures an ordinary runner such as
-PSRS.Command.run :: Effect Unit -> Int. It invokes the unsafe library runner
+`PSRS.Command.run :: forall a. Effect a -> Int`. It invokes the unsafe library runner
 once, returns zero on normal completion and propagates traps. The compiler
-checks a configured monomorphic runner `T -> Int` against main's type T;
+instantiates the configured runner at `T -> Int` against main's closed type T,
+using Core's ordinary checked scheme-instantiation relation across the complete
+callable type. Repeated variables must receive consistent replacements, and
+nested quantifiers keep their ordinary scope. The runner's declared result must
+be Int; the entry remains monomorphic. This also admits a monomorphic runner;
 it does not inspect whether T is Effect. Load its module as an explicit root,
 resolve stable identity once and build checked ordinary Core `runner main`
 before pruning. Preserve Main.main precedence, unique-main fallback and Int
 entries. Missing configuration, ambiguity and mismatches are explicit errors;
 check-only compilation needs no executable runner.
 Core entry normalization consumes resolved source identities and checked type
-schemes, validates the monomorphic runner and selected entry, and constructs an
+schemes, validates the runner's checked instance and selected entry, and constructs an
 ordinary application. The generated declaration gets a fresh symbol in the
 entry's source namespace and preserves its source range. Validation failure
 must leave the input Core unchanged. Run this conversion before reachability

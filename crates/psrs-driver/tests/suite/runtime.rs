@@ -3,9 +3,10 @@
 //! # What agreement means here
 //!
 //! The corpus has no execution goldens: `tests/upstream` vendors `.purs` sources
-//! only, and upstream's own `passing` suite is a compile-time suite, so its
-//! ground truth is "this module type checks". Our criterion is therefore
-//! stronger and narrower at once: a `passing` file **agrees** when the pipeline
+//! only. Upstream groups a root source and its same-stem support directory,
+//! then compiles and runs that program, requiring its output to end in `Done`.
+//! We use the same program units, but record output without that comparison:
+//! a non-FFI program **agrees** when the pipeline
 //! compiles it, the generated component passes Wasm validation, and the guest
 //! runs to completion under Wasmtime without trapping. Nothing in the corpus
 //! requires argv, stdin, or a preopened directory, so the runner passes none;
@@ -18,13 +19,16 @@
 //! guest as a trap, which this board counts as a failure, and that is the only
 //! execution signal the corpus can express without goldens.
 //!
-//! Every rejection is reported per file with its first blocking stage and
+//! Support modules remain inputs of their parent program; they are never
+//! separately compiled as commands. Frontend boards still measure source files.
+//!
+//! Every rejection is reported per program with its first blocking stage and
 //! diagnostic, and the categories a later phase recovers are counted apart: a
 //! missing library module is Phase 3's to land, a harness-loading failure is the
 //! harness's, and any other stage is Phase 2's or the backend's.
 
 use super::corpus::{
-    Blockers, collected_files, corpus_root, is_ffi_excluded, load_case, print_histogram,
+    Blockers, collected_programs, corpus_root, load_case, print_histogram, program_is_ffi_excluded,
     suite_filter, suite_limit, unusable_siblings,
 };
 use std::collections::BTreeMap;
@@ -83,7 +87,7 @@ fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or("").trim()
 }
 
-/// Compiles, validates, and runs every non-FFI `passing` file.
+/// Compiles, validates, and runs every non-FFI `passing` program.
 ///
 /// Compilation includes Wasm validation: the backend rejects a component that
 /// does not validate before returning it, so a compiled artifact has already
@@ -103,6 +107,7 @@ fn l6_runtime_scoreboard() {
 
     let limit = suite_limit();
     let filter = suite_filter();
+    let progress = std::env::var("PSRS_SUITE_PROGRESS").as_deref() == Ok("1");
     let mut considered = 0usize;
     let mut excluded = 0usize;
     let mut agree = 0usize;
@@ -114,7 +119,7 @@ fn l6_runtime_scoreboard() {
     let mut stale_siblings: Vec<(String, Vec<String>)> = Vec::new();
 
     let passing_dir = repo.join("passing");
-    for path in collected_files(&passing_dir, limit) {
+    for path in collected_programs(&passing_dir, filter.as_deref(), limit) {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
@@ -123,17 +128,15 @@ fn l6_runtime_scoreboard() {
             .unwrap_or(&path)
             .to_string_lossy()
             .into_owned();
-        if let Some(filter) = filter.as_deref()
-            && !relative_path.contains(filter)
-        {
-            continue;
+        if progress {
+            println!("runtime program: {relative_path}");
         }
-        if is_ffi_excluded(&path, &text) {
+        let case = load_case(&path, &passing_dir, &text);
+        if program_is_ffi_excluded(&case) {
             excluded += 1;
             continue;
         }
         considered += 1;
-        let case = load_case(&path, &passing_dir, &text);
         let outcome = match psrs_driver::compile_program_sources_with_prelude(&case.inputs()) {
             Err(errors) => {
                 blockers.record(&case, &errors);

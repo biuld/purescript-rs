@@ -32,7 +32,7 @@ main = test
 }
 
 #[test]
-fn run_rejects_an_escaping_st_action() {
+fn run_rejects_an_st_action_at_a_scalar_result() {
     rejects(
         r#"module Main where
 import Prelude
@@ -47,6 +47,29 @@ leak = do
 
 main :: Int
 main = ST.run leak
+"#,
+        "TypesDoNotUnify",
+    );
+}
+
+#[test]
+fn run_rejects_an_inferred_escaping_st_action() {
+    rejects(
+        r#"module Main where
+import Prelude
+import Control.Monad.ST (ST)
+import Control.Monad.ST as ST
+import Control.Monad.ST.Ref as STRef
+
+leak :: forall r. ST r (ST r Int)
+leak = do
+  ref <- STRef.new 0
+  pure (STRef.read ref)
+
+escaped = ST.run leak
+
+main :: Int
+main = 0
 "#,
         "EscapedSkolem",
     );

@@ -3,6 +3,9 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
+mod programs;
+pub use programs::{collected_programs, program_is_ffi_excluded};
+
 /// The vendored corpus, or `$PURESCRIPT_REPO/tests/purs` when it is set.
 pub fn corpus_root() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("PURESCRIPT_REPO") {
