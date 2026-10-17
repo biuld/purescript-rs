@@ -38,6 +38,17 @@ pub enum TypeCheckErrorKind {
     /// contains a type wildcard. `purs` raises this in
     /// `TypeChecker.checkTypeClassInstance`; see `failing/TypeWildcards3.purs`.
     InvalidInstanceHead,
+    /// An instance search that never terminates because the selected instance's
+    /// own context contains the very constraint being solved, at a growing or
+    /// unchanging shape. `purs` raises this in `Entailment`'s `go` when the
+    /// subgoal chain exceeds its work bound; see `failing/438.purs`.
+    PossiblyInfiniteInstance,
+    /// A class's superclasses form a cycle, so the class environment is
+    /// unsatisfiable and dictionary construction would not terminate. `purs`
+    /// raises this for the class declaration that reintroduces an ancestor; see
+    /// `failing/Superclasses2.purs` and
+    /// `failing/SelfCycleInTypeClassDeclaration.purs`.
+    CycleInTypeClassDeclaration,
     /// An inferred public value mentions a local type omitted from exports.
     TransitiveExport,
     /// A class has no compiler-supported deriving rule. Official
@@ -131,6 +142,7 @@ impl TypeCheckErrorKind {
             self,
             TypeCheckErrorKind::NoInstance
                 | TypeCheckErrorKind::OverlappingInstances
+                | TypeCheckErrorKind::PossiblyInfiniteInstance
                 | TypeCheckErrorKind::TypeMismatch
                 | TypeCheckErrorKind::KindsDoNotUnify
         )
@@ -182,6 +194,8 @@ impl TypeCheckErrorKind {
                 "InvalidCoercibleInstanceDeclaration"
             }
             TypeCheckErrorKind::InvalidInstanceHead => "InvalidInstanceHead",
+            TypeCheckErrorKind::PossiblyInfiniteInstance => "PossiblyInfiniteInstance",
+            TypeCheckErrorKind::CycleInTypeClassDeclaration => "CycleInTypeClassDeclaration",
             TypeCheckErrorKind::TransitiveExport => "TransitiveExportError",
             TypeCheckErrorKind::CannotDerive => "CannotDerive",
             TypeCheckErrorKind::ExpectedTypeConstructor => "ExpectedTypeConstructor",

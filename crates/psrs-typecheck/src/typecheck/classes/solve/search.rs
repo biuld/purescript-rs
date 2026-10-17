@@ -38,6 +38,18 @@ impl Checker {
         chain: &mut RequeueChain,
     ) -> Option<WantedSolution> {
         if !depth.within_bound() {
+            // The search never terminates on this chain: every selected
+            // instance's context contains the very constraint being solved, at
+            // an unchanging or growing shape. Official `Entailment` raises
+            // `PossiblyInfiniteInstance` for exactly this, at its own work
+            // bound, so the bound is the diagnostic rather than a silent
+            // failure the enclosing boundary would report as missing evidence.
+            let rendered = self.display_constraint(constraint.class_id, &constraint.arguments);
+            self.state.errors.push(TypeCheckError::new(
+                TypeCheckErrorKind::PossiblyInfiniteInstance,
+                constraint.span,
+                format!("instance search for constraint {rendered} cannot terminate"),
+            ));
             return None;
         }
         // Instance contexts are created after the outer wanted-list fixed point.
