@@ -1,17 +1,34 @@
 # Open Records and Roadmap Handoff — 2026-10-17
 
-**State:** Paused at the user's request. Continue in the current dirty checkout.
-The project goal and the open-record topic are incomplete. No compiler commits,
-pushes or pull requests were made during this work. Do not treat this document
-as integrated acceptance.
+**State:** All work this document describes is committed on `master`; the
+checkout is clean and up to date (committed later the same day, see
+"Committed state" below). The project goal and the open-record topic remain
+incomplete. Nothing has been pushed; no pull requests were made. Do not treat
+this document as integrated acceptance. A follow-up agent should start from
+the "Follow-up agent start point" section at the end of this document.
+
+## Committed state (2026-10-17, evening)
+
+The work was committed in five topical commits on `master`, in order:
+
+1. `f712b8e7` Run the configured library runner and measure programs as groups
+2. `b9148f59` Check rank-N arguments against a monomorphic contextual result
+3. `3c31db7e` Give open rows one immutable labelled record store
+4. `48704baf` Select open-row record patterns by label
+5. `b7778658` Update open rows through one immutable labelled store
+
+`stdlib.lock.json` pins the same revision
+`6fcef6ccbab1f3459af2573bbef4ae25b86852d4` as at the pause; the shared sibling
+`psrs-stdlib` checkout remains at its earlier unrelated state, unchanged.
 
 ## Checkout and package ownership
 
-- Compiler: `/Users/biu/Projects/purescript-rs`, branch `master`, HEAD
-  `fe6dd78f14d5f4913e78d2d30c57e3b38cc5c900`.
-- All compiler work described below was uncommitted at the pause, including
-  new files and
-  module-directory moves. Preserve the entire dirty tree.
+- Compiler: `/Users/biu/Projects/purescript-rs`, branch `master`, current HEAD
+  `b7778658` (at the original pause it was
+  `fe6dd78f14d5f4913e78d2d30c57e3b38cc5c900`).
+- The compiler work this document describes was uncommitted at the pause
+  (including new files and
+  module-directory moves) and is preserved in the committed state above.
 - Use `PSRS_STDLIB_ROOT=/tmp/psrs-symbol-reification-stdlib` for every compiler
   command consuming the package. This isolated package is clean at
   `6fcef6ccbab1f3459af2573bbef4ae25b86852d4`, fingerprint
@@ -345,3 +362,70 @@ and the runtime scoreboard record carry the 282/340 row.
 This is still not topic acceptance: the remaining
 slices are OR-08/OR-09
 target bindings and the remaining gates.
+
+## Follow-up agent start point, 2026-10-17 (evening)
+
+Start from a clean checkout at `b7778658`; nothing is pushed and no issue was
+closed or commented. Current accepted evidence:
+
+- Runtime board **282/340** with all exits zero, 25 FFI groups excluded;
+  failure decomposition, release suite binary SHA-256
+  `8585a60b24a8a02eb8b5c132c596359422492e224f6199a133fefd2364476337`,
+  Wasmtime 49.0.3, per-program rows in
+  `/tmp/psrs-open-record-2026-10-17-runtime-281/summary.json` (earlier
+  checkpoints 276 and 279 under
+  `/tmp/psrs-open-record-2026-10-17-runtime{,-checkpoint-276}/`).
+- Full debug workspace 2,062 passed / 0 failed / 5 ignored with
+  `PSRS_REQUIRE_WASMTIME=1` and the isolated package
+  (`/tmp/psrs-open-record-2026-10-17-update-workspace.log`).
+- Frontend boards are unchanged by the update slice; their last full run is
+  L1 904/908, L2 72/72 and passing resolution 403/413, L3 39/48, L4 39/50,
+  L5 77/97 (`/tmp/psrs-open-record-2026-10-17-boards.log`).
+- `RowPolyInstanceContext.purs` still fails P5 typechecking; its
+  undetermined-variable pair prints in either order across repeated runs of
+  the identical binary — presentation noise, not a changed reason.
+
+Validation routine after any change (report any omitted scope honestly):
+
+```sh
+cargo fmt --all --check
+PSRS_STDLIB_ROOT=/tmp/psrs-symbol-reification-stdlib PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+Board re-measure procedure: rebuild the release suite binary
+(`cargo test -p psrs-driver --test suite --release --no-run`), then measure
+every program root with its own `PSRS_SUITE_FILTER` worker — three workers,
+90-second cap, BigFunction under the separate 2 GiB RSS guard — reusing the
+pattern of `/tmp/psrs-open-record-2026-10-17-measure.py` with a fresh output
+directory. Land the new binary SHA-256, the changed failure set and the new
+gate row in D-04, README and the runtime scoreboard record in the same commit
+as the change, following [the authoring guide](../../authoring-guide.md).
+
+Remaining open-record slices, ranked by unblocking value (requirements in the
+[execution checklist](open-records.md)):
+
+1. OR-08 source-typed runtime primitives and target bindings. This unblocks
+   the three missing-foreign program blockers — `Record.Unsafe.unsafeGet`
+   needs `Deriving.purs` and `TCOFloated.purs`, and
+   `Test.Assert.checkThrows` needs `TCOMutRec.purs` — for three more board
+   programs, and is the prerequisite for OR-09. Never fabricate a missing
+   foreign's result: keep the source contract and implement the real target.
+2. OR-09 library record algorithms with official `Record.Unsafe` wrappers
+   under the vendoring contract, then OR-10 edge keys and unsafe-input
+   contracts.
+3. OR-07 broader generic/recursive/imported interactions and OR-12 broader
+   canonical-ABI coverage as integration checks over the new update and
+   pattern paths.
+4. OR-11 remaining malformed-IR rejection surfaces, then OR-13's full boards
+   to close the topic.
+
+Also still unsupported at the surface: pattern-driven tail binding
+(`..rest`), recorded in OR-05's row.
+
+Guardrails that bound every slice: preserve official standard-library sources
+and the store's honesty contracts; stage and runtime correctness are separate
+claims; a local test passing is not acceptance — re-run the affected
+scoreboard and record the number before closing anything; do not narrow the
+design in [open records](../../design/backend/fp/open-records.md) to match an
+implementation. `#124` stays In Progress on the board while these slices run.
