@@ -1,20 +1,92 @@
 # Open Records and Roadmap Handoff — 2026-10-17
 
-**Current resumption:** The committed, clean state described below is the
-historical `b7778658` checkpoint. On top of it, the checked record-storage
-runtime primitives (OR-08) and the official library record wrappers (OR-09)
-are committed at the top of `master` together with the lock and document
-updates; the isolated library package at `e556bf2f` is a separate clean local
-commit and has not been pushed. The final validation is workspace 2,084
-passed / 0 failed / 5 ignored, and the measured board is 284/340. See the
-[current resumption status](#scope-of-the-opening-checkout-state).
+**Latest handoff update: 2026-10-18.** This opening snapshot supersedes every
+historical clean/dirty checkout statement below. The implementation and its
+matching tests/design/acceptance documents are committed on local `master`:
 
-**State:** All work this document describes is committed on `master`; the
-checkout is clean and up to date (committed later the same day, see
-"Committed state" below). The project goal and the open-record topic remain
-incomplete. Nothing has been pushed; no pull requests were made. Do not treat
-this document as integrated acceptance. A follow-up agent should start from
-the "Follow-up agent start point" section at the end of this document.
+1. `e5972241` — Share pattern coverage between type checking and closure conversion.
+2. `e331f9ba` — Lower generic local rows without mandatory specialization.
+
+The implementation checkpoint is `e331f9ba9a785f24496d37d0a1b0d92e8a1c0ca6`.
+The handoff update is the documentation-only commit immediately following that
+checkpoint; use `git log -3 --oneline` to identify the final handoff HEAD. After
+that commit the compiler checkout is clean, with no uncommitted implementation
+or test changes. Nothing was pushed; no PR, issue or project-board action was
+performed. Implementation stops here for the receiving agent.
+
+**Acceptance status:** The open-record topic remains **In Progress**. Core
+storage, operations, generic closure execution, library wrappers and nested ABI
+have execution evidence; the complete requirement-by-requirement integrated
+acceptance review is still outstanding. Do not describe this as completed open
+records or infer topic completion from the compiler-wide runtime count.
+
+## Receiving agent start point
+
+1. Inspect `git status --short` and `git log -3 --oneline`; preserve any newer
+   changes made after this snapshot. Read the normative
+   [open-record design](../../design/backend/fp/open-records.md),
+   [DEC-22](../../decision/DEC-22-labelled-record-storage.md) and
+   [OR-01–OR-14 checklist](open-records.md).
+2. Audit OR-01–OR-12 as one contract, mapping each requirement to its actual
+   producer, verifier, direct-IR tests and executed runtime evidence. Resolve
+   OR-04/OR-05's remaining combination-coverage statements: inspect nested
+   aggregate/callable transport and record-pattern scope interactions, add
+   minimal regressions for concrete gaps, and repair their common owner if
+   they fail. Do not replace those statements with an unsubstantiated Done.
+3. OR-07's forced-specialization prerequisite has been removed. Preserve its
+   unoptimized-Core single-reader assertion and negative-control evidence.
+   OR-10/OR-11 now cover each read/update operation; OR-12 checks actual nested
+   ABI values in both directions. Their detailed evidence is in the final
+   "Generic local rows and nested ABI follow-through" section below.
+4. Complete OR-13/OR-14 only after that integrated audit, relevant gap fixes and
+   current-tree validation. Keep design/code/tests together by topic, remeasure
+   affected scoreboards, and update D-04 from measured results. No current
+   focused test failure is known. BigFunction's resource bound and the missing
+   `Test.Assert.checkThrows` target behavior remain explicit compiler-wide
+   limitations, without fabricated foreign implementations.
+
+## Current package and validation snapshot
+
+- Compiler repository: `/Users/biu/Projects/purescript-rs`, local `master`,
+  implementation checkpoint `e331f9ba` plus the following handoff-only commit.
+- Development package: `/tmp/psrs-open-record-stdlib-or09`, clean at
+  `e556bf2f8cb377c049d2ff0a5a97b484c7b36bc5`, source fingerprint
+  `fnv1a64-v1:7d96f1c44d8d52cc`. Its local commit has not been pushed.
+- The compiler lock retains `../psrs-stdlib` with that revision. Set
+  `PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09` for package-consuming
+  commands. The shared sibling `/Users/biu/Projects/psrs-stdlib` is separately
+  clean at `1e01310daa7e56de5ed379029d6a24dcf39e879c`; it was not modified.
+- The implementation tree now committed above passed full workspace tests:
+  **2,100 passed / 0 failed / 5 ignored**, with required Wasmtime 49.0.3 and
+  the selected development package (`/tmp/psrs-or07-workspace.log`). Formatting,
+  source layout, strict workspace Clippy and diff whitespace checks pass
+  (`/tmp/psrs-or07-fmt.log`, `/tmp/psrs-or07-clippy.log`). Committing and editing
+  this handoff did not change tested source; the long checks were not rerun
+  solely for commit metadata or this documentation update.
+- All five ignored scoreboard groups were exercised separately. Frontend:
+  L1 904/908, L2 72/72 (passing resolution 403/413), L3 39/48, L4 39/50,
+  L5 81/97 (`NoInstanceFound` 52/53), `/tmp/psrs-or07-frontboards.log`.
+- Runtime: **287/340**, unchanged success set, 365 roots, 74 support inputs,
+  25 FFI groups excluded. The 53 non-agreeing roots split into 31 P5 typecheck,
+  11 P5 kind check, 2 P8, 5 P3 resolve, 2 P0 lex, one runtime timeout and
+  BigFunction. BigFunction stops at the 2 GiB RSS guard in 27.89 seconds with
+  observed peak 2,141,824 KiB; no compile acceptance or performance repair is
+  claimed. Evidence: `/tmp/psrs-or07-runtime/summary.json`, `results.jsonl` and
+  `big-function-checked.json`.
+- Release suite: `/tmp/psrs-or07-suite`, SHA-256
+  `52a9b77e706fd2030ed8c235c75f3a313ee118a18de0b49e4be21eb375e03df1`.
+- Library-owned Node conformance passes 13/13
+  (`/tmp/psrs-or07-node-conformance.log`). The current debug CLI's independent
+  `Record.Unsafe` JS/Wasm oracle accepts the value program and all three
+  expected-trap programs (`/tmp/psrs-or07-record-oracle/record-unsafe.json`).
+  The package remains unchanged. These `/tmp` artifacts are local evidence;
+  regenerate them if they are no longer available to the receiving agent.
+
+## Historical implementation and checkpoint notes
+
+The sections below retain the earlier investigation and exact evidence. Their
+branch, HEAD, clean/dirty and validation statements describe their own snapshots;
+the opening 2026-10-18 snapshot is authoritative for resumption.
 
 ## Committed state (2026-10-17, evening)
 
@@ -543,3 +615,372 @@ library package at `e556bf2f` is a clean local commit in
 final-tree validation and board numbers from the resumption sections, not
 from the opening snapshot's 282/340 row, which belongs to the earlier package
 and source state.
+
+## Partial-exhaustiveness slice resumption, 2026-10-17 (S1 landed, S2 blocked): in-progress checkout
+
+This section supersedes the "Next move" lists above for the current checkout:
+`master` is at `7dd45e4b` and the compiler work for the checker-side
+`Partial` flow is present as **uncommitted changes** (29 modified files plus
+untracked `crates/psrs-coverage/`,
+`crates/psrs-typecheck/src/typecheck/infer/coverage.rs`, and a temporary
+repro test). Nothing is pushed; `#124` remains In Progress; the existing
+stashes on the `stdlib/vendor-core-libraries` history predate this work and
+must be left alone.
+
+### S1 is complete and verified in the working tree
+
+- `crates/psrs-coverage/` is the single owner of usefulness analysis:
+  `src/{lib,pattern,types,engine,analyze,render,tests}.rs` port the backend
+  engine verbatim, including the two top-level guards
+  (`all-Any` row short-circuit and the `(matrix, query)` active-state scoped
+  set) that make the uninhabited recursive-product path terminate — omitting
+  either stack-overflowed that test. Registered in the workspace `Cargo.toml`
+  members and `[workspace.dependencies]`.
+- The backend adapter `crates/psrs-backend/src/cc/case/coverage/mod.rs` is a
+  thin shim keeping `analyze(&Module, TypeId, &[CaseBranch]) -> CoverageReport`;
+  the old backend `engine.rs`/`render.rs` were deleted and
+  `decision`'s `canonical_literal` re-export trimmed. Before the S2
+  instrumentation described below, `cargo test -p psrs-backend` passed 535/0
+  and clippy (`-p psrs-coverage -p psrs-backend -D warnings`) was clean.
+
+### S2 checker integration is functionally in place (with instrumentation still in the tree)
+
+- `crates/psrs-typecheck/src/typecheck/infer/coverage.rs` (new, registered in
+  `infer/mod.rs`; `psrs-coverage.workspace = true` added to the crate's
+  `Cargo.toml`) interns `InferType` into skeleton ids
+  (`Constructor/Applied/ForAll/Constrained/RowExtend/RowEmpty/`...`/Unknown`)
+  and implements `psrs_coverage::Types`. Constructor rows are elaborated
+  lazily to a fixpoint with `instantiate_constructor` + `resolve_type` on
+  throwaway fresh unknowns; coverage never unifies anything.
+  Two landmines already found and fixed:
+  - Types with **zero** constructors (uninhabited/foreign) must still be
+    recorded as examined (`rows.insert(type_id, Vec::new())`) or the fixpoint
+    scan livelocks;
+  - `record_fields` answers the **known field list for open-row tails** (a
+    row-variable tail means the record may grow beyond the pattern's labels,
+    which the listed pattern still covers). Closed-record handling in the
+    *backend* adapter must not change; there the rows are already solved.
+    Without this, every `{ val, acc }`-style partial record pattern in the
+    standard library (where-bound `go` records) reports a bogus missing
+    case.
+- `infer/case.rs` replaces the given-only fallback block: a non-empty case
+  whose analysis is non-exhaustive pushes one report-only `Partial` wanted
+  carrying `witness: Option<Vec<Vec<String>>>` (new field on
+  `WantedConstraint`, set `None` at every other construction site) and always
+  attaches the guard-desugar-style `PartialFallback` branch; the old
+  given-in-scope attach remains as the conservative path. Empty cases (no
+  branches) still take the backend trap path, deliberately out of this
+  slice's scope.
+- `classes/evidence/finalize.rs::abstract_dictionaries` now **skips
+  report-only constraints** (via `prim::is_report_only`) — no dictionary
+  parameter is abstracted and no `Abstracted` solution is recorded for them.
+  Retaining a `Partial` constraint previously abstracted an empty-record
+  dictionary parameter, which shifted every value's application shape in
+  THIR and broke the open-record regression test; that skip is what makes
+  retained `Partial` schemes honest AND layout-neutral.
+- Solver facts confirmed by experiment (do not re-litigate): report-only
+  classes do not precede givens, so `unsafePartial` residents discharge by
+  given lookup first; the retention hook at
+  `classes/solve/search.rs` (`is_report_only && policy_keeps_unsolved`)
+  already retains arity-0 `Partial` under a `Retain` policy, so
+  `solve_partial` is deliberately untouched; `RequireSolved` (annotated
+  declarations) reaches the rule and reports. The single wording point is
+  `prim/reports.rs::unresolved_report_error` (extend it with the official
+  "A case expression could not be determined to cover all inputs. ..." text
+  from the wanted's `witness`), with the `NoInstance` error at
+  `classes/solve/entry.rs` as the backstop for the same message.
+
+Observed end-to-end with `PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09`:
+`f x [y, z] = x y z` (argument-pattern lambda) now compiles through P8 —
+retained `Partial`, no dictionary parameter, fallback reaches the backend
+matrix. An annotated non-exhaustive case rejects at P5, currently with the
+generic `no instance for constraint Partial` wording (official wording is
+the pending reports.rs change). The `unsafePartial` probe showed five
+standard-library `Partial` diagnostics **before** the open-row `record_fields`
+fix above; it has not been re-verified after that fix because the blocker
+below interrupts compilation. `cargo test -p psrs-typecheck` passes 135/0
+including `infers_an_open_record_row_from_a_partial_record_pattern`.
+
+### Blocking disorder: stack overflow in the backend CC layout pass
+
+Compiling prelude + `/tmp/psrs-open-record-stdlib-or09/lib/Data/List/Types.purs`
+overflows the stack (default 8 MB; a 512 MB thread completes, so the
+recursion is pathological/deep rather than infinite). Reproduction test
+(new coverage instrumentation to remove at cleanup):
+`crates/psrs-driver/tests/repro_coverage_overflow.rs` with `PSRS_COVERAGE_ON=1
+cargo test -p psrs-driver --test repro_coverage_overflow`.
+
+Bisection evidence, all via temporary eprintln probes listed below:
+
+1. Typecheck side: all 472 checker `case_coverage` analyses enter and
+   complete; the interner stays tiny; the engine's `useful_inner` gets
+   called once per analysis.
+2. Frontend pipeline (`lowering.rs`): resolve, typecheck, per-module Core
+   lowering, link, and Core verification all complete
+   (`core-verify-done frontend-ok`).
+3. Backend pipeline (`pipeline/mod.rs`): core optimization and external
+   binding extraction/conformance complete; the crash occurs inside
+   `cc::lower_module_with_relations` BEFORE any case is compiled
+   (`DBG-CC-CASE` never prints), after primitives, local-row
+   instantiation, and type ids are registered and while iterating layout
+   work: the last printed marker is
+   `DBG-LAY append-function-types-begin`, so the overflow is inside or
+   directly around `cc/layout/functions.rs::append_function_types`
+   (between it and `aggregate::normalize_aggregate_layouts`).
+4. The abort shows a hashbrown layout calculation with astronomic values
+   (~4.3e9 buckets), and the backtrace collapses to one frame — instrument
+   instead of trusting post-abort traces.
+5. Negative control that explains earlier confusion: the env-gated
+   "pretend every case is non-exhaustive" mode also reached many P5
+   reports and dropped out before the backend ever ran, so its earlier
+   passing runs say nothing about the backend path.
+
+Working hypothesis to test first: the checker now attaches the
+`PartialFallback` branch (whose value is a nested `case <int> 0 of` with
+zero branches) to genuinely non-exhaustive cases across the whole standard
+library; those newly embedded nested cases change the core declarations the
+function-signature pass walks. Confirm the actual recursion
+(suspects: function-type typing recursion or an `HashSet`/`HashMap` keyed
+insertion loop in that pass or its `functions.rs` helpers, e.g. signature
+interning over deeply nested arrow/case types) before changing code; a
+targetContentLoaded comparison of core tables across this module with
+`PSRS_COVERAGE_ON` off — where P5 diagnostics abort before the backend —
+will isolate whether the *core* input differs at all from pre-slice state
+for the cases that survive typecheck.
+
+### Instrumentation to remove before any commit
+
+All temporary debug markers below must be removed before any commit:
+
+- `crates/psrs-typecheck/src/typecheck/infer/case.rs`: the
+  `PSRS_COVERAGE_ON` / `PSRS_ANALYZE_NOOP` / `PSRS_WITNESS_ONLY` /
+  `PSRS_FALLBACK_ONLY` env-gated analysis selection; restore the plain
+  `self.case_coverage(...)` call.
+- `crates/psrs-typecheck/src/typecheck/infer/coverage.rs`: `DBG-COV`,
+  `DBG-COV-CALL`, `DBG-INTERN` eprintlns, the `debug_skeleton` helper, and
+  the `static CALLS` counter.
+- `crates/psrs-coverage/src/engine.rs`: the `static CALLS` counter and
+  `DBG-ENGINE` eprintln in `useful_inner`.
+- `crates/psrs-typecheck/src/typecheck/classes/solve/entry.rs`:
+  `DBG-ENTRY` markers (both the retained and no-instance branches).
+- `crates/psrs-typecheck/src/typecheck/prim/dispatch.rs`: the
+  `DBG-DISPATCH` marker.
+- `crates/psrs-driver/src/program/lowering.rs`: all `DBG-PHASE` markers.
+- `crates/psrs-driver/src/program/library.rs`: the `DBG-LIB-ORIGIN`
+  marker inside `shift`.
+- `crates/psrs-driver/src/prelude/mod.rs`: the stray
+  `#[cfg(feature = "never")] debug_print_library(...)` line (emits an
+  unexpected-cfg warning).
+- `crates/psrs-cli/src/build.rs`: the `DBG` marker above the
+  library-diagnostic print.
+- `crates/psrs-backend/src/cc/mod.rs` (`DBG-CC*`),
+  `crates/psrs-backend/src/cc/layout/mod.rs` (`DBG-LAY*`),
+  `crates/psrs-backend/src/cc/case/mod.rs` (`DBG-CC-CASE`),
+  `crates/psrs-backend/src/pipeline/mod.rs` (`DBG-PHASE`).
+- Delete `crates/psrs-driver/tests/repro_coverage_overflow.rs`.
+
+After cleanup re-run the real-flow probes (`f x [y, z] = x y z`
+acceptance, annotated rejection wording, `unsafePartial` acceptance), the
+three targeted `Let.purs`/`ShadowedTCOLet.purs`/`Where.purs` source tests,
+then the slice's standing plan: extend `unresolved_report_error` and the
+`entry.rs` fallback with the official wording, full workspace validation
+(`cargo fmt --all --check`, `cargo test --workspace`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`PSRS_REQUIRE_WASMTIME=1`), release suite rebuild + SHA-256, and the full
+board re-measure (worker pattern
+`/tmp/psrs-open-record-or08-or09-measure.py`, 3 workers, 90 s cap + RSS
+guard) expecting 287/340. Keep the same-commit discipline: design-document
+change, code, and tests land together per topic.
+
+## Partial-exhaustiveness follow-through
+
+The current checkout preserves the original S1/S2 changes and completes the
+checker integration without environment-gated semantics. All listed temporary
+instrumentation and the temporary overflow test were removed. No branch,
+worktree, push, or issue closure was made. The isolated library remains clean
+at `e556bf2f` with the existing lock fingerprint; no official source was edited.
+
+### Repairs to the blocked checkpoint
+
+1. The overflow was an actual transparent newtype cycle in official
+   `Data.Void` (`newtype Void = Void Void`), rather than the coverage engine or
+   a finite deep arrow. Signature tracing showed `scalar_type` repeatedly
+   expanding the same declaration. The common uninhabited-storage predicate
+   now recognizes transparent declaration cycles, including mutual cycles,
+   and uses erased references. Conversion stops at that boundary, and integer
+   box reservation includes such erased slots. Direct layout tests cover self
+   and mutual cycles; a source execution coerces a boxed scalar through a
+   cyclic newtype constructor pattern and recovers 42. Constructor rows remain
+   available to coverage: representation uninhabitedness must not erase the
+   source pattern signature.
+2. The S2 skip in `abstract_dictionaries` was inconsistent with signature and
+   use-site elaboration. It was removed: inferred and declared `Partial`
+   constraints use the existing common dictionary convention. Skipping only
+   abstraction caused `invalid THIR: global reference is not a valid scheme
+   instance` when an inferred partial function was actually called. The new
+   array-argument-pattern test calls it under `unsafePartial` and exits 42;
+   the existing explicit-Partial test still checks both 42 and a trap.
+3. Every nested pattern type is resolved after all branches have unified,
+   before the checker adapter interns it. Resolving only the scrutinee left
+   stale unknowns in the engine's exemplar-field types. Official
+   `Data.List.Lazy.drop` then incorrectly demanded `Partial` for complete
+   `Nil`/`Cons` alternatives. A reduced recursive two-argument stepper executes
+   with result 42, and the original guarded-library typecheck passes.
+4. Missing-case witnesses now reach the shared `NoInstanceFound` report
+   formatter and the solver's fallback. Annotated cases reject at P5 with the
+   official explanatory wording and exact source span. Inferred declarations
+   retain `Partial`, and authorized fallbacks keep first-match behavior through
+   Core/CC. The report prints the first witness plus an ellipsis, not a claim
+   to enumerate all missing cases. Synthetic multi-scrutinee products still
+   render as a record witness; exact official multi-column pretty printing is
+   not established by the error-code scoreboard. Empty source cases remain
+   outside this slice. The local stepper fixture now uses primitive `Partial`; a user class
+   merely named `Partial` cannot authorize non-exhaustiveness.
+
+The original complete-`Data.List.Types` probe now terminates on its small
+thread stack and reports the separate P8 limitation `recursive local binding
+is not a function`; this is not compile acceptance for that whole module.
+Evidence: `/tmp/psrs-coverage-resume-fixed.log`.
+
+### Acceptance evidence
+
+The final release suite SHA-256 is
+`bab10d4c7480c7db64fce9dacba8c96c035f9e760a810679a9d2a750a59233a3`.
+The full frontend remeasurement is L1 904/908, L2 72/72 with passing resolution
+403/413, L3 39/48, L4 39/50, and L5 **81/97** (`NoInstanceFound` **52/53**).
+Relative to the same-package baseline, `2806`, `4466`,
+`NonExhaustivePatGuard`, and `Superclasses5` now agree; no L1–L4 number moves.
+Evidence: `/tmp/psrs-partial-frontboards-final.log` and the baseline
+`/tmp/psrs-partial-frontboards-baseline.log`.
+
+The final runtime board is **287/340**, all successes exiting zero, with 25
+FFI groups excluded. Exactly `Let`, `ShadowedTCOLet`, and `Where` recover;
+there are no regressions. The remaining 53 split into 31 P5 typecheck, 11 P5
+kind check, 2 P8 closure/linking, 5 P3 resolve, 2 P0 lex, one runtime timeout,
+and bounded BigFunction compilation. The guarded BigFunction run times out at
+90.89 seconds with peak RSS 1,485,792 KiB; the 2 GiB guard stays enabled.
+The worker manifest contains the 364 ordinary completed rows plus that
+separate guarded result after the sandbox blocked the first RSS query.
+Evidence: `/tmp/psrs-partial-final-runtime/summary.json` and
+`big-function-checked.json`. Formatting, source layout, and strict workspace
+Clippy pass. The final full workspace with
+`PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09` and
+`PSRS_REQUIRE_WASMTIME=1` passes **2,093 tests, zero failures, five ignored**;
+see `/tmp/psrs-partial-workspace-final.log`. Relative to the previous 2,084-test
+log, the inventory adds one backend cycle-layout test, three shared-engine
+tests, and five driver regressions. No prior tests were removed from that
+inventory. All five ignored scoreboard groups were exercised separately by
+the release frontend boards and per-program runtime run.
+
+Formatting and strict Clippy use the standard full-workspace commands. The
+original seven driver failures in the first integration attempt were four
+outdated backend-diagnostic assertions, one fixture that shadowed primitive
+`Partial`, one confirmed nested-pattern-type failure in the original library case, and
+one handler integration failure. Their corrected paths all pass in the
+final full run. The superseded first workspace/board runs were stopped; only
+the final evidence paths above establish acceptance.
+The open-record topic remains open: retain the OR-07, OR-10, OR-11, OR-12 and
+OR-13 obligations in the checklist rather than treating this frontend slice
+as their complete acceptance.
+
+## Generic local rows and nested ABI follow-through
+
+The current continuation preserves the earlier coverage/Partial changes and
+removes an obsolete correctness dependency in P8. CC no longer calls
+`instantiate_local_rows`; the dedicated finite local-row pass and its private
+expression-instantiation helper are removed. Normal declaration specialization
+and its capture-avoiding substitution remain available to Core optimization.
+The representation owner, generic call adapters and ordinary Core verification
+now carry this boundary directly, as required by DEC-22 and the open-record
+design. No library source, lock, branch, commit, push or issue state changed.
+
+### Focused evidence and test ownership
+
+- OR-07: `tests::records::open_rows` passes 17/17 with required Wasmtime. The
+  new `composition` module adds four tests: unoptimized Core with one captured
+  generic reader shared by two distinct closed rows; imported recursive
+  type-changing updates with retained nested callable/Array/ADT payloads;
+  a captured local polymorphic reader passed at an open higher-order use type;
+  and captured recursive local updates used at two different tail shapes.
+  Each program exits 42. The first test explicitly bypasses Core optimization
+  and counts the generic reader before executing the emitted artifact.
+- Baseline: `/tmp/psrs-or07-before-local.log` and
+  `/tmp/psrs-or07-without-local-preparation.log` both execute the existing local
+  captured-row reproducer. Negative control:
+  `/tmp/psrs-or07-specialization-negative-control.log` fails the new structural
+  assertion with the old preparation restored; current focused acceptance is
+  `/tmp/psrs-or07-all-source.log`.
+- OR-11: the public CC verifier rejects wrong operand types, missing operand
+  declarations, wrong result types and inconsistent embedded destinations for
+  all five read/update operations. Its expected types are specified separately
+  from the implementation helpers; diagnostics retain the original span.
+  Evidence: `/tmp/psrs-or11-operand-matrix.log`.
+- OR-10: all five read/update operations execute both valid and mismatched
+  label/payload-array inputs. Each malformed input traps before any later
+  unpack, including an ignored result and an empty Update. Physical CC/MIR
+  verification succeeds: these are runtime-content tests, not malformed
+  representation-schema tests. Evidence:
+  `/tmp/psrs-or10-malformed-store.log` (ten executions).
+- OR-12: the new filesystem test sets exact access/modification timestamps,
+  reads nested `Either`/`Maybe` record payloads, transports the descriptor
+  record through `Box (Array a)`, updates its size through an open row while
+  retaining timestamps, then sends the recovered timestamps through the ABI
+  again. Source assertions verify all scalar fields and the unchanged input;
+  host metadata independently verifies the outbound modification timestamp.
+  Evidence: `/tmp/psrs-or12-timestamp-roundtrip.log`.
+
+### Current validation
+
+Formatting and strict workspace Clippy pass at this continuation:
+`/tmp/psrs-or07-fmt.log` and `/tmp/psrs-or07-clippy.log`. The new release suite
+is `/tmp/psrs-or07-suite`, SHA-256
+`52a9b77e706fd2030ed8c235c75f3a313ee118a18de0b49e4be21eb375e03df1`.
+Full workspace validation passes **2,100 tests, zero failures and five
+ignored** (`/tmp/psrs-or07-workspace.log`), separately from the historical
+2,093-test checkpoint. All five ignored scoreboard groups execute separately
+in the frontend/runtime remeasurements recorded below. The seven additions
+are four open-row composition tests, one nested ABI test, one public CC
+negative matrix and one direct GC runtime-content matrix. No existing test
+was removed. The driver unit group passes 814/814, and all six locked
+control-reference integration tests execute and pass. The same clean package `e556bf2f` /
+`fnv1a64-v1:7d96f1c44d8d52cc` is selected via
+`PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09`.
+
+The current CLI also reruns the library-owned `Record.Unsafe` oracle:
+`/tmp/psrs-or07-record-oracle/record-unsafe.json` accepts its value program and
+all three explicit empty/missing/inherited get traps; the Node conformance
+suite passes 13/13 (`/tmp/psrs-or07-node-conformance.log`). This refreshes the
+previous OR-09/OR-10 oracle against the current compiler instead of relying
+only on its old artifact. The package fingerprint stays unchanged.
+The rebuilt frontend scoreboards also finish with unchanged L1 904/908,
+L2 72/72 (passing resolution 403/413), L3 39/48, L4 39/50 and L5 81/97
+(`NoInstanceFound` 52/53): `/tmp/psrs-or07-frontboards.log`.
+
+The current runtime board is **287/340** with no success-set changes. The
+manifest combines 364 completed ordinary roots (25 FFI exclusions) with the
+separate bounded BigFunction result. BigFunction reaches the 2 GiB RSS guard
+after 27.89 seconds, with observed peak 2,141,824 KiB; this supersedes the
+previous checkpoint's 90.89-second timeout for the current artifact, without
+claiming BigFunction compile acceptance or a performance repair. The remaining
+53 still split as 31 P5 typecheck, 11 P5 kind check, 2 P8, 5 P3 resolve,
+2 P0 lex, one runtime timeout and BigFunction. Evidence:
+`/tmp/psrs-or07-runtime/{summary.json,results.jsonl,big-function-checked.json}`.
+
+### Next topic acceptance review
+
+Start from the committed checkpoint above and preserve the clean development
+package. The concrete OR-07 prerequisite and the previously listed operation/ABI test gaps are now
+covered. Before declaring the whole topic complete, review OR-01–OR-12 as one
+integrated contract, including the remaining OR-04/OR-05 interaction language,
+and update each requirement's status from its actual source/direct-IR/runtime
+evidence. Do not infer full topic acceptance from the 287/340 corpus count.
+Do not change official source or substitute `Test.Assert.checkThrows` merely to
+improve that count; its target behavior remains independently unimplemented.
+
+The final slice review confirms that the removed expression-substitution path
+was used only by the deleted local-row pass; the declaration-specialization
+path retains its previous capture-avoidance and quantified-binding behavior.
+All changed/new Rust files meet the 500-line rule. `git diff --check` passes.
+The source, tests and corresponding design/checklist updates are now committed
+as `e5972241` and `e331f9ba`; no existing changes were discarded. The opening
+handoff snapshot records their exact state and the outstanding topic review.
