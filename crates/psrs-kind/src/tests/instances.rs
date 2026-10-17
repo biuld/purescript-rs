@@ -85,3 +85,87 @@ fn leaves_an_instance_head_with_the_wrong_arity_to_the_arity_rule() {
          instance tooNarrow :: TooNarrow Int\n",
     );
 }
+
+#[test]
+fn checks_an_instance_head_whose_class_is_declared_in_another_module() {
+    // `failing/FoldableInstance1.purs`: `Foldable :: (Type -> Type) ->
+    // Constraint` is declared in `Data.Foldable`, and the instance is in
+    // `Main`, so only the instance's own module sees `Foldable`'s checked
+    // scheme. `Foo` has kind `Type` and the head applies the class to it
+    // directly, so the head is refused.
+    let modules = resolve_program(&[
+        (
+            "Main.purs",
+            "module Main where\n\
+             import Data.Foldable\n\
+             data Foo = Bar\n\
+             instance foldableFoo :: Foldable Foo\n",
+        ),
+        (
+            "Data.Foldable.purs",
+            "module Data.Foldable where\n\
+             class Foldable :: (Type -> Type) -> Constraint\n\
+             class Foldable f where\n  foldr :: forall a b. (a -> b) -> b -> f a -> b\n",
+        ),
+    ]);
+    let errors = check_modules(&modules);
+    assert!(codes(&errors).contains(&"KindsDoNotUnify"), "{errors:?}");
+    // The head that applies the class is `Main`'s syntax, so the diagnostic is
+    // attributed to the module that declares the instance, not to the module
+    // whose scheme was consulted.
+    let error = errors
+        .iter()
+        .find(|error| error.code == "KindsDoNotUnify")
+        .expect("a kind conflict");
+    assert_eq!(error.origin, ModuleId(0), "{errors:?}");
+}
+
+#[test]
+fn accepts_two_instance_heads_whose_class_is_declared_in_another_module() {
+    // A cross-module class is checked against the scheme its declaring module
+    // checked, at every use instantiating that scheme, so two heads at
+    // different eligible kinds are both accepted — one head must not fix the
+    // kind another is judged by.
+    check_modules_ok(&[
+        (
+            "Main.purs",
+            "module Main where\n\
+             import Data.Proxy\n\
+             instance int :: M Int\n\
+             instance label :: M \"hello\"\n",
+        ),
+        (
+            "Data.Proxy.purs",
+            "module Data.Proxy where\n\
+             class M :: forall k. k -> Constraint\n\
+             class M a\n",
+        ),
+    ]);
+}
+
+#[test]
+fn leaves_a_cross_module_head_with_the_wrong_arity_to_the_arity_rule() {
+    // The arity rule reads a foreign class through its checked kind scheme, so
+    // a head that applies a two-parameter class to one argument is still an
+    // arity error, not a kind error.
+    check_modules_ok(&[
+        (
+            "Main.purs",
+            "module Main where\n\
+             import Data.Proxy\n\
+             instance tooNarrow :: M Int\n",
+        ),
+        (
+            "Data.Proxy.purs",
+            "module Data.Proxy where\n\
+             class M a b\n",
+        ),
+    ]);
+}
+
+/// Kind checks a resolved multi-module program and requires no diagnostics.
+pub(super) fn check_modules_ok(sources: &[(&str, &str)]) {
+    let modules = resolve_program(sources);
+    let errors = check_modules(&modules);
+    assert!(errors.is_empty(), "unexpected kind errors: {errors:?}");
+}

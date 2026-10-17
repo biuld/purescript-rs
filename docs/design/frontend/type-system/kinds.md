@@ -64,17 +64,25 @@ Absence of kind metadata is an error, not freedom. A referenced declaration with
 
 Every type unknown carries a kind, and binding one maintains it. Kind inference has a single substitution over kinds, one occurs check, and one escape rule, and `bind_type_variable` runs the kind compatibility check for both sides of a binding in addition to the occurs, level, and skolem-escape rules. A record's row has kind `Row Type`, a row-polymorphic variable has kind `Row k` with `k` tracked alongside it, and a `forall` binder's kind annotation is checked against the kind recorded for that variable. Coercion checking therefore adds no kind machinery of its own: it consults this solver, and a binding that would violate a kind invariant is a kind diagnostic rather than a silently accepted type.
 
-An instance head is checked against its class's kind scheme. That is the only
-place a standalone kind signature on a class is enforced: a class without one is
-inferred as its parameters at `Type` returning `Constraint`, which accepts any
-argument kind, so `class C :: Constraint -> Constraint` would otherwise accept
-`instance C Int`. Each head argument is elaborated against the parameter kind its
-class declares rather than read on its own, which is what makes `((->) r)` a
-higher-kinded class parameter in `Functor ((->) r)` rather than the partially
-applied function synonym it is elsewhere. A head that applies its class to the
-wrong number of arguments is an arity error owned by the class environment, so
-the kind check leaves it alone rather than reporting `KindsDoNotUnify` where
-`ClassInstanceArityMismatch` is the official code.
+An instance head is checked against its class's kind scheme, including a head
+whose class another module declares: the scheme is what the declaring module's
+run published and what the checking run receives, and a foreign class is read
+through the same scheme its argument kinds are checked against. The arity the
+rule leaves alone is accordingly read from the declaration itself at home and
+from the scheme abroad — one arrow per parameter, ending in `Constraint` — the
+two readings describing the same class; a scheme that is not part of this run
+leaves its head unguarded rather than inventing an arity for it. A standalone
+kind signature on a class is the only way to state its parameter kinds: a class
+without one is inferred as its parameters at `Type` returning `Constraint`,
+which accepts any argument kind and cannot reject a head, so
+`class C :: Constraint -> Constraint` would otherwise accept `instance C Int`.
+Each head argument is elaborated against the parameter kind its class declares
+rather than read on its own, which is what makes `((->) r)` a higher-kinded
+class parameter in `Functor ((->) r)` rather than the partially applied
+function synonym it is elsewhere, and a head that applies its class to the
+wrong number of arguments is an arity error owned by the class environment,
+so the kind check leaves it alone rather than reporting `KindsDoNotUnify`
+where `ClassInstanceArityMismatch` is the official code.
 
 Reject cyclic synonyms and unsaturated synonym use that remains after
 capture-avoiding substitution of saturated outer aliases. A partially supplied
@@ -207,10 +215,12 @@ inference solves a kind equation. The kind state is a single `psrs_kind::KindSta
 `InferState` beside the type substitutions, with the recorded kind of each inference
 type variable in `variable_kinds` next to it, so `speculate` rolls a kind binding back
 with the type binding that produced it. The coercion module's private denotation,
-primitive table, substitution, and unifier are gone; `coercion_kinds_compatible` now
-reads both kinds through `kind_of_type` and solves the equation speculatively, so a
-conversion that turns out not to hold leaves no kind binding behind. `bind_variable`
-runs the kind check alongside the occurs, escape, and level rules, and a row tail
+primitive table, substitution, and unifier are gone; `coercion_kinds_trial` reads both kinds
+through `kind_of_type` and each pair's kind equation is solved speculatively by
+the `Coercible` rule, which re-reports a `KindsDoNotUnify` verdict where official
+solving raises it — when the rule picks a constraint up, including a pair its
+role decomposition dissolves into — so the proof that turns out not to hold
+leaves no kind binding behind. `bind_variable` runs the kind check alongside the occurs, escape, and level rules, and a row tail
 solved during row unification keeps the kind its row admits through that same
 binding.
 
@@ -223,9 +233,17 @@ What remains, and what the next wave owns:
   an implicitly generalized kind mentions a type variable that is not quantified
   explicitly. Kind variables and type-level `forall` binders live in different state
   here, so the dependency order the official check needs is not recorded yet.
-- An instance head whose class is declared in another module is still skipped: the
-  arity rule needs the class declaration, and a class the checking module does not
-  declare has no arity here. Only the declaring module's own run checks such a head.
+- Cross-module instance heads agree now: a head is checked against its class's
+  checked kind scheme whether the class is declared in the checking module or
+  imported, with the arity read from the scheme for a foreign class. What still
+  generalizes nothing is a scheme whose variables the run's own checks have not
+  quantified yet: within one run the scheme of a class whose definition leaves a
+  parameter's kind undetermined is monomorphic, so two instance heads at
+  different eligible kinds disagree with each other's fixings. Publishing needs
+  the declaration check to finish before the scheme is fixed, which is the
+  polykind-generalization machinery #100/#123 own — the same boundary
+  `failing/PolykindInstantiatedInstance.purs` and
+  `failing/PolykindGeneralizationLet.purs` remain open at.
 - `data Wrap :: Lib.Box Type -> Type` reads `Lib.Box Type` as the kind "`Lib.Box`
   applied to `Type`", because a kind annotation is read as a kind rather than
   elaborated as a type. Official `elaborateKind` eliminates an application of an arrow
