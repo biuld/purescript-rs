@@ -110,6 +110,16 @@ polymorphic expression before solving the unknown, following the official
 checker's rule. Explicit polymorphic fields and annotations supply the
 boundaries at which a polymorphic value may be retained.
 
+When checking an application against a monomorphic result context, constrain
+the callable's result before checking its argument. This keeps a known result
+such as `Int` concrete while a rank-N callback opens a skolem scope, so a rigid
+mismatch reports `TypesDoNotUnify` rather than a premature `EscapedSkolem`.
+Instantiate the result with the ordinary scheme operation and apply any result
+dictionary evidence to the actual application. Contexts containing nested
+universal or qualified types retain synthesis followed by subsumption: pushing
+them into fresh constructor parameters would admit impredicative inference.
+The common unknown-binding escape check remains authoritative.
+
 Core replays those checked explicit instantiations, including universal types
 used as nominal constructor arguments. Its shared type matcher binds only the
 declaration's flexible parameters and retains a replacement's complete `ForAll`
@@ -127,6 +137,10 @@ check(expr, expected):
     if expected begins with constraint: bind given evidence, check body
     if expr is lambda and expected is arrow: bind parameter, check result
     if expr is record: check each field against its expected field type
+    if expr is application and expected is monomorphic:
+        synthesize callable; instantiate its leading quantifiers/constraints
+        instantiate and subsume its result against expected; retain evidence
+        check argument against parameter; apply result evidence to application
     otherwise synthesize expr and subsume synthesized type against expected
 
 infer_application(function, argument):

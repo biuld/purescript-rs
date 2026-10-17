@@ -4,6 +4,26 @@ use std::process::Command;
 mod cases;
 
 #[test]
+fn a_known_application_result_rejects_rigid_mismatch_before_escape() {
+    for source in [cases::RIGID_RESULT, cases::RIGID_NOMINAL_RESULT] {
+        let errors = psrs_driver::check_source("Main.purs", source)
+            .expect_err("a universally quantified callback cannot return its argument as Int");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.code == Some("TypesDoNotUnify")),
+            "{errors:?}"
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|error| error.code == Some("EscapedSkolem")),
+            "{errors:?}"
+        );
+    }
+}
+
+#[test]
 fn source_rank_n_acceptance_and_rejection() {
     let mut failures = Vec::new();
     if let Err(errors) = psrs_driver::check_program(cases::LINKED) {

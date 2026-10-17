@@ -11,7 +11,9 @@ fn differential_symbol_reflection_against_purs() {
         .root
         .join("lib");
     let proxy = std::fs::read_to_string(root.join("Type/Proxy.purs")).unwrap();
-    let symbol = std::fs::read_to_string(root.join("Data/Symbol.purs")).unwrap();
+    // Compare the pinned official source, independently of target foreign-slot
+    // adaptations in the installed package and their additional imports.
+    let symbol = include_str!("../fixtures/upstream-prelude/Symbol.purs");
     let main = r#"module Main where
 import Data.Symbol as S
 import Type.Proxy (Proxy(..))
@@ -22,7 +24,7 @@ main = reflect (Proxy :: Proxy "λ😀")
 "#;
     let sources = [
         ("Proxy.purs", proxy.as_str()),
-        ("Symbol.purs", symbol.as_str()),
+        ("Symbol.purs", symbol),
         ("Main.purs", main),
     ];
     // Official FFI implementation: purescript-prelude v6.0.1, f4cad0ae8106185c9ab407f43cf9abf05c256af4.
