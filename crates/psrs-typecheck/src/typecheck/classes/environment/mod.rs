@@ -6,6 +6,9 @@ mod compiler;
 mod method;
 
 use method::validate_method_signature;
+mod instance_head;
+
+use instance_head::validate_head_shapes;
 
 impl Checker {
     /// Records every class in the program with its parameters, superclass
@@ -181,7 +184,7 @@ impl Checker {
         }
         if let Some(span) = cycle {
             self.state.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::UnsupportedClass,
+                TypeCheckErrorKind::CycleInTypeClassDeclaration,
                 span,
                 "class superclasses form a cycle",
             ));
@@ -301,6 +304,12 @@ impl Checker {
                 return;
             };
             head_arguments[1] = resolved;
+        }
+        // The official determined-instance-head rule, applied per argument
+        // after synonyms expand (`checkTypeClassInstance` in `purs`'s
+        // `TypeChecker.hs`).
+        if local && !validate_head_shapes(self, &class, &head_arguments, instance.head.span) {
+            return;
         }
         let mut context = Vec::with_capacity(instance.context.len());
         let mut context_parameters = Vec::with_capacity(instance.context.len());

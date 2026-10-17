@@ -292,6 +292,34 @@ represent.
 The coercion rule is dispatched through the shared primitive table by class
 identity rather than by a comparison at the call site.
 
+The instance recorder applies one determined-instance-head rule to every local
+instance, after synonyms expand and after a head-shape derivation resolves its
+trailing wildcard: each elaborated head argument must be a type variable, a
+type-level literal, a type constructor, or a constructor or function
+application over those, and a row argument is legal only where the class's
+functional dependencies fully determine its position. The fully determined
+positions are official `typeClassDeterminedArguments`: the arguments standing
+in no inclusion-minimal covering set, ported from `computeCoveringSets`, so a
+parameter determined only by an argument it itself determines is not determined
+and official record helpers that place a closed record in a determined
+parameter keep compiling. Every trigger — a wildcard (`TypeWildcards3.purs`),
+a free unification variable beneath a synonym (`TypeSynonyms7.purs`), a
+derived record head (`3510.purs`, `InvalidDerivedInstance2.purs`), and an
+argument no fundep determines (`RowInInstanceNotDetermined0/1/2.purs`) — is
+`InvalidInstanceHead`, raised in the recorder before the instance is recorded,
+so no overlap or deriving diagnostic follows it. The wildcard-in-context path
+keeps its own narrower check with the same code, because a context stays
+solvable where the head is not.
+
+Superclass cycles raise `CycleInTypeClassDeclaration` at the class declaration
+that reintroduces an ancestor; the reachability check is unchanged and clearing
+the edges keeps dictionary construction from recursing while diagnostics
+finish. An instance search that exhausts its depth bound reports
+`PossiblyInfiniteInstance` at the constraint that would be solved again — the
+official `Entailment` work bound — instead of failing silently into an
+enclosing `NoInstanceFound`, and the code joins the constraint-failure codes so
+no enclosing boundary reports the obligation a second time.
+
 Selected instance contexts retain stable wanted IDs in the shared worklist, so
 solving or generalizing a residual updates the evidence the instance constructor
 uses. A missing referenced wanted is an invalid-HIR error. Primitive deferrals
