@@ -1,7 +1,9 @@
 # Open Record Implementation Acceptance
 
 **Design:** [Open record rows](../../design/backend/fp/open-records.md).
-**Status:** In progress. Read/transport evidence is recorded below; the topic is not complete.
+**Status:** Complete as of the 2026-10-18 integrated review. Historical
+evidence is recorded below by checkpoint; the final section records the
+requirement-by-requirement audit and its fresh board measurement.
 
 All design requirements apply, including adjacent erased and canonical-ABI
 boundaries. Complete each required vertical slice before declaring this topic
@@ -13,17 +15,17 @@ separate. Missing Wasmtime is a failure.
 | OR-01 | One checked immutable storage schema; reject stale/wrong references, nullability and element kinds | CC schema tests pass, including eight malformed mutations. MIR owner/physical-schema tests reject five mutations. |
 | OR-02 | Open rows retain full storage independently of prefix and instantiation | Shared-layout test and source accessor/identity runs pass across distinct rows and field indices. Updates are tracked in OR-06. |
 | OR-03 | Closed-to-open pack and open-to-closed recovery with complete label validation | Source return recovery and direct CC/MIR round trips execute; wrong labels and payload lengths trap. |
-| OR-04 | The same store owns bare erased record transport, recursively through arrays, records, ADTs and callable adapters | Eight source runtime tests cover Array/ADT erased slots, independent nested rows, callable fields and callable results. Broader interaction coverage remains required. |
-| OR-05 | Known fields and record patterns select by label, including differing prefixes and canonical indices | Known-field selection executes through shared find/read kernels. Open-row record patterns project by label through the same kernel: a realize unit test proves no product projection against the store, and two required-Wasmtime source runs exercise differing prefixes plus nested open-row values. `FieldPuns.purs`, `FieldConsPuns.purs` and `ReservedWords.purs` additionally execute in the official corpus. Pattern-driven wildcards/tail binding checks for remaining scope interactions. |
+| OR-04 | The same store owns bare erased record transport, recursively through arrays, records, ADTs and callable adapters | Eight source runtime tests cover Array/ADT erased slots, independent nested rows, callable fields and callable results. A further seven required-Wasmtime interaction regressions (`open_rows::interactions`) cover a record passing through a bare `forall a. a -> a` erased slot and reopening at an open-row use, a callable field extracted by pattern and applied immediately, a record pattern inside a constructor scrutinee, and one value recovered from an erased ADT slot reused at two use types. |
+| OR-05 | Known fields and record patterns select by label, including differing prefixes and canonical indices | Known-field selection executes through shared find/read kernels. Open-row record patterns project by label through the same kernel: a realize unit test proves no product projection against the store, and two required-Wasmtime source runs exercise differing prefixes plus nested open-row values. `FieldPuns.purs`, `FieldConsPuns.purs` and `ReservedWords.purs` additionally execute in the official corpus. Four further required-Wasmtime interaction regressions cover record patterns nested in constructor scrutinees, two pattern columns selecting their own labels, a wildcard field label that neither binds nor consumes the tail, and a guard reading a pattern-bound label. Pattern-driven `..rest` tail binding stays unsupported and rejected by design. |
 | OR-06 | Immutable updates preserve unknown tails and type-changing field results, with exact evaluation order/count | Open-row updates lower through the owner's `Update` operation: base and update expressions lower exactly once in source order, replacement payloads erase through the common planner, and the runtime kernel patches existing labels on one fresh store while keeping the complete label/value sequence. Direct CC/MIR/GC runs replace a label and recover the rest, a missing label traps, forged operands fail the CC boundary, and three required-Wasmtime source runs cover source-order multi-label updates, a type-changing field over a retained tail, and a case-branch update. Official `ObjectUpdate.purs`, `ObjectUpdate2.purs`, `ObjectUpdater.purs`, `NestedRecordUpdate.purs`, `NestedRecordUpdateWildcards.purs` and derived-Functor `2616.purs` execute. Broader record library coverage is OR-09's scope. |
-| OR-07 | Generic/recursive/imported uses execute without finite specialization as a correctness prerequisite | Verified for this slice: unoptimized Core lowers to one captured generic reader serving two closed rows and exits 42; a negative control restoring the removed mandatory preparation fails the single-reader assertion. Four composition programs additionally cover imported type-changing updates, recursion, nested callable/Array/ADT payloads, higher-order open uses and captured recursive local updates. All 17 open-row source tests execute with required Wasmtime. Ordinary optimization remains optional. |
+| OR-07 | Generic/recursive/imported uses execute without finite specialization as a correctness prerequisite | Verified for this slice: unoptimized Core lowers to one captured generic reader serving two closed rows and exits 42; a negative control restoring the removed mandatory preparation fails the single-reader assertion. Four composition programs additionally cover imported type-changing updates, recursion, nested callable/Array/ADT payloads, higher-order open uses and captured recursive local updates. All 24 open-row source tests (17 plus the 7 integrated-review interaction regressions) execute with required Wasmtime. Ordinary optimization remains optional. |
 | OR-08 | Source-typed runtime primitives preserve checked operand/result types and slot policy before ABI erasure | Runtime-owned contracts describe `length`, `key_at`, `payload_at` and `build`, including their projection to the one CC `RecordOperation` owner. P8 resolves bare or applied slot types to positive ordinary constructorless declaration evidence; P9 preserves and checks the provider export against the projected operation and rejects direct calls bypassing it. The driver module passes 6/6 with required Wasmtime (five executions including an imported applied-carrier slot, plus one unused invalid-signature rejection). |
-| OR-09 | Library-owned searches and official unsafe wrappers; pinned source and JS oracle comparisons | Implemented for the four `Record.Unsafe` operations: the pinned package preserves the official wrappers and signatures, with algorithms in `PSRS.Record`; the package audit finds 50 packages/309 modules and no missing upstream module. Node conformance passes 13/13, and the independent Wasm oracle accepts the common values and three explicit trap cases. See the OR-09/OR-10 evidence below; full topic acceptance remains open. |
-| OR-10 | Empty, Unicode, reserved-looking and absent keys; invalid unsafe-input target differences explicit | Partial: required-Wasmtime provider tests and the JS/Wasm oracle cover empty storage, private-use and supplementary Unicode labels, `__proto__` as an ordinary own key, absent/inherited get traps, and target divergence from JavaScript `undefined` and prototype lookup. Five direct operation fixtures additionally trap on mismatched label/payload lengths before any later unpack; each has a valid executed control. Nested ABI transport is exercised in OR-12. Final topic interaction review remains open. |
-| OR-11 | CC and MIR reject malformed schema, plans, missing fields, mismatched endpoints and evidence | Eight CC-schema, six CC-plan and five MIR-owner/physical mutations reject. Six P9 provider-boundary rejections cover the checked registry (a valid base passes, while a second registered provider, a missing runtime binding, an export for another operation, a direct-call bypass and a noncanonical external signature reject); five direct build-input mutations trap. A public CC-boundary matrix now independently checks all five read/update operation contracts: every operand rejects wrong shapes and missing declarations, and every result/destination mismatch rejects with the original span. Final topic rejection-surface review remains open. |
-| OR-12 | Canonical ABI and parameterized ADT fields use the same record storage policy | Erased record lists encode/validate both ABI directions, String and flags fields. Four filesystem programs execute. The nested timestamp test checks actual `Either`/`Maybe` record payloads through an ADT of arrays, an open-row immutable update retaining unknown fields, and both ABI directions (`statAt` / `setTimesAt`); host metadata confirms the outbound timestamp. Final topic ABI review remains open. |
-| OR-13 | Value-sensitive required-Wasmtime programs, official TCOFloated/Deriving cases, and full scoreboards | Partial: the shared coverage/Partial follow-through remeasures all 365 roots at 287/340 with no regressions; `Let`, `ShadowedTCOLet`, and `Where` recover, while the earlier `TCOFloated`/`Deriving` successes remain. L5 reaches 81/97, with L1–L4 unchanged. Complete topic evidence still depends on the broader interaction, malformed-IR and ABI obligations above. |
-| OR-14 | Formatting, full workspace tests, Clippy, final diff and design review | Formatting, source layout, full workspace and strict Clippy pass at the latest 2026-10-18 generic-local-row/nested-ABI checkpoint: 2,100 passed / 0 failed / 5 ignored with required Wasmtime and the locked package selected explicitly. All five ignored scoreboard groups are exercised separately, the release suite is rebuilt, and the current-tree library oracle accepts. The slice diff/design review is complete; the integrated review against all topic requirements remains open. |
+| OR-09 | Library-owned searches and official unsafe wrappers; pinned source and JS oracle comparisons | Implemented for the four `Record.Unsafe` operations: the pinned package preserves the official wrappers and signatures, with algorithms in `PSRS.Record`; the package audit finds 50 packages/309 modules and no missing upstream module. Node conformance passes 13/13, and the independent Wasm oracle accepts the common values and three explicit trap cases. See the OR-09/OR-10 evidence below. The 2026-10-18 integrated review reran the conformance suite and oracle on the current tree. |
+| OR-10 | Empty, Unicode, reserved-looking and absent keys; invalid unsafe-input target differences explicit | Partial: required-Wasmtime provider tests and the JS/Wasm oracle cover empty storage, private-use and supplementary Unicode labels, `__proto__` as an ordinary own key, absent/inherited get traps, and target divergence from JavaScript `undefined` and prototype lookup. Five direct operation fixtures additionally trap on mismatched label/payload lengths before any later unpack; each has a valid executed control. Nested ABI transport is exercised in OR-12. The 2026-10-18 integrated review reran the provider tests and all five malformed/mismatched fixtures on the current tree. |
+| OR-11 | CC and MIR reject malformed schema, plans, missing fields, mismatched endpoints and evidence | Eight CC-schema, six CC-plan and five MIR-owner/physical mutations reject. Six P9 provider-boundary rejections cover the checked registry (a valid base passes, while a second registered provider, a missing runtime binding, an export for another operation, a direct-call bypass and a noncanonical external signature reject); five direct build-input mutations trap. A public CC-boundary matrix now independently checks all five read/update operation contracts: every operand rejects wrong shapes and missing declarations, and every result/destination mismatch rejects with the original span. The 2026-10-18 integrated review reran the schema, plan, owner and boundary-matrix tests on the current tree. |
+| OR-12 | Canonical ABI and parameterized ADT fields use the same record storage policy | Erased record lists encode/validate both ABI directions, String and flags fields. Four filesystem programs execute. The nested timestamp test checks actual `Either`/`Maybe` record payloads through an ADT of arrays, an open-row immutable update retaining unknown fields, and host metadata confirms the outbound timestamp. The 2026-10-18 integrated review reran the ABI and filesystem tests on the current tree. |
+| OR-13 | Value-sensitive required-Wasmtime programs, official TCOFloated/Deriving cases, and full scoreboards | The shared coverage/`Partial` follow-through remeasures all 365 roots at 287/340 with no regressions; `Let`, `ShadowedTCOLet`, and `Where` recover, and the earlier `TCOFloated`/`Deriving` successes remain. L5 reaches 81/97, with L1–L4 unchanged. The integrated review re-measured the board at the review tree with the identical 52-case failure list and the same suite binary identity (see the final section). |
+| OR-14 | Formatting, full workspace tests, Clippy, final diff and design review | Formatting, source layout, full workspace and strict Clippy pass at the 2026-10-18 integrated review: **2,107 passed / 0 failed / 5 ignored** with required Wasmtime and the locked package selected explicitly (`/tmp/psrs-or0405-workspace-full.log`, `/tmp/psrs-or0405-clippy.log`). All five ignored scoreboard groups were exercised separately at earlier checkpoints and the board groups execute in the remeasurement. The integrated review's diff and the owning design document were reviewed together; all fourteen rows are verified. |
 
 ## Starting evidence
 
@@ -416,3 +418,68 @@ full-workspace Clippy pass (`/tmp/psrs-or07-fmt.log`,
 `/tmp/psrs-or07-clippy.log`); the slice's final diff and owning design were
 reviewed together. The complete topic remains In Progress pending the
 requirement-by-requirement integrated review recorded in the handoff.
+
+## Integrated topic acceptance review: 2026-10-18
+
+Every requirement row is now audited against the current tree, which is commit
+`e331f9ba` with only driver tests and documentation added since. Each row's
+named producer, verifier, direct-IR test, and executed runtime evidence was
+confirmed to exist and re-run with required Wasmtime:
+
+- `tests::records` 45/45 (38 prior plus the seven new interaction regressions
+  below), `tests::record_storage` 6/6, backend record-schema/plan/owner and
+  malformed-input tests 77/77, the public CC operand matrix 15/15, and
+  `tests::wasi` 152/152 including the nested timestamp round trip.
+- The library Node conformance suite passes 13/13
+  (`/tmp/psrs-or0405-node-conformance.log`), including the pinned-source
+  `Record.Unsafe` oracle comparisons.
+- The design document's invariant list maps one to one onto these row owners;
+  no invariant lacks a producer or a required runtime execution.
+
+Seven interaction regressions were added under
+`tests::records::open_rows::interactions` to resolve the remaining OR-04/OR-05
+combination-coverage statements. All pass on the current tree; none required a
+compiler repair:
+
+1. a record passes through a bare `forall a. a -> a` erased slot and reopens at
+   a later open-row use, proving the label/value sequence survives fully
+   polymorphic transport;
+2. record patterns nest inside constructor scrutinees and select labels from
+   two different tails;
+3. two record-pattern columns of one lambda each select their own label;
+4. a wildcard field label neither binds nor consumes the unknown tail;
+5. a callable field extracted by a pattern applies immediately;
+6. a guard after a record pattern reads the pattern-bound label;
+7. one value recovered from an erased ADT slot serves two different use types
+   without a second pack.
+
+OR-10's final interaction review, OR-11's final rejection-surface review, and
+OR-12's final ABI review are resolved by the reruns above; their rows drop the
+remaining clauses. Full workspace validation at this tree passes **2,107 tests,
+zero failures and five ignored** (`/tmp/psrs-or0405-workspace-full.log`),
+formatting and strict full-workspace Clippy pass (`/tmp/psrs-or0405-clippy.log`),
+and the release suite rebuild for this review is SHA-256
+`52a9b77e706fd2030ed8c235c75f3a313ee118a18de0b49e4be21eb375e03df1` — the same
+artifact identity as the e331f9ba measurement, because the review's library
+changes are `cfg(test)`-only and release suite sources are unchanged.
+
+The fresh board re-measurement on this tree, using the same suite binary and
+the standard worker pattern (3 workers, 90 s cap, 2 GiB RSS guard), reaches
+**287/340** with the identical 52-case failure list, 25 excluded FFI groups,
+and no incomplete worker besides `BigFunction.purs`
+(`/tmp/psrs-or0405-runtime/summary.json`). BigFunction again stops at the RSS
+guard, at 33.39 seconds with peak RSS 2,137,584 KiB — slower wall clock than
+the 27.89-second e331f9ba run on the same identical compiler, which is
+run-to-run variation rather than a changed property of the compiler. The
+board, its success set, and every failed root's first blocking stage are
+unchanged from the shared-coverage checkpoint, so the gate row and scoreboard
+standings stand as recorded.
+
+With the interaction regressions landed and every row's evidence re-executed,
+all fourteen requirement rows are verified against the current tree. The
+remaining open obligations are the compiler-wide limitations tracked outside
+this checklist: `BigFunction.purs`'s resource bound, the missing
+`Test.Assert.checkThrows` target contract, and the ten-second
+runtime timeout in `2288.purs`. The execution-checklist obligations for this
+topic are complete; #124 can be closed with the board evidence above.
+

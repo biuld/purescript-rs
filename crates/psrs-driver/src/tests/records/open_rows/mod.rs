@@ -203,3 +203,4 @@ main = step { tag: 0, extra: 9, always: 42 }
 }
 
 mod composition;
+mod interactions;

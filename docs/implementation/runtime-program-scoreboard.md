@@ -306,3 +306,31 @@ separately above. Formatting, source layout and strict workspace Clippy pass.
 The seven new regressions cover generic local-row lowering, composed row
 transport, per-operation CC/runtime rejection and actual nested ABI values.
 This remains separate from whole-topic acceptance.
+
+## Integrated open-record review recheck: 2026-10-18
+
+Commit `e331f9ba` with only `cfg(test)`-only driver tests and documentation
+added since, the same clean package
+`e556bf2f` / `fnv1a64-v1:7d96f1c44d8d52cc` and required Wasmtime 49.0.3,
+re-measures the board with the worker pattern above: **287/340**. The release
+suite binary is unchanged at SHA-256
+`52a9b77e706fd2030ed8c235c75f3a313ee118a18de0b49e4be21eb375e03df1` because no
+compiler or suite source differs; the identity is re-established rather than
+assumed. All 364 ordinary roots complete; 25 FFI groups remain excluded.
+
+The failing set is identical to the previous checkpoint — the same 31 P5
+typecheck, 11 P5 kind check, 2 P8, 5 P3 resolve, 2 P0 lex and one ten-second
+runtime timeout in `2288.purs` — with no regressions and no recoveries.
+BigFunction is separately bounded by the RSS guard again: it stops at
+33.39 seconds with observed peak 2,137,584 KiB on this run, against
+27.89 seconds / 2,141,824 KiB previously on the identical compiler. The
+difference is run-to-run wall-clock variation, and no claim about BigFunction
+performance is made from either run.
+
+Evidence: `/tmp/psrs-or0405-runtime/summary.json` and `results.jsonl`. The
+debug workspace passes **2,107 / 0 failed / 5 ignored**
+(`/tmp/psrs-or0405-workspace-full.log`); the seven additional tests are the
+open-row interaction regressions recorded in the
+[open-record checklist](open-records.md#integrated-topic-acceptance-review-2026-10-18).
+With every requirement row re-executed and the board re-measured, the open-record
+checklist is complete at commit `e331f9ba` plus this review.

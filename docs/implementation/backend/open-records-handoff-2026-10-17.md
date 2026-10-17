@@ -22,6 +22,9 @@ records or infer topic completion from the compiler-wide runtime count.
 
 ## Receiving agent start point
 
+(Completed on 2026-10-18 — see the [outcome addendum](#receiving-agent-outcome-2026-10-18)
+at the end of this handoff. The numbered plan below is preserved for the record.)
+
 1. Inspect `git status --short` and `git log -3 --oneline`; preserve any newer
    changes made after this snapshot. Read the normative
    [open-record design](../../design/backend/fp/open-records.md),
@@ -984,3 +987,18 @@ All changed/new Rust files meet the 500-line rule. `git diff --check` passes.
 The source, tests and corresponding design/checklist updates are now committed
 as `e5972241` and `e331f9ba`; no existing changes were discarded. The opening
 handoff snapshot records their exact state and the outstanding topic review.
+
+## Receiving agent outcome, 2026-10-18
+
+The integrated OR-01–OR-14 review from the receiver start point is complete.
+Seven open-row interaction regressions (`tests::records::open_rows::interactions`)
+resolve the remaining OR-04/OR-05 combination statements without compiler
+repairs, every row's evidence was re-executed on the current tree, and the
+board re-measurement with the correct suite binary (`52a9b77e...`) reproduces
+287/340 with an identical failure list. Checklist, D-04 and scoreboard updates
+land together in the review commit. Two lessons worth keeping: the
+`target/release/deps` directory retains stale `suite-*` executables, so copy a
+suite binary by newest mtime, never by name glob; and `PSRS_STDLIB_ROOT` must
+be set for driver tests that compile with the package, or hundreds of unrelated
+tests fail. `Test.Assert.checkThrows` and the `BigFunction` guard remain
+compiler-wide limitations, unchanged and unclaimed.
