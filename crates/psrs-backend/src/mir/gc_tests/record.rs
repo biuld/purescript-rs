@@ -1,6 +1,7 @@
 use super::*;
 use crate::cc::{
-    AggregateConvert, BoxKind, RecoveryEvidence, RefShape, ReprId, ValueConversion, ValueDecl,
+    AggregateConvert, BoxKind, RecordOperation, RecoveryEvidence, RefShape, ReprId,
+    ValueConversion, ValueDecl,
 };
 
 fn reference(id: ReprId) -> ValueShape {
@@ -29,7 +30,7 @@ impl Body {
     }
 }
 
-fn roundtrip(wrong_label: bool, short_payload: bool) -> CcModule {
+fn roundtrip(wrong_label: bool, short_payload: bool, update_label: Option<&str>) -> CcModule {
     let mut table = RepresentationTable::default();
     let boxed = table.reserve();
     table.set(
@@ -160,6 +161,40 @@ fn roundtrip(wrong_label: bool, short_payload: bool) -> CcModule {
             }
         });
     }
+    if let Some(update_label) = update_label {
+        // The replacement payload erases through the same owner policy as the
+        // pack step before entering the private labelled slot.
+        let replacement = body.add(ValueShape::Integer, |_| AssignmentKind::Constant(77));
+        let replacement_erased = crate::cc::payload::erased_shape();
+        let erase_replacement = ValueConversion::Sequence(vec![
+            ValueConversion::BoxScalar {
+                kind: BoxKind::Integer,
+                representation: boxed,
+            },
+            ValueConversion::EraseReference,
+        ]);
+        let erased_value = body.add(replacement_erased, |id| AssignmentKind::AggregateConvert {
+            destination: id,
+            value: replacement,
+            conversion: AggregateConvert {
+                source: ValueShape::Integer,
+                destination: replacement_erased,
+                plan: erase_replacement,
+            },
+        });
+        let label = body.add(ValueShape::String, |_| {
+            AssignmentKind::StringConstant(update_label.into())
+        });
+        packed = body.add(reference(storage.representation()), |id| {
+            AssignmentKind::Record {
+                destination: id,
+                record: packed,
+                operation: RecordOperation::Update {
+                    replacements: vec![(label, erased_value)],
+                },
+            }
+        });
+    }
     let output = body.add(reference(target), |id| AssignmentKind::AggregateConvert {
         destination: id,
         value: packed,
@@ -240,7 +275,7 @@ fn roundtrip(wrong_label: bool, short_payload: bool) -> CcModule {
 
 #[test]
 fn record_store_roundtrip_preserves_strings_and_nested_array_maps() {
-    let cc = roundtrip(false, false);
+    let cc = roundtrip(false, false, None);
     crate::cc::verify_module(&cc).expect("checked pack/unpack CC");
     let (mir, _) = super::super::lower_module(cc).expect("record conversions lower to MIR");
     super::super::verify_module(&mir).expect("record MIR physical contracts");
@@ -248,9 +283,67 @@ fn record_store_roundtrip_preserves_strings_and_nested_array_maps() {
 }
 
 #[test]
+fn record_update_replaces_one_label_in_fresh_storage_and_keeps_the_rest() {
+    let cc = roundtrip(false, false, Some("value"));
+    crate::cc::verify_module(&cc).expect("checked record update CC");
+    let (mir, _) = super::super::lower_module(cc).expect("record update lowers to MIR");
+    super::super::verify_module(&mir).expect("record update MIR physical contracts");
+    // The text (score 1) and the list element (42) survive the update; the
+    // replaced `value` field reads as 77: 1 + 42 + 77.
+    run_gc(&mir, 120);
+}
+
+#[test]
+fn record_update_traps_on_a_label_missing_from_the_runtime_store() {
+    let cc = roundtrip(false, false, Some("absent"));
+    crate::cc::verify_module(&cc).expect("checked record update CC");
+    let (mir, _) = super::super::lower_module(cc).expect("checked record update MIR");
+    if let Some(output) = run_gc_output(&mir) {
+        assert!(!output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("wasm trap: wasm `unreachable` instruction executed"),
+            "{output:?}"
+        );
+    }
+}
+
+fn update_replacements(module: &mut CcModule) -> &mut (ValueId, ValueId) {
+    module.functions[0]
+        .assignments
+        .iter_mut()
+        .find_map(|assignment| match &mut assignment.kind {
+            AssignmentKind::Record {
+                operation: RecordOperation::Update { replacements },
+                ..
+            } => replacements.first_mut(),
+            _ => None,
+        })
+        .expect("record update fixture")
+}
+
+#[test]
+fn forged_record_update_operands_fail_at_the_public_cc_boundary() {
+    let baseline = roundtrip(false, false, Some("value"));
+    crate::cc::verify_module(&baseline).unwrap();
+    let mutations: &[fn(&mut (ValueId, ValueId))] = &[
+        |pair| std::mem::swap(&mut pair.0, &mut pair.1),
+        |pair| pair.1 = pair.0,
+    ];
+    for (index, mutate) in mutations.iter().enumerate() {
+        let mut module = baseline.clone();
+        mutate(update_replacements(&mut module));
+        assert!(
+            crate::cc::verify_module(&module).is_err(),
+            "forged record update {index} accepted"
+        );
+    }
+}
+
+#[test]
 fn record_store_recovery_rejects_wrong_labels_and_payload_lengths() {
     for (wrong_label, short_payload) in [(true, false), (false, true)] {
-        let cc = roundtrip(wrong_label, short_payload);
+        let cc = roundtrip(wrong_label, short_payload, None);
         crate::cc::verify_module(&cc).expect("physical inputs remain valid CC");
         let (mir, _) = super::super::lower_module(cc).expect("checked record recovery MIR");
         if let Some(output) = run_gc_output(&mir) {
@@ -286,7 +379,7 @@ fn record_plan(module: &mut CcModule, packing: bool) -> &mut ValueConversion {
 
 #[test]
 fn forged_record_conversion_plans_fail_at_the_public_cc_boundary() {
-    let baseline = roundtrip(false, false);
+    let baseline = roundtrip(false, false, Some("value"));
     crate::cc::verify_module(&baseline).unwrap();
     let mutations: &[fn(&mut CcModule)] = &[
         |module| {

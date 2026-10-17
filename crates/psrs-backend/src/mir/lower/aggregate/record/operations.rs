@@ -120,7 +120,116 @@ impl FunctionLowerer<'_> {
                     span,
                 )
             }
+            RecordOperation::Update { replacements } => self.lower_record_update_operation(
+                block,
+                destination,
+                storage,
+                arrays,
+                lengths[0],
+                zero,
+                replacements,
+                span,
+            ),
         }
+    }
+
+    /// Build one fresh labelled store: scan every replacement label in the
+    /// base's runtime sequence, clone the value array once, patch the found
+    /// slots, and reuse the unchanged label sequence in a new header. The base
+    /// record is never written; a missing replacement label traps instead of
+    /// fabricating a slot.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_record_update_operation(
+        &mut self,
+        mut block: BlockId,
+        destination: ValueId,
+        storage: RecordStorage,
+        arrays: [StoredValue; 2],
+        length: ValueId,
+        zero: ValueId,
+        replacements: &[(ValueId, ValueId)],
+        span: TextRange,
+    ) -> Result<BlockId, Vec<BackendError>> {
+        let mut replacements = replacements
+            .iter()
+            .map(|(label, value)| {
+                Ok((
+                    self.persist_field(block, *label, span)?,
+                    self.persist_field(block, *value, span)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, Vec<BackendError>>>()?;
+        let mut indices = Vec::with_capacity(replacements.len());
+        for (label, _) in &replacements {
+            let index = self.fresh(ValueType::I32);
+            block =
+                self.find_record_label(block, index, storage, arrays[0], *label, length, span)?;
+            let present = self.fresh(ValueType::Boolean);
+            self.append_instruction(
+                block,
+                Instruction::Primitive {
+                    destination: present,
+                    op: NumericOp::I32GeS,
+                    left: index,
+                    right: zero,
+                    span,
+                },
+                span,
+            )?;
+            block = self.require_record_condition(block, present, span)?;
+            indices.push(index);
+        }
+        let base_values = self.restore_field(block, arrays[1], span)?;
+        let values = self.fresh(
+            self.layout
+                .value_type(&representation_shape(storage.values()))
+                .map_err(|error| layout_error(span, error))?,
+        );
+        self.append_instruction(
+            block,
+            Instruction::ArrayClone {
+                destination: values,
+                type_index: self
+                    .layout
+                    .repr_index(storage.values())
+                    .map_err(|error| layout_error(span, error))?,
+                value: base_values,
+                span,
+            },
+            span,
+        )?;
+        for (index, (_, stored)) in indices.into_iter().zip(replacements.drain(..)) {
+            let new_value = self.restore_field(block, stored, span)?;
+            self.append_instruction(
+                block,
+                Instruction::ArraySet {
+                    type_index: self
+                        .layout
+                        .repr_index(storage.values())
+                        .map_err(|error| layout_error(span, error))?,
+                    value: values,
+                    index,
+                    new_value,
+                    span,
+                },
+                span,
+            )?;
+        }
+        let labels = self.restore_field(block, arrays[0], span)?;
+        self.append_instruction(
+            block,
+            Instruction::StructNew {
+                destination,
+                type_index: self
+                    .layout
+                    .repr_index(storage.representation())
+                    .map_err(|error| layout_error(span, error))?,
+                arguments: vec![labels, values],
+                span,
+            },
+            span,
+        )?;
+        Ok(block)
     }
 
     #[allow(clippy::too_many_arguments)]

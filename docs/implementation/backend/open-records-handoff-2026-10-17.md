@@ -321,17 +321,27 @@ The record-pattern slice (OR-05) followed: open-row patterns project by label
 through one shared `project_labelled_field` kernel instead of guessing product
 indices; the realize unit test, two required-Wasmtime source runs and the
 official `FieldPuns`/`FieldConsPuns`/`ReservedWords` cases execute. The board
-is now **279/340** on release suite
+reached **279/340** on release suite
 `7c9f8839dbd7cf73d63322e90ca2eefd5a904551c63cf73b76bb77b64673e2eb`, and the
-debug workspace passes 2,056 tests. D-04 and README carry the 279/340 row.
+debug workspace passed 2,056 tests. D-04 and README carried the 279/340 row.
 
-This is still not topic acceptance: the next
-slices are OR-06 open-row immutable updates (preserving unknown tails, exact
-evaluation order, including `ObjectUpdate.purs` and
-`NestedRecordUpdateWildcards.purs` which still reject honestly), then OR-08/OR-09
-target bindings and the remaining gates. All work described above, including
-this document, was committed the same day under the topics
+Next, the whole dirty checkpoint was committed the same day under the topics
 "Run the configured library runner…", "Check rank-N arguments…",
 "Give open rows one immutable labelled record store", and
 "Select open-row record patterns by label"; later inspections should state
 their measurements against those commits rather than a dirty tree.
+
+The open-row update slice (OR-06) then landed as a further commit: base and
+update expressions lower exactly once in source order, the new owner
+`Update` operation patches labels on one fresh store through the shared
+helper machinery, missing runtime labels trap, and forged operands fail the
+CC boundary. The board is now **282/340** on release suite
+`8585a60b24a8a02eb8b5c132c596359422492e224f6199a133fefd2364476337`; the
+official `ObjectUpdate`, `ObjectUpdate2`, `ObjectUpdater`,
+`NestedRecordUpdate`, `NestedRecordUpdateWildcards` and derived-Functor
+`2616` roots pass and the debug workspace passes 2,062 tests. D-04, README
+and the runtime scoreboard record carry the 282/340 row.
+
+This is still not topic acceptance: the remaining
+slices are OR-08/OR-09
+target bindings and the remaining gates.

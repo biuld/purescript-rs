@@ -29,9 +29,7 @@ impl FunctionLowerer<'_> {
         if let Some(helpers) = self.conversion_helpers.as_mut() {
             let function = helpers.intern_record(operation, storage, assignment.span);
             let mut arguments = vec![*record];
-            if let Some((value, _)) = operation.argument() {
-                arguments.push(value);
-            }
+            arguments.extend(operation.arguments().iter().map(|(value, _)| *value));
             self.append_instruction(
                 current,
                 Instruction::Call {

@@ -8,39 +8,88 @@ use super::{RefShape, Reference, ReprId, Representation, RepresentationTable, Va
 
 /// Structural reads from the complete labelled store. Result payload recovery
 /// remains an explicit checked conversion at the use site.
+///
+/// [`RecordOperation::Update`] replaces existing labelled slots in one fresh
+/// store: every replacement label must exist in the runtime store (established
+/// by construction and checked at runtime), the complete label/value sequence
+/// otherwise stays the owner's single authoritative sequence, and the input
+/// store is never mutated.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RecordOperation {
     Length,
-    LabelAt { index: super::ValueId },
-    Find { label: super::ValueId },
-    Read { index: super::ValueId },
+    LabelAt {
+        index: super::ValueId,
+    },
+    Find {
+        label: super::ValueId,
+    },
+    Read {
+        index: super::ValueId,
+    },
+    Update {
+        replacements: Vec<(super::ValueId, super::ValueId)>,
+    },
 }
 
 impl RecordOperation {
-    pub(crate) fn argument(&self) -> Option<(super::ValueId, ValueShape)> {
+    /// Ordered operands with their physical shapes. Update pairs flatten to
+    /// the alternating label/value order used by every consumer.
+    pub(crate) fn arguments(&self) -> Vec<(super::ValueId, ValueShape)> {
         match self {
-            Self::Length => None,
-            Self::LabelAt { index } | Self::Read { index } => Some((*index, ValueShape::Integer)),
-            Self::Find { label } => Some((*label, ValueShape::String)),
+            Self::Length => Vec::new(),
+            Self::LabelAt { index } | Self::Read { index } => {
+                vec![(*index, ValueShape::Integer)]
+            }
+            Self::Find { label } => vec![(*label, ValueShape::String)],
+            Self::Update { replacements } => replacements
+                .iter()
+                .flat_map(|(label, value)| {
+                    [(*label, ValueShape::String), (*value, erased_argument())]
+                })
+                .collect(),
         }
     }
 
-    pub(crate) fn result_shape(&self) -> ValueShape {
+    pub(crate) fn result_shape(&self, storage: RecordStorage) -> ValueShape {
         match self {
             Self::Length | Self::Find { .. } => ValueShape::Integer,
             Self::LabelAt { .. } => ValueShape::String,
             Self::Read { .. } => super::payload::erased_shape(),
+            Self::Update { .. } => ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(storage.representation()),
+            }),
         }
     }
 
-    pub(crate) fn with_argument(&self, argument: super::ValueId) -> Self {
+    /// Rebind the ordered operands positionally. Helper interning uses this to
+    /// abstract concrete call-site ids into one shared helper per arity.
+    pub(crate) fn with_arguments(self, arguments: Vec<super::ValueId>) -> Self {
+        let mut remaining = arguments.into_iter();
+        let mut take = |message| remaining.next().expect(message);
         match self {
             Self::Length => Self::Length,
-            Self::LabelAt { .. } => Self::LabelAt { index: argument },
-            Self::Find { .. } => Self::Find { label: argument },
-            Self::Read { .. } => Self::Read { index: argument },
+            Self::LabelAt { .. } => Self::LabelAt {
+                index: take("one argument"),
+            },
+            Self::Read { .. } => Self::Read {
+                index: take("one argument"),
+            },
+            Self::Find { .. } => Self::Find {
+                label: take("one label"),
+            },
+            Self::Update { replacements } => Self::Update {
+                replacements: replacements
+                    .into_iter()
+                    .map(|_| (take("one label"), take("one value")))
+                    .collect(),
+            },
         }
     }
+}
+
+fn erased_argument() -> ValueShape {
+    super::payload::erased_shape()
 }
 
 #[cfg(test)]

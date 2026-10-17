@@ -153,3 +153,51 @@ main = readNested { a: false, nested: { z: "λ😀", value: 42 } }
     };
     assert_eq!(output.status.code(), Some(42), "{output:?}");
 }
+
+#[test]
+fn open_row_updates_replace_labels_in_source_order_and_keep_the_tail() {
+    let source = r#"module Main where
+swap :: forall r. { foo :: Int, keep :: Int, tail :: Int | r } -> { foo :: Int, keep :: Int, tail :: Int | r }
+swap record = record { foo = 42, keep = 7 }
+main :: Int
+main = let result = swap { foo: 0, keep: 1, tail: 23, other: "λ😀" }
+        in if intEq result.foo 42
+           then if booleanAnd (intEq result.keep 7) (intEq result.tail 23) then 42 else 1
+           else 2
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn a_type_changing_open_row_update_keeps_a_string_in_its_unknown_tail() {
+    let source = r#"module Main where
+swap :: forall a r. { foo :: a | r } -> { foo :: Int | r }
+swap record = record { foo = 42 }
+main :: Int
+main = let result = swap { foo: "λ😀", tail: 23 }
+        in if intEq result.foo 42 then if intEq result.tail 23 then 42 else 1 else 2
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn a_case_branch_updates_its_open_row_scrutinee() {
+    let source = r#"module Main where
+step :: forall r. { tag :: Int, always :: Int | r } -> Int
+step record = case record of
+  { tag: 0 } -> (record { tag = 1 }).always
+  _ -> 0
+main :: Int
+main = step { tag: 0, extra: 9, always: 42 }
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}

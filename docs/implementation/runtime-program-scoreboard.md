@@ -181,3 +181,33 @@ BigFunction compilation. Evidence:
 numbers are unchanged. The full debug workspace run at the pattern-slice tree
 is 2,056 passed, 0 failed, 5 ignored
 (`/tmp/psrs-open-record-2026-10-17-pattern-workspace.log`).
+
+## Open-row immutable-update recheck: 2026-10-17
+
+Compiler `fe6dd78f` plus the open-record read/transport, record-pattern and
+open-row immutable-update slices recorded in
+[the same-day handoff](backend/open-records-handoff-2026-10-17.md) and
+committed with it — package `6fcef6cc` / `fnv1a64-v1:5fcbb57525c63eb1`,
+Wasmtime 49.0.3, release suite binary SHA-256
+`8585a60b24a8a02eb8b5c132c596359422492e224f6199a133fefd2364476337` — measured
+with the same per-root `PSRS_SUITE_FILTER` worker arrangement, three workers,
+`PSRS_REQUIRE_WASMTIME=1`, and the isolated 2 GiB RSS guard for BigFunction.
+
+The board is **282/340**: all completions exit zero, 25 FFI groups are
+excluded, and the 58 non-agreeing roots carry the previous reasons besides the
+three newly passing ones (`ObjectUpdate.purs` and
+`NestedRecordUpdateWildcards.purs`, both previously rejected by absent
+canonical record-update labels, and `2616.purs`, whose derived
+`Functor (F r)` map writes its open-row field). The reason profile is 31 P5
+typecheck, 11 P5 kind check, 7 P8 closure conversion within the closure-linking
+family (3 closure capture, 1 recursive local binding, 3 missing library
+foreigns `Record.Unsafe.unsafeGet` 2 and `Test.Assert.checkThrows` 1), 5 P3
+resolve, 2 P0 lex (DEC-16), one 10-second runtime timeout, and the bounded
+BigFunction compilation. One failing program (`RowPolyInstanceContext.purs`)
+printed its undetermined-variable pair in both orders across repeated runs of
+the same binary; the presentation order is run-to-run noise and the case fails
+typechecking either way. Frontend boards were not rerun; the slice changed
+only backend lowering and its tests. Evidence:
+`/tmp/psrs-open-record-2026-10-17-runtime-281/summary.json` per program and
+`/tmp/psrs-open-record-2026-10-17-update-workspace.log` for the full debug
+workspace (2,062 passed, 0 failed, 5 ignored).

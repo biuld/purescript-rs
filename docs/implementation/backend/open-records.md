@@ -15,7 +15,7 @@ separate. Missing Wasmtime is a failure.
 | OR-03 | Closed-to-open pack and open-to-closed recovery with complete label validation | Source return recovery and direct CC/MIR round trips execute; wrong labels and payload lengths trap. |
 | OR-04 | The same store owns bare erased record transport, recursively through arrays, records, ADTs and callable adapters | Eight source runtime tests cover Array/ADT erased slots, independent nested rows, callable fields and callable results. Broader interaction coverage remains required. |
 | OR-05 | Known fields and record patterns select by label, including differing prefixes and canonical indices | Known-field selection executes through shared find/read kernels. Open-row record patterns project by label through the same kernel: a realize unit test proves no product projection against the store, and two required-Wasmtime source runs exercise differing prefixes plus nested open-row values. `FieldPuns.purs`, `FieldConsPuns.purs` and `ReservedWords.purs` additionally execute in the official corpus. Pattern-driven wildcards/tail binding checks for remaining scope interactions. |
-| OR-06 | Immutable updates preserve unknown tails and type-changing field results, with exact evaluation order/count | Pending |
+| OR-06 | Immutable updates preserve unknown tails and type-changing field results, with exact evaluation order/count | Open-row updates lower through the owner's `Update` operation: base and update expressions lower exactly once in source order, replacement payloads erase through the common planner, and the runtime kernel patches existing labels on one fresh store while keeping the complete label/value sequence. Direct CC/MIR/GC runs replace a label and recover the rest, a missing label traps, forged operands fail the CC boundary, and three required-Wasmtime source runs cover source-order multi-label updates, a type-changing field over a retained tail, and a case-branch update. Official `ObjectUpdate.purs`, `ObjectUpdate2.purs`, `ObjectUpdater.purs`, `NestedRecordUpdate.purs`, `NestedRecordUpdateWildcards.purs` and derived-Functor `2616.purs` execute. Broader record library coverage is OR-09's scope. |
 | OR-07 | Generic/recursive/imported uses execute without finite specialization as a correctness prerequisite | Generic and recursive source functions execute. Imported and remaining scope interactions are pending. |
 | OR-08 | Source-typed runtime primitives preserve checked operand/result types and slot policy before ABI erasure | CC structural reads have shared operand/result shapes and isolated MIR helpers. Target library bindings are pending. |
 | OR-09 | Library-owned searches and official unsafe wrappers; pinned source and JS oracle comparisons | Pending |
@@ -153,9 +153,60 @@ control-repair checkpoint copy is
 `/tmp/psrs-open-record-2026-10-17-runtime-checkpoint-276/`). Exactly the three
 pun-blocking roots newly pass and no failure changed reason.
 
-Updates stay OR-06's open slice, and pattern-driven tail binding
-(`..rest`) remains unsupported at the surface.
+Pattern-driven tail binding (`..rest`) remains unsupported at the surface.
+
+## Open-row update slice: 2026-10-17 (later still the same day)
+
+Open rows used to reject every record update with
+`record representation has no canonical field labels`: the closed path names
+canonical product indices, which a labelled store does not provide. The record
+owner gains an `Update` operation (`cc/record/mod.rs`): CC lowering
+(`cc/lower/record/open.rs`) lowers the base record once, then lowers every
+update expression exactly once in source order, erasing each replacement
+payload through the common planner into a private slot keyed by its literal
+label; a duplicate label inside one update is rejected at its source position.
+MIR lowering (`mir/lower/aggregate/record/operations.rs`) scans each
+replacement label in the base's runtime sequence, traps when a label is absent
+from the store, clones the value array once, patches the found slots, and
+reuses the unchanged label sequence in a fresh header. The input store is
+never written, the complete label/value sequence including the unknown tail is
+retained, and closed-row updates keep their specialized product path.
+
+Evidence:
+
+- Direct CC/MIR/GC runs: `record_update_replaces_one_label_in_fresh_storage_and_keeps_the_rest`
+  packs, updates and unpacks with the unchanged fields and the replaced value;
+  `record_update_traps_on_a_label_missing_from_the_runtime_store` proves the
+  honest trap; `forged_record_update_operands_fail_at_the_public_cc_boundary`
+  rejects swapped and reused operands at the CC verifier.
+- Required-Wasmtime source runs: source-order multi-label updates
+  (`open_row_updates_replace_labels_in_source_order_and_keep_the_tail`), a
+  type-changing field over a retained tail
+  (`a_type_changing_open_row_update_keeps_a_string_in_its_unknown_tail`), and
+  a case-branch update against the open-row scrutinee
+  (`a_case_branch_updates_its_open_row_scrutinee`) all exit 42.
+- The official roots `ObjectUpdate.purs`, `ObjectUpdate2.purs`,
+  `ObjectUpdater.purs`, `NestedRecordUpdate.purs`,
+  `NestedRecordUpdateWildcards.purs` and the derived-Functor `2616.purs`
+  compile and finish correctly under the scoreboard conditions.
+- The full debug workspace passes 2,062 tests with the required Wasmtime
+  baseline; formatting, source layout and Clippy with warnings denied remain
+  clean. Evidence: `/tmp/psrs-open-record-2026-10-17-update-workspace.log`.
+
+The runtime board lifts to **282/340** (25 FFI groups excluded) on release
+suite `8585a60b24a8a02eb8b5c132c596359422492e224f6199a133fefd2364476337`
+(decomposition in
+`/tmp/psrs-open-record-2026-10-17-runtime-281/summary.json`): exactly
+`ObjectUpdate.purs`, `NestedRecordUpdateWildcards.purs` and `2616.purs` leave
+the failing set. `RowPolyInstanceContext.purs` still fails to typecheck; its
+undetermined-variable pair prints in either order across repeated runs of the
+same binary, so that presentation order is not a stable result. Frontend
+boards are unchanged; the slice changed only backend lowering and its tests.
+
+OR-08 target bindings, OR-09 library record algorithms and the remaining
+OR-11 rejection surfaces stay open.
 
 The standard-library package remains `6fcef6cc`; its official source has not
-been rewritten, and `Record.Unsafe` foreigns still report missing target support.
-Do not close #124 or declare the open-record topic complete on these read paths.
+been rewritten, and `Record.Unsafe` foreigns still report missing target
+support. Do not close #124 or declare the open-record topic complete on these
+paths.

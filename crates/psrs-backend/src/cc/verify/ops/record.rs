@@ -27,10 +27,15 @@ pub(super) fn verify(
         assignment,
     )?;
     let mut uses = vec![*record];
-    if let Some((value, shape)) = operation.argument() {
+    for (value, shape) in operation.arguments() {
         require_value_shape(declared, value, shape, assignment)?;
         uses.push(value);
     }
-    require_value_shape(declared, *destination, operation.result_shape(), assignment)?;
+    require_value_shape(
+        declared,
+        *destination,
+        operation.result_shape(storage),
+        assignment,
+    )?;
     Ok(uses)
 }
