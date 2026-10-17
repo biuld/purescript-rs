@@ -45,6 +45,7 @@ fn module() -> Module {
             Type::Application(psrs_core::TypeId(5), psrs_core::TypeId(4)),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![

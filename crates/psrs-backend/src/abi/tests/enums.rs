@@ -116,6 +116,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
     let span = TextRange::new(0, 1);
     let type_id = HirTypeId::new(ModuleId(0), 0);
     let mut core = empty_core_module();
+    core.ordinary_data_ids.push(type_id);
     core.constructors = ["Red", "GreenBlue"]
         .into_iter()
         .enumerate()
@@ -167,6 +168,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
     // The same enum with reversed constructor tags must not match the WIT
     // enum case order.
     let mut reversed_core = empty_core_module();
+    reversed_core.ordinary_data_ids.push(type_id);
     reversed_core.constructors = ["Red", "GreenBlue"]
         .into_iter()
         .rev()
@@ -197,6 +199,7 @@ fn validates_a_list_of_nullary_enums() {
     let type_id = HirTypeId::new(ModuleId(0), 0);
     let cases = ["Red", "GreenBlue"];
     let mut module = empty_core_module();
+    module.ordinary_data_ids.push(type_id);
     module.constructors = cases
         .iter()
         .enumerate()

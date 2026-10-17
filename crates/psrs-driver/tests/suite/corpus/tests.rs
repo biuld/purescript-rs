@@ -204,3 +204,61 @@ fn a_standard_library_diagnostic_is_never_the_cases_own() {
     assert!(case.is_own(Origin::Source(0)));
     assert!(!case.is_own(Origin::Source(1)));
 }
+
+#[test]
+fn runtime_programs_keep_support_sources_without_running_them_as_commands() {
+    let root = temp_directory("runtime-programs");
+    let main = write(
+        &root,
+        "2018.purs",
+        "module Main where\nimport A\nmain :: Int\nmain = answer\n",
+    );
+    let support = write(
+        &root,
+        "2018/A.purs",
+        "module A where\nanswer :: Int\nanswer = 42\n",
+    );
+    let missing_entry = write(&root, "Missing.purs", "module Missing where\nanswer = 0\n");
+    let malformed = write(&root, "Malformed.purs", "not valid PureScript");
+    assert_eq!(
+        collected_programs(&root, None, None),
+        [main.clone(), malformed, missing_entry],
+        "all roots are measured, even when malformed or missing main"
+    );
+    assert_eq!(collected_files(&root, None).len(), 4);
+    assert_eq!(
+        collected_programs(&root, Some("2018.purs"), Some(1)),
+        std::slice::from_ref(&main)
+    );
+    let case = load_case(&main, &root, &std::fs::read_to_string(&main).unwrap());
+    assert_eq!(case.own.len(), 2);
+    assert_eq!(case.own[1].0, support.to_string_lossy());
+    let artifact = psrs_driver::compile_program_sources(&case.inputs())
+        .expect("the support value must be resolved through its parent program");
+    assert!(!artifact.wasm.is_empty());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn runtime_program_filter_precedes_the_limit() {
+    let root = temp_directory("runtime-filter");
+    write(&root, "A.purs", "module Main where\nmain = 0\n");
+    let last = write(&root, "Z.purs", "module Main where\nmain = 42\n");
+    assert_eq!(collected_programs(&root, Some("Z.purs"), Some(1)), [last]);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn runtime_ffi_exclusion_covers_support_modules_and_foreign_files() {
+    let root = temp_directory("runtime-ffi");
+    let main = write(&root, "Case.purs", "module Main where\nmain = 0\n");
+    let support = write(&root, "Case/A.purs", "module A where\nanswer = 42\n");
+    let load = || load_case(&main, &root, &std::fs::read_to_string(&main).unwrap());
+    assert!(!program_is_ffi_excluded(&load()));
+    std::fs::write(&support, "module A where\nforeign import answer :: Int\n").unwrap();
+    assert!(program_is_ffi_excluded(&load()));
+    std::fs::write(&support, "module A where\nanswer = 42\n").unwrap();
+    std::fs::write(support.with_extension("js"), "export const answer = 42;\n").unwrap();
+    assert!(program_is_ffi_excluded(&load()));
+    let _ = std::fs::remove_dir_all(root);
+}

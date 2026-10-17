@@ -150,13 +150,14 @@ fn multi_scrutinee_boolean_patterns_lower_and_prove_coverage() {
     };
     assert_eq!(output.status.code(), Some(13), "{output:?}");
 
-    let partial = "module Main where\nmain = case true, false of\n  true, false -> 1\n";
+    let partial =
+        "module Main where\nmain :: Int\nmain = case true, false of\n  true, false -> 1\n";
     let errors = compile_source("Main.purs", partial)
         .expect_err("a Boolean product case missing rows remains partial");
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("non-exhaustive case")),
+        errors.iter().any(|error| error
+            .message
+            .contains("could not be determined to cover all inputs")),
         "{errors:?}"
     );
 }
@@ -313,27 +314,29 @@ fn later_guard_clause_binders_are_renamed_in_each_fallthrough_copy() {
 
 #[test]
 fn guarded_rows_do_not_claim_unconditional_coverage() {
-    let source = "module Main where\nimport Prelude\nread n\n  | n > 0 = n\nmain = read 1\n";
+    let source = "module Main where\nimport Prelude\nread :: Int -> Int\nread n\n  | n > 0 = n\nmain = read 1\n";
     let errors = compile_source("Main.purs", source)
         .expect_err("a partial guarded equation is not exhaustive");
     assert_eq!(
         errors
             .iter()
-            .filter(|error| error.message.contains("non-exhaustive case"))
+            .filter(|error| error
+                .message
+                .contains("could not be determined to cover all inputs"))
             .count(),
         1,
         "{errors:?}"
     );
 
     let boolean_case =
-        "module Main where\nmain = case true of\n  true | false -> 1\n  false -> 2\n";
+        "module Main where\nmain :: Int\nmain = case true of\n  true | false -> 1\n  false -> 2\n";
     let errors = compile_source("Main.purs", boolean_case)
         .expect_err("a failing Boolean guard must not make its case exhaustive");
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("non-exhaustive case"))
-    );
+    assert!(errors.iter().any(|error| {
+        error
+            .message
+            .contains("could not be determined to cover all inputs")
+    }));
 
     let exhaustive = "module Main where\nread n\n  | true = n\nmain = read 1\n";
     let artifact =
@@ -385,7 +388,7 @@ fn user_defined_false_otherwise_does_not_prove_guard_coverage() {
     let constants =
         "module Boolean.Constants (otherwise) where\notherwise :: Boolean\notherwise = false\n";
     let alias = "module Boolean.Alias (otherwise) where\nimport Boolean.Constants (otherwise)\n";
-    let main = "module Main where\nimport Boolean.Alias (otherwise)\nread n\n  | otherwise = n\nmain = read 1\n";
+    let main = "module Main where\nimport Boolean.Alias (otherwise)\nread :: Int -> Int\nread n\n  | otherwise = n\nmain = read 1\n";
     let errors = compile_program_sources_with_prelude(&[
         ("Boolean.Constants.purs", constants),
         ("Boolean.Alias.purs", alias),
@@ -395,7 +398,10 @@ fn user_defined_false_otherwise_does_not_prove_guard_coverage() {
     assert_eq!(
         errors
             .iter()
-            .filter(|error| error.diagnostic.message.contains("non-exhaustive case"))
+            .filter(|error| error
+                .diagnostic
+                .message
+                .contains("could not be determined to cover all inputs"))
             .count(),
         1,
         "{errors:?}"
@@ -406,7 +412,7 @@ fn user_defined_false_otherwise_does_not_prove_guard_coverage() {
 fn cross_module_true_alias_is_a_verified_unconditional_guard() {
     let constants = "module Boolean.Constants (truth) where\ntruth :: Boolean\ntruth = true\n";
     let alias = "module Boolean.Alias (otherwise) where\nimport Boolean.Constants (truth)\notherwise :: Boolean\notherwise = truth\n";
-    let main = "module Main where\nimport Boolean.Alias (otherwise)\nread n\n  | otherwise = n\nmain = read 11\n";
+    let main = "module Main where\nimport Boolean.Alias (otherwise)\nread :: Int -> Int\nread n\n  | otherwise = n\nmain = read 11\n";
     let artifact = compile_program_sources_with_prelude(&[
         ("Boolean.Constants.purs", constants),
         ("Boolean.Alias.purs", alias),

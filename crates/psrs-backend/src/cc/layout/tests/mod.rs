@@ -8,6 +8,7 @@ use psrs_core::{
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
 mod opaque;
+mod open_records;
 mod records;
 mod uninhabited;
 
@@ -30,6 +31,7 @@ fn empty_module(types: Vec<Type>) -> Module {
         external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),
@@ -224,6 +226,7 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
         external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),
@@ -342,6 +345,7 @@ fn integer_capture_module(capture: Type) -> Module {
         external_types: Vec::new(),
         types: vec![capture, Type::Constructor(psrs_core::TypeConstructor::Int)],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),
@@ -431,6 +435,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
             Type::Application(TypeId(1), TypeId(0)),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: vec![opaque],
         callable_types: Vec::new(),
         constructors: Vec::new(),

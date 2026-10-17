@@ -252,6 +252,7 @@ impl Checker {
             report_span: self.scope.report_origin.unwrap_or(constraint.span),
             givens: self.scope.givens.clone(),
             solution: None,
+            witness: None,
         });
         index
     }

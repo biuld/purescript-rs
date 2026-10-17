@@ -245,6 +245,20 @@ impl Checker {
             );
         }
 
+        // Only monomorphic contexts guide application inference. Propagating
+        // a nested forall here would infer impredicative constructor arguments
+        // before their values have been checked.
+        if let hir::ExprKind::Application(function, argument) = &expression.kind
+            && self.resolve_type(expected.clone()).is_monotype()
+        {
+            return self.infer_application_with_expected(
+                function,
+                argument,
+                expression.span,
+                Some(expected),
+            );
+        }
+
         let inferred = self.infer_expr(expression)?;
         // A bare class-method use keeps its method-local quantifiers and
         // constraints on the inferred type. Instantiating them here matches the

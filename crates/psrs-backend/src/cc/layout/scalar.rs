@@ -98,13 +98,7 @@ pub(crate) fn declaration_shape(
             })
         }
         Some(_) if module.is_record_type(ty) => {
-            if module.record_is_open(ty).unwrap_or(false) {
-                Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    declaration.span,
-                    "open record rows have no runtime layout",
-                )])
-            } else if let Some(repr) = record_types.get(&ty) {
+            if let Some(repr) = record_types.get(&ty) {
                 Ok(Signature {
                     parameters,
                     result: ValueShape::Reference(Reference {
@@ -285,13 +279,7 @@ pub(crate) fn scalar_type(
             }))
         }
         Some(_) if module.is_record_type(id) => {
-            if module.record_is_open(id).unwrap_or(false) {
-                Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    span,
-                    "open record rows have no runtime layout",
-                )])
-            } else if let Some(repr) = record_types.get(&id) {
+            if let Some(repr) = record_types.get(&id) {
                 Ok(ValueShape::Reference(Reference {
                     nullable: false,
                     heap: RefShape::Repr(*repr),

@@ -117,6 +117,14 @@ pub enum GuestLayout {
         labels: Vec<String>,
         fields: Vec<Field>,
     },
+    /// Logical closed fields projected from the owner's labelled erased store.
+    /// The header's two physical fields are not these logical source fields.
+    RecordStorage {
+        storage: super::RecordStorage,
+        product: ReprId,
+        labels: Vec<String>,
+        fields: Vec<Field>,
+    },
     /// A tagged value with its representation and cases in tag order.
     Variant { repr: ReprId, cases: Vec<GuestCase> },
     /// A GC array with its representation and projected element.
@@ -127,6 +135,10 @@ impl GuestLayout {
     /// The abstract shape of this layout, for the erased aggregate protocol.
     pub fn shape(&self) -> ValueShape {
         match self {
+            GuestLayout::RecordStorage { storage, .. } => ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(storage.representation()),
+            }),
             GuestLayout::Scalar { shape } | GuestLayout::Boxed { shape } => *shape,
             GuestLayout::Product { repr, .. }
             | GuestLayout::Variant { repr, .. }
@@ -227,6 +239,8 @@ fn storage_case(
 pub struct RepresentationTable {
     /// Source planning publishes immutable machine metadata before CC lowering.
     pub(in crate::cc) control: super::control::ControlPlanning,
+    /// The record owner publishes the schema; consumers use its checked handles.
+    pub(in crate::cc) record: super::record::RecordPlanning,
     pub representations: Vec<Representation>,
     pub signatures: Vec<Signature>,
     /// Canonical logical labels for record products; positional products do

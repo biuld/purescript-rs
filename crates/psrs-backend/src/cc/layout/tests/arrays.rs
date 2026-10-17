@@ -82,6 +82,7 @@ fn a_wit_import_scheme_lays_out_array_payloads_without_a_declaration_root() {
         }],
         types,
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),

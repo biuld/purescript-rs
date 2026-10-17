@@ -35,6 +35,21 @@ pub(super) enum InferType {
     TypeLevelInt(i64),
 }
 
+impl InferType {
+    /// Whether this type can guide predicative inference without retaining
+    /// universal or dictionary binders in a solved unknown.
+    pub(super) fn is_monotype(&self) -> bool {
+        match self {
+            Self::ForAll { .. } | Self::Constrained { .. } => false,
+            Self::Application(function, argument) => {
+                function.is_monotype() && argument.is_monotype()
+            }
+            Self::RowExtend { ty, tail, .. } => ty.is_monotype() && tail.is_monotype(),
+            _ => true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum TypeConstructor {
     Function,

@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 psrs-core.workspace = true
 psrs-hir.workspace = true
+psrs-coverage.workspace = true
 psrs-span.workspace = true
 psrs-linker.workspace = true
 psrs-runtime = { workspace = true, default-features = false, features = ["catalog", "gc-storage"] }

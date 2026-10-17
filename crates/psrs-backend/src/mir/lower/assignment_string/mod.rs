@@ -8,6 +8,7 @@
 //! decode ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
 
 mod equality;
+mod ordering;
 
 use super::aggregate::{nullable_reference_shape, reference_type, representation_shape};
 use super::{BlockId, FunctionLowerer, layout_error};

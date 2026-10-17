@@ -74,6 +74,24 @@ fn build_concrete<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<(ValueId, BlockId), Vec<BackendError>> {
     match guest {
+        GuestLayout::RecordStorage {
+            product,
+            labels,
+            fields,
+            ..
+        } => {
+            let logical = GuestLayout::Product {
+                repr: *product,
+                labels: labels.clone(),
+                fields: fields.clone(),
+            };
+            let (value, block) =
+                build_concrete(lowerer, kind, &logical, address, offset, block, span)?;
+            let (block, value) =
+                lowerer.wit_payload_conversion(block, value, logical.shape(), true, span)?;
+            let value = cast_reference(lowerer, value, &guest.shape(), block, span)?;
+            Ok((value, block))
+        }
         GuestLayout::Variant { repr, cases } if is_variant_kind(kind) => {
             build_variant(lowerer, kind, *repr, cases, address, offset, block, span)
         }
@@ -96,7 +114,7 @@ fn build_concrete<L: WitCallLowerer>(
                 read_value_list(
                     lowerer,
                     *repr,
-                    element.stored,
+                    element,
                     wit_element,
                     address,
                     offset,
@@ -112,7 +130,7 @@ fn build_concrete<L: WitCallLowerer>(
                 read_fixed_list(
                     lowerer,
                     *repr,
-                    element.stored,
+                    element,
                     wit_element,
                     *length,
                     address,

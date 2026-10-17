@@ -200,8 +200,29 @@ impl WitCallLowerer for FunctionLowerer<'_> {
                 heap: crate::cc::RefShape::Erased,
             })
         };
-        let (block, value, _) = self.lower_value_conversion(block, value, source, &plan, span)?;
-        Ok((block, value))
+        let destination_shape = plan.output_shape(source);
+        let destination_type = self
+            .resolved_value_type(&destination_shape)
+            .ok_or_else(|| {
+                vec![BackendError::invalid_ir(
+                    "P9 MIR lowering",
+                    span,
+                    "payload conversion result has no target layout",
+                )]
+            })?;
+        let destination = self.fresh(destination_type);
+        let block = self.lower_aggregate_convert(
+            block,
+            value,
+            destination,
+            &crate::cc::AggregateConvert {
+                source,
+                destination: destination_shape,
+                plan,
+            },
+            span,
+        )?;
+        Ok((block, destination))
     }
 
     fn wit_repr_index(&self, repr: crate::cc::ReprId) -> Option<crate::types::DefinedTypeId> {

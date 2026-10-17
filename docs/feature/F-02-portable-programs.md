@@ -127,8 +127,14 @@ returned functions. Each use can
 instantiate a quantified value independently; nested constraints are supplied
 through the corresponding class instances. Generic arrays
 and records cross the supported polymorphic boundaries with their contents
-preserved. Open rows and unsupported WIT shapes receive source-oriented
-diagnostics.
+preserved. Open record rows support field access, record patterns, and immutable
+updates while preserving extra fields. Unsupported WIT shapes receive
+source-oriented diagnostics.
+
+A non-exhaustive pattern match requires `Partial`. An inferred declaration may
+retain that constraint; an explicit signature must provide it or checking
+reports a missing case at the original source range. `unsafePartial` permits
+calling the partial value, and an unmatched input traps if that path executes.
 
 Role annotations describe whether a type parameter is nominal,
 representational, or phantom. Inferred roles follow the type's fields, including

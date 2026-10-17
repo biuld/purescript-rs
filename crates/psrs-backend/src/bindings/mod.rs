@@ -14,6 +14,7 @@ pub use runtime::metadata::RuntimeBinding;
 pub(crate) use runtime::metadata::{
     from_core as runtime_metadata_from_core, validate_core as validate_runtime_bindings,
 };
+pub(crate) use runtime::record_projection::{operation_for_call, operation_matches};
 pub(crate) use runtime::target::{
     plan_import as plan_runtime_import, verify_import as verify_runtime_import,
 };

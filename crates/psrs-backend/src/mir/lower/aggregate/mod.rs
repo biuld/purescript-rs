@@ -3,9 +3,11 @@ use crate::cc::{AggregateConvert, RefShape, Reference, ValueConversion, ValueSha
 use crate::types::{RefType, ValueType};
 
 mod array;
+mod fields;
+mod record;
 
 impl FunctionLowerer<'_> {
-    pub(super) fn lower_aggregate_convert(
+    pub(in crate::mir) fn lower_aggregate_convert(
         &mut self,
         block: BlockId,
         value: ValueId,
@@ -13,6 +15,24 @@ impl FunctionLowerer<'_> {
         conversion: &AggregateConvert,
         span: TextRange,
     ) -> Result<BlockId, Vec<BackendError>> {
+        if let Some(function) = self
+            .conversion_helpers
+            .as_mut()
+            .and_then(|helpers| helpers.intern(conversion, span))
+        {
+            self.append_instruction(
+                block,
+                Instruction::Call {
+                    contract: None,
+                    destination,
+                    function,
+                    arguments: vec![value],
+                    span,
+                },
+                span,
+            )?;
+            return Ok(block);
+        }
         let (block, result, shape) =
             self.lower_value_conversion(block, value, conversion.source, &conversion.plan, span)?;
         if shape != conversion.destination {
@@ -199,6 +219,9 @@ impl FunctionLowerer<'_> {
                 target,
                 element,
             } => self.lower_array_map(block, value, *source_repr, *target, element, span),
+            ValueConversion::RecordPack { .. } | ValueConversion::RecordUnpack { .. } => {
+                self.lower_record_conversion(block, value, plan, span)
+            }
             ValueConversion::ProductMap {
                 source: source_repr,
                 target,
@@ -236,164 +259,15 @@ impl FunctionLowerer<'_> {
 
     fn lower_product_map(
         &mut self,
-        mut block: BlockId,
+        block: BlockId,
         value: ValueId,
         source: crate::cc::ReprId,
         target: crate::cc::ReprId,
         fields: &[ValueConversion],
         span: TextRange,
     ) -> Result<(BlockId, ValueId, ValueShape), Vec<BackendError>> {
-        let source_index = self
-            .layout
-            .repr_index(source)
-            .map_err(|error| layout_error(span, error))?;
-        let target_index = self
-            .layout
-            .repr_index(target)
-            .map_err(|error| layout_error(span, error))?;
-        // Read every source field before a nested ArrayMap introduces loop
-        // labels. Non-null product references are scoped by the structured
-        // encoder, so they must not be loaded after leaving their defining
-        // basic-block region.
-        let mut source_fields = Vec::with_capacity(fields.len());
-        for index in 0..fields.len() {
-            let source_shape = self
-                .layout
-                .product_field(source_index, index as u32)
-                .map_err(|error| layout_error(span, error))?;
-            let field_value = self.fresh(
-                self.layout
-                    .value_type(&source_shape)
-                    .map_err(|error| layout_error(span, error))?,
-            );
-            self.append_instruction(
-                block,
-                Instruction::StructGet {
-                    destination: field_value,
-                    type_index: source_index,
-                    field: index as u32,
-                    value,
-                    span,
-                },
-                span,
-            )?;
-            let (field_value, is_nullable) = if matches!(source_shape, ValueShape::Reference(reference) if !reference.nullable)
-            {
-                let nullable_shape = nullable_reference_shape(source_shape);
-                let nullable = self.fresh(
-                    self.layout
-                        .value_type(&nullable_shape)
-                        .map_err(|error| layout_error(span, error))?,
-                );
-                self.append_instruction(
-                    block,
-                    Instruction::RefCast {
-                        destination: nullable,
-                        value: field_value,
-                        reference: reference_type(&nullable_shape, self.layout, span)?,
-                        span,
-                    },
-                    span,
-                )?;
-                (nullable, true)
-            } else {
-                (field_value, false)
-            };
-            source_fields.push((field_value, source_shape, is_nullable));
-        }
-
-        let mut values = Vec::with_capacity(fields.len());
-        for ((field_value, source_shape, is_nullable), plan) in
-            source_fields.into_iter().zip(fields)
-        {
-            let field_value = if is_nullable {
-                let restored = self.fresh(
-                    self.layout
-                        .value_type(&source_shape)
-                        .map_err(|error| layout_error(span, error))?,
-                );
-                self.append_instruction(
-                    block,
-                    Instruction::RefCast {
-                        destination: restored,
-                        value: field_value,
-                        reference: reference_type(&source_shape, self.layout, span)?,
-                        span,
-                    },
-                    span,
-                )?;
-                restored
-            } else {
-                field_value
-            };
-            let (next, converted, converted_shape) =
-                self.lower_value_conversion(block, field_value, source_shape, plan, span)?;
-            block = next;
-            let persistent = if matches!(converted_shape, ValueShape::Reference(reference) if !reference.nullable)
-            {
-                let nullable_shape = nullable_reference_shape(converted_shape);
-                let nullable = self.fresh(
-                    self.layout
-                        .value_type(&nullable_shape)
-                        .map_err(|error| layout_error(span, error))?,
-                );
-                self.append_instruction(
-                    block,
-                    Instruction::RefCast {
-                        destination: nullable,
-                        value: converted,
-                        reference: reference_type(&nullable_shape, self.layout, span)?,
-                        span,
-                    },
-                    span,
-                )?;
-                (nullable, Some(converted_shape))
-            } else {
-                (converted, None)
-            };
-            values.push(persistent);
-        }
-        let destination_shape = representation_shape(target);
-        let destination = self.fresh(
-            self.layout
-                .value_type(&destination_shape)
-                .map_err(|error| layout_error(span, error))?,
-        );
-        let arguments = values
-            .into_iter()
-            .map(|(value, shape)| {
-                let Some(shape) = shape else {
-                    return Ok(value);
-                };
-                let restored = self.fresh(
-                    self.layout
-                        .value_type(&shape)
-                        .map_err(|error| layout_error(span, error))?,
-                );
-                self.append_instruction(
-                    block,
-                    Instruction::RefCast {
-                        destination: restored,
-                        value,
-                        reference: reference_type(&shape, self.layout, span)?,
-                        span,
-                    },
-                    span,
-                )?;
-                Ok(restored)
-            })
-            .collect::<Result<Vec<_>, Vec<BackendError>>>()?;
-        self.append_instruction(
-            block,
-            Instruction::StructNew {
-                destination,
-                type_index: target_index,
-                arguments,
-                span,
-            },
-            span,
-        )?;
-        Ok((block, destination, destination_shape))
+        let (block, values) = self.convert_product_fields(block, value, source, fields, span)?;
+        self.build_product(block, target, values, span)
     }
 }
 

@@ -111,6 +111,9 @@ fn layoutable_field_type_inner(
     newtype_ids: &HashSet<HirTypeId>,
     visiting: &mut HashSet<HirTypeId>,
 ) -> bool {
+    if user_type_id(module, id).is_some_and(|id| is_uninhabited_data_type(module, id)) {
+        return true;
+    }
     if is_callable_type(module, id) || depends_on_type_variable(module, id) {
         return true;
     }
@@ -132,11 +135,9 @@ fn layoutable_field_type_inner(
             result
         }
         Some(Type::Constructor(TypeConstructor::User(_))) => true,
-        // A closed record has its own representation handle, so a variant case
-        // may carry one as a referenced payload (WIT `datetime`, socket
-        // addresses, and directory entries are records). An open row has no
-        // fixed layout.
-        Some(_) if module.is_record_type(id) => !module.record_is_open(id).unwrap_or(false),
+        // Closed products and open-row storage each have an owned reference
+        // layout, so a variant field retains the complete record value.
+        Some(_) if module.is_record_type(id) => true,
         Some(Type::Variable(_))
         | Some(Type::ForAll { .. })
         | Some(Type::Closure { .. })
@@ -194,6 +195,10 @@ pub(super) fn type_layout(
             .declarations
             .iter()
             .any(|declaration| depends_on_type_variable(module, declaration.ty))
+        || module.types.iter().any(|ty| {
+            matches!(ty, Type::Constructor(TypeConstructor::User(id))
+                if is_uninhabited_data_type(module, *id))
+        })
         || module_has_integer_capture(module)
         || module
             .types
@@ -318,7 +323,7 @@ pub(super) fn type_layout(
         representations.set(id, Representation::Variant { cases });
     }
 
-    protocols::append(&mut representations);
+    protocols::append(&mut representations, !array_types.is_empty());
     let function_slot = crate::boundary::function_slot_protocol(&mut representations);
     let protocols = crate::boundary::payload_erased_protocols(
         &mut representations,
@@ -390,17 +395,34 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
     }
 }
 
-/// A user `data` declaration with no constructors is uninhabited: no expression
-/// can build one, so its only values come from unchecked coercions. It therefore
-/// crosses the erased boundary like any other abstract type. Foreign data is
-/// excluded — a nullary foreign type is a resource handle with its own layout,
-/// and an applied foreign type is already handled as an erased reference.
-pub(super) fn is_uninhabited_data_type(module: &CoreModule, type_id: HirTypeId) -> bool {
-    !module.opaque_ids.contains(&type_id)
-        && !module
-            .constructors
-            .iter()
-            .any(|constructor| constructor.type_id == type_id)
+/// Constructorless data and transparent newtype cycles have no finite values.
+/// A cycle is detected by declaration identity, never by a source name. The
+/// canonical storage template is followed without specializing its parameters.
+pub(super) fn is_uninhabited_data_type(module: &CoreModule, mut type_id: HirTypeId) -> bool {
+    let mut visited = HashSet::new();
+    loop {
+        if module.opaque_ids.contains(&type_id) {
+            return false;
+        }
+        if module.newtype_ids.contains(&type_id) {
+            if !visited.insert(type_id) {
+                return true;
+            }
+            let Some(field) = newtype_field_type(module, type_id) else {
+                return false;
+            };
+            let Some(inner) = user_type_id(module, field) else {
+                return false;
+            };
+            type_id = inner;
+        } else {
+            return module.ordinary_data_ids.contains(&type_id)
+                && !module
+                    .constructors
+                    .iter()
+                    .any(|constructor| constructor.type_id == type_id);
+        }
+    }
 }
 
 /// Whether a Core type is a callable closure value: an ordinary function arrow

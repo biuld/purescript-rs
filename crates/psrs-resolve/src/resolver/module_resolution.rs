@@ -130,7 +130,9 @@ pub(crate) fn resolve_ast_module(
                         continue;
                     };
                     ExternalKind::Primitive(intrinsic)
-                } else if interface.starts_with("psrs:runtime-") {
+                } else if interface.starts_with("psrs:runtime-")
+                    || interface == "psrs:record-storage"
+                {
                     ExternalKind::Runtime {
                         module: interface.into(),
                         function: function.into(),

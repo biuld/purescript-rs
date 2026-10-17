@@ -80,20 +80,34 @@ fn solve_warn(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
 }
 
 /// Builds the official `NoInstanceFound` diagnostic for an unresolved report
-/// obligation. A well-formed `Fail Doc` uses its custom message. `Partial`
-/// currently has no exhaustiveness payload in HIR, so it keeps the ordinary
-/// no-instance wording until the owning coverage pass can provide that data.
+/// obligation. Coverage witnesses belong to the wanted, so report generation
+/// preserves the case that produced a `Partial` obligation.
 pub(in crate::typecheck) fn unresolved_report_error(
     checker: &Checker,
     class_id: hir::TypeId,
     arguments: &[InferType],
     span: psrs_span::TextRange,
+    witness: Option<&[Vec<String>]>,
 ) -> TypeCheckError {
     let message = if class_id == hir::TypeId::PRIM_TYPE_ERROR_FAIL {
         arguments
             .first()
             .and_then(|message| render_doc(checker, message))
             .map(|message| format!("Custom error:\n{}", indent(&message, 2)))
+    } else if class_id == hir::TypeId::PRIM_PARTIAL {
+        witness.map(|rows| {
+            let cases = rows
+                .iter()
+                .map(|row| row.join(" "))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "A case expression could not be determined to cover all inputs.\n\n\
+                 The following additional cases are required to cover all inputs:\n{}\n  ...\n\n\
+                 Alternatively, add a Partial constraint to the type of the enclosing value.",
+                indent(&cases, 2)
+            )
+        })
     } else {
         None
     };

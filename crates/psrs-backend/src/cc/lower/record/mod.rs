@@ -5,6 +5,7 @@ use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::{Expr, dictionary::ClassLayout};
 
+mod open;
 #[cfg(test)]
 mod tests;
 
@@ -115,6 +116,13 @@ impl FunctionLowerer<'_> {
                 "record update has no representation requirement",
             )]);
         };
+        if self
+            .representations
+            .record_storage()
+            .is_some_and(|storage| storage.representation() == representation)
+        {
+            return self.lower_open_record_update(expression, record, fields, ty, assignments);
+        }
         let layout = ClassLayout::from_record_type(self.module, record.ty).map_err(|message| {
             vec![BackendError::new(
                 "P8 closure conversion",
@@ -228,6 +236,13 @@ impl FunctionLowerer<'_> {
                 "record field access has no representation requirement",
             )]);
         };
+        if self
+            .representations
+            .record_storage()
+            .is_some_and(|storage| storage.representation() == representation)
+        {
+            return self.lower_open_record_field(expression, record, field, ty, assignments);
+        }
         let layout = ClassLayout::from_record_type(self.module, record.ty).map_err(|message| {
             vec![BackendError::new(
                 "P8 closure conversion",

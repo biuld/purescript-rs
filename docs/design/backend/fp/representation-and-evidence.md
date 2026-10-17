@@ -190,18 +190,21 @@ Equal keys intern to one representation; P9 assigns one `DefinedTypeId` per
 reachable representation and does not merge by physical shape. This preserves
 [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md)'s
 single erased layout for a parameterized data type. Open rows have no canonical
-product and remain unsupported.
+product; their labelled store is defined in [open record rows](open-records.md).
+The [execution checklist](../../../implementation/backend/open-records.md)
+records the remaining implementation obligations.
 
 ### Aggregates in bare polymorphic slots
 
 The Array owner uses erased-element storage from initial construction. Entering
 a bare variable or abstract Array constructor slot retains that same array.
-The closed-record
-owner normalizes a record to a product with the same ordered logical labels
-and one non-null erased field per label. These protocols apply recursively to
+The record owner normalizes a record entering a bare slot to its registered
+labelled store: parallel ordered String labels and non-null erased payloads.
+Closed typed products pack into that store and recover through explicit plans
+with complete label validation. These protocols apply recursively to
 nested arrays, records, and callable fields. Recovery first reads the owner's
 canonical storage. Array element reads recover the checked use representation;
-record recovery converts its fields. Array transport itself does not reconstruct
+record recovery checks its row and converts its fields. Array transport itself does not reconstruct
 storage. A cast between distinct private buffer or record layouts cannot
 establish their conversion contract.
 
@@ -550,8 +553,8 @@ existing array reference without copying its elements.
 - **Monomorphization.** A specialization pass may remove boxes and casts at
   statically known instantiations while preserving the erased representation as
   the fallback; it must not become a second correctness mechanism.
-- **Open rows.** Open-row records still need a canonical policy and conversion
-  contract before they join the registry.
+- **Open rows.** Complete the [labelled-store execution checklist](../../../implementation/backend/open-records.md),
+  including updates, patterns, ordinary target primitives and library conformance.
 
 ## Implementation notes
 

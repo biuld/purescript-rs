@@ -1,4 +1,5 @@
 pub const REJECT: &[(&str, &str)] = &[
+    ("contextual_rigid_result", super::RIGID_RESULT),
     ("rank_n_record_shares_instantiation", super::reify::RECORD),
     (
         "ambiguous_unresolved_main_use",

@@ -198,3 +198,96 @@ main = case hold [42] of
     assert_eq!(output.status.code(), Some(42), "{output:?}");
     assert!(output.stderr.is_empty(), "{output:?}");
 }
+
+#[test]
+fn inferred_partial_argument_patterns_compose_with_unsafe_partial() {
+    let source = r#"module Main where
+import Partial.Unsafe (unsafePartial)
+f x [y, z] = x y z
+add :: Int -> Int -> Int
+add a b = a + b
+main :: Int
+main = unsafePartial (f add [20, 22])
+"#;
+    let source = source.replace("import Partial", "import Prelude\nimport Partial");
+    let Some(output) = run_with_wasmtime(&source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn annotated_partial_case_reports_a_missing_witness_at_typechecking() {
+    let source = "module Main where\nf :: Boolean -> Int\nf true = 42\nmain = f true\n";
+    let errors = crate::compile_source("Main.purs", source).expect_err("missing Partial");
+    let error = errors
+        .iter()
+        .find(|error| {
+            error
+                .message
+                .contains("A case expression could not be determined to cover all inputs.")
+        })
+        .expect("coverage diagnostic");
+    assert!(error.message.contains("false"), "{error:?}");
+    assert!(
+        error
+            .message
+            .contains("Alternatively, add a Partial constraint"),
+        "{error:?}"
+    );
+    assert_eq!(error.stage, "P5 typecheck");
+}
+
+#[test]
+fn coverage_preserves_nested_parameterized_constructor_fields() {
+    let source = r#"module Main where
+data Box a = Box a
+f :: Box Boolean -> Int
+f (Box true) = 42
+f (Box false) = 7
+main :: Int
+main = f (Box true)
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn recursive_newtype_storage_is_erased_at_calls_and_patterns() {
+    let source = r#"module Main where
+import Unsafe.Coerce (unsafeCoerce)
+newtype Loop = Loop Loop
+unwrap :: Loop -> Loop
+unwrap (Loop value) = value
+main :: Int
+main = unsafeCoerce (unwrap (unsafeCoerce 42))
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn coverage_resolves_every_nested_pattern_type_after_branch_unification() {
+    let source = r#"module Main where
+import Prelude
+data Step a = Nil | Cons a (Step a)
+drop :: forall a. Int -> Step a -> Step a
+drop = go
+  where
+  go 0 xs = xs
+  go _ Nil = Nil
+  go n (Cons _ xs) = go (n - 1) xs
+main :: Int
+main = case drop 1 (Cons 7 (Cons 42 Nil)) of
+  Cons value _ -> value
+  _ -> 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}

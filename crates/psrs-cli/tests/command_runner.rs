@@ -188,13 +188,56 @@ fn configured_runner_rejects_missing_identity_and_invalid_checked_types() {
     package.reject("must return Int");
     fs::write(
         package.0.join("lib/Runner.purs"),
-        "module Runner where\nrun :: forall a. a -> Int\nrun _ = 0\n",
+        "module Runner where\nimport Types (Job(..))\nrun :: forall a. Job a -> a\nrun (Job action) = action unit\n",
     )
     .unwrap();
-    package.reject("must be monomorphic");
+    package.reject("must return Int");
     fs::write(
         package.0.join("lib/Runner.purs"),
         "module Runner where\nnewtype Other = Other Int\nrun :: Other -> Int\nrun (Other value) = value\n",
+    )
+    .unwrap();
+    package.reject("entry type disagrees");
+}
+
+#[test]
+fn a_polymorphic_runner_uses_the_entries_checked_instance() {
+    let package = Package::new();
+    fs::write(
+        package.0.join("lib/Runner.purs"),
+        "module Runner where\nimport Types (Job(..))\nrun :: forall a. Job a -> Int\nrun (Job action) = let _ = action unit in 0\n",
+    )
+    .unwrap();
+    for (ty, value) in [
+        ("String", "\"ignored\""),
+        (
+            "{ count :: Int, flag :: Boolean }",
+            "{ count: 42, flag: true }",
+        ),
+        ("Int -> Int", "\\x -> x"),
+    ] {
+        fs::write(
+            package.0.join("Main.purs"),
+            format!(
+                "module Main where\nimport Types (Job(..))\nmain :: Job ({ty})\nmain = Job (\\_ -> {value})\n"
+            ),
+        )
+        .unwrap();
+        package.execute(0);
+    }
+}
+
+#[test]
+fn runner_instantiation_requires_one_consistent_replacement_for_a_variable() {
+    let package = Package::new();
+    fs::write(
+        package.0.join("lib/Runner.purs"),
+        "module Runner where\nimport Types (Job(..))\nrun :: forall a. Job { left :: a, right :: a } -> Int\nrun (Job action) = let _ = action unit in 0\n",
+    )
+    .unwrap();
+    fs::write(
+        package.0.join("Main.purs"),
+        "module Main where\nimport Types (Job(..))\nmain :: Job { left :: Int, right :: Boolean }\nmain = Job (\\_ -> { left: 42, right: true })\n",
     )
     .unwrap();
     package.reject("entry type disagrees");

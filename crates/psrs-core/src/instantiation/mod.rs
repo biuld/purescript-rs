@@ -1,7 +1,5 @@
 //! Read-only instantiation evidence and checked materialization.
-mod local_rows;
 pub(crate) mod substitution;
-pub use local_rows::instantiate_local_rows;
 
 use crate::{Module, Type, TypeConstructor, TypeId};
 use psrs_hir::TypeVariableId;

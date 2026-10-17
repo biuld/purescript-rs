@@ -8,6 +8,9 @@ pub(crate) fn verify_table(
     table: &RepresentationTable,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
+    if let Err(message) = table.verify_record_storage() {
+        return Err(table_error(span, message));
+    }
     let mut roles = HashSet::new();
     let mut helpers = HashSet::new();
     for helper in table.control_helpers() {

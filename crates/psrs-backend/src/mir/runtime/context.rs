@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 pub(in crate::mir) struct RuntimeContext {
     pub(in crate::mir) imports: HashMap<SymbolId, Import>,
+    pub(in crate::mir) record_primitives: HashMap<SymbolId, psrs_runtime::RecordPrimitive>,
 }
 
 impl RuntimeContext {
@@ -21,11 +22,123 @@ impl RuntimeContext {
             )]
         })?;
         let mut imports = HashMap::new();
+        let mut record_primitives = HashMap::new();
         for binding in bindings {
+            if binding.module == psrs_runtime::RECORD_STORAGE_MODULE {
+                let primitive = psrs_runtime::RecordPrimitive::from_export(&binding.function)
+                    .ok_or_else(|| binding_error(binding, "unknown record-storage export"))?;
+                let external = physical
+                    .externals
+                    .iter()
+                    .find(|external| external.symbol == binding.symbol)
+                    .and_then(|external| external.signature.as_ref())
+                    .ok_or_else(|| binding_error(binding, "record provider has no CC signature"))?;
+                let canonical = crate::bindings::runtime_cc_signature(
+                    binding,
+                    external,
+                    &physical.representations,
+                )?;
+                if &canonical != external {
+                    return Err(binding_error(
+                        binding,
+                        "record provider CC signature is not canonical",
+                    ));
+                }
+                record_primitives.insert(binding.symbol, primitive);
+                if live.direct_calls.contains(&binding.symbol) {
+                    return Err(binding_error(
+                        binding,
+                        "record provider bypasses its checked CC operation",
+                    ));
+                }
+                continue;
+            }
             if live.direct_calls.contains(&binding.symbol) {
                 imports.insert(binding.symbol, plan_import(binding, physical, layout)?);
             }
         }
-        Ok(Self { imports })
+        validate_record_operations(physical, bindings, &record_primitives)?;
+        Ok(Self {
+            imports,
+            record_primitives,
+        })
     }
+}
+
+fn binding_error(binding: &RuntimeBinding, message: &str) -> Vec<BackendError> {
+    vec![
+        BackendError::invalid_ir("P9 runtime projection", binding.span, message)
+            .with_module(binding.source_module),
+    ]
+}
+
+fn validate_record_operations(
+    module: &cc::Module,
+    bindings: &[RuntimeBinding],
+    providers: &HashMap<SymbolId, psrs_runtime::RecordPrimitive>,
+) -> Result<(), Vec<BackendError>> {
+    let metadata = bindings
+        .iter()
+        .map(|binding| (binding.symbol, binding))
+        .collect::<HashMap<_, _>>();
+    for function in &module.functions {
+        validate_assignments(&function.assignments, providers, &metadata)?;
+    }
+    Ok(())
+}
+
+fn validate_assignments(
+    assignments: &[cc::Assignment],
+    providers: &HashMap<SymbolId, psrs_runtime::RecordPrimitive>,
+    metadata: &HashMap<SymbolId, &RuntimeBinding>,
+) -> Result<(), Vec<BackendError>> {
+    for assignment in assignments {
+        match &assignment.kind {
+            cc::AssignmentKind::RecordPrimitive {
+                provider,
+                record,
+                operation,
+            } => {
+                let Some(primitive) = providers.get(provider) else {
+                    let message = "CC record operation has no checked source provider";
+                    let mut error =
+                        BackendError::invalid_ir("P9 runtime projection", assignment.span, message);
+                    if let Some(binding) = metadata.get(provider) {
+                        error = error.with_module(binding.source_module);
+                    }
+                    return Err(vec![error]);
+                };
+                let valid = crate::bindings::operation_matches(*primitive, *record, operation);
+                if !valid {
+                    let message = "CC record operation disagrees with its checked provider export";
+                    let mut error =
+                        BackendError::invalid_ir("P9 runtime projection", assignment.span, message);
+                    if let Some(binding) = metadata.get(provider) {
+                        error = error.with_module(binding.source_module);
+                    }
+                    return Err(vec![error]);
+                }
+            }
+            cc::AssignmentKind::If {
+                then_assignments,
+                else_assignments,
+                ..
+            } => {
+                validate_assignments(then_assignments, providers, metadata)?;
+                validate_assignments(else_assignments, providers, metadata)?;
+            }
+            cc::AssignmentKind::TagSwitch {
+                cases,
+                default_assignments,
+                ..
+            } => {
+                for case in cases {
+                    validate_assignments(&case.assignments, providers, metadata)?;
+                }
+                validate_assignments(default_assignments, providers, metadata)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }

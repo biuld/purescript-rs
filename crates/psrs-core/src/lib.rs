@@ -14,7 +14,7 @@ pub mod opt;
 mod pattern;
 pub mod primitive;
 mod records;
-pub use instantiation::{Instantiation, RowInstantiation, instantiate_local_rows};
+pub use instantiation::{Instantiation, RowInstantiation};
 mod types;
 mod verify;
 
@@ -75,6 +75,9 @@ pub struct Module {
     /// Nominal newtypes that are represented by their single field below Core.
     /// This is representation metadata, not a change to the source type.
     pub newtype_ids: Vec<HirTypeId>,
+    /// Ordinary algebraic data declarations, including constructorless data.
+    /// This positive declaration-kind evidence survives linking and lowering.
+    pub ordinary_data_ids: Vec<HirTypeId>,
     /// Foreign data declarations. The type node stays
     /// `Constructor(User(HirTypeId))`; this set records that the type is opaque
     /// and has no constructors. It is not a calling-convention layout.

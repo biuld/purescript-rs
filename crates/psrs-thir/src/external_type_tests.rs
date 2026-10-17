@@ -24,6 +24,7 @@ fn fixture() -> Module {
         }],
         types: vec![Type::Constructor(TypeConstructor::Int)],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),

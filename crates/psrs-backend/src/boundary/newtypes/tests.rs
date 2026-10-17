@@ -12,6 +12,7 @@ fn module(types: Vec<Type>, field: TypeId, parameters: Vec<TypeVariableId>) -> M
         external_types: Vec::new(),
         types,
         newtype_ids: vec![OWNER],
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![ConstructorInfo {

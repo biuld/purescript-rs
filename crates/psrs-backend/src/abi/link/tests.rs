@@ -33,6 +33,7 @@ fn module() -> CoreModule {
             CoreType::Constructor(psrs_core::TypeConstructor::Unit),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),

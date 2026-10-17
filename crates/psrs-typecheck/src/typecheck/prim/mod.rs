@@ -24,7 +24,7 @@ mod compare;
 mod dispatch;
 mod int;
 mod reflection;
-mod reports;
+pub(in crate::typecheck) mod reports;
 pub(in crate::typecheck) mod requeue;
 mod row;
 mod symbol;

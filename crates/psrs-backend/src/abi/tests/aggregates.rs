@@ -39,6 +39,7 @@ fn aggregate_module() -> psrs_core::Module {
     let maybe = user(0);
     let either = user(1);
     let shape = user(2);
+    module.ordinary_data_ids = vec![maybe, either, shape];
     module.type_names = vec![
         (maybe, "Data.Maybe.Maybe".into()),
         (either, "Data.Either.Either".into()),

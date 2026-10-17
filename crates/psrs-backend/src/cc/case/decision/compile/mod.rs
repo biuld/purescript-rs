@@ -13,8 +13,8 @@ mod oracle_tests;
 mod scalar_array;
 #[cfg(test)]
 mod tests;
+pub(in crate::cc::case) use matrix::surface_pattern;
 use matrix::{available_inputs, canonicalize, choose_column, map_actions};
-pub(in crate::cc::case) use matrix::{canonical_literal, surface_pattern};
 
 struct Compiler<'a> {
     module: &'a Module,

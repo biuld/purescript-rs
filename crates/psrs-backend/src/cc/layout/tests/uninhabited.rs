@@ -53,6 +53,7 @@ fn erased() -> ValueShape {
 fn a_bare_constructorless_data_type_uses_the_erased_reference() {
     let empty = HirTypeId::new(ModuleId(1), 0);
     let mut module = empty_module(vec![Type::Constructor(TypeConstructor::User(empty))]);
+    module.ordinary_data_ids.push(empty);
     let declaration = declaration(&mut module, TypeId(0));
     assert_eq!(shape(&module, &declaration), erased());
 }
@@ -65,6 +66,7 @@ fn an_applied_constructorless_data_type_uses_the_erased_reference() {
         Type::Constructor(TypeConstructor::Int),
         Type::Application(TypeId(0), TypeId(1)),
     ]);
+    module.ordinary_data_ids.push(empty);
     let declaration = declaration(&mut module, TypeId(2));
     assert_eq!(shape(&module, &declaration), erased());
 }
@@ -75,6 +77,7 @@ fn a_user_type_with_a_constructor_is_not_treated_as_uninhabited() {
     // constructor, so the erased fallback must not swallow it.
     let inhabited = HirTypeId::new(ModuleId(1), 0);
     let mut module = empty_module(vec![Type::Constructor(TypeConstructor::User(inhabited))]);
+    module.ordinary_data_ids.push(inhabited);
     module.constructors.push(ConstructorInfo {
         symbol: SymbolId::new(module.id, 1),
         name: "Only".to_owned(),
@@ -85,4 +88,47 @@ fn a_user_type_with_a_constructor_is_not_treated_as_uninhabited() {
         parameters: Vec::new(),
     });
     assert!(!super::is_uninhabited_data_type(&module, inhabited));
+}
+
+#[test]
+fn transparent_newtype_cycles_use_erased_storage_without_recursing() {
+    for mutual in [false, true] {
+        let a = HirTypeId::new(ModuleId(1), 0);
+        let b = HirTypeId::new(ModuleId(1), 1);
+        let mut module = empty_module(vec![
+            Type::Constructor(TypeConstructor::User(a)),
+            Type::Constructor(TypeConstructor::User(b)),
+        ]);
+        module.newtype_ids = vec![a, b];
+        for (id, field) in [(a, if mutual { 1 } else { 0 }), (b, 0)] {
+            module.constructors.push(ConstructorInfo {
+                symbol: SymbolId::new(id.module, id.index + 2),
+                name: "Loop".into(),
+                type_id: id,
+                tag: 0,
+                field_count: 1,
+                field_types: vec![TypeId(field)],
+                parameters: Vec::new(),
+            });
+        }
+        let declaration = declaration(&mut module, TypeId(0));
+        assert_eq!(shape(&module, &declaration), erased());
+        let newtypes = module.newtype_ids.iter().copied().collect();
+        assert_eq!(
+            super::scalar_type(
+                &module,
+                TypeId(0),
+                module.span,
+                &HashSet::new(),
+                &HashSet::new(),
+                &newtypes,
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new()
+            )
+            .unwrap(),
+            erased()
+        );
+    }
 }

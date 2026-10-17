@@ -25,6 +25,7 @@ pub(super) struct SchemeType {
 type Locals = HashMap<LocalId, SchemeType>;
 
 pub(crate) fn module(module: &Module, source: Option<&Module>) -> Result<(), Vec<VerifyError>> {
+    let kind_metadata = validate_type_kind_metadata(module);
     let globals = module
         .declarations
         .iter()
@@ -46,7 +47,7 @@ pub(crate) fn module(module: &Module, source: Option<&Module>) -> Result<(), Vec
             (external.symbol, signature)
         }))
         .collect::<HashMap<_, _>>();
-    let mut errors = Vec::new();
+    let mut errors = kind_metadata;
     let mut external_type_symbols = std::collections::HashSet::new();
     for external_type in &module.external_types {
         let span = module
@@ -160,7 +161,75 @@ pub(crate) fn module(module: &Module, source: Option<&Module>) -> Result<(), Vec
     }
 }
 
+fn validate_type_kind_metadata(module: &Module) -> Vec<VerifyError> {
+    let newtypes = module
+        .newtype_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let ordinary = module
+        .ordinary_data_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let opaque = module
+        .opaque_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    if newtypes.len() == module.newtype_ids.len()
+        && ordinary.len() == module.ordinary_data_ids.len()
+        && opaque.len() == module.opaque_ids.len()
+        && newtypes
+            .iter()
+            .all(|id| !ordinary.contains(id) && !opaque.contains(id))
+        && ordinary.iter().all(|id| !opaque.contains(id))
+    {
+        Vec::new()
+    } else {
+        vec![error(
+            module.id,
+            module.span,
+            "type declaration kind metadata is duplicated or contradictory",
+        )]
+    }
+}
+
 fn external_scheme(module: &Module, ty: TypeId) -> Option<SchemeType> {
     let (quantified, ty) = crate::scheme_parts(&module.types, ty)?;
     Some(SchemeType { ty, quantified })
+}
+
+#[cfg(test)]
+mod type_kind_tests {
+    use super::*;
+    use psrs_hir::{ModuleId, TypeId as HirTypeId};
+    use psrs_span::TextRange;
+
+    #[test]
+    fn rejects_ordinary_data_that_is_also_declared_as_a_newtype() {
+        let id = HirTypeId::new(ModuleId(1), 2);
+        let module = Module {
+            id: ModuleId(1),
+            name: "Carrier".into(),
+            externals: Vec::new(),
+            external_types: Vec::new(),
+            types: Vec::new(),
+            newtype_ids: vec![id],
+            ordinary_data_ids: vec![id],
+            opaque_ids: Vec::new(),
+            callable_types: Vec::new(),
+            constructors: Vec::new(),
+            declarations: Vec::new(),
+            type_names: vec![(id, "Carrier.Cell".into())],
+            entry: None,
+            span: TextRange::new(0, 1),
+        };
+        let errors = validate_type_kind_metadata(&module);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("duplicated or contradictory"))
+        );
+    }
 }

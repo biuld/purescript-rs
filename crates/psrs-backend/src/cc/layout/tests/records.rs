@@ -45,6 +45,7 @@ fn parameter_dependent_record_field_keeps_its_canonical_template_in_the_adt_slot
         external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![ConstructorInfo {
@@ -122,6 +123,7 @@ fn a_variant_case_may_carry_a_record_payload() {
         external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![ConstructorInfo {

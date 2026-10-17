@@ -1,7 +1,8 @@
 # Native Effect and ST over Algebraic Handlers
 
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
-**Status:** Accepted 2026-10-16. NE-01–NE-13 are Verified in the [native checklist](../../../implementation/backend/native-effect-and-st.md). The independent package commit and compiler lock revision are `4c73aab52226e8f5e7b1f17052f1a19d717a472e`. The D-04 runtime board is 273/413 as of 2026-10-17.  
+**Status:** Accepted 2026-10-16. NE-01–NE-13 are Verified in the [native checklist](../../../implementation/backend/native-effect-and-st.md). The acceptance package commit was `4c73aab52226e8f5e7b1f17052f1a19d717a472e`; D-04 records subsequent lock revisions and the current runtime-board number.
+
 **Prerequisites:** [algebraic effects and handlers](algebraic-effects-and-handlers.md),
 [DEC-03](../../../decision/DEC-03-purescript-faithful-type-system.md),
 [roles and coercions](../../frontend/type-system/prim.md),
@@ -182,9 +183,11 @@ unrestricted safe runner.
 
 `Effect.Unsafe.unsafePerformEffect` unwraps Effect in its owning implementation
 and invokes this boundary. Its public type and unsafe status remain official.
-`PSRS.Command.run :: Effect Unit -> Int` invokes it once and returns zero on
+`PSRS.Command.run :: forall a. Effect a -> Int` invokes it once, discards its
+result, and returns zero on
 normal completion. A trap propagates. The compiler uses the configured ordinary
-runner and never identifies `Effect Unit` specially.
+runner and never identifies `Effect` specially. Core checks an ordinary instance
+of that runner at the selected entry's closed type, including non-Unit results.
 
 ST.run uses the same execution machinery behind its rank-N boundary. Its
 observable purity relies on the safe API permitting only isolated mutation;

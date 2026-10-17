@@ -1,3 +1,4 @@
+mod record;
 use crate::cc::{self, AggregateConvert, ValueConversion};
 use crate::types::ValueId;
 use psrs_hir::{ModuleId, SymbolId};
@@ -11,6 +12,8 @@ pub(in crate::mir) struct ConversionHelpers {
     functions: Vec<cc::Function>,
     used: HashSet<SymbolId>,
     next_symbol: u32,
+    record_symbols: HashMap<(cc::RecordOperation, cc::ReprId), SymbolId>,
+    record_build_symbols: HashMap<(SymbolId, cc::RecordOperation, cc::ReprId), SymbolId>,
 }
 
 impl ConversionHelpers {
@@ -29,6 +32,8 @@ impl ConversionHelpers {
             functions: Vec::new(),
             used,
             next_symbol: u32::MAX,
+            record_symbols: HashMap::new(),
+            record_build_symbols: HashMap::new(),
         }
     }
 
@@ -43,16 +48,7 @@ impl ConversionHelpers {
         if let Some(symbol) = self.symbols.get(conversion) {
             return Some(*symbol);
         }
-        let symbol = loop {
-            let symbol = SymbolId::new(ModuleId::INTRINSICS, self.next_symbol);
-            self.next_symbol = self
-                .next_symbol
-                .checked_sub(1)
-                .expect("conversion helper symbol space exhausted");
-            if self.used.insert(symbol) {
-                break symbol;
-            }
-        };
+        let symbol = self.allocate_symbol();
         let source = ValueId(0);
         let destination = ValueId(1);
         self.functions.push(cc::Function {
@@ -86,6 +82,19 @@ impl ConversionHelpers {
         Some(symbol)
     }
 
+    fn allocate_symbol(&mut self) -> SymbolId {
+        loop {
+            let symbol = SymbolId::new(ModuleId::INTRINSICS, self.next_symbol);
+            self.next_symbol = self
+                .next_symbol
+                .checked_sub(1)
+                .expect("conversion helper symbol space exhausted");
+            if self.used.insert(symbol) {
+                break symbol;
+            }
+        }
+    }
+
     pub(in crate::mir) fn into_functions(self) -> Vec<cc::Function> {
         self.functions
     }
@@ -93,7 +102,14 @@ impl ConversionHelpers {
 
 fn rebuilds_aggregate(plan: &ValueConversion) -> bool {
     match plan {
-        ValueConversion::ArrayMap { .. } | ValueConversion::ProductMap { .. } => true,
+        ValueConversion::ArrayMap { .. }
+        | ValueConversion::ProductMap { .. }
+        | ValueConversion::RecordUnpack { .. } => true,
+        // Fixed packing of already erased fields emits only projections and
+        // allocations. It needs no helper to isolate internal control flow.
+        ValueConversion::RecordPack { fields, .. } => fields
+            .iter()
+            .any(|field| !matches!(field, ValueConversion::Identity)),
         ValueConversion::Sequence(steps) => steps.iter().any(rebuilds_aggregate),
         _ => false,
     }

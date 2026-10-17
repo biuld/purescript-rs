@@ -114,6 +114,7 @@ fn nested_record_case(second: i32) -> Module {
         external_types: Vec::new(),
         types: std::mem::take(&mut types),
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),

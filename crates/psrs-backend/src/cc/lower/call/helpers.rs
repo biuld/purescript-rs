@@ -271,7 +271,10 @@ pub(super) fn function_value_types(
 
 pub(super) fn conversion_reconstructs_aggregate(conversion: &ValueConversion) -> bool {
     match conversion {
-        ValueConversion::ArrayMap { .. } | ValueConversion::ProductMap { .. } => true,
+        ValueConversion::ArrayMap { .. }
+        | ValueConversion::ProductMap { .. }
+        | ValueConversion::RecordPack { .. }
+        | ValueConversion::RecordUnpack { .. } => true,
         ValueConversion::Sequence(steps) => steps.iter().any(conversion_reconstructs_aggregate),
         ValueConversion::Identity
         | ValueConversion::BoxScalar { .. }

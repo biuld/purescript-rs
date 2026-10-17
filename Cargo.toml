@@ -4,6 +4,7 @@ members = [
     "crates/psrs-cst",
     "crates/psrs-ast",
     "crates/psrs-hir",
+    "crates/psrs-coverage",
     "crates/psrs-resolve",
     "crates/psrs-thir",
     "crates/psrs-typecheck",
@@ -30,6 +31,7 @@ psrs-span = { path = "crates/psrs-span" }
 psrs-cst = { path = "crates/psrs-cst" }
 psrs-ast = { path = "crates/psrs-ast" }
 psrs-hir = { path = "crates/psrs-hir" }
+psrs-coverage = { path = "crates/psrs-coverage" }
 psrs-resolve = { path = "crates/psrs-resolve" }
 psrs-thir = { path = "crates/psrs-thir" }
 psrs-typecheck = { path = "crates/psrs-typecheck" }

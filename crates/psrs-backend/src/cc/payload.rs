@@ -22,25 +22,25 @@ pub(crate) fn stored_guest_layout(
         GuestLayout::Scalar { .. } | GuestLayout::Boxed { .. } => GuestLayout::Scalar {
             shape: erased_shape(),
         },
-        GuestLayout::Product { labels, fields, .. } => GuestLayout::Product {
-            repr: super::layout::protocols::record(table, labels)?,
+        GuestLayout::Product {
+            repr,
+            labels,
+            fields,
+        } => GuestLayout::RecordStorage {
+            storage: table.record_storage()?,
+            product: *repr,
             labels: labels.clone(),
-            fields: fields
-                .iter()
-                .map(|field| Field {
-                    value: field.value.clone(),
-                    stored: erased_shape(),
-                })
-                .collect(),
+            fields: fields.clone(),
         },
-        GuestLayout::Array { repr, element } => {
-            if !matches!(table.representation(*repr), Some(super::Representation::Array { element }) if *element == erased_shape())
-            {
-                return None;
-            }
+        GuestLayout::RecordStorage { .. } => field.value.clone(),
+        GuestLayout::Array { element, .. } => {
+            let repr = super::layout::protocols::array_for(table, erased_shape())?;
             GuestLayout::Array {
-                repr: *repr,
-                element: element.clone(),
+                repr,
+                element: Box::new(Field {
+                    value: element.value.clone(),
+                    stored: erased_shape(),
+                }),
             }
         }
         GuestLayout::Variant { .. } => field.value.clone(),
@@ -226,18 +226,13 @@ pub(crate) trait PayloadPlanner {
             return Err(self.payload_error(span, "record owner labels do not name a product"));
         };
         let fields = fields.clone();
-        let protocol = super::layout::protocols::record(self.payload_table(), &labels)
-            .ok_or_else(|| self.payload_error(span, "record owner has no erased field protocol"))?;
-        if concrete == protocol {
-            return Ok(Some(if entering {
-                ValueConversion::EraseReference
-            } else {
-                ValueConversion::RecoverReference {
-                    destination: shape,
-                    evidence: RecoveryEvidence::TypeInstantiation,
-                }
-            }));
-        }
+        let protocol = self
+            .payload_table()
+            .record_storage()
+            .ok_or_else(|| {
+                self.payload_error(span, "record owner has no labelled storage protocol")
+            })?
+            .representation();
         let plans = fields
             .into_iter()
             .map(|field| {
@@ -250,7 +245,7 @@ pub(crate) trait PayloadPlanner {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Some(if entering {
             sequence(vec![
-                ValueConversion::ProductMap {
+                ValueConversion::RecordPack {
                     source: concrete,
                     target: protocol,
                     labels,
@@ -268,7 +263,7 @@ pub(crate) trait PayloadPlanner {
                     destination: protocol_shape,
                     evidence: RecoveryEvidence::TypeInstantiation,
                 },
-                ValueConversion::ProductMap {
+                ValueConversion::RecordUnpack {
                     source: protocol,
                     target: concrete,
                     labels,

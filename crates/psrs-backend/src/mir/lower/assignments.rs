@@ -49,31 +49,13 @@ impl FunctionLowerer<'_> {
                 AssignmentKind::AggregateConvert {
                     value, conversion, ..
                 } => {
-                    let helper = self
-                        .conversion_helpers
-                        .as_mut()
-                        .and_then(|helpers| helpers.intern(conversion, assignment.span));
-                    if let Some(helper) = helper {
-                        self.append_instruction(
-                            current,
-                            Instruction::Call {
-                                contract: None,
-                                destination: assignment.destination,
-                                function: helper,
-                                arguments: vec![*value],
-                                span: assignment.span,
-                            },
-                            assignment.span,
-                        )?;
-                    } else {
-                        current = self.lower_aggregate_convert(
-                            current,
-                            *value,
-                            assignment.destination,
-                            conversion,
-                            assignment.span,
-                        )?;
-                    }
+                    current = self.lower_aggregate_convert(
+                        current,
+                        *value,
+                        assignment.destination,
+                        conversion,
+                        assignment.span,
+                    )?;
                 }
                 AssignmentKind::Constant(value) => self.append_instruction(
                     current,
@@ -219,6 +201,12 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
+                AssignmentKind::Record { .. } => {
+                    current = self.lower_record_assignment(current, assignment)?;
+                }
+                AssignmentKind::RecordPrimitive { .. } => {
+                    current = self.lower_record_primitive_assignment(current, assignment)?;
+                }
                 AssignmentKind::ProductGet {
                     destination,
                     representation,

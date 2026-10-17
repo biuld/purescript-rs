@@ -273,8 +273,14 @@ expression can build one, so its only values come from unchecked coercions. It
 therefore uses the same erased ABI as a bare abstract type, whether it is used
 bare (`Void`) or applied (`VariantF r a`). This is not the resource-handle case:
 a nullary `foreign import data` type is opaque and stays a handle, and an
-applied foreign type already uses the erased reference. Inhabited algebraic
-types keep their enum, aggregate, or newtype layout.
+applied foreign type already uses the erased reference.
+
+A transparent newtype chain that returns to a declaration already visited
+also has no finite values (for example, `newtype Void = Void Void`). Its
+canonical storage is the same erased reference; layout and conversion stop at
+that boundary instead of recursively expanding the cycle. This is detected by
+declaration identity, including mutual cycles. Inhabited algebraic types keep
+their enum, aggregate, or newtype layout.
 
 This is viable because:
 
@@ -622,29 +628,28 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
   reach the ABI boundary; ABI adaptation happens on concrete canonical
   signatures only.
 
-### Closed local row instantiations
+### Generic local row closures
 
-Before CC layout, checked nonrecursive local lambdas with row quantifiers may
-be expanded at finite closed uses. The Core checking relation owns each row
-solution, including residual fields with no existing type-arena node. Explicit
-materialization appends row nodes without changing the source arena's existing
-identities; capture-avoiding substitution discharges the scheme's quantifiers
-and freshens local identities. This preparation is independent of optimization
-budgets and preserves evaluation of captured computations.
+CC accepts checked local row-polymorphic lambdas directly, including captured,
+recursive and higher-order uses. The [open-row store](open-records.md) supplies
+the generic representation; closed arguments cross its explicit pack/unpack
+boundaries at their checked use types. Two closed instantiations can call the
+same captured closure without materializing separate local bindings.
 
-An unresolved use, recursive binding, or scheme with additional unresolved
-quantifiers retains its full source scheme. Open runtime rows remain an explicit
-unsupported layout; this preparation does not define an open-row ABI or narrow
-the source model. Input and output Core verification remain mandatory.
+P8 does not run a finite local-row specialization preparation. Ordinary Core
+optimization may specialize declarations, but its budget and the availability
+of closed uses cannot determine correctness. Input Core verification remains
+mandatory before layout; closure conversion and its verifier own the resulting
+generic call and capture contracts.
 
 ## Open questions and future work
 
 - **Dictionaries end to end.** Type-class elaboration must produce the
   dictionary values this design assumes and feed them through the normal
   aggregate path.
-- **Open-row aggregates.** Canonical generic arrays and closed records use the
+- **Open-row aggregates.** Canonical generic arrays and records use the
   conversion contract in [representation and evidence](representation-and-evidence.md).
-  Open-row records still need a separate representation and conversion contract.
+  Complete the [open-record execution checklist](../../../implementation/backend/open-records.md).
 - **Higher-order acceptance breadth.** Direct generic calls, concrete arguments
   to generic parameters, and returned polymorphic functions are the remaining
   adapter cases to exercise end to end.

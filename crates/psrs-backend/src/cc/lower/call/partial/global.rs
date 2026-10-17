@@ -176,13 +176,23 @@ impl FunctionLowerer<'_> {
             call_arguments.push(converted);
         }
         let result = nested.fresh(source_signature.result);
+        let kind = self
+            .record_primitive_assignment(function, &call_arguments)
+            .map_or_else(
+                || AssignmentKind::DirectCall {
+                    contract: None,
+                    function,
+                    arguments: call_arguments,
+                },
+                |(provider, record, operation)| AssignmentKind::RecordPrimitive {
+                    provider,
+                    record,
+                    operation,
+                },
+            );
         nested_assignments.push(Assignment {
             destination: result,
-            kind: AssignmentKind::DirectCall {
-                contract: None,
-                function,
-                arguments: call_arguments,
-            },
+            kind,
             span: expression.span,
         });
         let (result, source_result_shape, source_result_type) = if remaining_parameters.len()

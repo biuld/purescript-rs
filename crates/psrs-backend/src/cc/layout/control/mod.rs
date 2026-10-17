@@ -48,6 +48,7 @@ pub(in crate::cc) fn append(
     continuation: SignatureId,
     nominal_types: &HashMap<HirTypeId, ReprId>,
 ) -> ControlLayout {
+    table.ensure_record_storage();
     let erased = erased_shape();
     let computation = nominal_types[&HirTypeId::CONTROL];
     let sequence = table.reserve();
@@ -58,7 +59,7 @@ pub(in crate::cc) fn append(
     let status = crate::cc::layout::protocols::array(table, ValueShape::Integer);
     let replay_result = table.reserve();
     let labels = vec!["_1".to_owned(), "_2".to_owned()];
-    let pair = crate::cc::layout::protocols::record(table, &labels).unwrap_or_else(|| {
+    let pair = crate::cc::layout::protocols::erased_product(table, &labels).unwrap_or_else(|| {
         let pair = table.reserve();
         table.set(
             pair,
@@ -202,7 +203,7 @@ mod tests {
                 .iter()
                 .filter(|repr| matches!(repr, Representation::Array { .. }))
                 .count(),
-            2
+            3
         );
     }
 }

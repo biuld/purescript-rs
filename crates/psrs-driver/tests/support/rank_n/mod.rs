@@ -1,6 +1,8 @@
 //! Source cases shared by semantic, differential, and execution acceptance.
 
+mod contextual;
 mod reify;
+pub use contextual::{RIGID_NOMINAL_RESULT, RIGID_RESULT};
 
 pub const CHECK_ONLY: &[(&str, &str)] = &[(
     "annotated_polymorphic_array",
@@ -34,6 +36,11 @@ main = case Holder (make 0) of
 ];
 
 pub const ACCEPT: &[(&str, &str)] = &[
+    ("contextual_constant_result", contextual::CONSTANT_RESULT),
+    (
+        "contextual_returned_evidence",
+        contextual::RETURNED_EVIDENCE,
+    ),
     ("rank_n_separate_equations", reify::EQUATIONS),
     ("rank_n_multiple_scrutinees", reify::MULTIPLE),
     ("rank_n_guarded_equations", reify::GUARDED),

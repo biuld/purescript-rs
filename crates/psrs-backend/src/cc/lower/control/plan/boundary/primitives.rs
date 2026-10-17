@@ -75,6 +75,28 @@ impl Checker<'_> {
         Ok(a.destination)
     }
 
+    pub(super) fn pair_conversion(
+        &self,
+        source: ValueId,
+        entering: bool,
+        body: &mut &[Assignment],
+    ) -> Checked<ValueId> {
+        let assignment = self.next(body)?;
+        let A::AggregateConvert {
+            value, conversion, ..
+        } = &assignment.kind
+        else {
+            return Err(MISMATCH);
+        };
+        let expected =
+            super::super::super::pair::conversion(self.table, self.schema.result_pair, entering);
+        if conversion != &expected {
+            return Err(MISMATCH);
+        }
+        self.equal(*value, source)?;
+        Ok(assignment.destination)
+    }
+
     pub(super) fn product(
         &self,
         repr: ReprId,

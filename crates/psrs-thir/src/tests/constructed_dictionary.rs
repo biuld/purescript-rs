@@ -26,6 +26,7 @@ fn a_runtime_dictionary_cannot_authorize_a_coercion() {
             Type::Application(TypeId(2), TypeId(1)),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),
