@@ -7,9 +7,10 @@
 > mechanisms described below were removed: the trusted `Effect` synthesis, the
 > `Prim.State` primitives, the `runWorld`/`runRegion` intrinsics, the Core/CC/MIR
 > State analysis, and the runtime storage source-binding contract. The `Effects`
-> gate row and the `BE-21` `Effect Unit` entry capability no longer describe the
-> compiler. No replacement Effect representation has been selected, so any
-> measurement whose cases used either mechanism is historical. See the
+> gate row and the compiler-owned `BE-21` `Effect Unit` entry mechanism no longer
+> describe the compiler. The replacement is library-owned native Effect/ST;
+> ordinary configured command normalization applies its runner. Measurements
+> using either withdrawn mechanism are historical. See the
 > [removal handoff](../implementation/backend/effect-state-removal-handoff-2026-10-11.md).
 
 ## Purpose
@@ -38,6 +39,13 @@ revision and include files in subdirectories:
 | `tests/purs/failing` | 444 | Must fail with a listed `errorCode` |
 | `tests/purs/warning` | 68 | Must compile with listed warnings |
 | `tests/purs/optimize` | 10 | Expected optimizer output |
+
+These are source-file counts. The `passing` directory has 365 program roots
+and 74 support files. L6/M7 groups each root with its same-stem support
+directory, following the official runner; support modules remain compilation
+inputs rather than independent commands. Frontend boards keep their per-file
+units. A corpus FFI dependency excludes its entire runtime program. See
+[runtime program units](../implementation/runtime-program-scoreboard.md).
 
 The vendored copy under `tests/upstream` keeps the four `.purs` directories
 only. `optimize` is not vendored, so M8-O reads it from a checkout, and its
@@ -93,7 +101,7 @@ FFI.
 | M4 | Core type checking | type `errorCode`s | L4 |
 | M5 | Type classes and instances | class `errorCode`s | L5 |
 | M6 | Data, newtypes, records, rows | features required by `passing` | L4–L6 |
-| M7 | Runtime and standard library | `passing` (413) run | L6 |
+| M7 | Runtime and standard library | `passing` program groups (340 non-FFI) | L6 |
 | M8 | Warnings and optimization | `warning` (68), `optimize` (10) | — |
 
 ### M0 — Layout and lexing
@@ -730,17 +738,26 @@ the code reference and an immutable capture array.
 
 ### M7 — Runtime and standard library
 
-- **Suite:** `tests/purs/passing`, 413 files after excluding 26 FFI tests; these
-  must compile and run with the expected observable result.
+- **Suite:** `tests/purs/passing`, 340 program groups after excluding 25 FFI
+  groups. Each root includes its same-stem support sources and must compile
+  and run with the expected observable result.
 - **Goal:** Module loading, the PureScript-facing standard library (Prelude,
   `Effect`, console, assertions), closure conversion, and a runtime that
   executes the artifacts.
-- **Acceptance:** Each passing test compiles and runs; failures are reported per
-  file.
+- **Acceptance:** Each passing program compiles and runs; failures are reported
+  per program. Runtime output is recorded, not compared with upstream goldens.
 - **Prerequisite:** M2–M6.
 
-**Progress (measured 2026-10-17 by `runtime::l6_runtime_scoreboard` at `886cd82c`):** **273 of 413**
-non-FFI `passing` files compile, validate, and run; all 273 exit 0. The other 140 do not agree. The gate table below records the stage split. Twenty-six FFI files stay excluded.
+**Progress (remeasured 2026-10-17, release harness, `fe6dd78f` plus the checked command-runner, program-grouping and contextual application-checking changes):** **273 of 340** non-FFI programs compile, validate, and run; all 273 exit 0. The other 67 do not agree. The 365 roots include 74 support sources as inputs; 25 FFI programs are excluded. The gate table below records the stage split. The locked package is `6fcef6ccbab1f3459af2573bbef4ae25b86852d4`, fingerprint `fnv1a64-v1:5fcbb57525c63eb1`.
+
+The previous **273/413** was a per-file measurement that incorrectly ran
+support modules as commands. Its 66 `Data.Symbol.unsafeCoerce` failures are all
+entry-less support modules, not 66 executable compiler regressions. The new
+program-wide FFI rule also excludes `ForeignKind.purs` through its support
+source. The actual command-runner repair executes unchanged `Sequence.purs`,
+whose action returns `List Unit`. These counts are different units, not an
+additive recovery of 66 programs. See [runtime program units](../implementation/runtime-program-scoreboard.md)
+and [checked command instantiation](../implementation/backend/polymorphic-command-runner.md).
 
 **Earlier progress:** **210 of 413**
 non-FFI `passing` files compile, validate, and run; all exit 0. Twenty-six FFI
@@ -890,7 +907,7 @@ The failure path is now landed rather than assumed: `Prelude.trap` is a
 message and then escapes through it, and the vertical tests assert the trap
 rather than an exit code (`PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver
 --lib tests::assertions`). That measurement's board was still 0/413. The
-current board is the 273/413 row in the gate table. The 164/413 and 210/413
+current board is the 279/340 program row in the gate table. The 164/413 and 210/413
 figures in this section are earlier measurements.
 
 The L2 run reports 19 sibling modules loaded and no case blocked because the
@@ -1062,6 +1079,23 @@ one thing so there is no second source of truth:
   `Area`, or `Phase` as project fields; those are the labels and the milestone,
   and duplicating them would be a second source of truth.
 
+For passing-runtime blockers, `Corpus cases` counts program groups. A support
+module contributes only through its parent's first blocker. A zero count does
+not prove unexercised library APIs or close their issue: #124's former 66
+Symbol blockers were support modules run as commands, and its corrected count
+is zero while broader library acceptance remains open. Frontend failing-case
+counts retain their source-file and error-code units.
+
+The next #124 API slice verifies public `Data.Symbol.reifySymbol` independently
+of that corrected blocker count. The library preserves the pinned pure body
+and adapts its private coercion foreign through `Unsafe.Coerce`. Forty official
+JS/target value observations, dynamic callback/closure/action execution, failure
+propagation and two diagnostic rejections pass; see the
+[contextual application acceptance record](../implementation/frontend/contextual-application-results.md).
+#124 remains open. #95 is Blocked on `Test.Assert.checkThrows`: the default
+target has no exception/trap recovery, so its one first-blocking program is not
+counted as supported.
+
 Dependencies carry the blocking order that is not visible from the phase
 number. The phase epics are chained (#74 blocks #75 blocks #76 …) except that
 Phase 0 is independent. Below the epics, the edges that matter are
@@ -1100,15 +1134,15 @@ for matrix status.
 | --- | --- | --- | --- |
 | L0 | Layout goldens | 15/15 official parse outcomes agree (12 accepted, 3 rejected), enforced by regression tests. | 15/15 agreement, with all layout cases covered by regression tests. |
 | L1 | Non-excluded parse behavior | 904/908 agreement using the annotations oracle; `passing` 410/413, `failing` 412/413, `warning` 67/67, `layout` 15/15, with the four remaining cases recorded as DEC-16 intentional differences | 100% agreement apart from the DEC-16 intentional differences. |
-| L2 | Module, import, export, and name resolution | **72/72** failing cases. `passing` resolution is **403/413**; the remaining 10 stop at P3 (6) or P0 (4), with no harness, missing-library, or unusable-sibling blockers. Remeasured with the annotations oracle on 2026-10-07 after the shared-import-qualifier repair. | The mapped resolution cases and all required passing-module cases agree. |
+| L2 | Module, import, export, and name resolution | **72/72** failing cases. `passing` resolution is **403/413**; the remaining 10 stop at P3 (6) or P0 (4), with no harness, missing-library, or unusable-sibling blockers. Reconfirmed with the annotations oracle on 2026-10-17 using the release harness and current locked package. | The mapped resolution cases and all required passing-module cases agree. |
 | L3 | Kinds and higher-kinded types | 39/48 failing cases: `KindsDoNotUnify` 16/24, `PartiallyAppliedSynonym` 12/12, `CycleInTypeSynonym` 4/4, `CycleInKindDeclaration` 2/2, `InfiniteKind` 2/2, and `UndefinedTypeVariable` 3/4. | 100% agreement for the mapped kind cases. |
 | L4 | Core type checking | 39/50 failing cases. The remaining mismatches include kind diagnostics reported in place of `ExpectedType`, missing `EscapedSkolem`, `VisibleTypeApplications1`, and five `Coercible` cases reported as `NoInstanceFound`. | 100% agreement for the mapped type cases. |
-| L5 | Classes and instances | 77/97 failing cases: `OverlappingInstances` 8/8, `NoInstanceFound` 48/53, `MissingClassMember` 2/2, `InvalidNewtypeInstance` 6/6, `DuplicateInstance` 1/1, `InvalidInstanceHead` 1/7, `ClassInstanceArityMismatch` 4/4, `CannotDeriveInvalidConstructorArg` 7/7; `PossiblyInfiniteInstance` 0/1, `OrphanInstance` 0/7, `DuplicateTypeClass` 0/1. Remeasured with the annotations oracle on 2026-10-17 (`886cd82c`, vendored corpus). The 2026-10-06 result was 75/97. | 100% agreement for the mapped class cases. |
-| L6/M7 | Runtime and standard library | **273/413** non-FFI passing files compile, validate, and run, all with exit code 0. No case traps. The other 140 do not agree: 69 fail while linking a library foreign (`Data.Symbol.unsafeCoerce` 66, `Record.Unsafe.unsafeGet` 2, `Test.Assert.checkThrows` 1), 34 stop at P5 typecheck, 13 at P8 closure conversion, 11 at P5 kind check, 6 at P3, 4 at P0, 1 at P7 command runner (`Sequence.purs`), 1 times out at runtime (`2288.purs`, 10s), and `BigFunction.purs` is killed before a diagnostic. Remeasured on 2026-10-17 at `886cd82c` against the vendored corpus (Wasmtime 49.0.3, `purs` 0.15.16). Each file ran in its own scoreboard process. The 2026-10-04 result was 164/413. | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
+| L5 | Classes and instances | 77/97 failing cases: `OverlappingInstances` 8/8, `NoInstanceFound` 48/53, `MissingClassMember` 2/2, `InvalidNewtypeInstance` 6/6, `DuplicateInstance` 1/1, `InvalidInstanceHead` 1/7, `ClassInstanceArityMismatch` 4/4, `CannotDeriveInvalidConstructorArg` 7/7; `PossiblyInfiniteInstance` 0/1, `OrphanInstance` 0/7, `DuplicateTypeClass` 0/1. Remeasured with the annotations oracle on 2026-10-17 (release harness, vendored corpus, current locked package). The 2026-10-06 result was 75/97. | 100% agreement for the mapped class cases. |
+| L6/M7 | Runtime and standard library | **279/340** non-FFI programs compile, validate, and run, all with exit code 0; no case traps. Of 365 roots, 25 FFI program groups are excluded and 74 support files remain inputs. The other 61 do not agree: 31 P5 typecheck, 11 P5 kind check, 10 P8 closure conversion (4 closure capture, 2 absent canonical record-update labels, 1 recursive local binding, 3 missing library foreigns `Record.Unsafe.unsafeGet` 2 and `Test.Assert.checkThrows` 1), 5 P3 resolve, 2 P0 lex (DEC-16 intentional differences), one 10-second runtime timeout (`2288.purs`), and `BigFunction.purs`, stopped above 2 GiB RSS before a diagnostic. Remeasured 2026-10-17 per program root, all 365 covered, with the release harness at `fe6dd78f` plus the checked command-runner, program-grouping, contextual application-checking, and the open-record checkpoint recorded in [the same-day handoff](../implementation/backend/open-records-handoff-2026-10-17.md) and committed with it, suite binary `7c9f8839dbd7cf73d63322e90ca2eefd5a904551c63cf73b76bb77b64673e2eb`, Wasmtime 49.0.3, and package `6fcef6cc` / `fnv1a64-v1:5fcbb57525c63eb1`. BigFunction ran separately under explicit bounds. | Every in-scope passing program for the feature compiles, validates, and runs with the expected result. |
 | M8-W | Warnings | 67 non-FFI warning files are in scope; no warning-code scoreboard exists | Warning-code agreement reaches 100% for the tracked warning corpus. |
 | M8-O | Optimization | 10 optimize files are in scope; they are not vendored and their goldens are JavaScript output | Expected optimize/CoreFn output agrees for all tracked optimize files. |
 
-L1–L4 were reconfirmed on 2026-10-17 at `886cd82c` against the vendored corpus (`PSRS_ORACLE=annotations`, `purs` 0.15.16): L1 904/908, L2 72/72 and passing resolution 403/413, L3 39/48, L4 39/50. L5 moved from 75/97 to 77/97 the same day. L6/M7 moved from 164/413 to 273/413. Earlier M7 tables in the progress section record the `logShow`, `Show`, Foldable, and `Data.Functor` runs; those figures are historical and are not added to this table. The current L5 denominator is 97.
+L1–L5 were reconfirmed on 2026-10-17 at `fe6dd78f` plus the changes described in [checked command instantiation](../implementation/backend/polymorphic-command-runner.md) and [runtime program units](../implementation/runtime-program-scoreboard.md), plus [contextual application checking](../implementation/frontend/contextual-application-results.md) and the open-record read/transport checkpoint, using the release harness, `PSRS_ORACLE=annotations`, `purs` 0.15.16 and package `6fcef6cc` / `fnv1a64-v1:5fcbb57525c63eb1`: L1 904/908, L2 72/72 and passing resolution 403/413, L3 39/48, L4 39/50, L5 77/97. The frontend units remain source files; L6/M7 is now 279/340 program groups. The earlier 273/413, 210/413 and 164/413 runtime records used per-file units and are historical, not additive with the program board. L5 keeps denominator 97.
 
 ### Feature-to-gate crosswalk
 
@@ -1205,13 +1239,13 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | BE-18 | Generic source-declared WIT imports | Compatible `Int`/`Boolean`/`Number` scalars, handles, and `list<u8>`/`string` imports lower through the canonical ABI with signature validation. A WIT `string` is a source `String` and a WIT `list<u8>` is `Array Int`, so the two no longer share a source type ([DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md)). Closed, directly flattened WIT records can contain nested `list<u8>` fields. | Partial | Add other aggregate WIT values, richer results, and user-library loading. |
 | BE-19 | WIT aggregate values and resources | Resource handles lower under [DEC-14](../decision/DEC-14-resource-handle-ownership.md): the compiler drops no handle on its own and exposes `resource.drop` to source, so the standard library owns the lifetime discipline; byte lists and closed WIT records with nested byte-list fields are classified and lowered in WIT field order. Indirect parameter tuples are allocated through `cabi_realloc`. Non-byte `list<T>` of scalars, `bool`, `char`, strings, nullary enums, flags, resource handles, and directly flattened records of scalar or string fields is copied between a source GC array and the canonical buffer, with a driver execution test for `list<string>` and synthesized Wasm fixtures for `list<record>`, `list<flags>`, and `list<handle>` ([ABI-08](../implementation/backend/linear-memory-and-canonical-abi.md) In progress). `option`, `result`, and non-unit `variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element, with synthesized Wasm fixtures ([DEC-13](../decision/DEC-13-wit-to-source-type-mapping.md)); a large aggregate return area is allocated through `cabi_realloc`, a handle in a result is an ordinary value the standard library drops explicitly, and an indirect parameter record carries a mapped aggregate. The aggregate ABI is generated from one normalized canonical type ([compositional canonical ABI lowering](backend/wasm/canonical-abi-compositional.md)); the descriptor types and per-shape plans are removed. `list<option<T>>`/`list<result>`/`list<variant>` elements, nested `list<list<T>>`, multi-word flags as list elements and in aggregates, non-byte `list<T, N>`, and `list<own<T>>` results are classified and lowered, and a unit-success `result<_, E>` maps to `Either E Unit` (the error on `Left`) and sizes its return area from the error payload. | Partial | Add general aggregate layouts beyond the list-and-handle subset. |
 | BE-20 | Component Model packaging and capability-based imports | `wit-component` lifts the core module to a WASI 0.2 component and prunes unused imports. | Partial | Add component import/export regression cases beyond the CLI path and pass the L6/M7 gate. |
-| BE-21 | WASI CLI entry, exit, stdout, and stderr | `wasi:cli/run`, exit codes, console output, and error output work in the component path. A selected `Int` entry returns its value as the exit code. The former compiler-owned `Effect Unit` entry was removed on 2026-10-11. A compiler-selected non-`Int` entry is still rejected. Effect programs use the library `PSRS.Command.run` runner over the accepted native representation. Focused Wasmtime tests assert output and status for `Int` entries. The 2026-10-17 runtime board is 273/413. It has no P10 case with no selected `main`; `Sequence.purs` stops at P7 because its command entry type disagrees with the configured runner. This row stays Partial. | Partial | Pass the L6/M7 gate. |
+| BE-21 | WASI CLI entry, exit, stdout, and stderr | `wasi:cli/run`, exit codes, console output, and error output work in the component path. A selected Int entry returns its value as the exit code. The former compiler-owned Effect entry was removed on 2026-10-11. Ordinary configured command normalization checks a runner instance at the closed entry type and produces an Int target root. The library `PSRS.Command.run :: forall a. Effect a -> Int` executes once and discards the action result; unchanged `Sequence.purs` now executes with exact `Done` output and exit zero. The current runtime board is 279/340 programs. | Partial | Pass the L6/M7 gate. |
 | BE-22 | WASI clocks and randomness | Monotonic time and random bytes are wired through WASI and tested. | Partial | Expose the remaining clock/random library surface and pass the L6/M7 gate. |
 | BE-23 | WASI arguments, environment, and filesystem | Source wrappers for arguments, environment, and filesystem execute ([WASI-07](../implementation/backend/wasi-platform.md) Verified). This feature row was not remeasured with the 2026-10-16 native-effect fingerprint, and the L6/M7 gate is still open. | Partial | Pass the L6/M7 gate. |
 | BE-24 | WASI sockets and HTTP | Not part of the current synchronous portable-program target. | Excluded | Revisit as a separate platform scope after the core target is stable. |
 | BE-25 | WASI 0.3 async streams and futures | The current compiler targets synchronous WASI 0.2. | Planned | Revisit only with an explicit platform decision and async language/library plan. |
 | BE-26 | Standard library and user module loading | User modules are discovered from the entry files' directories and linked transitively ([WASI-09](../implementation/backend/wasi-platform.md) Verified); the PureScript-facing standard library is loaded from `stdlib/lib` in trusted-prefix order ([WASI-10](../implementation/backend/wasi-platform.md) Verified). | Partial | Pass the L6/M7 module-loading scoreboard. |
-| BE-27 | Wasm/WASI execution and official passing-suite runtime coverage | The `l6_runtime_scoreboard` compiles, validates, and executes the 413 non-FFI `passing` files under required Wasmtime. The 2026-10-17 measurement is **273/413**, all exiting 0 (Wasmtime 49.0.3, `purs` 0.15.16, compiler `886cd82c`). The other 140 are the L6/M7 split above. The 26 FFI files are excluded. The row stays Partial because L6 is not complete. | Partial | Resolve the remaining compile and runtime blockers, then remeasure the full board. |
+| BE-27 | Wasm/WASI execution and official passing-suite runtime coverage | The release `l6_runtime_scoreboard` compiles, validates, and executes program groups under required Wasmtime. The 2026-10-17 measurement is **279/340**, all exiting zero, with 25 FFI groups excluded (Wasmtime 49.0.3; compiler `fe6dd78f` plus this change and the same-day open-record checkpoint; package `6fcef6cc`). The other 61 are the L6/M7 split above. The 74 support sources are included in their parent inputs. The row stays Partial because L6 is not complete and the board does not compare output goldens. | Partial | Resolve the remaining compile and runtime blockers, then remeasure the full board. |
 | BE-28 | JavaScript/Node.js FFI compatibility | Not emitted or executed by this backend. | Excluded | No work planned under this decision. |
 
 ### Topic implementation acceptance
@@ -1230,7 +1264,7 @@ acceptance result.
 | Scalars and primitives | BE-04; FE-08 input | Re-baselined by DEC-10: SP-01..SP-12 are Verified, including the GC-string representation. | [SP-01..SP-12](../implementation/backend/scalars-and-primitives.md) |
 | Pattern matching | BE-05, BE-06; supporting BE-08, BE-09 | PM-01..PM-15 have implementation, verifier, and required execution evidence. PM-14 includes source-spanned Boolean redundancy and guarded fallthrough; broader feature rows retain their separate gates. | [PM-01..PM-15](../implementation/backend/pattern-matching.md) |
 | Delimited control and generic handlers | BE-02, BE-03, BE-05, BE-06, BE-12; supporting BE-21, BE-26 | Partial: the eight operations implement typed contract v2 with persistent queues and one guest context executor. Mandatory Wasmtime covers clause/return-clause scope, deep/shallow library policies, forwarding, abandonment, aggregate/GC captures, multi-shot replay, replay-local expiry, normal target-completion expiry and long request sequences. Parent-chain probes and post-GC live-heap measurements cover long deep and mixed-forwarding loops while independent non-tail extents remain distinct. Core owns shared checked carrier/callable contracts; immutable CC quotations and live optimized MIR witnesses retain source/target domains and reject incompatible locally proven operands. CC verifies factory operands against those witnesses. Predeclared semantic helper identities reject check/close swaps in CC and MIR calls, including tail calls; mandatory execution also covers 100,000 requests with tail-call capability disabled. Source carrier parameters, results and joins now share the preplanned nominal computation/owner shapes; control entry operands use their declared storage roles without an unconditional payload erasure round trip. Nominal machine storage fields and helper calls reject cross-wired queues, extents and ownership cells in CC/MIR, and CC/MIR check raw capture roles against local closure targets. CC/MIR also check that finish completion closes and restores fields from the same record, rejecting missing close and same-shaped boundary swaps. A predeclared raw-resumption binding now checks the dispatch checkpoint capture, raw capture slots, Resume construction and the saved checkpoint check before replay; MIR requires the check to dominate replay. CC/MIR now also check saved finish validation, original callback sharing and fresh live activation cells within rebuild iterations, including parent/restoration/advancement and terminal replay product identities. Target finishes now preserve one source context and enter its caller; finish copies preserve original extent/parent and append order. Replay entry checks current execution/dispatch ancestry and empty accumulators, with traversal/handoff/callback rebuild preserving active/parent state. Source context constructors now retain current Handle clauses, caller and saved work, with fresh or shared-finish lifetime operands; their transitions enter the inner computation with an empty queue and the new context/extent. Root Run factories now check empty queues, coherent root dispatch/execution extents and normal cleanup, preserving allocation evidence through Start inlining and rejecting sequential extent/status reuse while admitting exclusive initialization. Labelled Control rows over pinned VariantF execute deep forwarding and shallow residual policies. Complete pinned Run/Free dependency sources are imported unchanged; representative pure Run State, Choose and combined Reader/State/Writer/Except programs execute with observed values and log order. CC/MIR now check dispatch coverage and selected-case projections, required scoped clause application results and current operands, and Bind/Resume transition identities; scoped MIR applications must execute on the actual branch path. Complete remaining execution-step, dispatch selection and frame/context provenance, foreign capture, caught-trap cleanup and broader upstream-library API acceptance remain unverified. AE-11 host IO is Verified on 2026-10-16 in that checklist; the provenance items in this cell were not closed by that measurement. | [AE/AC checklist](../implementation/backend/algebraic-effects.md) |
-| Effects | BE-21; supporting BE-02, BE-26 | The compiler-owned `Effect` protocol was withdrawn on 2026-10-11. The accepted replacement is library-owned `PSRS.Effect.Native`: NE-01–NE-13 and AE-11 are Verified on 2026-10-16 at fingerprint `fnv1a64-v1:ad19620ada1d2ecf`. `checkThrows`, Console timers, `Effect.Exception`, and `Effect.Aff` stay unimplemented JavaScript foreigns. The runtime board is 273/413 as of 2026-10-17, so BE-21 stays Partial. The independent package commit and lock revision are `4c73aab52226e8f5e7b1f17052f1a19d717a472e`. | [NE-01..NE-13](../implementation/backend/native-effect-and-st.md), [AE-11](../implementation/backend/algebraic-effects.md) |
+| Effects | BE-21; supporting BE-02, BE-26 | The compiler-owned `Effect` protocol was withdrawn on 2026-10-11. The accepted replacement is library-owned `PSRS.Effect.Native`: NE-01–NE-13 and AE-11 are Verified on 2026-10-16 at fingerprint `fnv1a64-v1:ad19620ada1d2ecf`. `checkThrows`, Console timers, `Effect.Exception`, and `Effect.Aff` stay unimplemented JavaScript foreigns. The runtime board is 279/340 program groups, so BE-21 stays Partial. The current package lock is `6fcef6ccbab1f3459af2573bbef4ae25b86852d4` / `fnv1a64-v1:5fcbb57525c63eb1`, including the [checked polymorphic command runner](../implementation/backend/polymorphic-command-runner.md) and [Symbol reification](../implementation/frontend/contextual-application-results.md). The earlier NE/AE fingerprint remains the historical acceptance baseline. | [NE-01..NE-13](../implementation/backend/native-effect-and-st.md), [AE-11](../implementation/backend/algebraic-effects.md) |
 | Type classes and dictionaries | BE-02, BE-09; FE-14/15 input | Backend acceptance complete from verified Typed Core fixtures: DICT-01..DICT-11 have implementation, verifier, and required execution evidence. Source constrained calls, contextual/imported generic instances, superclasses, fundeps, and ordered instance chains execute; FE-14/15 remain partial for remaining source class/fundep coverage, the constrained instance-member specialization limit, and official-suite acceptance. Class-method local constraints are covered under FE-18; deriving is tracked under FE-22. | [DICT-01..DICT-11](../implementation/backend/type-classes-and-dictionaries.md) |
 | Generic aggregate erasure | BE-08, BE-09, BE-10; supporting BE-02, BE-03, BE-13, BE-15 | Topic acceptance complete: all GA-01..GA-20 checks have implementation, verifier and required execution evidence. Broader feature rows retain their separate gates. | [Requirements, repair evidence, and validation](../implementation/backend/generic-aggregate-erasure.md) |
 | Optimization | BE-12 | Topic acceptance complete: OPT-01..OPT-14 have implementation, verifier, and required execution evidence. The official M8-O gate stays on the broader BE-12 row. | [OPT-01..OPT-14](../implementation/backend/optimization.md) |

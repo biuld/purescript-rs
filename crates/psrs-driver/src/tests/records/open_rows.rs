@@ -119,3 +119,37 @@ main = consume produce
     assert_eq!(output.status.code(), Some(42), "{output:?}");
 }
 
+#[test]
+fn a_record_pattern_selects_labels_across_distinct_open_rows() {
+    let source = r#"module Main where
+read :: forall r. { value :: Int | r } -> Int
+read record = case record of
+  { value: result } -> result
+flag :: forall r. { other :: Int, flag :: Boolean | r } -> Boolean
+flag record = case record of
+  { flag: result } -> result
+main :: Int
+main = if intEq (read { z: "λ😀", value: 40 }) 40
+         then if flag { other: 9, flag: true, a: false } then 42 else 1
+         else 2
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn nested_record_patterns_select_open_row_values() {
+    let source = r#"module Main where
+readNested :: forall inner outer. { nested :: { value :: Int | inner } | outer } -> Int
+readNested record = case record of
+  { nested: { value } } -> value
+main :: Int
+main = readNested { a: false, nested: { z: "λ😀", value: 42 } }
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}

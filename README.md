@@ -33,8 +33,8 @@ See [package and conformance setup](docs/workflow/stdlib-conformance.md).
 library from the locked `psrs-stdlib` package and writes the artifact.
 `wat <file.purs>...` renders the text form. `dump <core|cc|mir> <file.purs>` prints an intermediate IR for
 debugging. A selected `main :: Int` returns its value as the process exit code.
-A selected `main :: Effect Unit` runs that action once and returns 0; a trap
-still propagates.
+The package-configured runner executes a selected `main :: Effect a` once,
+discards its result, and returns 0; a trap still propagates.
 
 For a guided, interactive walkthrough of P0 through P11, use the React
 application in [`psrs-explorer/`](psrs-explorer/). It labels compact teaching
@@ -53,9 +53,14 @@ what remains in each layer.
 | L2 resolution | 72/72 failing, 403/413 passing | official `errorCode`s; 6 passing files stop at P3 and 4 at P0; no harness blockers |
 | L3 kinds | 39/48 failing | official kind `errorCode`s |
 | L4 types | 39/50 failing | official `errorCode`s |
-| L5 classes | 58/81 failing | official `errorCode`s |
-| L6/M7 runtime | 210/413 passing | all 210 exit 0; 203 do not agree, including 47 with no selected `main` |
+| L5 classes | 77/97 failing | official `errorCode`s, measured 2026-10-17 |
+| L6/M7 runtime | 279/340 programs | all exit 0; 61 do not agree; 74 support files remain program inputs, 25 FFI groups excluded |
 | M8 warnings, optimization | not measured | no scoreboard exists |
+
+Frontend counts use source files; runtime counts use program roots with their
+support sources. The 2026-10-17 runtime remeasurement uses the release harness
+and records completion, not agreement with upstream output goldens. Its program
+denominator is not directly comparable with the earlier per-file totals.
 
 Run the scoreboards yourself:
 
@@ -100,17 +105,8 @@ Verified working subsets, each with source tests and Wasmtime execution:
 
 ### What does not
 
-- **surface lowering** — guards on equations and `case` alternatives, operator
-  and constructor-operator aliases, operator sections, unary minus, type
-  wildcards, pattern bindings, and multi-scrutinee `case`; 106 `passing` files
-  stop here;
-- **resolution** — instance declarations are not resolved yet, the `Prim`
-  module hierarchy is not provided, and unary minus is not desugared;
-- **diagnostics** — the type checker now emits official `errorCode`s for a type
-  mismatch, an occurs check, an out-of-range literal, a missing or overlapping
-  instance, a missing class member, an escaping skolem, and an ambiguous
-  constraint, so 49 M4/M5 cases are measurable; the eight class checks D-04
-  lists as `0/n` do not exist yet;
+- **frontend agreement** — kind, type, and class checking still have the gaps
+  recorded in D-04; warning-code agreement is not measured;
 - **runtime** — open rows have no runtime layout, variants are not implemented,
   and the scalar and numeric operation set is partial
   ([scalars](docs/design/backend/fp/scalars-and-primitives.md));
@@ -118,12 +114,10 @@ Verified working subsets, each with source tests and Wasmtime execution:
   scalar, string, list, flags, handle, and variant shapes
   ([canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md)), and the
   synthesized aggregate fixtures validate but do not yet execute;
-- **the standard library** — the independent `psrs-stdlib` package holds the
-  pinned official core libraries (215 source modules). A module the compiler owns,
-  such as `Safe.Coerce`,
-  resolves through its primitive interface rather than the vendored file, which
-  stays faithful to upstream; `Unsafe.Coerce.unsafeCoerce` has no interface yet
-  and is a recorded gap.
+- **the standard library** — the independent `psrs-stdlib` package holds pinned
+  official sources and target adapters; several foreign bindings remain
+  unimplemented. Compiler-owned modules such as `Safe.Coerce` and
+  `Unsafe.Coerce` resolve through their declared primitive interfaces.
 
 ## Workspace
 

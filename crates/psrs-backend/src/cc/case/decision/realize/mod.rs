@@ -324,6 +324,38 @@ impl FunctionLowerer<'_> {
                     *span,
                     &mut assignments,
                 )
+            } else if self.module.record_is_open(*source_type) == Some(true) {
+                let storage = self.representations.record_storage().ok_or_else(|| {
+                    case_error(*span, "open record pattern has no labelled store")
+                })?;
+                if self
+                    .record_types
+                    .get(source_type)
+                    .map(|representation| *representation != storage.representation())
+                    .unwrap_or(true)
+                {
+                    return Err(case_error(
+                        *span,
+                        "open record pattern does not use its labelled store",
+                    ));
+                }
+                let labels = self.module.record_fields(*source_type).ok_or_else(|| {
+                    case_error(*span, "open record pattern has no checked prefix")
+                })?;
+                let Some((label, _)) = labels.get(*field as usize) else {
+                    return Err(case_error(
+                        *span,
+                        "record pattern field is outside its checked prefix",
+                    ));
+                };
+                let target_shape = self.value_shape(*target_type, *span)?;
+                self.project_labelled_field(
+                    source_value,
+                    label,
+                    target_shape,
+                    *span,
+                    &mut assignments,
+                )?
             } else {
                 let representation =
                     self.record_types.get(source_type).copied().ok_or_else(|| {

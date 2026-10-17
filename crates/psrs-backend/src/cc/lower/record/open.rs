@@ -17,9 +17,27 @@ impl FunctionLowerer<'_> {
             ));
         }
         let record = self.lower_value(record, assignments)?;
+        self.project_labelled_field(record, field, target, expression.span, assignments)
+    }
+
+    /// Find one known field by its literal label and read the erased slot,
+    /// then recover the requested payload through the common plan.
+    ///
+    /// This is the kernel behind open-row field access and record patterns.
+    /// Both consumers are checked against the record type's prefix; the literal
+    /// label keys the runtime find, so no canonical index is assumed at the
+    /// labelled store.
+    pub(in crate::cc) fn project_labelled_field(
+        &mut self,
+        record: ValueId,
+        field: &str,
+        target: ValueShape,
+        span: psrs_span::TextRange,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
         let label = self.lower_literal(
             AssignmentKind::StringConstant(field.into()),
-            expression.span,
+            span,
             ValueShape::String,
             assignments,
         );
@@ -31,7 +49,7 @@ impl FunctionLowerer<'_> {
                 record,
                 operation: RecordOperation::Find { label },
             },
-            span: expression.span,
+            span,
         });
         let erased = crate::cc::payload::erased_shape();
         let value = self.fresh(erased);
@@ -42,9 +60,9 @@ impl FunctionLowerer<'_> {
                 record,
                 operation: RecordOperation::Read { index },
             },
-            span: expression.span,
+            span,
         });
-        let plan = self.recover_payload(target, expression.span)?;
-        Ok(self.emit_conversion(value, erased, target, plan, expression.span, assignments))
+        let plan = self.recover_payload(target, span)?;
+        Ok(self.emit_conversion(value, erased, target, plan, span, assignments))
     }
 }
