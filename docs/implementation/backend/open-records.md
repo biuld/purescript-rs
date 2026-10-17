@@ -211,8 +211,9 @@ OR-11 rejection surfaces stay open.
 At this update checkpoint, the standard-library package was `6fcef6cc`; its
 official sources had not been rewritten, and `Record.Unsafe` foreigns still
 reported missing target support. The subsequent OR-09 library work is tracked
-separately. Do not close #124 or declare the open-record topic complete on
-these paths.
+separately. Do not declare the open-record topic complete on these paths; the
+runs above leave the topic open until its required slices and final boards are
+verified.
 
 ## Checked record-storage primitive slice: 2026-10-17
 
@@ -301,7 +302,7 @@ evidence to the package fingerprint and CLI SHA-256
 This covers OR-09 and part of OR-10, not all unsafe-input and integration
 surfaces. Broader malformed-store and ABI interactions, remaining OR-11
 rejection operations, OR-07/OR-12 combinations, and OR-13's full value-sensitive
-boards remain open. Keep #124 In Progress until all required slices and final
+boards remain open. Keep the topic open until all required slices and final
 boards are verified.
 
 ## Final validation and board: 2026-10-17
@@ -327,7 +328,10 @@ closure/linking (3 closure capture, 1 recursive local binding, and the
 (DEC-16), one 10-second runtime deadline, and the bounded BigFunction
 compilation, which reached the measurement cap near the 2 GiB guard before a
 diagnostic. `Test.Assert.checkThrows` remains the one record-adjacent foreign
-without a target contract. The topic is not closed; #124 stays In Progress.
+without a target contract. The topic was not closed at this checkpoint; the
+integrated review below completes it. The GitHub tracker for the runtime
+board's Data-module blockers (#124) is a separate standard-library issue and
+stays In Progress there.
 
 ## Shared coverage / Partial follow-through: 2026-10-17
 
@@ -481,5 +485,6 @@ remaining open obligations are the compiler-wide limitations tracked outside
 this checklist: `BigFunction.purs`'s resource bound, the missing
 `Test.Assert.checkThrows` target contract, and the ten-second
 runtime timeout in `2288.purs`. The execution-checklist obligations for this
-topic are complete; #124 can be closed with the board evidence above.
+topic are complete; the topic stands on the checklist, D-04 and scoreboard
+evidence above.
 
