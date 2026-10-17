@@ -120,12 +120,19 @@ impl TypeCheckErrorKind {
     /// Whether this error already reports why one wanted constraint failed to
     /// resolve. Callers must not add a second `NoInstanceFound` at an enclosing
     /// instance or deferral boundary.
+    ///
+    /// `KindsDoNotUnify` belongs here through the `Coercible` rule: official
+    /// solving reports a constraint's argument kinds when it picks the
+    /// constraint up, and that verdict *is* the resolution's answer, not a
+    /// side finding, so the bare `no instance` message would only say the same
+    /// failure again.
     pub(in crate::typecheck) fn reports_constraint_failure(self) -> bool {
         matches!(
             self,
             TypeCheckErrorKind::NoInstance
                 | TypeCheckErrorKind::OverlappingInstances
                 | TypeCheckErrorKind::TypeMismatch
+                | TypeCheckErrorKind::KindsDoNotUnify
         )
     }
 

@@ -13,7 +13,28 @@
 //! the bindings that produced them.
 
 use super::*;
-use psrs_kind::{KindScheme, KindScope};
+use psrs_kind::{KINDS_DO_NOT_UNIFY, KindScheme, KindScope};
+
+/// What the kinds of a coercion pair say. This is the one trial the `Coercible`
+/// rule has for a pair's kind equation: both kinds are read through
+/// [`Checker::kind_of_type`] and the equation is solved through the one kind
+/// substitution speculatively, so a verdict leaves no binding behind for a
+/// later step to read.
+pub(in crate::typecheck) enum CoercionKinds {
+    /// Both kinds are known and the equation solves.
+    Compatible,
+    /// Both kinds are known and the equation has no solution. Official solving
+    /// reports a pair's kinds exactly here: `Entailment/Coercible.hs` unifies
+    /// a picked-up constraint's argument kinds before refusing it. `error` is
+    /// the diagnosis the shared solver produced, re-reported by the `Coercible`
+    /// rule in the terms it owes the suite.
+    Mismatch(psrs_kind::KindError),
+    /// The equation could not be posed. A kind that is not derivable is the
+    /// kind pass's diagnostic — a scheme the program never checked decides
+    /// nothing about a conversion — and a solver rejection on any ground other
+    /// than a plain conflict is not this trial's verdict.
+    Undetermined,
+}
 
 impl Checker {
     /// Allocates a fresh kind variable from the one kind solver.
@@ -210,31 +231,26 @@ impl Checker {
         }
     }
 
-    /// Whether a representation conversion may be attempted between `source`
-    /// and `target` at all, which is the question their kinds answer.
-    ///
-    /// This adds no machinery of its own: it reads both kinds through
-    /// [`Self::kind_of_type`] and solves the equation through the one kind
-    /// solver, exactly as a binding does. It is a trial, because a coercion that
-    /// turns out not to hold — a phantom argument, an invisible newtype — must
-    /// not leave a kind binding behind for a later one to read.
-    ///
-    /// A type with no kind, because the program produced no checked scheme for
-    /// it, is not treated as compatible. The missing scheme is a kind-pass
-    /// diagnostic; until it is reported, these kinds say nothing about the
-    /// conversion.
-    pub(super) fn coercion_kinds_compatible(
+    /// Reads a coercion pair's kinds and classifies what they say as a trial.
+    /// See [`CoercionKinds`] for the verdicts.
+    pub(super) fn coercion_kinds_trial(
         &mut self,
         source: &InferType,
         target: &InferType,
         span: TextRange,
-    ) -> bool {
+    ) -> CoercionKinds {
         self.speculate(|checker| {
             let source = checker.kind_of_type(source, span)?;
             let target = checker.kind_of_type(target, span)?;
-            checker.unify_kind(source, target, span).then_some(())
+            match psrs_kind::unify_kind(&mut checker.state.kinds, source, target, span) {
+                Ok(()) => Some(CoercionKinds::Compatible),
+                Err(error) => match error.code {
+                    KINDS_DO_NOT_UNIFY => Some(CoercionKinds::Mismatch(error)),
+                    _ => Some(CoercionKinds::Undetermined),
+                },
+            }
         })
-        .is_some()
+        .unwrap_or(CoercionKinds::Undetermined)
     }
 
     fn report_kind_error(&mut self, error: &psrs_kind::KindError) {

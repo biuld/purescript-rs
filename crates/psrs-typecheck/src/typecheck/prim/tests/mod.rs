@@ -10,6 +10,7 @@
 
 use super::*;
 
+mod coercible;
 mod outcomes;
 mod probe;
 mod symbol_rules;
