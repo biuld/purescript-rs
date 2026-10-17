@@ -109,6 +109,7 @@ fn fixture(unrelated: bool, sibling: bool) -> Module {
         externals: vec![],
         external_types: vec![],
         newtype_ids: vec![],
+        ordinary_data_ids: Vec::new(),
         opaque_ids: vec![],
         callable_types: vec![],
         constructors: vec![],

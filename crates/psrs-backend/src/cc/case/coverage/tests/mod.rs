@@ -24,6 +24,7 @@ fn module(types: Vec<Type>, constructors: Vec<psrs_core::ConstructorInfo>) -> Mo
         external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors,
@@ -115,7 +116,7 @@ fn push_record(types: &mut Vec<Type>, fields: Vec<(String, TypeId)>) -> TypeId {
 
 #[test]
 fn reports_the_missing_nullary_constructor() {
-    let module = module(
+    let mut module = module(
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
             Type::Constructor(psrs_core::TypeConstructor::Int),
@@ -125,6 +126,7 @@ fn reports_the_missing_nullary_constructor() {
             constructor(1, "Blue", 0, Vec::new()),
         ],
     );
+    module.ordinary_data_ids = vec![hir_type_id(0)];
     let report = analyze(&module, TypeId(0), &[branch(nullary(0, 0))]);
     assert!(!report.exhaustive);
     assert_eq!(report.witness.as_deref(), Some("Blue"));
@@ -420,7 +422,7 @@ fn a_field_of_an_uninhabited_type_does_not_make_its_constructor_redundant() {
     // unchecked coercions still produce `Return` values, so coverage must treat
     // the uninhabited field as an unknown shape rather than a complete empty
     // signature and must not call `Return` redundant.
-    let module = module(
+    let mut module = module(
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
             Type::Constructor(TypeConstructor::User(hir_type_id(1))),
@@ -431,6 +433,7 @@ fn a_field_of_an_uninhabited_type_does_not_make_its_constructor_redundant() {
             constructor(1, "Bind", 0, vec![TypeId(1), TypeId(2)]),
         ],
     );
+    module.ordinary_data_ids = vec![hir_type_id(0), hir_type_id(1)];
     let return_branch = branch(pat(
         0,
         PatternKind::Constructor {

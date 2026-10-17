@@ -3,10 +3,12 @@
 
 mod allocator;
 mod number;
+mod record;
 mod storage;
 
 pub use allocator::*;
 pub use number::*;
+pub use record::*;
 pub use storage::*;
 
 /// The runtime imports the application's canonical memory.

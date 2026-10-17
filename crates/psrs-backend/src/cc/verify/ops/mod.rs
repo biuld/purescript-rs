@@ -310,6 +310,15 @@ pub(super) fn verify_assignments(
             AssignmentKind::Record { .. } => {
                 uses = record::verify(assignment, declared, table)?;
             }
+            AssignmentKind::RecordPrimitive { provider, .. } => {
+                if !signatures.contains_key(provider) {
+                    return Err(assignment_error(
+                        assignment,
+                        "record primitive references an unknown provider symbol",
+                    ));
+                }
+                uses = record::verify_primitive(assignment, declared, table)?;
+            }
             AssignmentKind::VariantNew { .. }
             | AssignmentKind::VariantTag { .. }
             | AssignmentKind::VariantGet { .. } => {

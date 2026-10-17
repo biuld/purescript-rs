@@ -2,13 +2,13 @@
 use super::*;
 
 #[derive(Clone, Copy)]
-pub(super) struct StoredValue {
+pub(in crate::mir::lower) struct StoredValue {
     value: ValueId,
     restore: Option<crate::types::RefType>,
 }
 
 impl FunctionLowerer<'_> {
-    pub(super) fn persist_field(
+    pub(in crate::mir::lower) fn persist_field(
         &mut self,
         block: BlockId,
         value: ValueId,
@@ -47,7 +47,7 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    pub(super) fn restore_field(
+    pub(in crate::mir::lower) fn restore_field(
         &mut self,
         block: BlockId,
         stored: StoredValue,

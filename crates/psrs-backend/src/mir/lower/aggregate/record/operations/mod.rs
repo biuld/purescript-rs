@@ -1,6 +1,8 @@
 use super::*;
 use crate::cc::RecordOperation;
 
+mod build;
+
 impl FunctionLowerer<'_> {
     pub(in crate::mir::lower) fn lower_record_operation(
         &mut self,
@@ -130,6 +132,10 @@ impl FunctionLowerer<'_> {
                 replacements,
                 span,
             ),
+            RecordOperation::Build { .. } => Err(aggregate_error(
+                span,
+                "record build must retain its checked provider binding",
+            )),
         }
     }
 

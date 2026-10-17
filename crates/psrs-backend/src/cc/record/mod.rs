@@ -29,12 +29,18 @@ pub enum RecordOperation {
     Update {
         replacements: Vec<(super::ValueId, super::ValueId)>,
     },
+    /// Checked source build from parallel arrays. MIR copies both arrays and
+    /// validates their lengths and label order before publishing the header.
+    Build {
+        labels: super::ValueId,
+        values: super::ValueId,
+    },
 }
 
 impl RecordOperation {
     /// Ordered operands with their physical shapes. Update pairs flatten to
     /// the alternating label/value order used by every consumer.
-    pub(crate) fn arguments(&self) -> Vec<(super::ValueId, ValueShape)> {
+    pub(crate) fn arguments(&self, storage: RecordStorage) -> Vec<(super::ValueId, ValueShape)> {
         match self {
             Self::Length => Vec::new(),
             Self::LabelAt { index } | Self::Read { index } => {
@@ -47,6 +53,13 @@ impl RecordOperation {
                     [(*label, ValueShape::String), (*value, erased_argument())]
                 })
                 .collect(),
+            Self::Build { labels, values } => vec![
+                // Source arrays erase both element types. The implementation
+                // recovers labels as String before copying them into the
+                // owner's specialized label array.
+                (*labels, reference(storage.values())),
+                (*values, reference(storage.values())),
+            ],
         }
     }
 
@@ -55,7 +68,7 @@ impl RecordOperation {
             Self::Length | Self::Find { .. } => ValueShape::Integer,
             Self::LabelAt { .. } => ValueShape::String,
             Self::Read { .. } => super::payload::erased_shape(),
-            Self::Update { .. } => ValueShape::Reference(Reference {
+            Self::Update { .. } | Self::Build { .. } => ValueShape::Reference(Reference {
                 nullable: false,
                 heap: RefShape::Repr(storage.representation()),
             }),
@@ -83,6 +96,10 @@ impl RecordOperation {
                     .into_iter()
                     .map(|_| (take("one label"), take("one value")))
                     .collect(),
+            },
+            Self::Build { .. } => Self::Build {
+                labels: take("label array"),
+                values: take("payload array"),
             },
         }
     }

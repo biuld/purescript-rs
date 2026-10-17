@@ -1,5 +1,14 @@
 # Open Records and Roadmap Handoff — 2026-10-17
 
+**Current resumption:** The committed, clean state described below is the
+historical `b7778658` checkpoint. On top of it, the checked record-storage
+runtime primitives (OR-08) and the official library record wrappers (OR-09)
+are committed at the top of `master` together with the lock and document
+updates; the isolated library package at `e556bf2f` is a separate clean local
+commit and has not been pushed. The final validation is workspace 2,084
+passed / 0 failed / 5 ignored, and the measured board is 284/340. See the
+[current resumption status](#scope-of-the-opening-checkout-state).
+
 **State:** All work this document describes is committed on `master`; the
 checkout is clean and up to date (committed later the same day, see
 "Committed state" below). The project goal and the open-record topic remain
@@ -352,7 +361,7 @@ The open-row update slice (OR-06) then landed as a further commit: base and
 update expressions lower exactly once in source order, the new owner
 `Update` operation patches labels on one fresh store through the shared
 helper machinery, missing runtime labels trap, and forged operands fail the
-CC boundary. The board is now **282/340** on release suite
+CC boundary. The board reached **282/340** on release suite
 `8585a60b24a8a02eb8b5c132c596359422492e224f6199a133fefd2364476337`; the
 official `ObjectUpdate`, `ObjectUpdate2`, `ObjectUpdater`,
 `NestedRecordUpdate`, `NestedRecordUpdateWildcards` and derived-Functor
@@ -364,6 +373,10 @@ slices are OR-08/OR-09
 target bindings and the remaining gates.
 
 ## Follow-up agent start point, 2026-10-17 (evening)
+
+Superseded by the OR-08/OR-09 resumption above: the slice named here as next
+has since been implemented, validated and measured (284/340). The text below
+is retained as the record of that start point.
 
 Start from a clean checkout at `b7778658`; nothing is pushed and no issue was
 closed or commented. Current accepted evidence:
@@ -429,3 +442,104 @@ claims; a local test passing is not acceptance — re-run the affected
 scoreboard and record the number before closing anything; do not narrow the
 design in [open records](../../design/backend/fp/open-records.md) to match an
 implementation. `#124` stays In Progress on the board while these slices run.
+
+## OR-08/OR-09 resumption evidence, 2026-10-17
+
+The current compiler work resumes from `b7778658` in the existing checkout;
+compiler source and test changes are in progress there. The standard-library
+package is now pinned at `e556bf2f8cb377c049d2ff0a5a97b484c7b36bc5`, with
+source fingerprint `fnv1a64-v1:7d96f1c44d8d52cc`. The package checkout
+`/tmp/psrs-open-record-stdlib-or09` is clean at that revision. The lock retains
+the repository's sibling path `../psrs-stdlib`; use
+`PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09` for local compiler
+commands so they consume the pinned package without changing the shared sibling.
+
+OR-09 has focused source and runtime evidence plus the fresh suite-board
+measurement:
+
+- The final vendoring audit covers 50 packages and 309 modules, with no
+  upstream modules absent from the vendor. Its inventory and source comparison
+  are in `/tmp/psrs-open-record-or09-evidence/final-audit/`.
+- The Node conformance suite passed 13/13 cases. The independent target oracle
+  report `/tmp/psrs-open-record-or09-evidence/oracle-edge-final/record-unsafe.json`
+  accepts the shared values case and the empty, missing, and inherited-key
+  trap cases. It records the target differences explicitly: Wasm has no
+  JavaScript `undefined` value or object prototype, and `__proto__` is an
+  ordinary own key in target records. The report uses CLI SHA-256
+  `d91a5b9943b871e4a90997ce0f0fde2123336aa248a7ca12272cd690425dceac` and
+  confirms the package did not change during the run.
+- With the same CLI and package, the official `Deriving.purs` and
+  `TCOFloated.purs` program roots each compiled and ran through the configured
+  library runner with exit 0 and exact stdout `Done\n`. Separate compile and
+  execution records are in `/tmp/psrs-open-record-or09-official-Deriving/`
+  and `/tmp/psrs-open-record-or09-official-TCOFloated/`. This resolves the two
+  `Record.Unsafe.unsafeGet` root blockers in focused evidence; it does not
+  establish the full L6/M7 board. The emitted Wasm SHA-256 values are
+  `4227351f326c51abcbe021a3911b3b173676d4e71c2b5f68535df2c24fb4e98c`
+  (`Deriving`) and
+  `b4eefee336e38789268930b32854a26acc3e0f4cb6f7224cd34b151ce5c9b9c1`
+  (`TCOFloated`). `TCOMutRec.purs` still needs a real
+  `Test.Assert.checkThrows` target contract.
+- The three-module independent caller report
+  `/tmp/psrs-open-record-or08-independent-run-fixed/run.json` executes with
+  exit 42 using the earlier package fingerprint
+  `fnv1a64-v1:5fcbb57525c63eb1`. It is direct read/transport evidence, separate
+  from OR-09 and from the official-suite board.
+
+The fresh release-board run over all 365 program roots measured **284/340**
+with all exit-zero completions and 25 FFI groups excluded
+(`/tmp/psrs-open-record-or08-or09-runtime/summary.json`). Exactly
+`Deriving.purs` and `TCOFloated.purs` leave the failing set — the two
+`Record.Unsafe.unsafeGet` blockers above — and no other failure changed
+state; the remaining 56 roots are 31 P5 typecheck, 11 P5 kind check, 5 P8
+closure/linking (3 closure capture, 1 recursive local binding,
+`Test.Assert.checkThrows`-blocked `TCOMutRec.purs`), 5 P3 resolve, 2 P0 lex
+(DEC-16), one 10-second runtime timeout, and the bounded BigFunction
+compilation, which reached the measurement cap near the 2 GiB guard before a
+diagnostic. OR-09 does not close the topic: OR-07 broader
+generic/recursive/imported interactions, OR-10 edge-key and unsafe-input
+coverage, OR-11 malformed-IR surfaces, OR-12 broader canonical-ABI coverage,
+and OR-13 full-board acceptance remain open. `#124` remains In Progress; no
+push, issue comment, or closure was made for this resumption.
+
+### Validation checkpoint: integration fixes and final rerun
+
+With `PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09` and
+`PSRS_REQUIRE_WASMTIME=1`, formatting passed. The first workspace run had 523
+passes and five failures because legacy ABI, coverage and uninhabited-layout
+fixtures lacked the newly required `ordinary_data_ids` evidence; the fixtures
+were updated to provide the valid producer metadata. The next run reached the
+source-layout tests after all 529 backend tests passed, then rejected new flat
+siblings for the record-build and operations modules. Those files were moved
+into their owning module directories; the focused source-layout test passes
+1/1 and direct record-build execution passes 2/2. These were fixture and source
+organization repairs; the verifier requirements remain intact.
+
+An integrated workspace run passed 2,077 tests, with zero failures and five
+ignored, using the new package; its log is
+`/tmp/psrs-open-record-or08-or09-workspace-integrated.log`.
+
+The final-tree validation is accepted. Formatting and source layout pass, and
+Clippy passes with warnings denied. The full debug workspace with
+`PSRS_REQUIRE_WASMTIME=1` and the new package passes 2,084 tests, failing
+zero, ignoring five
+(`/tmp/psrs-or08-final-tree-workspace.log`). The release suite rebuilds with
+SHA-256
+`37bcdd007466f2ed91f2cbd06962c584bcdd00caef10f73465a5070f36d1f4ee`, and the
+board re-measurement landed as the 284/340 row above and in
+[D-04](../../design/D-04-suite-roadmap.md),
+[README](../../../README.md), and
+[runtime-program-scoreboard](runtime-program-scoreboard.md). Frontend boards
+were not rerun; the slice changed only backend, runtime and library content,
+and their numbers are unchanged from the 2026-10-17 frontend confirmation.
+
+### Scope of the opening checkout state
+
+The opening `State` and `Committed state` paragraphs describe only the earlier
+`b7778658` checkpoint. The compiler follow-up and lock update above it are now
+committed, and the resumption sections describe that state. The separate
+library package at `e556bf2f` is a clean local commit in
+`/tmp/psrs-open-record-stdlib-or09`; it has not been pushed. Take the accepted
+final-tree validation and board numbers from the resumption sections, not
+from the opening snapshot's 282/340 row, which belongs to the earlier package
+and source state.

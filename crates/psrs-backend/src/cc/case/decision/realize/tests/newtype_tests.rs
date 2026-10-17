@@ -31,6 +31,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
             Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: vec![wrapper_type],
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![

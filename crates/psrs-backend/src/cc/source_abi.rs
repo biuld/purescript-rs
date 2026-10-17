@@ -97,7 +97,16 @@ fn user_payload_shape(
 ) -> Option<ValueShape> {
     let head = head_user_type(module, id)?;
     let constructors = constructors_of(module, head);
-    if constructors.is_empty() || constructors.iter().all(|case| case.field_count == 0) {
+    if module.opaque_ids.contains(&head) {
+        return Some(ValueShape::Integer);
+    }
+    if !module.ordinary_data_ids.contains(&head) {
+        return None;
+    }
+    if constructors.is_empty() {
+        return Some(super::payload::erased_shape());
+    }
+    if constructors.iter().all(|case| case.field_count == 0) {
         return Some(ValueShape::Integer);
     }
     Some(reference(*type_reprs.get(&head)?))

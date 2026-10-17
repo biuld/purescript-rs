@@ -13,6 +13,7 @@ pub(in crate::mir) struct ConversionHelpers {
     used: HashSet<SymbolId>,
     next_symbol: u32,
     record_symbols: HashMap<(cc::RecordOperation, cc::ReprId), SymbolId>,
+    record_build_symbols: HashMap<(SymbolId, cc::RecordOperation, cc::ReprId), SymbolId>,
 }
 
 impl ConversionHelpers {
@@ -32,6 +33,7 @@ impl ConversionHelpers {
             used,
             next_symbol: u32::MAX,
             record_symbols: HashMap::new(),
+            record_build_symbols: HashMap::new(),
         }
     }
 

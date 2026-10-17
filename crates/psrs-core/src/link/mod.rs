@@ -23,6 +23,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         .map_or_else(|| TextRange::new(0, 0), |module| module.span);
     let mut types = Vec::new();
     let mut newtype_ids = Vec::new();
+    let mut ordinary_data_ids = Vec::new();
     let mut opaque_ids = Vec::new();
     let mut callable_types: Vec<(psrs_hir::TypeId, u32)> = Vec::new();
     let mut constructors = Vec::new();
@@ -44,6 +45,7 @@ pub fn link(modules: Vec<Module>) -> Module {
             types.push(shift_type(ty, offset, module_variable_offset));
         }
         newtype_ids.extend(module.newtype_ids);
+        ordinary_data_ids.extend(module.ordinary_data_ids);
         opaque_ids.extend(module.opaque_ids);
         for callable in module.callable_types {
             if !callable_types.contains(&callable) {
@@ -101,6 +103,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         external_types,
         types,
         newtype_ids,
+        ordinary_data_ids,
         opaque_ids,
         callable_types,
         constructors,

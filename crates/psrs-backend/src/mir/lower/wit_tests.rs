@@ -39,6 +39,7 @@ fn gc_wit_record_projection_uses_the_planned_product_type() {
         next_value: 1,
         wit_imports: &HashMap::new(),
         runtime_imports: &HashMap::new(),
+        record_primitives: &HashMap::new(),
         layout: &layout,
         literals: None,
     };

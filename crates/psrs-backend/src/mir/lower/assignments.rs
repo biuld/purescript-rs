@@ -204,6 +204,9 @@ impl FunctionLowerer<'_> {
                 AssignmentKind::Record { .. } => {
                     current = self.lower_record_assignment(current, assignment)?;
                 }
+                AssignmentKind::RecordPrimitive { .. } => {
+                    current = self.lower_record_primitive_assignment(current, assignment)?;
+                }
                 AssignmentKind::ProductGet {
                     destination,
                     representation,

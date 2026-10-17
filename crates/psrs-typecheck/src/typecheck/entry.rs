@@ -230,6 +230,12 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
         .filter(|declaration| declaration.kind == hir::TypeDeclarationKind::Newtype)
         .map(|declaration| declaration.id)
         .collect();
+    let ordinary_data_ids = module
+        .types
+        .iter()
+        .filter(|declaration| declaration.kind == hir::TypeDeclarationKind::Data)
+        .map(|declaration| declaration.id)
+        .collect();
     let opaque_ids = module
         .types
         .iter()
@@ -293,6 +299,7 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
         external_types,
         types: types.values,
         newtype_ids,
+        ordinary_data_ids,
         opaque_ids,
         callable_types,
         constructors,

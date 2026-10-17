@@ -661,6 +661,17 @@ and higher-order uses follow the ordinary closure adapter path.
 This is a typed external-call ABI, with no State token, dependency chain or
 read/write ordering analysis. It does not define an Effect/ST implementation.
 
+The source bindings under `psrs:record-storage#length`, `#key_at`,
+`#payload_at` and `#build` have a different implementation contract. They are
+checked source declarations projected by P8/CC onto the application's single
+`RecordStorage` owner; they do not become raw Wasm imports or use the separate
+`psrs:runtime-storage` encoded module. P9 validates the retained provider
+identity against its record operation, then realizes the operation through
+deduplicated application-local helpers using that owner's schema and codec.
+This avoids a second record representation and codec while keeping the raw
+GC-array ABI above unchanged. The choice follows record-schema ownership, not
+a restriction on passing GC references between modules.
+
 The exhaustive [intrinsic implementation catalog](../fp/intrinsic-implementations.md)
 owns direct/generated/artifact selection. HIR owns language schemes and semantic
 effects; the runtime owns raw export contracts and transport protocols. CC keeps

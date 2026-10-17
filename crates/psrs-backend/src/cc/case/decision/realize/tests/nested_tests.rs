@@ -35,6 +35,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
             Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![

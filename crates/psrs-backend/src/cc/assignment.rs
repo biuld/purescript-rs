@@ -35,6 +35,14 @@ pub enum AssignmentKind {
         record: ValueId,
         operation: RecordOperation,
     },
+    /// A source-checked `psrs:record-storage` binding projected into the
+    /// application's shared record owner. Provider identity stays attached
+    /// until P9 validates and realizes the operation.
+    RecordPrimitive {
+        provider: SymbolId,
+        record: Option<ValueId>,
+        operation: RecordOperation,
+    },
     DirectCall {
         /// Required for predeclared machine helpers; absent for ordinary calls.
         contract: Option<ControlHelperId>,

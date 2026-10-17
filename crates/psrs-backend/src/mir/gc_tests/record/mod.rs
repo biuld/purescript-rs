@@ -4,6 +4,8 @@ use crate::cc::{
     ValueConversion, ValueDecl,
 };
 
+mod build;
+
 fn reference(id: ReprId) -> ValueShape {
     ValueShape::Reference(Reference {
         nullable: false,

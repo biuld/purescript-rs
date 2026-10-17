@@ -203,6 +203,10 @@ pub struct Module {
     /// checker keeps these types distinct; later lowering uses this metadata
     /// to pass their field value through without allocating a wrapper.
     pub newtype_ids: Vec<HirTypeId>,
+    /// Ordinary algebraic data declarations, including constructorless data.
+    /// Empty constructor lists alone cannot distinguish these from absent or
+    /// foreign declaration metadata.
+    pub ordinary_data_ids: Vec<HirTypeId>,
     /// Foreign data declarations. Their type node is still
     /// `Constructor(User(id))`; this set, with an empty constructor list, is
     /// what keeps the type opaque. It is not a runtime layout.

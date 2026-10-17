@@ -244,6 +244,7 @@ pub(super) fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Ve
             .collect(),
         types,
         newtype_ids: module.newtype_ids,
+        ordinary_data_ids: module.ordinary_data_ids,
         opaque_ids: module.opaque_ids,
         callable_types: module.callable_types,
         constructors: module

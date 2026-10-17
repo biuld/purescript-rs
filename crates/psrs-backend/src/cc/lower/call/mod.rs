@@ -10,6 +10,35 @@ use psrs_span::TextRange;
 pub(super) use helpers::{is_function_type, persist_reference, restore_reference};
 
 impl super::FunctionLowerer<'_> {
+    pub(super) fn record_primitive_assignment(
+        &self,
+        function: psrs_hir::SymbolId,
+        arguments: &[ValueId],
+    ) -> Option<(
+        psrs_hir::SymbolId,
+        Option<ValueId>,
+        crate::cc::RecordOperation,
+    )> {
+        let external = self
+            .module
+            .externals
+            .iter()
+            .find(|external| external.symbol == function)?;
+        let psrs_hir::ExternalKind::Runtime {
+            module,
+            function: export,
+        } = &external.kind
+        else {
+            return None;
+        };
+        if module != psrs_runtime::RECORD_STORAGE_MODULE {
+            return None;
+        }
+        let primitive = psrs_runtime::RecordPrimitive::from_export(export)?;
+        let (record, operation) = crate::bindings::operation_for_call(primitive, arguments)?;
+        Some((function, record, operation))
+    }
+
     pub(super) fn lower_external_function_value(
         &mut self,
         expression: &Expr,

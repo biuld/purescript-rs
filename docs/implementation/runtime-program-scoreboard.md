@@ -211,3 +211,30 @@ only backend lowering and its tests. Evidence:
 `/tmp/psrs-open-record-2026-10-17-runtime-281/summary.json` per program and
 `/tmp/psrs-open-record-2026-10-17-update-workspace.log` for the full debug
 workspace (2,062 passed, 0 failed, 5 ignored).
+
+## Checked record-storage recheck: 2026-10-17
+
+Compiler `fe6dd78f` plus the earlier open-record slices and the checked
+record-storage runtime primitives with official library record wrappers
+recorded in [the open-records checklist](backend/open-records.md) and
+[the same-day handoff](backend/open-records-handoff-2026-10-17.md) — package
+`e556bf2f` / `fnv1a64-v1:7d96f1c44d8d52cc`, Wasmtime 49.0.3, release suite
+binary SHA-256
+`37bcdd007466f2ed91f2cbd06962c584bcdd00caef10f73465a5070f36d1f4ee` — measured
+with the same per-root `PSRS_SUITE_FILTER` worker arrangement, three workers,
+`PSRS_REQUIRE_WASMTIME=1`, and a 90-second cap with an explicit RSS guard for
+BigFunction.
+
+The board is **284/340**: all completions exit zero, 25 FFI groups are
+excluded, and exactly the two roots blocked by the missing
+`Record.Unsafe.unsafeGet` foreign (`Deriving.purs` and `TCOFloated.purs`) join
+the agreeing set; no other failure changed state. The reason profile is 31 P5
+typecheck, 11 P5 kind check, 5 P8 closure/linking (3 closure capture,
+1 recursive local binding, and `TCOMutRec.purs`, still blocked by the missing
+`Test.Assert.checkThrows` foreign), 5 P3 resolve, 2 P0 lex (DEC-16), one
+10-second runtime timeout, and the bounded BigFunction compilation, which
+reached the measurement cap near the 2 GiB guard before a diagnostic. Evidence:
+`/tmp/psrs-open-record-or08-or09-runtime/summary.json` per program and
+`/tmp/psrs-or08-final-tree-workspace.log` for the full debug workspace at the
+same tree (2,084 passed, 0 failed, 5 ignored, with
+`PSRS_REQUIRE_WASMTIME=1`).

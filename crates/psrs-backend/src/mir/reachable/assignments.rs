@@ -20,7 +20,7 @@ pub(super) fn add_assignments(
 ) {
     for assignment in assignments {
         match &assignment.kind {
-            AssignmentKind::Record { .. } => {
+            AssignmentKind::Record { .. } | AssignmentKind::RecordPrimitive { .. } => {
                 // The record value shape reaches the registered header and its
                 // two array children through ordinary representation traversal.
             }

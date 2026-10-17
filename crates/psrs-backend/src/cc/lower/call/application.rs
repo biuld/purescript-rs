@@ -108,7 +108,7 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 };
                 values.push((converted, restore_shape));
             }
-            let values = values
+            let values: Vec<ValueId> = values
                 .into_iter()
                 .map(|(value, shape)| match shape {
                     Some(shape) => {
@@ -118,13 +118,23 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 })
                 .collect();
             let call_result = self.fresh(signature.result);
+            let kind = self
+                .record_primitive_assignment(function, &values)
+                .map_or_else(
+                    || AssignmentKind::DirectCall {
+                        contract: None,
+                        function,
+                        arguments: values,
+                    },
+                    |(provider, record, operation)| AssignmentKind::RecordPrimitive {
+                        provider,
+                        record,
+                        operation,
+                    },
+                );
             assignments.push(Assignment {
                 destination: call_result,
-                kind: AssignmentKind::DirectCall {
-                    contract: None,
-                    function,
-                    arguments: values,
-                },
+                kind,
                 span: expression.span,
             });
             let source_type =

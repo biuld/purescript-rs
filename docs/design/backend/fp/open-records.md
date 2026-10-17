@@ -76,6 +76,37 @@ fail explicitly. Missing keys cannot fabricate a value of arbitrary result
 type. Invalid unsafe JS inputs involving `undefined` or object prototypes need
 an explicit target contract and separate oracle observations.
 
+The runtime contract describes source operands, result types and the projection
+to the shared `RecordOperation` owner. Before ABI erasure, a slot source type
+must resolve through its checked type applications to a positively identified
+ordinary data declaration with no constructors. Preserve the declaration's
+identity and applied arguments; do not require a bare type node or infer the
+carrier from its spelling. Absent type metadata, newtypes, opaque declarations
+and constructor-bearing declarations do not qualify. P8 checks the source
+contract and closed-record conversions, while P9 retains the provider export
+identity and verifies its exact CC operation and physical signature. P9 trusts
+P8's checked Core source scheme and cannot reconstruct a `Slot` declaration
+identity from erased CC arrays.
+The provider boundary reuses the application record schema and checked kernels;
+it does not supply a second record codec. `build` copies both input arrays,
+checks equal lengths, non-null labels and slots, and strict Unicode-scalar label
+ordering, then returns fresh storage. Its `Array String` input still has the
+source array's erased element representation, so labels are recovered as
+strings before entering the owner's concrete `Array String` field.
+
+The generated provider namespace is `psrs:record-storage`, with exports and
+checked source signatures `length :: forall r. Record r -> Int`,
+`key_at :: forall r. Int -> Record r -> String`,
+`payload_at :: forall r. Int -> Record r -> Slot`, and
+`build :: forall r. Array String -> Array Slot -> Record r`. These declarations
+are checked source bindings, not raw Wasm imports. P9 discharges each binding's
+identity only after it matches the projected record operation, then lowers
+through deduplicated application-local helpers over the registered
+`RecordStorage` schema and codec. This keeps record construction and access
+under the one application owner instead of introducing a second schema or
+codec; it is an ownership choice, not a restriction on cross-module GC
+references.
+
 ## Code map
 
 `cc/record/` owns the checked schema and record plans. `cc/layout/` assigns

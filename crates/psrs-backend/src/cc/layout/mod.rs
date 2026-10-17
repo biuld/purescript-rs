@@ -394,7 +394,9 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
 /// excluded — a nullary foreign type is a resource handle with its own layout,
 /// and an applied foreign type is already handled as an erased reference.
 pub(super) fn is_uninhabited_data_type(module: &CoreModule, type_id: HirTypeId) -> bool {
-    !module.opaque_ids.contains(&type_id)
+    module.ordinary_data_ids.contains(&type_id)
+        && !module.opaque_ids.contains(&type_id)
+        && !module.newtype_ids.contains(&type_id)
         && !module
             .constructors
             .iter()

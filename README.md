@@ -54,7 +54,7 @@ what remains in each layer.
 | L3 kinds | 39/48 failing | official kind `errorCode`s |
 | L4 types | 39/50 failing | official `errorCode`s |
 | L5 classes | 77/97 failing | official `errorCode`s, measured 2026-10-17 |
-| L6/M7 runtime | 282/340 programs | all exit 0; 58 do not agree; 74 support files remain program inputs, 25 FFI groups excluded |
+| L6/M7 runtime | 284/340 programs | all exit 0; 56 do not agree; 74 support files remain program inputs, 25 FFI groups excluded |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Frontend counts use source files; runtime counts use program roots with their

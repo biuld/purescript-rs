@@ -17,13 +17,13 @@ separate. Missing Wasmtime is a failure.
 | OR-05 | Known fields and record patterns select by label, including differing prefixes and canonical indices | Known-field selection executes through shared find/read kernels. Open-row record patterns project by label through the same kernel: a realize unit test proves no product projection against the store, and two required-Wasmtime source runs exercise differing prefixes plus nested open-row values. `FieldPuns.purs`, `FieldConsPuns.purs` and `ReservedWords.purs` additionally execute in the official corpus. Pattern-driven wildcards/tail binding checks for remaining scope interactions. |
 | OR-06 | Immutable updates preserve unknown tails and type-changing field results, with exact evaluation order/count | Open-row updates lower through the owner's `Update` operation: base and update expressions lower exactly once in source order, replacement payloads erase through the common planner, and the runtime kernel patches existing labels on one fresh store while keeping the complete label/value sequence. Direct CC/MIR/GC runs replace a label and recover the rest, a missing label traps, forged operands fail the CC boundary, and three required-Wasmtime source runs cover source-order multi-label updates, a type-changing field over a retained tail, and a case-branch update. Official `ObjectUpdate.purs`, `ObjectUpdate2.purs`, `ObjectUpdater.purs`, `NestedRecordUpdate.purs`, `NestedRecordUpdateWildcards.purs` and derived-Functor `2616.purs` execute. Broader record library coverage is OR-09's scope. |
 | OR-07 | Generic/recursive/imported uses execute without finite specialization as a correctness prerequisite | Generic and recursive source functions execute. Imported and remaining scope interactions are pending. |
-| OR-08 | Source-typed runtime primitives preserve checked operand/result types and slot policy before ABI erasure | CC structural reads have shared operand/result shapes and isolated MIR helpers. Target library bindings are pending. |
-| OR-09 | Library-owned searches and official unsafe wrappers; pinned source and JS oracle comparisons | Pending |
-| OR-10 | Empty, Unicode, reserved-looking and absent keys; invalid unsafe-input target differences explicit | Pending |
-| OR-11 | CC and MIR reject malformed schema, plans, missing fields, mismatched endpoints and evidence | Eight CC-schema, six CC-plan and five MIR-owner/physical mutations reject. Checks for remaining operations are pending. |
+| OR-08 | Source-typed runtime primitives preserve checked operand/result types and slot policy before ABI erasure | Runtime-owned contracts describe `length`, `key_at`, `payload_at` and `build`, including their projection to the one CC `RecordOperation` owner. P8 resolves bare or applied slot types to positive ordinary constructorless declaration evidence; P9 preserves and checks the provider export against the projected operation and rejects direct calls bypassing it. The driver module passes 6/6 with required Wasmtime (five executions including an imported applied-carrier slot, plus one unused invalid-signature rejection). |
+| OR-09 | Library-owned searches and official unsafe wrappers; pinned source and JS oracle comparisons | Implemented for the four `Record.Unsafe` operations: the pinned package preserves the official wrappers and signatures, with algorithms in `PSRS.Record`; the package audit finds 50 packages/309 modules and no missing upstream module. Node conformance passes 13/13, and the independent Wasm oracle accepts the common values and three explicit trap cases. See the OR-09/OR-10 evidence below; full topic acceptance remains open. |
+| OR-10 | Empty, Unicode, reserved-looking and absent keys; invalid unsafe-input target differences explicit | Partial: required-Wasmtime provider tests and the JS/Wasm oracle cover empty storage, private-use and supplementary Unicode labels, `__proto__` as an ordinary own key, absent/inherited get traps, and target divergence from JavaScript `undefined` and prototype lookup. Broader malformed-store, ABI and rejection-path combinations remain open. |
+| OR-11 | CC and MIR reject malformed schema, plans, missing fields, mismatched endpoints and evidence | Eight CC-schema, six CC-plan and five MIR-owner/physical mutations reject. Six P9 provider-boundary rejections cover the checked registry (a valid base passes, while a second registered provider, a missing runtime binding, an export for another operation, a direct-call bypass and a noncanonical external signature reject); five direct build-input mutations trap. Checks for remaining operations are pending. |
 | OR-12 | Canonical ABI and parameterized ADT fields use the same record storage policy | Erased record lists encode/validate both ABI directions, String and flags fields. Three filesystem programs execute; broader nested ABI execution remains required. |
 | OR-13 | Value-sensitive required-Wasmtime programs, official TCOFloated/Deriving cases, and full scoreboards | Pending |
-| OR-14 | Formatting, full workspace tests, Clippy, final diff and design review | Formatting, source layout, full workspace (2,053 passed, 0 failed) and Clippy pass at the 2026-10-17 post-repair checkpoint. The final diff and design review against the complete topic remain open. |
+| OR-14 | Formatting, full workspace tests, Clippy, final diff and design review | Formatting, source layout, full workspace and Clippy pass at the final 2026-10-17 validation checkpoint: 2,084 passed / 0 failed / 5 ignored with `PSRS_REQUIRE_WASMTIME=1` and the new package, Clippy with warnings denied, and the release suite rebuilt. The final diff and design review against the complete topic remain open. |
 
 ## Starting evidence
 
@@ -206,7 +206,123 @@ boards are unchanged; the slice changed only backend lowering and its tests.
 OR-08 target bindings, OR-09 library record algorithms and the remaining
 OR-11 rejection surfaces stay open.
 
-The standard-library package remains `6fcef6cc`; its official source has not
-been rewritten, and `Record.Unsafe` foreigns still report missing target
-support. Do not close #124 or declare the open-record topic complete on these
-paths.
+At this update checkpoint, the standard-library package was `6fcef6cc`; its
+official sources had not been rewritten, and `Record.Unsafe` foreigns still
+reported missing target support. The subsequent OR-09 library work is tracked
+separately. Do not close #124 or declare the open-record topic complete on
+these paths.
+
+## Checked record-storage primitive slice: 2026-10-17
+
+`psrs-runtime` now owns source contracts for `psrs:record-storage#length`,
+`key_at`, `payload_at` and `build`. The descriptor includes source parameter
+and result types and the argument positions projected to the shared
+`cc::RecordOperation` owner. P8 checks the checked Core source signature before
+erasure, resolving bare and applied source types to a positively recorded
+ordinary constructorless data carrier for `Slot`; missing, conflicting
+ordinary/opaque/newtype evidence and constructor-bearing carriers reject. P9
+retains provider identity through CC
+and validates that each operation matches its checked export. Closed product
+record arguments and results use the ordinary shared pack/unpack conversion.
+These bindings lower to the existing record kernels through helper functions;
+they do not create another physical record schema or codec. P9 checks the
+preserved provider export, operation and physical signature; it trusts the P8
+producer's checked source scheme and does not reconstruct `Slot` identity from
+the erased arrays.
+
+`build` copies both source arrays before constructing the store. It checks
+nonnegative/equal lengths, recovers each label from the source array's erased
+element storage, rejects null labels and slots, enforces strictly increasing
+Unicode-scalar label order, and returns a fresh `(labels, values)` store. The
+source wrapper still owns searches and mutation algorithms.
+
+Evidence:
+
+- Final-tree, required-Wasmtime source tests in
+  `psrs-driver::tests::record_storage` pass 6/6 with
+  `PSRS_REQUIRE_WASMTIME=1`: five execute generated record operations
+  (including an imported applied-carrier `Cell Int` slot), and
+  `record_storage_validates_unused_source_contracts_before_erasure` rejects
+  unused bad source signatures at P8. The executions cover imported renamed ordinary `Cell`,
+  higher-order length, key and payload reads, nested and callable slots,
+  mutation of both original arrays after `build`, closed-record signatures,
+  empty storage, Unicode and prefix ordering, duplicate/unsorted labels,
+  unequal input lengths, and negative/out-of-range reads.
+- Direct GC/MIR tests in
+  `mir::gc_tests::record::build` pass 2/2 direct executions with required
+  Wasmtime. The checked provider path builds through the shared owner; two
+  malformed MIR executions inject a null into each input array and verify the
+  label cast and payload checks trap.
+- Backend source-contract tests prove valid ordinary carrier evidence and
+  reject missing metadata, ordinary/opaque and ordinary/newtype conflicts, and
+  constructor-bearing data. CC rejects providerless `Build` evidence, the
+  shared projection test covers each export/operation pair and rejects a
+  mismatched provider operation, and six P9 provider-boundary rejections cover
+  the provider registry: a valid base passes both checked stages, while a
+  second registered provider, a missing runtime binding, an export for another
+  operation, a direct-call bypass and a noncanonical external signature all
+  reject. All of this is final-tree evidence in the 2,084-test workspace run.
+- An independent three-module imported fixture passed the library runner and
+  exited 42 after mutating its original labels and payload arrays. The
+  comparable diagnosis cohort is `/tmp/psrs-open-record-or08-independent-final.json`
+  and `/tmp/psrs-open-record-or08-independent-compare.json`; runtime output is
+  `/tmp/psrs-open-record-or08-independent-run-fixed/run.json`.
+
+The checked primitive contract and MIR slice is implemented. OR-09 library
+wrappers and algorithms, remaining OR-11 rejection surfaces, and complete
+integration checks remain open; this does not close the open-record topic.
+
+## Library record algorithms and unsafe wrappers: 2026-10-17
+
+Package `e556bf2f8cb377c049d2ff0a5a97b484c7b36bc5` supplies the OR-09
+implementation at fingerprint `fnv1a64-v1:7d96f1c44d8d52cc`. Its clean
+checkout is `/tmp/psrs-open-record-stdlib-or09`; the compiler lock retains
+`../psrs-stdlib`, so use
+`PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09` for local compiler
+commands. `Record.Unsafe` keeps the four official exports and signatures as
+ordinary wrappers; `PSRS.Record` owns the search, insertion, deletion and
+replacement algorithms and calls the checked `psrs:record-storage` operations.
+
+The final vendoring audit covers 50 packages and 309 modules, with no upstream
+modules absent from the vendor (`/tmp/psrs-open-record-or09-evidence/final-audit/`).
+The library's Node conformance suite passes 13/13. Its independent target
+oracle report is
+`/tmp/psrs-open-record-or09-evidence/oracle-edge-final/record-unsafe.json`:
+the common value behavior is accepted; empty-record, missing-key and
+inherited-key get cases produce the expected target traps; checks for updates,
+deletes, callbacks, nested arrays and Unicode labels pass. The explicit target
+differences are that Wasm has no JavaScript `undefined` result or prototype
+lookup and treats `__proto__` as an ordinary own key. The report binds this
+evidence to the package fingerprint and CLI SHA-256
+`d91a5b9943b871e4a90997ce0f0fde2123336aa248a7ca12272cd690425dceac`.
+
+This covers OR-09 and part of OR-10, not all unsafe-input and integration
+surfaces. Broader malformed-store and ABI interactions, remaining OR-11
+rejection operations, OR-07/OR-12 combinations, and OR-13's full value-sensitive
+boards remain open. Keep #124 In Progress until all required slices and final
+boards are verified.
+
+## Final validation and board: 2026-10-17
+
+The final checkout state carries the checked record primitives, the new
+package, all source-layout repairs and the applied-carrier/P9 tests together.
+Validation at this tree: formatting and source layout pass, Clippy passes with
+warnings denied, and the release suite binary rebuilds with SHA-256
+`37bcdd007466f2ed91f2cbd06962c584bcdd00caef10f73465a5070f36d1f4ee`. The full
+debug workspace passes 2,084 tests, failing zero, ignoring five, with
+`PSRS_REQUIRE_WASMTIME=1` and `PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09`
+(`/tmp/psrs-or08-final-tree-workspace.log`).
+
+The runtime board was re-measured over all 365 program roots with the same
+per-root worker pattern: **284/340** with all exits zero and 25 FFI groups
+excluded (per-program rows in
+`/tmp/psrs-open-record-or08-or09-runtime/summary.json`). Exactly
+`Deriving.purs` and `TCOFloated.purs` leave the failing set — the two
+`Record.Unsafe.unsafeGet` blockers — and no other failure changed state. The
+56 non-agreeing roots split as 31 P5 typecheck, 11 P5 kind check, 5 P8
+closure/linking (3 closure capture, 1 recursive local binding, and the
+`Test.Assert.checkThrows`-blocked `TCOMutRec.purs`), 5 P3 resolve, 2 P0 lex
+(DEC-16), one 10-second runtime deadline, and the bounded BigFunction
+compilation, which reached the measurement cap near the 2 GiB guard before a
+diagnostic. `Test.Assert.checkThrows` remains the one record-adjacent foreign
+without a target contract. The topic is not closed; #124 stays In Progress.

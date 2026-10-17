@@ -7,6 +7,7 @@ mod semantics;
 
 pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
     let mut errors = Vec::new();
+    verify_type_kind_metadata(module, &mut errors);
     let mut external_type_symbols = std::collections::HashSet::new();
     for external_type in &module.external_types {
         if !external_type_symbols.insert(external_type.symbol) {
@@ -94,6 +95,37 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+fn verify_type_kind_metadata(module: &Module, errors: &mut Vec<VerifyError>) {
+    let newtypes = module
+        .newtype_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let ordinary = module
+        .ordinary_data_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let opaque = module
+        .opaque_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    if newtypes.len() != module.newtype_ids.len()
+        || ordinary.len() != module.ordinary_data_ids.len()
+        || opaque.len() != module.opaque_ids.len()
+        || newtypes
+            .iter()
+            .any(|id| ordinary.contains(id) || opaque.contains(id))
+        || ordinary.iter().any(|id| opaque.contains(id))
+    {
+        errors.push(VerifyError {
+            span: module.span,
+            message: "type declaration kind metadata is duplicated or contradictory",
+        });
     }
 }
 
@@ -379,5 +411,39 @@ fn verify_type_id(id: TypeId, type_count: usize, span: TextRange, errors: &mut V
             span,
             message: "type reference is outside the THIR type table",
         });
+    }
+}
+
+#[cfg(test)]
+mod type_kind_tests {
+    use super::*;
+    use crate::ConstructorInfo;
+    use psrs_hir::{ModuleId, TypeId as HirTypeId};
+
+    #[test]
+    fn rejects_ordinary_data_that_is_also_declared_opaque() {
+        let id = HirTypeId::new(ModuleId(1), 2);
+        let module = Module {
+            id: ModuleId(1),
+            name: "Carrier".into(),
+            externals: Vec::new(),
+            external_types: Vec::new(),
+            types: Vec::new(),
+            newtype_ids: Vec::new(),
+            ordinary_data_ids: vec![id],
+            opaque_ids: vec![id],
+            callable_types: Vec::new(),
+            constructors: Vec::<ConstructorInfo>::new(),
+            declarations: Vec::new(),
+            type_names: vec![(id, "Carrier.Cell".into())],
+            span: TextRange::new(0, 1),
+        };
+        let mut errors = Vec::new();
+        verify_type_kind_metadata(&module, &mut errors);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("duplicated or contradictory"))
+        );
     }
 }

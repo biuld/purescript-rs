@@ -46,6 +46,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
             Type::Application(psrs_core::TypeId(5), psrs_core::TypeId(4)),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![
@@ -252,6 +253,7 @@ fn open_record_patterns_find_their_field_label_in_the_labelled_store() {
             Type::Application(psrs_core::TypeId(3), psrs_core::TypeId(2)),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),

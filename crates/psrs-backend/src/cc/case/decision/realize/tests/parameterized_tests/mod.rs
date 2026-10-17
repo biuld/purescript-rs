@@ -31,6 +31,7 @@ fn parameterized_array_field_projection_uses_its_stored_canonical_array() {
             Type::Application(psrs_core::TypeId(0), psrs_core::TypeId(1)),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![ConstructorInfo {
@@ -184,6 +185,7 @@ fn nested_parameterized_projection_keeps_each_canonical_field() {
             Type::Application(psrs_core::TypeId(1), psrs_core::TypeId(2)),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: vec![
@@ -337,6 +339,7 @@ fn generic_record_pattern_projects_its_canonical_array_field() {
             Type::Application(psrs_core::TypeId(5), psrs_core::TypeId(4)),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),

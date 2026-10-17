@@ -21,6 +21,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
             Type::Constructor(psrs_core::TypeConstructor::Number),
         ],
         newtype_ids: Vec::new(),
+        ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
         constructors: Vec::new(),
