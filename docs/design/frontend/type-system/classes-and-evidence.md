@@ -274,6 +274,18 @@ check, so the proof needs its own verified answer contract. See [primitives](pri
 for the dispatch and outcome contract and [D-04](../../D-04-suite-roadmap.md) for
 measured coverage.
 
+The orphan rule from `TypeChecker.typeCheckAll` is implemented at the common
+instance recorder: after an instance head is synthesized — synonym resolution
+included — the declaring module is non-orphan exactly when it declares the
+class, or when every covering set of the class parameters contains a covered
+argument whose leftmost spine-head type constructor it declares. An orphan
+instance reports `OrphanInstance` at that boundary and is not recorded, which
+reproduces the official throw order: an orphan can neither join the overlap
+check nor start its own derivation. All seven `OrphanInstance` corpus
+cases agree on the M5 board (measured 2026-10-18 with the annotations oracle).
+Instance-chain apartness beyond the recorder is
+still tracked as future work above.
+
 The parts that *are* reached now include what the previous revision of this note
 listed as missing. A declaration's scheme carries the constraints inference
 retained, so a signatureless declaration infers a qualified type —

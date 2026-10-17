@@ -311,6 +311,13 @@ impl Checker {
         if local && !validate_head_shapes(self, &class, &head_arguments, instance.head.span) {
             return;
         }
+        // An orphan instance is rejected at the recorder and not recorded, so
+        // it can neither overlap with a visible instance nor submit a derived
+        // dictionary; the official throw aborts the remaining checks
+        // (`checkOrphanInstance` precedes `checkOverlappingInstance`).
+        if local && self.report_orphan_instance(instance, &class, &head_arguments) {
+            return;
+        }
         let mut context = Vec::with_capacity(instance.context.len());
         let mut context_parameters = Vec::with_capacity(instance.context.len());
         let mut valid = true;

@@ -50,6 +50,9 @@ fn derived_foldable_preserves_record_label_order_in_both_fold_directions() {
 
 class Semigroup a where
   append :: a -> a -> a
+
+instance semigroupInt :: Semigroup Int where
+  append left right = intAdd left right
 "#;
     let monoid = r#"module Data.Monoid where
 
@@ -57,6 +60,9 @@ import Data.Semigroup
 
 class Semigroup a <= Monoid a where
   mempty :: a
+
+instance monoidInt :: Monoid Int where
+  mempty = 0
 "#;
     let foldable = r#"module Data.Foldable where
 
@@ -72,12 +78,6 @@ class Foldable t where
 import Data.Foldable
 import Data.Monoid
 import Data.Semigroup
-
-instance semigroupInt :: Semigroup Int where
-  append left right = intAdd left right
-
-instance monoidInt :: Monoid Int where
-  mempty = 0
 
 data Box a = Box { first :: a, last :: a, flag :: Boolean }
 

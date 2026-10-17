@@ -24,6 +24,11 @@ pub enum TypeCheckErrorKind {
     FundepConflict,
     /// More than one unrelated visible instance proves the same constraint.
     OverlappingInstances,
+    /// A local instance declares neither its class nor a type constructor that
+    /// covers one of the class's functional-dependency covering sets. `purs`
+    /// raises this in `TypeChecker.typeCheckAll` through
+    /// `findNonOrphanModules` and `checkOrphanInstance`.
+    OrphanInstance,
     /// A constraint still mentions variables that neither the result type nor
     /// the class's functional dependencies determine.
     AmbiguousConstraint,
@@ -186,6 +191,7 @@ impl TypeCheckErrorKind {
             TypeCheckErrorKind::NoInstance => "NoInstanceFound",
             TypeCheckErrorKind::MissingInstanceMethod => "MissingClassMember",
             TypeCheckErrorKind::OverlappingInstances => "OverlappingInstances",
+            TypeCheckErrorKind::OrphanInstance => "OrphanInstance",
             TypeCheckErrorKind::AmbiguousConstraint => "AmbiguousTypeVariables",
             TypeCheckErrorKind::CannotGeneralizeRecursiveFunction => {
                 "CannotGeneralizeRecursiveFunction"
