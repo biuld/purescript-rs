@@ -224,6 +224,35 @@ leaves no kind binding behind. `bind_variable` runs the kind check alongside the
 solved during row unification keeps the kind its row admits through that same
 binding.
 
+### Annotation positions follow the official check-site diagnostics
+
+The pass separates the two diagnostic origins kind checking has. An application's
+arrow kind, a row's element kind, an instance head, and a synonym body against its
+declared kind all fail through the kind unifier and report `KindsDoNotUnify`. A
+*written type at a type-annotation position* — a value signature, an `x :: t`
+ascription in an expression, a typed binder pattern, and a `where`/`let` binding's
+signature — must have kind `Type`, and official `TypeChecker/Kinds.hs` solves that
+one equation through `checkTypeKind`, whose failure handler reports `ExpectedType`
+rather than the unifier's mismatch. The pass runs the same equation with the same
+state at those positions only, so the two codes do not drift: `failing/1570.purs`
+(a typed lambda binder with a partially applied constructor) and
+`failing/KindStar.purs` (a value signature ending in an unsaturated constructor)
+report `ExpectedType`, while `failing/TypeWildcards1.purs`-shaped kind equations
+between two non-`Type` kinds still report `KindsDoNotUnify`.
+
+A local annotation's written type variables are also scoped here. The binders the
+enclosing declaration's signature quantifies *as written* are in scope, as are a
+local signature's own `forall` binders and, for instance members, the free
+variables written in the instance head and its context; synonym expansion never
+brings a binder into scope, which is the official `withScopedTypeVars` scoping and
+the recorded #2542 rule. Any other named variable is `UndefinedTypeVariable`
+before the kind is read, so `failing/2542.purs` (`bar :: Array a` under
+`foo :: T`, with `T = forall a. Array a`) reports the code against the `a` the
+synonym's expansion hid. A visible type application's argument is checked against
+the kind of the quantifier it instantiates officially, and this pass cannot see
+that kind yet, so it keeps the pre-existing `Type` solve there while the
+new scope rule applies to the argument's variables the same way.
+
 What remains, and what the next wave owns:
 
 - The well-scoped-quantification rule is not implemented. A scheme quantifies the kind
@@ -258,6 +287,21 @@ What remains, and what the next wave owns:
   modules produced. `kind_of_type` over an `InferType` is not implemented in
   `psrs-kind`, because an inference type is not HIR: it lives in the type checker's
   `kind.rs` and reads the same solver.
+- Two corpus cases in the M4 set still diverge at the kind stage, both anchored in
+  the polykind model, not in a diagnostic choice:
+  `failing/SkolemEscapeKinds.purs` and `failing/PolykindGeneralizationLet.purs`.
+  Officially the kind checker accepts both and the failures surface later — an
+  `EscapedSkolem` raised by `checkEscapedSkolems` over a type synonym body
+  (`SkolemEscapeKinds`), and a `TypesDoNotUnify` raised by term checking
+  (`PolykindGeneralizationLet`, `where` a top-level binding group of the same
+  three `Proxy :: _ ...` uses passes). Here the kind pass rejects
+  `PolykindGeneralizationLet` with `KindsDoNotUnify` because declaration
+  parameters' kinds are shared raw variables across use sites, so
+  `data F f a = F (f a)`'s field equation is solved against a use the
+  declaration never checked. The official acceptance is the annotation-based
+  board; measured 2026-10-18 on this tree, L3 is 40/48 (`UndefinedTypeVariable`
+  4/4, `KindsDoNotUnify` 16/24) and L4 is 41/50 (`ExpectedType` 2/2,
+  `EscapedSkolem` 1/2) with the L2 failing board unchanged at 72/72.
 
 Consolidating `psrs-kind` into the type checker is now a consequence of packaging
 alone: kind checking's main consumer is still P5, and the crate split is not what

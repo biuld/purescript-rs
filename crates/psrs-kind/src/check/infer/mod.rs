@@ -169,11 +169,43 @@ impl Checker<'_> {
         }
     }
 
+    /// Solves a type-annotation kind equation, reporting `ExpectedType` when
+    /// it fails.
+    ///
+    /// A value's written type must have kind `Type`, and at an annotation
+    /// (`x :: t`, a value signature, a binder annotation) official PureScript
+    /// solves exactly this equation through `checkTypeKind`
+    /// (`TypeChecker/Kinds.hs`), whose failure handler reports `ExpectedType`
+    /// with the written type and its kind. The kind unifier's own mismatch is
+    /// reserved for kinds two types impose on each other, so an annotation
+    /// that is not a type at all is not reported as a conflict between kinds.
+    ///
+    /// A failure may leave partial bindings behind; like the official
+    /// `unifyKindsWithFailure` failure handler, they stay and the report names
+    /// the kind the annotation carried when its equation failed.
+    pub(super) fn check_type_annotation_kind(
+        &mut self,
+        kind: Kind,
+        against: Kind,
+        span: TextRange,
+    ) {
+        if crate::solve::unify_kind(&mut self.state, kind.clone(), against, span).is_err() {
+            let kind = self.state.resolve(kind);
+            self.report(
+                EXPECTED_TYPE,
+                span,
+                format!(
+                    "in a type-annotated expression `x :: t`, the type `t` must have kind `Type`; it has kind `{kind:?}`"
+                ),
+            );
+        }
+    }
+
     fn check_module_definitions(&mut self, module: &hir::Module) {
         for signature in module.declared_value_signatures() {
             let mut scope = HashMap::new();
             let kind = self.kind_of_type(signature, &mut scope);
-            self.unify(kind, type_kind(), signature.span);
+            self.check_type_annotation_kind(kind, type_kind(), signature.span);
         }
         for declaration in &module.types {
             let Some(scheme) = self.schemes.get(&declaration.id).cloned() else {

@@ -17,9 +17,11 @@ fn foreign_value_annotations_are_checked_at_their_declaring_module() {
         ),
     ]);
     let diagnostics = check_modules(&modules);
+    // A foreign value's annotation kind equation fails through the official
+    // `checkTypeKind`, which reports `ExpectedType` at the annotation.
     let conflicts = diagnostics
         .iter()
-        .filter(|error| error.code == "KindsDoNotUnify")
+        .filter(|error| error.code == "ExpectedType")
         .collect::<Vec<_>>();
     assert_eq!(conflicts.len(), 1, "{diagnostics:?}");
     assert_eq!(conflicts[0].origin, ModuleId(1));
