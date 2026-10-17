@@ -56,6 +56,42 @@ fn reports_decl_conflict_between_a_class_and_a_type() {
 }
 
 #[test]
+fn reports_duplicate_type_class_for_two_classes_of_one_name() {
+    // Two class declarations sharing one name are the official
+    // `DuplicateTypeClass`, not the ordinary declaration conflict.
+    let source = "module Main where\nclass C\nclass C\n";
+    let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();
+    let codes: Vec<_> = errors
+        .iter()
+        .filter_map(|error| error.diagnostic.code)
+        .collect();
+    assert!(
+        codes.contains(&"DuplicateTypeClass") && !codes.contains(&"DeclConflict"),
+        "{codes:?}"
+    );
+}
+
+#[test]
+fn still_reports_decl_conflict_when_a_class_meets_another_declaration() {
+    // Only a class meeting an earlier class is `DuplicateTypeClass`; a class
+    // name colliding with a data type, a synonym, or a constructor keeps the
+    // ordinary `DeclConflict` code.
+    for source in [
+        "module Main where\nclass Fail\ndata Fail\n",
+        "module Main where\ndata Fail\nclass Fail\n",
+        "module Main where\ndata T = Fail\nclass Fail\n",
+    ] {
+        let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.diagnostic.code == Some("DeclConflict")),
+            "{source}: {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn imports_a_type_and_its_constructors_across_modules() {
     let library = "module Library where\ndata Maybe a = Nothing | Just a\n";
     let main = "\

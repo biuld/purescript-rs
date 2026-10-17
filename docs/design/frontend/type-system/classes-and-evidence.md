@@ -283,7 +283,10 @@ instance reports `OrphanInstance` at that boundary and is not recorded, which
 reproduces the official throw order: an orphan can neither join the overlap
 check nor start its own derivation. All seven `OrphanInstance` corpus
 cases agree on the M5 board (measured 2026-10-18 with the annotations oracle).
-Instance-chain apartness beyond the recorder is
+The `DuplicateTypeClass` code is owned by name resolution, not by the class
+environment: a class declaration whose name already belongs to a class in the
+same module is `DuplicateTypeClass`, while every other same-name declaration
+collision is `DeclConflict`. Instance-chain apartness beyond the recorder is
 still tracked as future work above.
 
 The parts that *are* reached now include what the previous revision of this note

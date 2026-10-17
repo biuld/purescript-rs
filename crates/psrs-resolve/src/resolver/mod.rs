@@ -44,6 +44,10 @@ pub enum ResolveErrorKind {
     TransitiveExportError,
     TransitiveDctorExportError,
     ExportConflict,
+    /// Two class declarations share one name, the official
+    /// `DuplicateTypeClass` error. Every other same-name type-declaration
+    /// collision stays a `DeclConflict`.
+    DuplicateTypeClass,
     ScopeConflict,
     DeclConflict,
     InvalidHir,
@@ -58,6 +62,7 @@ impl ResolveErrorKind {
             Self::DuplicateLocalBinding => "OverlappingNamesInLet",
             Self::UnknownName | Self::UnknownTypeName => "UnknownName",
             Self::DuplicateModule => "DuplicateModule",
+            Self::DuplicateTypeClass => "DuplicateTypeClass",
             Self::CannotDefinePrimModules => "CannotDefinePrimModules",
             Self::ModuleNotFound => "ModuleNotFound",
             Self::CycleInModules => "CycleInModules",
@@ -103,6 +108,9 @@ impl ResolveError {
                 format!("the value `{name}` has been defined multiple times")
             }
             ResolveErrorKind::DuplicateModule => format!("duplicate module `{name}`"),
+            ResolveErrorKind::DuplicateTypeClass => {
+                format!("the type class `{name}` has already been declared")
+            }
             ResolveErrorKind::CannotDefinePrimModules => {
                 format!("module `{name}` is in the reserved Prim namespace")
             }
@@ -237,6 +245,10 @@ fn plan_type_declarations(
     let mut type_names = HashMap::new();
     let mut opaque_types = HashSet::new();
     let mut uppercase: HashSet<String> = HashSet::new();
+    // Type names already held by a class declaration, so a collision is
+    // classified: two classes sharing one name are the official
+    // `DuplicateTypeClass`, and any other pair stays a `DeclConflict`.
+    let mut class_held_names: HashSet<String> = HashSet::new();
     let mut next_symbol = first_symbol;
 
     for (index, declaration) in declarations.iter().enumerate() {
@@ -264,11 +276,17 @@ fn plan_type_declarations(
         }
 
         if uppercase.contains(&name.text) {
-            errors.push(ResolveError::named(
-                ResolveErrorKind::DeclConflict,
-                name.text.clone(),
-                name.span,
-            ));
+            let kind = if matches!(declaration, ast::TypeDeclaration::Class(_))
+                && class_held_names.contains(&name.text)
+            {
+                ResolveErrorKind::DuplicateTypeClass
+            } else {
+                ResolveErrorKind::DeclConflict
+            };
+            errors.push(ResolveError::named(kind, name.text.clone(), name.span));
+        }
+        if matches!(declaration, ast::TypeDeclaration::Class(_)) {
+            class_held_names.insert(name.text.clone());
         }
         if matches!(declaration, ast::TypeDeclaration::Foreign(_)) {
             opaque_types.insert(id);
