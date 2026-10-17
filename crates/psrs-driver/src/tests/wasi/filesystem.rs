@@ -155,3 +155,78 @@ main =
     assert_eq!(output.stdout, b"stat-ok\n", "{output:?}");
     let _ = std::fs::remove_dir_all(&directory);
 }
+
+#[test]
+fn nested_record_timestamps_roundtrip_through_adt_slots_open_rows_and_the_canonical_abi() {
+    let source = r#"module Main where
+import Effect.Unsafe (unsafePerformEffect)
+import Prelude
+import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
+import WASI.FileSystem
+
+data Box a = Box a
+keep :: forall a. a -> Box (Array a)
+keep value = Box [value]
+resize :: forall r. { size :: Int | r } -> { size :: Int | r }
+resize record = record { size = 42 }
+seconds :: forall r. { seconds :: Int | r } -> Int
+seconds record = record.seconds
+nanos :: forall r. { nanoseconds :: Int | r } -> Int
+nanos record = record.nanoseconds
+main :: Int
+main =
+  let directory = (arrayIndex (unsafePerformEffect preopens) 0)._1
+      access = Timestamp { seconds: 1600000041, nanoseconds: 220000000 }
+      modified = Timestamp { seconds: 1600000042, nanoseconds: 330000000 }
+      changed = unsafePerformEffect (setTimesAt directory { symlinkFollow: true } "probe.bin" access modified)
+  in case changed of
+    Left _ -> 1
+    Right _ -> case unsafePerformEffect (statAt directory { symlinkFollow: true } "probe.bin") of
+      Left _ -> 2
+      Right original -> case keep (resize original) of
+        Box values ->
+          let copied = arrayIndex values 0
+          in case copied.dataAccessTimestamp, copied.dataModificationTimestamp of
+            Just atime, Just mtime ->
+              if intEq original.size 6 && intEq copied.size 42
+                 && intEq (seconds atime) 1600000041 && intEq (nanos atime) 220000000
+                 && intEq (seconds mtime) 1600000042 && intEq (nanos mtime) 330000000
+              then case unsafePerformEffect (setTimesAt directory { symlinkFollow: true } "probe.bin" (Timestamp atime) (Timestamp mtime)) of
+                Left _ -> 3
+                Right _ -> case unsafePerformEffect (statAt directory { symlinkFollow: true } "probe.bin") of
+                  Right { dataModificationTimestamp: Just returned, size: 6 } ->
+                    if intEq returned.seconds 1600000042 && intEq returned.nanoseconds 330000000 then 42 else 4
+                  _ -> 5
+              else 6
+            _, _ -> 7
+"#;
+    let directory = std::env::temp_dir().join(format!(
+        "psrs-record-abi-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let file = directory.join("probe.bin");
+    std::fs::write(&file, b"abcdef").unwrap();
+    let Some(output) = run_wasmtime_with_dirs(source, &[], None, &[(directory.clone(), "/data")])
+    else {
+        std::fs::remove_dir_all(directory).unwrap();
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    let modified = std::fs::metadata(file)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    assert_eq!(modified.as_secs(), 1600000042);
+    assert_eq!(modified.subsec_nanos(), 330000000);
+    std::fs::remove_dir_all(directory).unwrap();
+}

@@ -5,6 +5,7 @@ use crate::cc::{
 };
 
 mod build;
+mod malformed;
 
 fn reference(id: ReprId) -> ValueShape {
     ValueShape::Reference(Reference {

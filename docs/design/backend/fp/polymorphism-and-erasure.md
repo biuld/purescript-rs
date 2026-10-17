@@ -628,21 +628,19 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
   reach the ABI boundary; ABI adaptation happens on concrete canonical
   signatures only.
 
-### Closed local row instantiations
+### Generic local row closures
 
-Before CC layout, checked nonrecursive local lambdas with row quantifiers may
-be expanded at finite closed uses. The Core checking relation owns each row
-solution, including residual fields with no existing type-arena node. Explicit
-materialization appends row nodes without changing the source arena's existing
-identities; capture-avoiding substitution discharges the scheme's quantifiers
-and freshens local identities. This preparation is independent of optimization
-budgets and preserves evaluation of captured computations.
+CC accepts checked local row-polymorphic lambdas directly, including captured,
+recursive and higher-order uses. The [open-row store](open-records.md) supplies
+the generic representation; closed arguments cross its explicit pack/unpack
+boundaries at their checked use types. Two closed instantiations can call the
+same captured closure without materializing separate local bindings.
 
-An unresolved use, recursive binding, or scheme with additional unresolved
-quantifiers retains its full source scheme. The [open-row store](open-records.md)
-supplies the general runtime representation; finite local specialization is
-optional for correctness. Its implementation checklist remains incomplete.
-Input and output Core verification remain mandatory.
+P8 does not run a finite local-row specialization preparation. Ordinary Core
+optimization may specialize declarations, but its budget and the availability
+of closed uses cannot determine correctness. Input Core verification remains
+mandatory before layout; closure conversion and its verifier own the resulting
+generic call and capture contracts.
 
 ## Open questions and future work
 

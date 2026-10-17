@@ -201,3 +201,5 @@ main = step { tag: 0, extra: 9, always: 42 }
     };
     assert_eq!(output.status.code(), Some(42), "{output:?}");
 }
+
+mod composition;

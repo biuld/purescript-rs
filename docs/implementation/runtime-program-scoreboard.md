@@ -271,3 +271,38 @@ The same slice's full debug workspace passes 2,093 tests, zero failures and five
 ignored scoreboards (run separately as above), with required Wasmtime and the
 same package: `/tmp/psrs-partial-workspace-final.log`. Formatting, source layout,
 and strict full-workspace Clippy also pass.
+
+## Generic local rows recheck: 2026-10-18
+
+Compiler `7dd45e4b` plus the preserved shared-coverage slice and the removal of
+P8's mandatory local-row specialization, using the same clean package
+`e556bf2f` / `fnv1a64-v1:7d96f1c44d8d52cc` and required Wasmtime 49.0.3,
+remeasures **287/340**. The agreeing set is unchanged: no regressions and no
+recoveries. All successful programs exit zero. The same 365 roots, 74 support
+inputs and 25 excluded FFI groups are retained. The release suite SHA-256 is
+`52a9b77e706fd2030ed8c235c75f3a313ee118a18de0b49e4be21eb375e03df1`.
+
+The ordinary three-worker run completes 364 roots. BigFunction is separately
+bounded by the same 90-second cap and 2 GiB RSS guard; it reaches the RSS guard
+in 27.89 seconds, with observed peak 2,141,824 KiB. This differs from the previous
+90.89-second timeout at 1,485,792 KiB, but both are incomplete compilation and
+neither counts as runtime agreement. The other failures retain their prior
+31 P5 typecheck, 11 P5 kind check, 2 P8, 5 P3 resolve, 2 P0 lex and one runtime
+timeout split. No claim about BigFunction performance is made from the changed
+preparation path.
+
+Evidence: `/tmp/psrs-or07-runtime/summary.json`, `results.jsonl` and
+`big-function-checked.json`. The current library-owned `Record.Unsafe` JS/Wasm
+oracle also accepts its normal value program and three expected-trap programs
+(`/tmp/psrs-or07-record-oracle/record-unsafe.json`); Node conformance passes
+13/13. The frontend boards remain L1 904/908, L2 72/72 (passing resolution
+403/413), L3 39/48, L4 39/50 and L5 81/97 (`NoInstanceFound` 52/53):
+`/tmp/psrs-or07-frontboards.log`.
+
+The matching final debug workspace passes **2,100 / 0 failed / 5 ignored**,
+with required Wasmtime and the same development package
+(`/tmp/psrs-or07-workspace.log`); the five ignored scoreboard groups execute
+separately above. Formatting, source layout and strict workspace Clippy pass.
+The seven new regressions cover generic local-row lowering, composed row
+transport, per-operation CC/runtime rejection and actual nested ABI values.
+This remains separate from whole-topic acceptance.

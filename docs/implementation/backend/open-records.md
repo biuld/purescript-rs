@@ -16,14 +16,14 @@ separate. Missing Wasmtime is a failure.
 | OR-04 | The same store owns bare erased record transport, recursively through arrays, records, ADTs and callable adapters | Eight source runtime tests cover Array/ADT erased slots, independent nested rows, callable fields and callable results. Broader interaction coverage remains required. |
 | OR-05 | Known fields and record patterns select by label, including differing prefixes and canonical indices | Known-field selection executes through shared find/read kernels. Open-row record patterns project by label through the same kernel: a realize unit test proves no product projection against the store, and two required-Wasmtime source runs exercise differing prefixes plus nested open-row values. `FieldPuns.purs`, `FieldConsPuns.purs` and `ReservedWords.purs` additionally execute in the official corpus. Pattern-driven wildcards/tail binding checks for remaining scope interactions. |
 | OR-06 | Immutable updates preserve unknown tails and type-changing field results, with exact evaluation order/count | Open-row updates lower through the owner's `Update` operation: base and update expressions lower exactly once in source order, replacement payloads erase through the common planner, and the runtime kernel patches existing labels on one fresh store while keeping the complete label/value sequence. Direct CC/MIR/GC runs replace a label and recover the rest, a missing label traps, forged operands fail the CC boundary, and three required-Wasmtime source runs cover source-order multi-label updates, a type-changing field over a retained tail, and a case-branch update. Official `ObjectUpdate.purs`, `ObjectUpdate2.purs`, `ObjectUpdater.purs`, `NestedRecordUpdate.purs`, `NestedRecordUpdateWildcards.purs` and derived-Functor `2616.purs` execute. Broader record library coverage is OR-09's scope. |
-| OR-07 | Generic/recursive/imported uses execute without finite specialization as a correctness prerequisite | Generic and recursive source functions execute. Imported and remaining scope interactions are pending. |
+| OR-07 | Generic/recursive/imported uses execute without finite specialization as a correctness prerequisite | Verified for this slice: unoptimized Core lowers to one captured generic reader serving two closed rows and exits 42; a negative control restoring the removed mandatory preparation fails the single-reader assertion. Four composition programs additionally cover imported type-changing updates, recursion, nested callable/Array/ADT payloads, higher-order open uses and captured recursive local updates. All 17 open-row source tests execute with required Wasmtime. Ordinary optimization remains optional. |
 | OR-08 | Source-typed runtime primitives preserve checked operand/result types and slot policy before ABI erasure | Runtime-owned contracts describe `length`, `key_at`, `payload_at` and `build`, including their projection to the one CC `RecordOperation` owner. P8 resolves bare or applied slot types to positive ordinary constructorless declaration evidence; P9 preserves and checks the provider export against the projected operation and rejects direct calls bypassing it. The driver module passes 6/6 with required Wasmtime (five executions including an imported applied-carrier slot, plus one unused invalid-signature rejection). |
 | OR-09 | Library-owned searches and official unsafe wrappers; pinned source and JS oracle comparisons | Implemented for the four `Record.Unsafe` operations: the pinned package preserves the official wrappers and signatures, with algorithms in `PSRS.Record`; the package audit finds 50 packages/309 modules and no missing upstream module. Node conformance passes 13/13, and the independent Wasm oracle accepts the common values and three explicit trap cases. See the OR-09/OR-10 evidence below; full topic acceptance remains open. |
-| OR-10 | Empty, Unicode, reserved-looking and absent keys; invalid unsafe-input target differences explicit | Partial: required-Wasmtime provider tests and the JS/Wasm oracle cover empty storage, private-use and supplementary Unicode labels, `__proto__` as an ordinary own key, absent/inherited get traps, and target divergence from JavaScript `undefined` and prototype lookup. Broader malformed-store, ABI and rejection-path combinations remain open. |
-| OR-11 | CC and MIR reject malformed schema, plans, missing fields, mismatched endpoints and evidence | Eight CC-schema, six CC-plan and five MIR-owner/physical mutations reject. Six P9 provider-boundary rejections cover the checked registry (a valid base passes, while a second registered provider, a missing runtime binding, an export for another operation, a direct-call bypass and a noncanonical external signature reject); five direct build-input mutations trap. Checks for remaining operations are pending. |
-| OR-12 | Canonical ABI and parameterized ADT fields use the same record storage policy | Erased record lists encode/validate both ABI directions, String and flags fields. Three filesystem programs execute; broader nested ABI execution remains required. |
+| OR-10 | Empty, Unicode, reserved-looking and absent keys; invalid unsafe-input target differences explicit | Partial: required-Wasmtime provider tests and the JS/Wasm oracle cover empty storage, private-use and supplementary Unicode labels, `__proto__` as an ordinary own key, absent/inherited get traps, and target divergence from JavaScript `undefined` and prototype lookup. Five direct operation fixtures additionally trap on mismatched label/payload lengths before any later unpack; each has a valid executed control. Nested ABI transport is exercised in OR-12. Final topic interaction review remains open. |
+| OR-11 | CC and MIR reject malformed schema, plans, missing fields, mismatched endpoints and evidence | Eight CC-schema, six CC-plan and five MIR-owner/physical mutations reject. Six P9 provider-boundary rejections cover the checked registry (a valid base passes, while a second registered provider, a missing runtime binding, an export for another operation, a direct-call bypass and a noncanonical external signature reject); five direct build-input mutations trap. A public CC-boundary matrix now independently checks all five read/update operation contracts: every operand rejects wrong shapes and missing declarations, and every result/destination mismatch rejects with the original span. Final topic rejection-surface review remains open. |
+| OR-12 | Canonical ABI and parameterized ADT fields use the same record storage policy | Erased record lists encode/validate both ABI directions, String and flags fields. Four filesystem programs execute. The nested timestamp test checks actual `Either`/`Maybe` record payloads through an ADT of arrays, an open-row immutable update retaining unknown fields, and both ABI directions (`statAt` / `setTimesAt`); host metadata confirms the outbound timestamp. Final topic ABI review remains open. |
 | OR-13 | Value-sensitive required-Wasmtime programs, official TCOFloated/Deriving cases, and full scoreboards | Partial: the shared coverage/Partial follow-through remeasures all 365 roots at 287/340 with no regressions; `Let`, `ShadowedTCOLet`, and `Where` recover, while the earlier `TCOFloated`/`Deriving` successes remain. L5 reaches 81/97, with L1–L4 unchanged. Complete topic evidence still depends on the broader interaction, malformed-IR and ABI obligations above. |
-| OR-14 | Formatting, full workspace tests, Clippy, final diff and design review | Formatting, source layout, full workspace and strict Clippy pass at the 2026-10-17 shared-coverage checkpoint: 2,093 passed / 0 failed / 5 ignored with required Wasmtime and the locked package, with all ignored scoreboard groups exercised separately. The slice diff/design review is complete; the final review against the complete topic remains open. |
+| OR-14 | Formatting, full workspace tests, Clippy, final diff and design review | Formatting, source layout, full workspace and strict Clippy pass at the latest 2026-10-18 generic-local-row/nested-ABI checkpoint: 2,100 passed / 0 failed / 5 ignored with required Wasmtime and the locked package selected explicitly. All five ignored scoreboard groups are exercised separately, the release suite is rebuilt, and the current-tree library oracle accepts. The slice diff/design review is complete; the integrated review against all topic requirements remains open. |
 
 ## Starting evidence
 
@@ -352,3 +352,67 @@ exercised separately. Formatting, source layout and strict full-workspace
 Clippy pass. Evidence: `/tmp/psrs-partial-workspace-final.log` and
 `/tmp/psrs-partial-clippy-accepted.log`. The final diff and design review for
 this slice are complete; that does not close the broader topic obligations.
+
+## Generic local rows and nested ABI follow-through: 2026-10-18
+
+P8 previously invoked a mandatory finite local-row preparation before CC layout,
+even though the general record store already supports generic closures. That
+preparation and its expression-instantiation-only helper have been removed.
+Normal declaration specialization remains an optional Core optimization. The
+unoptimized source-to-CC regression proves that two closed calls share one
+captured generic reader and executes the emitted module with exit 42. Restoring
+the old preparation makes that structural assertion fail (zero generic readers),
+so an optimized successful execution alone cannot satisfy this regression.
+
+Focused evidence, with required Wasmtime:
+
+- `/tmp/psrs-or07-before-local.log` and
+  `/tmp/psrs-or07-without-local-preparation.log`: comparable existing captured
+  local-row execution before and after removing preparation.
+- `/tmp/psrs-or07-specialization-negative-control.log`: expected failure with
+  the old preparation restored; `/tmp/psrs-or07-all-source.log`: 17/17 current
+  source tests, including four new composition regressions.
+- `/tmp/psrs-or11-operand-matrix.log`: all five read/update operation contracts
+  checked at the public CC verifier, with independently specified use types.
+- `/tmp/psrs-or10-malformed-store.log`: all five read/update operations execute
+  a valid control and trap on a malformed runtime store, with no subsequent
+  unpack that could mask a missing operation-local check (ten executions).
+- `/tmp/psrs-or12-timestamp-roundtrip.log`: actual nested timestamp values
+  survive canonical ABI input, parameterized ADT/Array transport, open-row
+  update and canonical ABI output; host metadata verifies the latter.
+
+This removes OR-07's correctness prerequisite and supplies the previously
+missing read/update rejection and nested ABI executions. The entire topic
+still requires the current-tree workspace/board results and final integrated
+review; earlier checkpoints remain historical evidence.
+
+The library-owned Node conformance suite also passes 13/13 at this continuation
+(`/tmp/psrs-or07-node-conformance.log`). The independent `Record.Unsafe` oracle
+was rerun against the current debug CLI and accepts normal values and the
+empty/missing/inherited get traps:
+`/tmp/psrs-or07-record-oracle/record-unsafe.json`. The package is unchanged.
+The rebuilt release frontend boards retain L1 904/908, L2 72/72 (passing
+resolution 403/413), L3 39/48, L4 39/50 and L5 81/97 (`NoInstanceFound` 52/53):
+`/tmp/psrs-or07-frontboards.log`.
+
+The current release runtime remeasurement is **287/340**, with the same success
+set and no regressions or recoveries relative to the shared-coverage checkpoint.
+All 364 ordinary roots complete; 25 FFI groups are excluded. BigFunction is
+measured separately and stops at the 2 GiB guard after 27.89 seconds, with peak
+RSS 2,141,824 KiB. It remains a non-agreeing root; this continuation does not
+claim its resource use is fixed. Evidence:
+`/tmp/psrs-or07-runtime/{summary.json,results.jsonl,big-function-checked.json}`;
+release suite SHA-256
+`52a9b77e706fd2030ed8c235c75f3a313ee118a18de0b49e4be21eb375e03df1`.
+
+Final workspace validation at this continuation passes **2,100 tests, zero
+failures and five ignored** (`/tmp/psrs-or07-workspace.log`), with
+`PSRS_STDLIB_ROOT=/tmp/psrs-open-record-stdlib-or09` and
+`PSRS_REQUIRE_WASMTIME=1`. All five ignored scoreboard groups are exercised
+separately as recorded above. The seven new tests are four open-row composition
+programs, one nested ABI program, one public CC rejection matrix and one direct
+GC runtime-content matrix; no prior test was removed. Formatting and strict
+full-workspace Clippy pass (`/tmp/psrs-or07-fmt.log`,
+`/tmp/psrs-or07-clippy.log`); the slice's final diff and owning design were
+reviewed together. The complete topic remains In Progress pending the
+requirement-by-requirement integrated review recorded in the handoff.

@@ -24,7 +24,6 @@ pub(crate) fn instantiate_declaration(
         shadowed: HashSet::new(),
         renamed: HashMap::new(),
         active: HashSet::new(),
-        discharged: HashSet::new(),
     };
     let ty = substitution.type_id(declaration.ty)?;
     let value = substitution.expression(&declaration.value)?;
@@ -39,29 +38,6 @@ pub(crate) fn instantiate_declaration(
     })
 }
 
-pub(super) fn instantiate_expression(
-    module: &mut Module,
-    expression: &Expr,
-    replacements: &HashMap<TypeVariableId, TypeId>,
-) -> Option<Expr> {
-    let mut replacement_free_variables = HashSet::new();
-    for id in replacements.values() {
-        replacement_free_variables.extend(crate::types::free_variables(module, *id));
-    }
-    let used_variables = all_variables(module);
-    TypeSubstitution {
-        module,
-        replacements,
-        replacement_free_variables,
-        used_variables,
-        shadowed: HashSet::new(),
-        renamed: HashMap::new(),
-        active: HashSet::new(),
-        discharged: replacements.keys().copied().collect(),
-    }
-    .expression(expression)
-}
-
 struct TypeSubstitution<'a> {
     module: &'a mut Module,
     replacements: &'a HashMap<TypeVariableId, TypeId>,
@@ -70,7 +46,6 @@ struct TypeSubstitution<'a> {
     shadowed: HashSet<TypeVariableId>,
     renamed: HashMap<TypeVariableId, TypeVariableId>,
     active: HashSet<TypeId>,
-    discharged: HashSet<TypeVariableId>,
 }
 
 impl TypeSubstitution<'_> {
@@ -96,13 +71,7 @@ impl TypeSubstitution<'_> {
                 let argument = self.type_id(argument)?;
                 self.intern(Type::Application(function, argument))?
             }
-            Type::ForAll { variables, body }
-                if variables
-                    .iter()
-                    .all(|variable| self.discharged.contains(variable)) =>
-            {
-                self.type_id(body)?
-            }
+            Type::ForAll { variables, body } if variables.is_empty() => self.type_id(body)?,
             Type::ForAll { variables, body } => {
                 let mut renamed_variables = variables.clone();
                 let mut previous_renamings = Vec::new();
