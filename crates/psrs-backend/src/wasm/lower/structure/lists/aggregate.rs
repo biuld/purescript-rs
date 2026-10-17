@@ -44,6 +44,25 @@ impl Structurer<'_> {
         match (canonical, guest) {
             (
                 CanonicalType::Record(fields),
+                GuestLayout::RecordStorage {
+                    storage,
+                    labels,
+                    fields: shapes,
+                    ..
+                },
+            ) => self.emit_record_storage_store(
+                body, context, offset, fields, *storage, labels, shapes, path, span,
+            ),
+            (
+                CanonicalType::Flags(names),
+                GuestLayout::RecordStorage {
+                    storage, labels, ..
+                },
+            ) => self.emit_record_storage_flags_store(
+                body, context, offset, names, *storage, labels, path, span,
+            ),
+            (
+                CanonicalType::Record(fields),
                 GuestLayout::Product {
                     repr,
                     labels,
@@ -62,16 +81,7 @@ impl Structurer<'_> {
                 self.emit_variant_store(body, context, offset, canonical, *repr, cases, path, span)
             }
             (CanonicalType::List(inner), GuestLayout::Array { repr, element }) => self
-                .emit_nested_list_store(
-                    body,
-                    context,
-                    offset,
-                    inner,
-                    *repr,
-                    element.stored,
-                    path,
-                    span,
-                ),
+                .emit_nested_list_store(body, context, offset, inner, *repr, element, path, span),
             (
                 CanonicalType::FixedList { element, length },
                 GuestLayout::Array {
@@ -79,15 +89,7 @@ impl Structurer<'_> {
                     element: field,
                 },
             ) => self.emit_fixed_list_store(
-                body,
-                context,
-                offset,
-                element,
-                *length,
-                *repr,
-                field.stored,
-                path,
-                span,
+                body, context, offset, element, *length, *repr, field, path, span,
             ),
             _ => self.emit_scalar_store(body, context, offset, canonical, guest, path, span),
         }
@@ -109,6 +111,25 @@ impl Structurer<'_> {
         match (canonical, guest) {
             (
                 CanonicalType::Record(fields),
+                GuestLayout::RecordStorage {
+                    storage,
+                    labels,
+                    fields: shapes,
+                    ..
+                },
+            ) => self.emit_record_storage_load(
+                body, context, offset, fields, *storage, labels, shapes, span,
+            ),
+            (
+                CanonicalType::Flags(names),
+                GuestLayout::RecordStorage {
+                    storage, labels, ..
+                },
+            ) => self.emit_record_storage_flags_load(
+                body, context, offset, names, *storage, labels, span,
+            ),
+            (
+                CanonicalType::Record(fields),
                 GuestLayout::Product {
                     repr,
                     labels,
@@ -122,24 +143,17 @@ impl Structurer<'_> {
                 CanonicalType::Option(_) | CanonicalType::Result { .. } | CanonicalType::Variant(_),
                 GuestLayout::Variant { repr, cases },
             ) => self.emit_variant_load(body, context, offset, canonical, *repr, cases, span),
-            (CanonicalType::List(inner), GuestLayout::Array { repr, element }) => self
-                .emit_nested_list_load(body, context, offset, inner, *repr, element.stored, span),
+            (CanonicalType::List(inner), GuestLayout::Array { repr, element }) => {
+                self.emit_nested_list_load(body, context, offset, inner, *repr, element, span)
+            }
             (
                 CanonicalType::FixedList { element, length },
                 GuestLayout::Array {
                     repr,
                     element: field,
                 },
-            ) => self.emit_fixed_list_load(
-                body,
-                context,
-                offset,
-                element,
-                *length,
-                *repr,
-                field.stored,
-                span,
-            ),
+            ) => self
+                .emit_fixed_list_load(body, context, offset, element, *length, *repr, field, span),
             _ => self.emit_scalar_load(body, context, offset, canonical, guest, span),
         }
     }
@@ -197,6 +211,23 @@ impl Structurer<'_> {
                 self.emit_project(body, context, rest, span)?;
                 body.push(Op::Leaf(Instruction::RefAsNonNull));
                 match last {
+                    Projection::RecordField {
+                        header,
+                        values,
+                        field,
+                    } => {
+                        body.push(Op::Leaf(Instruction::RefCastNonNull(
+                            crate::wasm::convert::heap_type(crate::types::HeapType::Index(
+                                crate::types::DefinedTypeId(*header),
+                            )),
+                        )));
+                        body.push(Op::Leaf(Instruction::StructGet {
+                            struct_type_index: *header,
+                            field_index: 1,
+                        }));
+                        body.push(Op::Leaf(Instruction::I32Const(*field as i32)));
+                        body.push(Op::Leaf(Instruction::ArrayGet(*values)));
+                    }
                     Projection::Field { ty, field } => {
                         body.push(Op::Leaf(Instruction::StructGet {
                             struct_type_index: *ty,

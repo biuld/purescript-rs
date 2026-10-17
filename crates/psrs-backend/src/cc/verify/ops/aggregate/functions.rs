@@ -34,7 +34,9 @@ pub(in crate::cc::verify::ops) fn verify_adapter_functions(
         ValueConversion::ArrayMap { element, .. } => {
             verify_adapter_functions(assignment, element, signatures)?;
         }
-        ValueConversion::ProductMap { fields, .. } => {
+        ValueConversion::ProductMap { fields, .. }
+        | ValueConversion::RecordPack { fields, .. }
+        | ValueConversion::RecordUnpack { fields, .. } => {
             for field in fields {
                 verify_adapter_functions(assignment, field, signatures)?;
             }

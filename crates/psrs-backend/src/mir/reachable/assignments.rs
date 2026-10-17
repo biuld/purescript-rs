@@ -20,6 +20,10 @@ pub(super) fn add_assignments(
 ) {
     for assignment in assignments {
         match &assignment.kind {
+            AssignmentKind::Record { .. } => {
+                // The record value shape reaches the registered header and its
+                // two array children through ordinary representation traversal.
+            }
             AssignmentKind::DirectCall { function, .. } => {
                 direct_calls.insert(*function);
             }
@@ -186,6 +190,18 @@ pub(super) fn add_conversion(
             add_conversion(element, direct_calls, representations, representation_work);
         }
         ValueConversion::ProductMap {
+            source,
+            target,
+            fields,
+            ..
+        }
+        | ValueConversion::RecordPack {
+            source,
+            target,
+            fields,
+            ..
+        }
+        | ValueConversion::RecordUnpack {
             source,
             target,
             fields,

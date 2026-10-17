@@ -51,8 +51,19 @@ pub(super) struct ListLoop {
 /// element to the concrete case struct.
 #[derive(Clone, Copy)]
 pub(super) enum Projection {
-    Field { ty: u32, field: u32 },
-    Case { ty: u32, field: u32 },
+    Field {
+        ty: u32,
+        field: u32,
+    },
+    Case {
+        ty: u32,
+        field: u32,
+    },
+    RecordField {
+        header: u32,
+        values: u32,
+        field: u32,
+    },
 }
 
 impl Structurer<'_> {

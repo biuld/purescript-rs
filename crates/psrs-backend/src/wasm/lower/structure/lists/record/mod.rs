@@ -4,6 +4,8 @@
 //! boolean fields into the canonical 1/2/4-byte word (or several `i32` words
 //! when it has more than 32 flags).
 
+mod storage;
+
 use super::super::wasm_error;
 use super::{ListLoop, Projection, Structurer};
 use crate::BackendError;
@@ -120,7 +122,7 @@ impl Structurer<'_> {
 
     /// Packs a flags node into its canonical words.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn emit_flags_store(
+    pub(super) fn emit_flags_store_layout(
         &self,
         body: &mut Body,
         context: &ListLoop,
@@ -128,6 +130,7 @@ impl Structurer<'_> {
         names: &[String],
         repr: crate::cc::ReprId,
         labels: &[String],
+        storage: Option<crate::cc::RecordStorage>,
         path: &[Projection],
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
@@ -147,11 +150,22 @@ impl Structurer<'_> {
                     continue;
                 }
                 let mut nested = path.to_vec();
-                nested.push(Projection::Field {
-                    ty: repr_index,
-                    field: label_index as u32,
+                nested.push(if let Some(storage) = storage {
+                    Projection::RecordField {
+                        header: repr_index,
+                        values: self.repr_index(storage.values(), span)?,
+                        field: label_index as u32,
+                    }
+                } else {
+                    Projection::Field {
+                        ty: repr_index,
+                        field: label_index as u32,
+                    }
                 });
                 self.emit_project(body, context, &nested, span)?;
+                if storage.is_some() {
+                    self.emit_unbox(body, &crate::abi::canonical::CanonicalType::Bool, span)?;
+                }
                 let shift = bit % 32;
                 if shift != 0 {
                     body.push(Op::Leaf(Instruction::I32Const(shift as i32)));
@@ -180,6 +194,21 @@ impl Structurer<'_> {
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
         let repr_index = self.repr_index(repr, span)?;
+        self.emit_flags_values(body, context, offset, names, labels, false, span)?;
+        body.push(Op::Leaf(Instruction::StructNew(repr_index)));
+        Ok(())
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_flags_values(
+        &self,
+        body: &mut Body,
+        context: &ListLoop,
+        offset: u32,
+        names: &[String],
+        labels: &[String],
+        erased: bool,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
         let words = names.len().div_ceil(32);
         for label in labels {
             let Some(bit) = names
@@ -197,9 +226,26 @@ impl Structurer<'_> {
             }
             body.push(Op::Leaf(Instruction::I32Const(1)));
             body.push(Op::Leaf(Instruction::I32And));
+            if erased {
+                self.emit_box(body, &crate::abi::canonical::CanonicalType::Bool, span)?;
+            }
         }
-        body.push(Op::Leaf(Instruction::StructNew(repr_index)));
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_flags_store(
+        &self,
+        body: &mut Body,
+        context: &ListLoop,
+        offset: u32,
+        names: &[String],
+        repr: crate::cc::ReprId,
+        labels: &[String],
+        path: &[Projection],
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.emit_flags_store_layout(body, context, offset, names, repr, labels, None, path, span)
     }
 }
 

@@ -87,6 +87,31 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
     current: BlockId,
     span: TextRange,
 ) -> Result<BlockId, Vec<BackendError>> {
+    if let Some(GuestLayout::RecordStorage {
+        product,
+        labels,
+        fields,
+        ..
+    }) = guest
+    {
+        let logical = GuestLayout::Product {
+            repr: *product,
+            labels: labels.clone(),
+            fields: fields.clone(),
+        };
+        let (current, argument) =
+            lowerer.wit_payload_conversion(current, argument, logical.shape(), false, span)?;
+        return lower_parameter(
+            lowerer,
+            argument,
+            Some(&logical),
+            ty,
+            flat,
+            frees,
+            current,
+            span,
+        );
+    }
     match ty {
         CanonicalType::Int { width: 32, .. }
         | CanonicalType::Bool

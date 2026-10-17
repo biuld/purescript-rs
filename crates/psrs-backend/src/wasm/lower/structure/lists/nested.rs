@@ -10,7 +10,7 @@ use super::{ListLoop, LocalRef, Structurer};
 use crate::BackendError;
 use crate::abi;
 use crate::abi::canonical::CanonicalType;
-use crate::cc::ValueShape;
+use crate::cc::Field;
 use crate::types::HeapType;
 use crate::wasm::{Body, Op};
 use psrs_span::TextRange;
@@ -27,11 +27,11 @@ impl Structurer<'_> {
         offset: u32,
         inner: &CanonicalType,
         repr: crate::cc::ReprId,
-        element_shape: ValueShape,
+        element_field: &Field,
         path: &[super::Projection],
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
-        let inner_guest = self.resolve_guest(element_shape, span)?;
+        let inner_guest = self.resolve_field(element_field, span)?;
         let inner_array_type = self.repr_index(repr, span)?;
         let layout = abi::canonical::size_align(inner);
         let inner_stride = layout.size as i32;
@@ -120,10 +120,10 @@ impl Structurer<'_> {
         offset: u32,
         inner: &CanonicalType,
         repr: crate::cc::ReprId,
-        element_shape: ValueShape,
+        element_field: &Field,
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
-        let inner_guest = self.resolve_guest(element_shape, span)?;
+        let inner_guest = self.resolve_field(element_field, span)?;
         let inner_array_type = self.repr_index(repr, span)?;
         let layout = abi::canonical::size_align(inner);
         let inner_stride = layout.size as i32;
@@ -251,11 +251,11 @@ impl Structurer<'_> {
         element: &CanonicalType,
         length: u32,
         repr: crate::cc::ReprId,
-        element_shape: ValueShape,
+        element_field: &Field,
         path: &[super::Projection],
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
-        let element_guest = self.resolve_guest(element_shape, span)?;
+        let element_guest = self.resolve_field(element_field, span)?;
         let array_type = self.repr_index(repr, span)?;
         let layout = abi::canonical::size_align(element);
         let array_local = self.node_locals(context.depth).array_local;
@@ -319,10 +319,10 @@ impl Structurer<'_> {
         element: &CanonicalType,
         length: u32,
         repr: crate::cc::ReprId,
-        element_shape: ValueShape,
+        element_field: &Field,
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
-        let element_guest = self.resolve_guest(element_shape, span)?;
+        let element_guest = self.resolve_field(element_field, span)?;
         let array_type = self.repr_index(repr, span)?;
         let layout = abi::canonical::size_align(element);
         let array_local = self.node_locals(context.depth).array_local;

@@ -294,6 +294,9 @@ pub(super) fn element_struct_type<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<DefinedTypeId, Vec<BackendError>> {
     match element_guest {
+        GuestLayout::RecordStorage { storage, .. } => lowerer
+            .wit_repr_index(storage.representation())
+            .ok_or_else(|| unsupported_list(span)),
         GuestLayout::Product { repr, .. } | GuestLayout::Variant { repr, .. } => lowerer
             .wit_repr_index(*repr)
             .ok_or_else(|| unsupported_list(span)),

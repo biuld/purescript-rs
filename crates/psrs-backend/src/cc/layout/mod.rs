@@ -132,11 +132,9 @@ fn layoutable_field_type_inner(
             result
         }
         Some(Type::Constructor(TypeConstructor::User(_))) => true,
-        // A closed record has its own representation handle, so a variant case
-        // may carry one as a referenced payload (WIT `datetime`, socket
-        // addresses, and directory entries are records). An open row has no
-        // fixed layout.
-        Some(_) if module.is_record_type(id) => !module.record_is_open(id).unwrap_or(false),
+        // Closed products and open-row storage each have an owned reference
+        // layout, so a variant field retains the complete record value.
+        Some(_) if module.is_record_type(id) => true,
         Some(Type::Variable(_))
         | Some(Type::ForAll { .. })
         | Some(Type::Closure { .. })
@@ -318,7 +316,7 @@ pub(super) fn type_layout(
         representations.set(id, Representation::Variant { cases });
     }
 
-    protocols::append(&mut representations);
+    protocols::append(&mut representations, !array_types.is_empty());
     let function_slot = crate::boundary::function_slot_protocol(&mut representations);
     let protocols = crate::boundary::payload_erased_protocols(
         &mut representations,

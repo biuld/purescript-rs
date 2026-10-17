@@ -8,6 +8,7 @@ use psrs_span::TextRange;
 
 pub(super) fn has_string(layout: &GuestLayout) -> bool {
     match layout {
+        GuestLayout::RecordStorage { .. } => true,
         GuestLayout::Scalar { shape } | GuestLayout::Boxed { shape } => {
             *shape == ValueShape::String
         }
@@ -33,6 +34,29 @@ pub(super) fn add_projection(
     signature_work: &mut Vec<SignatureId>,
 ) -> Result<(), LayoutError> {
     match layout {
+        GuestLayout::RecordStorage {
+            storage,
+            product,
+            fields,
+            ..
+        } => {
+            add_representation(
+                storage.representation(),
+                representations,
+                representation_work,
+            );
+            add_representation(*product, representations, representation_work);
+            for field in fields {
+                add_field(
+                    field,
+                    table,
+                    representations,
+                    signatures,
+                    representation_work,
+                    signature_work,
+                )?;
+            }
+        }
         GuestLayout::Scalar { shape } | GuestLayout::Boxed { shape } => add_value(
             shape,
             representations,

@@ -1,4 +1,5 @@
 use super::*;
+mod open_rows;
 
 #[test]
 fn explicit_update_expression_uses_the_local_record_even_when_labels_match() {
@@ -309,13 +310,10 @@ swapped record = same record
 main = swapped { y: true, x: 1 }
 ";
     check_source("Main.purs", source).expect("open rows should type check");
-    let errors = compile_source("Main.purs", source).expect_err("open rows have no runtime layout");
-    assert!(
-        errors.iter().any(|error| error
-            .message
-            .contains("open record rows have no runtime layout")),
-        "{errors:?}"
-    );
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
 }
 
 #[test]

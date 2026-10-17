@@ -1,69 +1,46 @@
 //! Aggregate owners' canonical protocols for bare polymorphic value slots.
 use super::super::{RefShape, Reference, ReprId, Representation, RepresentationTable, ValueShape};
 
-pub(super) fn append(table: &mut RepresentationTable) {
+pub(super) fn append(table: &mut RepresentationTable, has_source_arrays: bool) {
     let erased = ValueShape::Reference(Reference {
         nullable: false,
         heap: RefShape::Erased,
     });
-    // Register the canonical erased-element array only for a module that has an
-    // array layout to normalize. A bare slot can hold an array only when a
-    // concrete array type exists, so a program without arrays must not gain a
-    // dead representation that would claim a newtype allocated storage.
-    let has_array = table
-        .representations
-        .iter()
-        .any(|representation| matches!(representation, Representation::Array { .. }));
-    if has_array {
+    // Internal record arrays have their own schema. Only source arrays require
+    // the source Array and text-codec protocols.
+    if has_source_arrays {
         array(table, erased);
-        // Text codecs explicitly cross from source slots to integer buffers.
         array(table, ValueShape::Integer);
-    }
-    let labels = table
-        .product_labels
-        .values()
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>();
-    for labels in labels {
-        if table.product_labels.iter().any(|(id, existing)| {
-            *existing == labels
-                && matches!(table.representation(*id), Some(Representation::Product { fields })
-                if fields.len() == labels.len() && fields.iter().all(|field| *field == erased))
-        }) {
-            continue;
-        }
-        let id = table.reserve();
-        table.set(
-            id,
-            Representation::Product {
-                fields: vec![erased; labels.len()],
-            },
-        );
-        table.set_product_labels(id, labels);
     }
 }
 
-pub(crate) fn record(table: &RepresentationTable, labels: &[String]) -> Option<ReprId> {
-    let erased = ValueShape::Reference(Reference {
-        nullable: false,
-        heap: RefShape::Erased,
-    });
+/// A complete typed product whose fields happen to be erased. This is not
+/// the record owner's bare-slot protocol; the control result-pair ABI uses it.
+pub(in crate::cc) fn erased_product(
+    table: &RepresentationTable,
+    labels: &[String],
+) -> Option<ReprId> {
+    let erased = crate::cc::payload::erased_shape();
     table.product_labels.iter().find_map(|(id, existing)| {
         (*existing == labels
             && matches!(table.representation(*id), Some(Representation::Product { fields })
-            if fields.len() == labels.len() && fields.iter().all(|field| *field == erased)))
+                if fields.len() == labels.len() && fields.iter().all(|field| *field == erased)))
         .then_some(*id)
     })
 }
 
 /// Reuse the authoritative array representation for a physical element shape.
-pub(super) fn array(table: &mut RepresentationTable, element: ValueShape) -> ReprId {
-    if let Some(index) = table.representations.iter().position(|representation| {
-        matches!(representation, Representation::Array { element: existing } if *existing == element)
-    }) {
-        return ReprId(index as u32);
+pub(in crate::cc) fn array(table: &mut RepresentationTable, element: ValueShape) -> ReprId {
+    if let Some(id) = array_for(table, element) {
+        return id;
     }
     let id = table.reserve();
     table.set(id, Representation::Array { element });
     id
+}
+
+pub(in crate::cc) fn array_for(table: &RepresentationTable, element: ValueShape) -> Option<ReprId> {
+    table.representations.iter().position(|representation| {
+        matches!(representation, Representation::Array { element: existing } if *existing == element)
+    }).map(|index| ReprId(index as u32))
 }

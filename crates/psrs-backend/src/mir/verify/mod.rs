@@ -14,6 +14,7 @@ mod capability;
 mod captures;
 mod function;
 mod instruction;
+mod records;
 mod subtype;
 mod util;
 mod variants;
@@ -69,6 +70,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     }
     let defined_types = defined_type_count(module);
     let defined = defined_types_list(module);
+    records::verify(module, &defined, &mut errors);
     captures::verify(module, &defined, &mut errors);
     let mut function_ids = HashSet::new();
     for (position, function) in module.functions.iter().enumerate() {

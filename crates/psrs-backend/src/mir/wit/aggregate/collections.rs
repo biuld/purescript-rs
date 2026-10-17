@@ -118,7 +118,7 @@ pub(super) fn read_flags<L: WitCallLowerer>(
 pub(super) fn read_value_list<L: WitCallLowerer>(
     lowerer: &mut L,
     representation: crate::cc::ReprId,
-    element_shape: ValueShape,
+    element_field: &crate::cc::Field,
     element: &CanonicalType,
     address: ValueId,
     offset: u32,
@@ -129,7 +129,7 @@ pub(super) fn read_value_list<L: WitCallLowerer>(
         .wit_repr_index(representation)
         .ok_or_else(|| unsupported(span))?;
     let element_guest = lowerer
-        .wit_guest_layout(element_shape)
+        .wit_stored_guest_layout(element_field)
         .ok_or_else(|| unsupported(span))?;
     let struct_type = element_struct_type(lowerer, &element_guest, span)?;
     let destination = lowerer.fresh_wit_value(ValueType::Ref(RefType {
@@ -165,7 +165,7 @@ pub(super) fn read_value_list<L: WitCallLowerer>(
 pub(super) fn read_fixed_list<L: WitCallLowerer>(
     lowerer: &mut L,
     representation: crate::cc::ReprId,
-    element_shape: ValueShape,
+    element_field: &crate::cc::Field,
     element: &CanonicalType,
     length: u32,
     address: ValueId,
@@ -177,7 +177,7 @@ pub(super) fn read_fixed_list<L: WitCallLowerer>(
         .wit_repr_index(representation)
         .ok_or_else(|| unsupported(span))?;
     let element_guest = lowerer
-        .wit_guest_layout(element_shape)
+        .wit_stored_guest_layout(element_field)
         .ok_or_else(|| unsupported(span))?;
     let struct_type = element_struct_type(lowerer, &element_guest, span)?;
     let destination = lowerer.fresh_wit_value(ValueType::Ref(RefType {
@@ -247,6 +247,9 @@ pub(super) fn element_struct_type<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
     match element_guest {
+        GuestLayout::RecordStorage { storage, .. } => lowerer
+            .wit_repr_index(storage.representation())
+            .ok_or_else(|| unsupported(span)),
         GuestLayout::Product { repr, .. } => lowerer
             .wit_repr_index(*repr)
             .ok_or_else(|| unsupported(span)),

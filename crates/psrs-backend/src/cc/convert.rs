@@ -56,6 +56,20 @@ pub enum ValueConversion {
         labels: Vec<String>,
         fields: Vec<ValueConversion>,
     },
+    /// A complete closed product enters the owner's labelled erased storage.
+    RecordPack {
+        source: ReprId,
+        target: ReprId,
+        labels: Vec<String>,
+        fields: Vec<ValueConversion>,
+    },
+    /// Recover a complete closed product after validating all stored labels.
+    RecordUnpack {
+        source: ReprId,
+        target: ReprId,
+        labels: Vec<String>,
+        fields: Vec<ValueConversion>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -82,7 +96,10 @@ impl ValueConversion {
             | Self::RecoverReference { destination, .. }
             | Self::FunctionAdapter { destination, .. } => *destination,
             Self::EraseReference => super::payload::erased_shape(),
-            Self::ArrayMap { target, .. } | Self::ProductMap { target, .. } => reference(*target),
+            Self::ArrayMap { target, .. }
+            | Self::ProductMap { target, .. }
+            | Self::RecordPack { target, .. }
+            | Self::RecordUnpack { target, .. } => reference(*target),
             Self::Sequence(steps) => steps
                 .iter()
                 .fold(source, |shape, step| step.output_shape(shape)),

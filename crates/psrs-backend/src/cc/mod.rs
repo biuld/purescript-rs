@@ -19,11 +19,15 @@ pub use control::{
     TypeIdentity,
 };
 pub(crate) use lower::{Family, Shape, plan_external_targets, plan_shape_for};
+mod assignment;
+pub use assignment::{Assignment, AssignmentKind, TagCase};
 mod convert;
 mod layout;
 mod lower;
 pub(crate) mod payload;
 mod projection;
+mod record;
+pub use record::{RecordOperation, RecordStorage};
 mod representation;
 mod scalar;
 mod source_abi;
@@ -83,188 +87,6 @@ pub struct Function {
     pub result: ValueId,
     pub result_type: ValueShape,
     pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Assignment {
-    pub destination: ValueId,
-    pub kind: AssignmentKind,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AssignmentKind {
-    /// Retains the checked source operation at its explicit P8 erasure boundary.
-    /// The runtime result is the existing value; Wasm encoding erases this witness.
-    ControlEvidence {
-        value: ValueId,
-        implementation: ValueId,
-        arguments: Vec<ValueId>,
-        contract: ControlContractId,
-    },
-    Constant(i32),
-    NumberConstant(String),
-    StringConstant(String),
-    Primitive {
-        op: BinaryOp,
-        left: ValueId,
-        right: ValueId,
-    },
-    Unary {
-        op: UnaryOp,
-        value: ValueId,
-    },
-    DirectCall {
-        /// Required for predeclared machine helpers; absent for ordinary calls.
-        contract: Option<ControlHelperId>,
-        function: SymbolId,
-        arguments: Vec<ValueId>,
-    },
-    FunctionRef {
-        function: SymbolId,
-        signature: SignatureId,
-        captures: Vec<ValueId>,
-    },
-    IndirectCall {
-        function: ValueId,
-        signature: SignatureId,
-        arguments: Vec<ValueId>,
-    },
-    /// A checked source runner supplies and discharges one logical root.
-    ClosureGetCapture {
-        closure: ValueId,
-        index: u32,
-    },
-    RepresentationTest {
-        destination: ValueId,
-        value: ValueId,
-        reference: Reference,
-    },
-    RepresentationCast {
-        destination: ValueId,
-        value: ValueId,
-        reference: Reference,
-    },
-    AggregateConvert {
-        destination: ValueId,
-        value: ValueId,
-        conversion: AggregateConvert,
-    },
-    ProductNew {
-        destination: ValueId,
-        representation: ReprId,
-        arguments: Vec<ValueId>,
-    },
-    ProductGet {
-        destination: ValueId,
-        representation: ReprId,
-        field: u32,
-        value: ValueId,
-    },
-    VariantNew {
-        destination: ValueId,
-        representation: ReprId,
-        case: u32,
-        fields: Vec<ValueId>,
-    },
-    VariantTag {
-        destination: ValueId,
-        representation: ReprId,
-        value: ValueId,
-    },
-    VariantGet {
-        destination: ValueId,
-        representation: ReprId,
-        case: u32,
-        field: u32,
-        value: ValueId,
-    },
-    ArrayNew {
-        destination: ValueId,
-        representation: ReprId,
-        elements: Vec<ValueId>,
-    },
-    ArrayFill {
-        destination: ValueId,
-        representation: ReprId,
-        length: ValueId,
-        value: ValueId,
-    },
-    ArrayLen {
-        destination: ValueId,
-        value: ValueId,
-    },
-    /// `Array.append`: a fresh array holding `left`'s elements followed by
-    /// `right`'s. Both operands and the result name the same array
-    /// representation, and neither operand is mutated.
-    ArrayAppend {
-        destination: ValueId,
-        representation: ReprId,
-        left: ValueId,
-        right: ValueId,
-    },
-    /// A source `String`'s canonical UTF-8 bytes as an `Array Int`. A source
-    /// string is a sequence of Unicode scalar values, so this is lossless.
-    StringToBytes {
-        destination: ValueId,
-        representation: ReprId,
-        value: ValueId,
-    },
-    /// Artifact-backed operation with checked language arguments before ABI erasure.
-    RuntimeCall {
-        intrinsic: psrs_hir::Intrinsic,
-        arguments: Vec<ValueId>,
-    },
-    /// An `Array Int` read as a source `String`. Every element must be a
-    /// canonical byte and the bytes must be well-formed UTF-8.
-    BytesToString {
-        destination: ValueId,
-        representation: ReprId,
-        value: ValueId,
-    },
-    ArrayGet {
-        destination: ValueId,
-        representation: ReprId,
-        value: ValueId,
-        index: ValueId,
-    },
-    ArrayClone {
-        destination: ValueId,
-        representation: ReprId,
-        value: ValueId,
-    },
-    ArraySet {
-        destination: ValueId,
-        representation: ReprId,
-        value: ValueId,
-        index: ValueId,
-        new_value: ValueId,
-    },
-    If {
-        condition: ValueId,
-        then_assignments: Vec<Assignment>,
-        then_value: ValueId,
-        else_assignments: Vec<Assignment>,
-        else_value: ValueId,
-    },
-    /// A multi-way choice on a closed, integer-tagged data type. Pattern
-    /// matching chooses these tags; P9 carries the choice into MIR's Switch.
-    TagSwitch {
-        value: ValueId,
-        cases: Vec<TagCase>,
-        default_assignments: Vec<Assignment>,
-        default_value: ValueId,
-    },
-    /// An explicit trap result used by impossible decision-DAG edges.
-    Unreachable,
-}
-
-/// One selected arm of a tag switch, with its branch-local computations.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TagCase {
-    pub tag: i32,
-    pub assignments: Vec<Assignment>,
-    pub value: ValueId,
 }
 
 /// Lowers Core with the default backend-side external binding extraction.

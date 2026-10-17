@@ -11,6 +11,7 @@ mod binary_matrix;
 mod erased;
 mod number_trunc;
 mod rank_n;
+mod record;
 mod scalar;
 mod unary;
 mod variant;

@@ -8,6 +8,7 @@ use psrs_core::{
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
 mod opaque;
+mod open_records;
 mod records;
 mod uninhabited;
 

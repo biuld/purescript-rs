@@ -243,6 +243,9 @@ fn verify_plan(
             }
             Ok(plan.output_shape(source))
         }
+        ValueConversion::RecordPack { .. } | ValueConversion::RecordUnpack { .. } => {
+            record::verify_record_plan(assignment, plan, source, table)
+        }
         ValueConversion::ProductMap {
             source: source_id,
             target,
@@ -305,5 +308,6 @@ fn erased_reference() -> Reference {
     }
 }
 
+mod record;
 #[cfg(test)]
 mod tests;

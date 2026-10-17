@@ -18,6 +18,7 @@ mod foreign;
 mod lifetime;
 mod operands;
 mod owned;
+mod pair;
 mod plan;
 mod planning;
 mod replay;

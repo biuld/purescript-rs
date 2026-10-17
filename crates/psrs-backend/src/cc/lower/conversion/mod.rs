@@ -14,6 +14,7 @@ use psrs_span::TextRange;
 mod callable;
 mod function_slot;
 mod product_map;
+mod record;
 mod scalars;
 mod transport;
 
@@ -107,6 +108,9 @@ impl FunctionLowerer<'_> {
         }
         if source_shape == destination_shape {
             return Ok(ValueConversion::Identity);
+        }
+        if let Some(plan) = self.record_storage_conversion(source_shape, destination_shape, span)? {
+            return Ok(plan);
         }
         // Newtypes use their declared field template as their storage protocol.
         // Keep the supplied physical shapes: instantiating the field here would

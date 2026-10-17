@@ -36,14 +36,19 @@ pub(super) fn reserve_aggregate_layouts(
         }
         if array_element_type(module, id).is_some() {
             arrays.insert(id, representations.reserve());
-        } else if module.is_record_type(id) && !module.record_is_open(id).unwrap_or(false) {
-            records.insert(id, representations.reserve());
+        } else if module.is_record_type(id) {
+            let storage = representations.ensure_record_storage();
+            if module.record_is_open(id).unwrap_or(false) {
+                records.insert(id, storage.representation());
+            } else {
+                records.insert(id, representations.reserve());
+            }
         }
     }
     AggregateLayouts { arrays, records }
 }
 
-/// Fills the reserved handles with canonical array and closed-record layouts.
+/// Fills the reserved handles with canonical array and record layouts.
 /// Core IDs select normalization inputs, not runtime layout identities.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn normalize_aggregate_layouts(
@@ -98,6 +103,16 @@ fn normalize_pass(
     representations: &mut RepresentationTable,
 ) -> Result<(AggregateLayouts, HashMap<TypeId, SignatureId>), Vec<BackendError>> {
     let reserved = layouts.clone();
+    let mut canonical = HashMap::new();
+    if let Some(storage) = representations.record_storage() {
+        // These arrays already have an owner. Source arrays must reuse the
+        // erased-element handle rather than creating an incompatible duplicate.
+        canonical.insert(AggregateKey::Array(ValueShape::String), storage.labels());
+        canonical.insert(
+            AggregateKey::Array(crate::cc::payload::erased_shape()),
+            storage.values(),
+        );
+    }
     let mut builder = Builder {
         module,
         enum_types,
@@ -108,7 +123,7 @@ fn normalize_pass(
         representations,
         arrays: layouts.arrays,
         records: layouts.records,
-        canonical: HashMap::new(),
+        canonical,
         normalized: HashSet::new(),
         active: HashSet::new(),
     };
@@ -186,6 +201,9 @@ struct Builder<'a> {
 
 impl Builder<'_> {
     fn normalize(&mut self, id: TypeId, span: TextRange) -> Result<ReprId, Vec<BackendError>> {
+        if self.module.record_is_open(id) == Some(true) {
+            return self.handle(id, span);
+        }
         if self.normalized.contains(&id) {
             return self.handle(id, span);
         }

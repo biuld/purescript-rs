@@ -96,13 +96,17 @@ impl Checker<'_> {
                 self.values(actual, &self.operands(captures, env)?)?;
                 Ok(a.destination)
             }
-            Op::Pair { state, value } => self.product(
-                self.schema.result_pair,
-                &[operand(state)?, operand(value)?],
-                body,
-            ),
+            Op::Pair { state, value } => {
+                let pair = self.product(
+                    self.schema.result_pair,
+                    &[operand(state)?, operand(value)?],
+                    body,
+                )?;
+                self.pair_conversion(pair, true, body)
+            }
             Op::PairField { pair, field } => {
-                self.product_field(operand(pair)?, self.schema.result_pair, *field, body)
+                let pair = self.pair_conversion(operand(pair)?, false, body)?;
+                self.product_field(pair, self.schema.result_pair, *field, body)
             }
             Op::ReplayField { result, field } => {
                 self.product_field(operand(result)?, self.schema.replay_result, *field, body)

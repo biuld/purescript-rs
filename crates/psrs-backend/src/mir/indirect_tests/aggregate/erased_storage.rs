@@ -27,23 +27,7 @@ fn roundtrip(array: bool, include_protocol: bool) -> (cc::Module, ExternalBindin
     // The canonical protocol is registered by CC's layout owner. It is only
     // reachable through ABI storage conversion, never through a source value.
     if include_protocol {
-        let products = module.representations.product_labels.clone();
-        for (_, labels) in products {
-            let id = module.representations.reserve();
-            module.representations.set(
-                id,
-                Representation::Product {
-                    fields: vec![erased(); labels.len()],
-                },
-            );
-            module.representations.set_product_labels(id, labels);
-        }
-        if array {
-            let id = module.representations.reserve();
-            module
-                .representations
-                .set(id, Representation::Array { element: erased() });
-        }
+        module.representations.ensure_record_storage();
     }
     let id = module.representations.reserve();
     module.representations.set(

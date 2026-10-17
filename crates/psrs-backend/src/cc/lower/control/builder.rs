@@ -131,7 +131,7 @@ impl<'a> Machine<'a> {
                 arguments: vec![state, value],
             }
         });
-        self.cast(value, erased_shape(), body)
+        self.pair_conversion(value, true, body)
     }
 
     pub fn pair_field(
@@ -141,13 +141,29 @@ impl<'a> Machine<'a> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         let representation = self.layout.pair;
-        let value = self.cast(value, repr(representation), body);
+        let value = self.pair_conversion(value, false, body);
         self.emit(erased_shape(), body, |destination| {
             AssignmentKind::ProductGet {
                 destination,
                 representation,
                 field,
                 value,
+            }
+        })
+    }
+
+    fn pair_conversion(
+        &mut self,
+        value: ValueId,
+        entering: bool,
+        body: &mut Vec<Assignment>,
+    ) -> ValueId {
+        let conversion = super::pair::conversion(self.representations, self.layout.pair, entering);
+        self.emit(conversion.destination, body, |destination| {
+            AssignmentKind::AggregateConvert {
+                destination,
+                value,
+                conversion,
             }
         })
     }

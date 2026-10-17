@@ -633,18 +633,19 @@ and freshens local identities. This preparation is independent of optimization
 budgets and preserves evaluation of captured computations.
 
 An unresolved use, recursive binding, or scheme with additional unresolved
-quantifiers retains its full source scheme. Open runtime rows remain an explicit
-unsupported layout; this preparation does not define an open-row ABI or narrow
-the source model. Input and output Core verification remain mandatory.
+quantifiers retains its full source scheme. The [open-row store](open-records.md)
+supplies the general runtime representation; finite local specialization is
+optional for correctness. Its implementation checklist remains incomplete.
+Input and output Core verification remain mandatory.
 
 ## Open questions and future work
 
 - **Dictionaries end to end.** Type-class elaboration must produce the
   dictionary values this design assumes and feed them through the normal
   aggregate path.
-- **Open-row aggregates.** Canonical generic arrays and closed records use the
+- **Open-row aggregates.** Canonical generic arrays and records use the
   conversion contract in [representation and evidence](representation-and-evidence.md).
-  Open-row records still need a separate representation and conversion contract.
+  Complete the [open-record execution checklist](../../../implementation/backend/open-records.md).
 - **Higher-order acceptance breadth.** Direct generic calls, concrete arguments
   to generic parameters, and returned polymorphic functions are the remaining
   adapter cases to exercise end to end.

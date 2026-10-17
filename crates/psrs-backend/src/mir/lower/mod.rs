@@ -17,6 +17,7 @@ mod assignment_array;
 mod assignment_string;
 mod assignments;
 mod conversion_helpers;
+mod record_call;
 mod runtime_call;
 mod storage_call;
 pub(in crate::mir) mod tail;
