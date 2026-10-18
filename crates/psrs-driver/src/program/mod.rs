@@ -10,6 +10,8 @@ pub use compilation::compile_program_sources;
 pub use lenient::{
     check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
 };
+#[cfg(test)]
+pub(crate) use library::compile_program_sources_with_prelude_target;
 pub use library::{
     check_program_kinds_lenient_with_prelude, check_program_lenient_with_prelude,
     check_program_types_lenient_with_prelude, compile_program_sources_with_prelude,

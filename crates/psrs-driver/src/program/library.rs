@@ -15,7 +15,12 @@ use crate::{Artifact, CompilationReport, DiagnosticOrigin, ProgramDiagnostic};
 pub fn compile_program_sources_with_prelude(
     sources: &[(&str, &str)],
 ) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let report = compile_library(sources, false, false);
+    let report = compile_library(
+        sources,
+        false,
+        false,
+        psrs_backend::TargetCapabilities::default(),
+    );
     match report.artifact {
         Some(artifact) => Ok(artifact),
         None => Err(report.diagnostics),
@@ -24,7 +29,28 @@ pub fn compile_program_sources_with_prelude(
 
 /// Compiles with the package and retains the last successful IR stages.
 pub fn compile_program_sources_with_prelude_report(sources: &[(&str, &str)]) -> CompilationReport {
-    compile_library(sources, true, false)
+    compile_library(
+        sources,
+        true,
+        false,
+        psrs_backend::TargetCapabilities::default(),
+    )
+}
+
+/// Compiles a program with the package under an explicit backend target
+/// profile. The default profile stays every non-test caller's choice; the
+/// exception channel's corpus evidence (EH-16) selects the enabled profile
+/// explicitly until the default flip (EH-17).
+#[cfg(test)]
+pub(crate) fn compile_program_sources_with_prelude_target(
+    sources: &[(&str, &str)],
+    target: psrs_backend::TargetCapabilities,
+) -> Result<Artifact, Vec<ProgramDiagnostic>> {
+    let report = compile_library(sources, false, false, target);
+    match report.artifact {
+        Some(artifact) => Ok(artifact),
+        None => Err(report.diagnostics),
+    }
 }
 
 /// Compiles with the package and records actual frontend/backend pass events.
@@ -32,13 +58,19 @@ pub fn compile_program_sources_with_prelude_diagnosis(
     sources: &[(&str, &str)],
     capture_dumps: bool,
 ) -> CompilationReport {
-    compile_library(sources, capture_dumps, true)
+    compile_library(
+        sources,
+        capture_dumps,
+        true,
+        psrs_backend::TargetCapabilities::default(),
+    )
 }
 
 fn compile_library(
     sources: &[(&str, &str)],
     capture_dumps: bool,
     trace: bool,
+    target: psrs_backend::TargetCapabilities,
 ) -> CompilationReport {
     let (all_sources, trusted_prefix) = match prelude::prepend_for_command(sources) {
         Ok(sources) => sources,
@@ -54,6 +86,7 @@ fn compile_library(
         capture_dumps,
         trace,
         info.command_runner.as_ref(),
+        target,
     );
     report.diagnostics = shift(report.diagnostics, trusted_prefix);
     report

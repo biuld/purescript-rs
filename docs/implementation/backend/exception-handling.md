@@ -6,7 +6,10 @@
 
 **Progress:** EH-01 through EH-15 Verified (slice 1: capability gate and
 encoding; slice 2: the MIR representation; slice 3: the structuring
-integration; slice 4: the budget mechanism). EH-16 through EH-17 Unverified.
+integration; slice 4: the budget mechanism). Slice 5 landed the library
+surface, the CC publication evidence, and a scalar-propagation repair; EH-16
+is **Blocked** on the corpus execution's tail-call conflict (see its record),
+EH-17 Unverified.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), row **BC-08** (the exceptions family) and the runtime board rows that reference `Test.Assert.checkThrows` (#95's blocker, the L6/M7 `P8 closure/linking` failure row for `TCOMutRec.purs`). Status claims in D-04 land with the evidence of the slices below, never from this checklist alone.
 
@@ -49,7 +52,7 @@ record exact reproducible evidence for every Verified row.
 | EH-13 | Every lowered function gains the prologue check and the epilogue decrement; `return_call*` sites decrement; trapping blocks do not. | WAT inspection: prologue before the first block, decrement on each return/tail path; a trapping block has no decrement; deep tail recursion still exits 0 (no false throw). | Verified |
 | EH-14 | Every `try_table` is preceded by a watermark save and its catch path begins with the restore. | WAT inspection per try region; the leak fixture (a throw/catch loop followed by deep recursion) executes with the deep recursion reaching the budget point, proving no leak. | Verified |
 | EH-15 | Budget/limit coordination: with the engine stack limit pinned via `-W max-wasm-stack` (CLI) or `Config::max_wasm_stack` (Rust API), deep non-tail recursion under `checkThrows` yields the compiler's exception, never `call stack exhausted`. | The coordination fixture executes under the pinned engine and limit; the recorded values (budget, weights, limit, engine version) are written into this record and the capability-profile notes. Failure as a trap means the constants are wrong and the row stays unverified. | Verified |
-| EH-16 | `Test.Assert.checkThrows` is implemented end to end: checked `psrs:runtime-exception#checkThrows` contract, P9 discharge, stdlib adaptation with its recorded target-adaptation entry, and `TCOMutRec.purs` executing (all four `assertThrows` catches, the four depth-100 `assertEqual`s, exit 0). | The corpus case executes under `PSRS_REQUIRE_WASMTIME=1`; the stdlib adaptation record names the pinned upstream declaration and the diff. | Unverified |
+| EH-16 | `Test.Assert.checkThrows` is implemented end to end: checked `psrs:runtime-exception#checkThrows` contract, P9 discharge, stdlib adaptation with its recorded target-adaptation entry, and `TCOMutRec.purs` executing (all four `assertThrows` catches, the four depth-100 `assertEqual`s, exit 0). | The corpus case executes under `PSRS_REQUIRE_WASMTIME=1`; the stdlib adaptation record names the pinned upstream declaration and the diff. | Blocked |
 | EH-17 | The stable default profile enables `exceptions` (with the budget) as the adoption's final revision; [DEC-05](../../decision/DEC-05-wasmtime-feature-set.md)'s amendment and the capability-profile default table are updated with the evidence. | The full L6/M7 runtime board is re-run by the scoreboard protocol and the new number recorded in D-04; the disabled-profile rejection evidence and the enabled execution evidence are both cited in the profile's implementation notes. | Unverified |
 
 ## Slice 1 record — capability gate and encoding (EH-01..EH-04)
@@ -667,11 +670,17 @@ and `mir/tests/exception/budget.rs` split into `budget/` (`watermark.rs`,
 
 Notes for the library-surface slice (EH-16):
 
+*(Written by the budget slice; the library-surface record below supersedes
+the two points that proved wrong: the guarded-callable shape did map onto
+the coordination fixture's `apply`/`rec` split, but the corpus case's own
+recursion is converted to constant-stack physical tail calls, which this
+note did not know.)*
+
 - The discharge stands: P8 validates the `psrs:runtime-exception#checkThrows`
   source contract and P9 lowers the call into the inline `catch_all` try
-  region; `plan_import` plans no host import. What EH-16 adds is the
-  *publishing* side (the provider's canonical signature in CC publication,
-  per `canonical_signature` in bindings/runtime/exception.rs) and the
+  region; `plan_import` plans no host import. EH-16 added the *publishing*
+  side (the provider's canonical signature in CC publication, per
+  `canonical_signature` in bindings/runtime/exception.rs) and the
   stdlib's `Test/Assert.purs` adaptation (`checkThrows :: forall a. (Unit ->
   a) -> Effect Boolean` over `Target.perform`, with its vendoring record).
 - The guarded callable must be a `FunctionRef` over a function whose body
@@ -688,6 +697,147 @@ Notes for the library-surface slice (EH-16):
 - Residual gap before TCOMutRec executes: none known in the channel —
   `assertThrows` needs a `Boolean` result and the discharge produces one;
   `assert'`'s failure protocol (storage trap) is untouched in this slice.
+
+## Slice 5 record — the library surface (EH-16, Blocked)
+
+The slice landed the whole library surface and proved the channel end to end
+through the real frontend; the corpus execution that closes the row is blocked
+by a conflict *inside the corpus case itself*, diagnosed below with the
+evidence of every command run.
+
+```text
+EH-16:
+  Implementation:
+    Stdlib (independent psrs-stdlib repository, branch `check-throws`,
+      commit 728a82f94af6e7c54ba10124af54644e8c364d19): lib/Test/Assert.purs
+      implements `checkThrows :: forall a. (Unit -> a) -> Effect Boolean`
+      as `unsafeCoerce (Target.perform \_ -> checkThrowsImpl fn)` over the
+      checked `foreign import "psrs:runtime-exception#checkThrows"`
+      `checkThrowsImpl :: forall a. (Unit -> a) -> Boolean`; exports,
+      `assertThrows`/`assertThrows'` bodies, and `assertImpl`'s storage-trap
+      failure protocol unchanged. The adaptation record is
+      docs/assert-throws.md in that repository (pinned upstream declaration,
+      exact diff, target justification, behavior evidence, remaining
+      obligation); `upstream-lock.json`'s Test/Assert.purs vendored_sha256
+      refreshed; the stale "unsupported foreigns" notes in that repo's
+      native-effect.md/effect-restoration.md updated. Package fingerprint
+      fnv1a64-v1:5dfa6f2ce6b3092c; stdlib.lock.json pins the branch commit
+      and fingerprint in this slice's compiler commit.
+    Compiler publication side: bindings/runtime/exception.rs
+      `canonical_signature` publishes the checked CC signature for the
+      provider (one non-nullable closure-reference operand whose checked
+      signature takes exactly the erased `Unit`, a Boolean result) and adapts
+      nothing — the provider has no host ABI, and the dispatch in
+      bindings/runtime/call/mod.rs plus the publication path in cc/mod.rs
+      (`runtime_cc_signature`) route through it; `mir/runtime/context.rs`
+      rechecks the shape at P9 and plans no import.
+  Tests:
+    crates/psrs-backend/src/bindings/runtime/call/tests.rs
+      canonical_exception_call_publishes_the_checked_source_signature_without_a_host_abi —
+      publication keeps the callable operand and Boolean result unchanged,
+      `checked` accepts the published external, and the three malformed
+      shapes (arity, non-callable operand, non-Boolean result) are rejected
+      with the binding's module.
+    crates/psrs-driver/src/tests/exception_library.rs (all four executed
+      under PSRS_REQUIRE_WASMTIME=1, enabled profile, pinned engine):
+      check_throws_observes_the_budget_exception_end_to_end — the guard is
+      interpreted (runs when the Effect runs), a genuinely non-tail `rec`
+      at depth 100000 exhausts the budget inside the guarded call, the guard
+      catches, and the program logs `200`, then `true`, exit 0;
+      check_throws_reports_false_when_the_argument_returns — a guard around
+      the corpus's own `ntco1` logs `1009`, then `false`, exit 0;
+      tcomutrec_depth_100_halves_return_inside_the_budget — the corpus
+      source cut down to its four depth-100 `assertEqual` halves logs `Done`
+      and exits 0 under the enabled profile;
+      tcomutrec_is_rejected_when_the_profile_disables_exceptions — the full
+      corpus case is rejected with the proposal's source-associated
+      diagnostic under the disabled profile.
+  Input boundary: the adapted stdlib package (locked consumption), real
+    frontend publication (trusted-prelude compile path), executed components.
+  Commands: PSRS_STDLIB_ROOT=/home/biu/Projects/psrs-stdlib
+    PSRS_REQUIRE_WASMTIME=1 cargo test --workspace; focused:
+    cargo test -p psrs-backend --lib bindings::runtime::call and
+    cargo test -p psrs-driver --lib tests::exception_library.
+  Result: pass for the surface and the channel (wasmtime 48.0.1, 7bac2c277
+    2026-08-24, `-W max-wasm-stack=524288`); the row's corpus execution is
+    blocked — see the conflict record below.
+  Revision: this slice's compiler commit plus the stdlib branch commit above.
+  Gaps: the four depth-100000 `assertThrows` halves do not throw on this
+    target; the conflict record names the owning decision.
+```
+
+### The blocked corpus execution — diagnosis and evidence
+
+`TCOMutRec.purs` compiles under the enabled profile and traps at its first
+`assertThrows`. The observed run (the driver's per-program invocation —
+`compile_program_sources_with_prelude` over the case's inputs, executed by
+`wasmtime run -W max-wasm-stack=524288`, the scoreboard's runner with the
+EH-15 pin):
+
+```text
+command: PSRS_STDLIB_ROOT=/home/biu/Projects/psrs-stdlib PSRS_REQUIRE_WASMTIME=1 \
+  cargo test -p psrs-driver --lib tests::exception_library (the failing case)
+stdout:  "" (empty)
+stderr:  Assertion failed: An error should have been thrown
+         Error: failed to run main module …
+         2: wasm trap: wasm `unreachable` instruction executed
+exit:    134
+wall:    1.25 s (well inside the 10-second guest wall)
+```
+
+`assertThrows` failing means the guard returned `false`: the guarded
+application `\_ -> ntcoN 100000` **returned normally** at depth 100000. The
+diagnosis, with each fact from a command actually run:
+
+- The backend's mandated tail-call treatment reuses frames across
+  recursion cycles that are mediated by intermediate closure values.
+  `ntco1 y0 = f 0 y0` lowers to a single block ending in `ReturnCallRef`
+  (`psrs dump mir` on a probe module); all four `ntcoN 100000` complete and
+  return their exact values in constant stack (a probe summing the four
+  exits with the expected `1600009 mod 256 = 9`), so the depth global never
+  crosses the budget and `checkThrows` observes no throw.
+- This constant-stack behavior is not separable from the corpus's own
+  *returning* halves: `tco3`'s recursion cycle is also closure-mediated
+  (`f x y = g x (h y)` lowers through a partial application to the same
+  `ReturnCallRef` shape), and its `assertEqual` at depth 100000 requires the
+  reuse to hold. Within one corpus program, the same lowering mechanism must
+  both reuse the frame (`tcoN`) and exhaust (`ntcoN`).
+- The distinction the corpus encodes is upstream's tail-call pass
+  classification (arity-matched named recursion groups loopified; the
+  arity-mismatched closure chains left growing), which the corpus's own
+  comment anticipates an eta-expanding compiler would change ("In theory,
+  these could be made to optimize via eta-expansion in the future, in which
+  case the assertions can change"). Reproducing it here needs cross-function
+  machinery the MIR does not have (collapsing a mutual recursion group into
+  one function's loop), which is a normative decision, not a slice repair:
+  the verified tail-call row (CF-07, `indirect_tail_recursion_uses_return_call_ref`)
+  pins the current capability deliberately.
+
+What the row waits on: either that decision (a new recursion-classification
+topic with its own design) or a revision of the adoption's expected end state
+(DEC-23's "TCOMutRec moving … to passing") to record the case as an
+upstream-implementation-specific assertion the target does not reproduce.
+The channel itself is verified end to end: with a genuinely non-tail
+recursion (the coordination fixture's shape, now through the real frontend),
+the guard is interpreted, the budget fires inside the guarded call, and the
+catch delivers `true`.
+
+### The scalar-propagation repair this slice landed
+
+Compiling the guard through the real frontend exposed a third analysis that
+still viewed only normal CFG edges — the same class slice 4 fixed twice:
+
+- **Scalar propagation** (`mir/opt/constants.rs`): `analyze` built its block
+  -parameter predecessor lattice from a normal-successor reachability walk, so
+  a join shared by a protected path and a catch path saw only the normal
+  predecessor's incoming values. For the discharged guard the join's parameter
+  merged to the constant `false`, was materialized away, and the removal loop
+  stripped the *handler's* `true` argument from its jump — every `checkThrows`
+  call observed `false` even when its catch path fired. The predecessor
+  collection now uses `unwind_successors`-based reachability
+  (`mir/opt/cfg.rs::reachable_blocks_with_unwind`), so catch-path jump
+  arguments are real incoming values. All pre-existing fixtures pass
+  unchanged (psrs-backend 587 passed).
 
 ## Evidence record and completion rule
 

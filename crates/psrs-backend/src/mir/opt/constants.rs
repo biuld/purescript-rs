@@ -85,7 +85,13 @@ fn analyze(function: &Function) -> HashMap<ValueId, Fact> {
         .iter()
         .map(|value| (value.id, value.ty))
         .collect::<HashMap<_, _>>();
-    let reachable = super::cfg::reachable_blocks(function.entry, &function.blocks);
+    // The lattice's predecessors include unwind edges: a catch path joins the
+    // normal path at a shared join, and its jump arguments are real incoming
+    // values. The normal-successor walk alone would treat the handler as
+    // unreachable and materialize only the normal path's constants, silently
+    // dropping the handler's (the same normal-CFG-only view the try-region
+    // partition and value availability already had to give up).
+    let reachable = super::cfg::reachable_blocks_with_unwind(function.entry, &function.blocks);
     let predecessors = incoming_values(function, &reachable);
     let mut facts = function
         .values

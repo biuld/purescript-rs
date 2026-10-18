@@ -106,6 +106,26 @@ pub(super) fn simplify_terminators(module: &mut Module) -> bool {
 }
 
 pub(super) fn reachable_blocks(entry: BlockId, blocks: &[BasicBlock]) -> HashSet<BlockId> {
+    reachable_with(entry, blocks, successors)
+}
+
+/// Reachability over the CFG that includes unwind edges: a `Try`'s clause
+/// handlers and a `Throw`'s named handler receive control without a normal
+/// edge. Analyses that read a block's incoming values or write its contents
+/// must see handlers, or they mistake catch-path joins for single-predecessor
+/// blocks.
+pub(super) fn reachable_blocks_with_unwind(
+    entry: BlockId,
+    blocks: &[BasicBlock],
+) -> HashSet<BlockId> {
+    reachable_with(entry, blocks, crate::mir::cfg::unwind_successors)
+}
+
+fn reachable_with(
+    entry: BlockId,
+    blocks: &[BasicBlock],
+    edges: impl Fn(&Terminator) -> Vec<BlockId>,
+) -> HashSet<BlockId> {
     let by_id = blocks
         .iter()
         .map(|block| (block.id, block))
@@ -120,7 +140,7 @@ pub(super) fn reachable_blocks(entry: BlockId, blocks: &[BasicBlock]) -> HashSet
             continue;
         };
         if let Some(terminator) = &block.terminator {
-            for successor in successors(terminator) {
+            for successor in edges(terminator) {
                 queue.push_back(successor);
             }
         }

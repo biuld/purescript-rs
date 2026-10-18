@@ -85,13 +85,14 @@ fn wasmtime_available() -> Option<()> {
 /// through `psrs-backend`'s own runner, which pins the same value.
 const PINNED_MAX_WASM_STACK: u32 = 524_288;
 
-/// Runs a compiled multi-module program under Wasmtime.
-fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::Output> {
-    wasmtime_available()?;
-    let artifact = compile_program_sources(sources).unwrap();
-    let id = WASM_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
+/// Runs a compiled program artifact under Wasmtime with the pinned engine
+/// stack limit (EH-15): no argv, no stdin, no preopens.
+fn run_artifact_with_wasmtime(wasm: &[u8]) -> std::process::Output {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
-    std::fs::write(&path, &artifact.wasm).unwrap();
+    std::fs::write(&path, wasm).unwrap();
     let output = std::process::Command::new("wasmtime")
         .arg("run")
         .arg("-W")
@@ -100,7 +101,14 @@ fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::O
         .output()
         .unwrap();
     let _ = std::fs::remove_file(&path);
-    Some(output)
+    output
+}
+
+/// Runs a compiled multi-module program under Wasmtime.
+fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::Output> {
+    wasmtime_available()?;
+    let artifact = compile_program_sources(sources).unwrap();
+    Some(run_artifact_with_wasmtime(&artifact.wasm))
 }
 
 /// Runs a compiled multi-module program under Wasmtime with the trusted
@@ -108,18 +116,7 @@ fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::O
 fn run_program_with_prelude_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::Output> {
     wasmtime_available()?;
     let artifact = compile_program_sources_with_prelude(sources).unwrap();
-    let id = WASM_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
-    std::fs::write(&path, &artifact.wasm).unwrap();
-    let output = std::process::Command::new("wasmtime")
-        .arg("run")
-        .arg("-W")
-        .arg(format!("max-wasm-stack={PINNED_MAX_WASM_STACK}"))
-        .arg(&path)
-        .output()
-        .unwrap();
-    let _ = std::fs::remove_file(&path);
-    Some(output)
+    Some(run_artifact_with_wasmtime(&artifact.wasm))
 }
 
 fn run_with_wasmtime_args(source: &str, args: &[&str]) -> Option<std::process::Output> {
@@ -221,6 +218,8 @@ mod library_types;
 mod tail_calls;
 
 mod exception_handling;
+
+mod exception_library;
 
 mod symbol_reflection;
 
