@@ -176,7 +176,11 @@ verifier carry no structuring hint; the shared join derivation in
 `i32` tag and is the target lowering for constructor matches.
 `ReturnCall`/`ReturnCallRef` are tail calls in the target model, produced by
 P9's tail analysis and gated on the target's `tail_call` flag
-([control flow and tail calls](control-flow-and-tail-calls.md)).
+([control flow and tail calls](control-flow-and-tail-calls.md)). The exception
+channel's `Try`/`Throw` terminators, tags, and the stack-exhaustion budget are
+specified by [exception handling and stack exhaustion](exception-handling-and-stack-exhaustion.md)
+(**Draft design**); the grammar above gains them with that topic's
+implementation.
 
 ### Instructions
 
