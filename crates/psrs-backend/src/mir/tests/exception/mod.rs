@@ -1,9 +1,16 @@
-//! MIR exception-channel tests (EH-05..EH-08): tag table, `Try`/`Throw`
+//! MIR exception-channel tests (EH-05..EH-11): tag table, `Try`/`Throw`
 //! terminators, unwind-edge verification, protected-region tail-call rules,
-//! and capability inference. Fixtures are hand-built direct MIR.
+//! capability inference, the P9 discharge of the `psrs:runtime-exception`
+//! provider, the structurer's try unit, and the dispatcher rejection
+//! boundary. Fixtures are hand-built direct MIR (or direct CC for the
+//! discharge) executed under wasmtime where the row requires it.
 
 mod capability;
+mod discharge;
+mod dispatch_boundary;
+mod execution;
 mod regions;
+mod structuring;
 mod tail;
 mod unwind;
 
@@ -14,6 +21,15 @@ use psrs_span::TextRange;
 
 pub(super) fn at(offset: u32) -> TextRange {
     TextRange::new(offset, offset + 1)
+}
+
+/// The explicitly exceptions-enabled target the EH-09..EH-11 fixtures lower
+/// with; the stable default profile keeps `exceptions` disabled.
+pub(super) fn enabled_target() -> crate::TargetCapabilities {
+    crate::TargetCapabilities {
+        exceptions: true,
+        ..crate::TargetCapabilities::default()
+    }
 }
 
 pub(super) fn tag(id: u32, payload: Vec<ValueType>) -> Tag {

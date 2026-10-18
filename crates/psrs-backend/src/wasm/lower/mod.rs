@@ -112,6 +112,22 @@ pub(crate) fn lower_module_with_plan(
         .sum::<u32>();
     let (mut types, function_types) = collect_function_types(module, defined, Vec::new())?;
 
+    // The exception tags' function types: the payload as parameters and no
+    // results. A MIR `TagId` and the final `TagIndex` share the position in
+    // the module's tag list.
+    let mut tag_defs = Vec::with_capacity(module.tags.len());
+    for tag in &module.tags {
+        let type_index = TypeIndex(defined + types.len() as u32);
+        types.push(FuncType {
+            parameters: tag.payload.iter().map(|ty| val_type(*ty)).collect(),
+            results: Vec::new(),
+        });
+        tag_defs.push(super::TagDef {
+            type_index,
+            span: tag.span,
+        });
+    }
+
     // Core imports: the WASI imports MIR declared, then `exit-with-code` used
     // by the synthesized `run` entry when the target exposes WASI CLI.
     let mut imports = Vec::new();
@@ -233,6 +249,7 @@ pub(crate) fn lower_module_with_plan(
             &string_lengths,
             &literal_globals.indices,
             module.layout.as_ref(),
+            &module.tags,
         )
         .map_err(|errors| {
             errors
@@ -339,7 +356,7 @@ pub(crate) fn lower_module_with_plan(
             minimum,
             maximum: None,
         }],
-        tags: Vec::new(),
+        tags: tag_defs,
         globals,
         data,
         exports,

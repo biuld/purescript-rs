@@ -7,6 +7,7 @@ use psrs_hir::ExternalKind;
 use psrs_runtime::StorageOperation;
 
 pub(super) mod call;
+pub(super) mod exception;
 pub(super) mod metadata;
 pub(super) mod record_projection;
 mod record_source;
@@ -48,6 +49,20 @@ pub(crate) fn validate(module: &Module) -> Result<(), Vec<BackendError>> {
             let checked = checked
                 .ok_or_else(|| error("runtime binding has no checked source signature".into()))?;
             record_source::validate(module, checked.ty, operation).map_err(error)?;
+            continue;
+        }
+        if provider == exception::RUNTIME_EXCEPTION_MODULE {
+            let operation =
+                exception::ExceptionOperation::from_export(function).ok_or_else(|| {
+                    error(format!(
+                        "runtime provider `{provider}` has no export `{function}`"
+                    ))
+                })?;
+            let checked = checked
+                .ok_or_else(|| error("runtime binding has no checked source signature".into()))?;
+            operation
+                .validate_source(module, checked.ty)
+                .map_err(error)?;
             continue;
         }
         if provider != psrs_runtime::STORAGE_MODULE {

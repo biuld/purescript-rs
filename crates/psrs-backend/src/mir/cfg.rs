@@ -141,6 +141,31 @@ pub(crate) fn successors(terminator: &Terminator) -> Vec<BlockId> {
     }
 }
 
+/// The successor blocks named by a terminator's normal and unwind edges. A
+/// `Try`'s clause handlers receive control when the armed region catches, and
+/// a `Throw`'s named handler receives it from the throw point. This is the
+/// edge set the exception design's dominance rule rechecks the try-region
+/// partition on ("Dominance is rechecked on the CFG that includes unwind
+/// edges"): it keeps a join shared by a protected path and a handler path out
+/// of the protected region, which the normal-edge view alone would claim.
+pub(crate) fn unwind_successors(terminator: &Terminator) -> Vec<BlockId> {
+    let mut next = successors(terminator);
+    match terminator {
+        Terminator::Try {
+            catches, catch_all, ..
+        } => {
+            next.extend(catches.iter().map(|(_, handler)| *handler));
+            next.extend(catch_all);
+        }
+        Terminator::Throw {
+            handler: Some(handler),
+            ..
+        } => next.push(*handler),
+        _ => {}
+    }
+    next
+}
+
 /// The nearest common one-value descendant of every `target`, if one exists.
 ///
 /// A candidate must be reachable from every target and have exactly one
@@ -276,12 +301,40 @@ pub(crate) fn dominators_from(
     entry: BlockId,
     stop: Option<BlockId>,
 ) -> HashMap<BlockId, HashSet<BlockId>> {
+    dominators_with(function, entry, stop, successors)
+}
+
+/// Dominance over the CFG that includes unwind edges — the try-region
+/// partition's input. The shared joins of normal and exceptional paths keep
+/// their full predecessor sets, so a join is never dominated by a protected
+/// entry alone.
+pub(crate) fn dominators_with_unwind_edges(
+    function: &Function,
+) -> HashMap<BlockId, HashSet<BlockId>> {
+    dominators_with(function, function.entry, None, unwind_successors)
+}
+
+fn dominators_with(
+    function: &Function,
+    entry: BlockId,
+    stop: Option<BlockId>,
+    edge_successors: impl Fn(&Terminator) -> Vec<BlockId>,
+) -> HashMap<BlockId, HashSet<BlockId>> {
     let blocks = function
         .blocks
         .iter()
         .map(|block| (block.id, block))
         .collect::<HashMap<_, _>>();
-    let reachable = reachable_from(function, entry, stop);
+    let mut reachable = HashSet::new();
+    let mut pending = vec![entry];
+    while let Some(id) = pending.pop() {
+        if Some(id) == stop || !reachable.insert(id) {
+            continue;
+        }
+        if let Some(terminator) = blocks.get(&id).and_then(|block| block.terminator.as_ref()) {
+            pending.extend(edge_successors(terminator));
+        }
+    }
     let all = reachable.iter().copied().collect::<HashSet<_>>();
     let mut predecessors = reachable
         .iter()
@@ -292,7 +345,7 @@ pub(crate) fn dominators_from(
         let Some(terminator) = blocks.get(id).and_then(|block| block.terminator.as_ref()) else {
             continue;
         };
-        for successor in successors(terminator) {
+        for successor in edge_successors(terminator) {
             if let Some(preds) = predecessors.get_mut(&successor) {
                 preds.insert(*id);
             }

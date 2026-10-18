@@ -4,8 +4,9 @@
 
 **Design:** [Exception handling and stack exhaustion](../../design/backend/fp/exception-handling-and-stack-exhaustion.md)
 
-**Progress:** EH-01 through EH-08 Verified (slice 1: capability gate and
-encoding; slice 2: the MIR representation). EH-09 through EH-17 Unverified.
+**Progress:** EH-01 through EH-11 Verified (slice 1: capability gate and
+encoding; slice 2: the MIR representation; slice 3: the structuring
+integration). EH-12 through EH-17 Unverified.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), row **BC-08** (the exceptions family) and the runtime board rows that reference `Test.Assert.checkThrows` (#95's blocker, the L6/M7 `P8 closure/linking` failure row for `TCOMutRec.purs`). Status claims in D-04 land with the evidence of the slices below, never from this checklist alone.
 
@@ -41,9 +42,9 @@ record exact reproducible evidence for every Verified row.
 | EH-06 | The MIR verifier checks unwind edges: `Throw` handlers resolve to the innermost enclosing region's matching handler (or `None` outside every region); handlers have no normal predecessors and belong to exactly one `Try`; regions nest or are disjoint; no back edge targets a try block. | Negative fixtures for each rule, each diagnostic carrying the offending span. | Verified |
 | EH-07 | No protected block ends in a forced `ReturnCall`/`ReturnCallRef`; `mark_tail` skips calls in protected blocks. | A protected-region fixture stays an ordinary call plus return under the enabled profile; a hand-written forced tail terminator in a protected region is rejected. | Verified |
 | EH-08 | The MIR capability verifier requires `exceptions` when a tag exists or `Throw`/`Try` appears, and rejects a module requiring it under a disabled profile with a source-associated diagnostic. | Required-set inference tests; disabled-profile rejection diagnostic; `wasmtime_wasi_0_2()` unchanged in this slice. | Verified |
-| EH-09 | `mir/lower/exception.rs` discharges a call to a `psrs:runtime-exception` binding into the inline try region; when the profile disables `exceptions` the call is rejected at the binding's span. | Direct-MIR discharge fixtures execute under wasmtime (catch returns the handler's value; normal path the protected value). | Unverified |
-| EH-10 | The structurer's region plan gains `UnitPlan::Try` with the dominance carve-out; try regions nest or are disjoint; reducible try-free functions are unchanged. | Structuring fixtures: nested tries, try inside loop, loop inside protected region; no dispatcher local on reducible input; WAT inspection shows `try_table` at the expected nesting. | Unverified |
-| EH-11 | A function whose CFG is irreducible and contains a try region is rejected with a diagnostic; try-free irreducible input still uses the dispatcher. | Direct-MIR fixture pair: the rejection and the unchanged dispatcher fixture. | Unverified |
+| EH-09 | `mir/lower/exception.rs` discharges a call to a `psrs:runtime-exception` binding into the inline try region; when the profile disables `exceptions` the call is rejected at the binding's span. | Direct-MIR discharge fixtures execute under wasmtime (catch returns the handler's value; normal path the protected value). | Verified |
+| EH-10 | The structurer's region plan gains `UnitPlan::Try` with the dominance carve-out; try regions nest or are disjoint; reducible try-free functions are unchanged. | Structuring fixtures: nested tries, try inside loop, loop inside protected region; no dispatcher local on reducible input; WAT inspection shows `try_table` at the expected nesting. | Verified |
+| EH-11 | A function whose CFG is irreducible and contains a try region is rejected with a diagnostic; try-free irreducible input still uses the dispatcher. | Direct-MIR fixture pair: the rejection and the unchanged dispatcher fixture. | Verified |
 | EH-12 | `mir/budget.rs` fixes the weight formula and constants; `Function::frame_weight` is recorded at P9. | Unit test for `frame_weight`; MIR inspection shows the weight on each function when the profile enables `exceptions`. | Unverified |
 | EH-13 | Every lowered function gains the prologue check and the epilogue decrement; `return_call*` sites decrement; trapping blocks do not. | WAT inspection: prologue before the first block, decrement on each return/tail path; a trapping block has no decrement; deep tail recursion still exits 0 (no false throw). | Unverified |
 | EH-14 | Every `try_table` is preceded by a watermark save and its catch path begins with the restore. | WAT inspection per try region; the leak fixture (a throw/catch loop followed by deep recursion) executes with the deep recursion reaching the budget point, proving no leak. | Unverified |
@@ -286,6 +287,195 @@ Validation of the slice: `cargo fmt --all --check`,
 suites, out of scope here). The MIR verifier files stay under the
 500-line limit: `mir/verify/capability.rs` shed its test module into
 `mir/verify/tests/capability.rs`, and `mir/mod.rs` sits at exactly 500 lines.
+
+## Slice 3 record — structuring integration (EH-09..EH-11)
+
+One correction this slice had to make to the shared partition, with the
+design's own wording as the authority: the invariant section requires
+"Dominance is rechecked on the CFG that includes unwind edges", and the
+partition (`mir/try_region.rs`) now computes exactly that — `mir/cfg.rs`
+gained `unwind_successors` (a `Try` additionally targets its clause handlers,
+a `Throw` its named handler) and `dominators_with_unwind_edges`, and
+`try_region::plan` consumes the latter. The normal-CFG view alone claims a
+join shared by a protected block and a handler block (the handler edge is
+invisible to it), which both corrupts the protected set at P9 and misplaces
+the join at P10; the unwind-edge view keeps such joins out of every region.
+Slice 2's note above ("structurally implied by dominance over the normal
+CFG") is superseded on that one point: the nesting implication still holds,
+but over the unwind-edge CFG.
+
+One emission deviation from the design's "Emitting a try unit" sketch, made
+in code with its justification: the sketch writes `br` to the normal join
+after the `try_table` ("try_table completing normally"); the emitted body
+instead ends in `unreachable`. Every protected block's terminator transfers
+control out of the region, so the `try_table` never completes normally, and
+the dead path carries none of the join's per-path argument values a `br`
+would need to push. The `unreachable` also discharges the unwind block's
+payload-typed result on that path for the validator. The `catch_all` case
+needs neither, but the shape is uniform.
+
+One structuring rule the design's single unwind block implies, checked at
+P10 (`TryContext::new` in `wasm/lower/structure/cfg/try_context.rs`): all
+clauses of one region must agree on the payload and the handler they deliver
+to, since one synthesized unwind block cannot distinguish them; a region
+violating it is rejected with a diagnostic naming the gap. The context also
+fixes the "try inside loop" shape the region plan must support: a try whose
+try block sits inside a natural loop is emitted inside the loop's body, and
+its claim may reach past the loop's blocks (blocks its back edge cannot
+reach); a region overlapping a loop without either nesting is rejected.
+Claims are closed transitively over nested tries, so a nested try unit's
+inline emission is never emitted twice.
+
+```text
+EH-09:
+  Implementation: crates/psrs-backend/src/bindings/runtime/exception.rs (the
+    checked source contract: `ExceptionOperation::CheckThrows`,
+    `validate_source`, `checked_provider` rechecking the CC call shape, and
+    `canonical_signature` for CC publication); bindings/runtime/mod.rs
+    (validate admits the provider); bindings/runtime/call/mod.rs
+    (canonical-signature dispatch); mir/runtime/context.rs
+    (`RuntimeContext::exception_providers`, collected only for live direct
+    calls; `plan_import` plans no import because the provider has no host
+    ABI); mir/lower/exception.rs (the discharge: Try { protected, catch_all }
+    with the guarded `ClosureCall` in the protected block, fabricated `Unit`
+    operand, `false`/`true` constants joined through a block whose parameter
+    is the assignment's destination); mir/lower/assignments.rs (dispatch) and
+    mir/lower/mod.rs (the lowerer carries the runtime context and the target
+    profile).
+  Tests: crates/psrs-backend/src/mir/tests/exception/discharge.rs —
+    discharges_a_check_throws_call_into_the_inline_try_region (inspects the
+    discharged MIR: entry Try with catch_all only, protected block applies
+    the callable, handler supplies `true`, shared join's parameter is the
+    destination; the module verifies under the enabled profile),
+    the_discharged_catch_path_returns_the_handler_s_value (a payload-less
+    channel throw in the guarded callee; exit 1 = handler's `true`),
+    the_discharged_normal_path_returns_the_protected_value (exit 0 = the
+    protected path's `false`),
+    rejects_a_check_throws_call_when_the_profile_disables_exceptions (the
+    diagnostic carries the binding's own span, distinct from the call site).
+  Input boundary: hand-built CC module with the checked binding, lowered
+    through `lower_module_with_bindings` (so P8 validation runs), then
+    executed under wasmtime with an explicitly enabled target.
+  Commands: PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+    (subset: cargo test -p psrs-backend --lib mir::tests::exception::discharge)
+  Result: pass, 3/3 runtime fixtures executed under wasmtime 48.0.1
+    (7bac2c277 2026-08-24), nothing skipped; the inspection and rejection
+    tests are local.
+  Revision: this slice's commit.
+  Gaps: none for the row; the discharge produces a `catch_all` region only —
+    named-catch behavior is covered by the direct-MIR structuring fixtures
+    (EH-10) and the guard contract needs only `catch_all`.
+
+EH-10:
+  Implementation: crates/psrs-backend/src/wasm/lower/structure/cfg/
+    try_context.rs (`TryContext`: clause uniformity, transitive claim
+    closure, try/loop nesting validation), cfg/build.rs (`UnitPlan::Try`
+    placement: the try block in the region's topological order, the
+    protected sub-region built from the raw dominated set, claim bubbling so
+    nested units' inline emission is claimed exactly once), cfg/mod.rs
+    (`ControlFlowPlan::build` wires the context; the region plan's
+    reachability walk follows unwind edges so catch-path blocks are planned),
+    wasm/lower/structure/region/try_unit.rs (`emit_try_unit`: try block's
+    instructions, the synthesized unwind `Op::Block` whose result is the
+    caught payload, the `try_table` with every clause targeting that block at
+    depth 0, the payload copied into the handler's parameter locals in
+    reverse like jump arguments, then the handler's instructions and
+    terminator), region/mod.rs (`Label::Unwind` and `Label::TryTable` — the
+    two anonymous entries pushed for the protected sub-region's emission, no
+    branch targets them), wasm/lower/mod.rs (each tag's function type
+    appended and its `TagDef` recorded; the module's tag section filled),
+    wasm/lower/function/mod.rs and structure/mod.rs (the tags reach the
+    structurer). The watermark save/restore points are marked in
+    emit_try_unit for EH-14; nothing budget-related exists yet.
+  Tests: crates/psrs-backend/src/mir/tests/exception/structuring/ —
+    mod.rs: structures_nested_tries_with_the_inner_try_inside_the_outer
+      (WAT: two `try_table`s, outer < inner < throw; the inner handler
+      catches: exit 10),
+      delivers_a_named_catch_payload_to_the_handler_parameter (WAT contains
+      `try_table` and `throw`; exit 7 = the payload the handler parameter
+      received);
+    loops.rs: re_arms_a_try_table_across_loop_iterations (WAT: one
+      `try_table` after the `loop` label; exit 99 = the catch on the third
+      iteration),
+      keeps_a_loop_inside_the_protected_region (WAT: the `loop` label after
+      the `try_table`; exit 42 = the mid-loop throw's handler);
+    dispatcher_local.rs: does_not_allocate_a_dispatcher_local_on_reducible_input
+      (the structured function's locals are exactly the lowered values' —
+      three, with no dispatcher state local).
+  Input boundary: hand-built direct MIR, verified by
+    `verify_module_with_capabilities`, lowered with an explicitly enabled
+    target; WAT via `wasmprinter` over the encoded binary; executed under
+    wasmtime.
+  Commands: PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+    (subset: cargo test -p psrs-backend --lib mir::tests::exception::structuring)
+  Result: pass, 4/4 runtime fixtures executed under wasmtime 48.0.1
+    (7bac2c277 2026-08-24), nothing skipped; the WAT and local-count tests
+    are local.
+  Revision: this slice's commit.
+  Gaps: none for the row; reducible try-free functions are unchanged (the
+    whole pre-existing structuring test suite still passes; no dispatcher
+    local), and the watermark points are markers only until EH-14.
+
+EH-11:
+  Implementation: crates/psrs-backend/src/wasm/lower/structure/cfg/mod.rs —
+    `ControlFlowPlan::build` rejects an irreducible CFG that contains a try
+    region ("MIR function combines irreducible control flow with a try
+    region; the dispatcher cannot arm a try_table") at the try region's span
+    before the dispatcher path is taken; try-free irreducible input reaches
+    `ControlFlowPlan::Dispatcher` unchanged.
+  Tests: crates/psrs-backend/src/mir/tests/exception/dispatch_boundary.rs —
+    rejects_an_irreducible_cfg_that_contains_a_try_region (a two-entry cycle
+    whose cycle blocks lie inside a protected region; `P10 Wasm structuring`,
+    the `Try` terminator's span, the message above),
+    structures_try_free_irreducible_input_through_the_unchanged_dispatcher
+    (the same two-entry cycle try-free: the dispatcher state local is the one
+    local beyond the ten lowered values, and the artifact runs — exit 1 =
+    the dispatched result).
+  Input boundary: hand-built direct MIR fixture pair (with and without the
+    try region), executed under the default profile for the dispatcher side.
+  Commands: PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+    (subset: cargo test -p psrs-backend --lib
+    mir::tests::exception::dispatch_boundary)
+  Result: pass, 1/1 runtime fixture executed under wasmtime 48.0.1
+    (7bac2c277 2026-08-24), nothing skipped; the rejection test is local.
+  Revision: this slice's commit.
+  Gaps: none for the row.
+```
+
+Validation of the slice: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace` all pass
+(2179 passed, 0 failed, 5 ignored — the ignored ones are the scoreboard
+suites, out of scope here; wasmtime 48.0.1, 7bac2c277 2026-08-24). The
+500-line limit held without dropping content: `mir/mod.rs` sits at 498
+lines; `wasm/lower/structure/cfg/mod.rs` split into a module directory
+(`cfg/`, with `try_context.rs` and `build.rs` beside `irreducible.rs`),
+`wasm/lower/structure/region.rs` into `region/` (`mod.rs` +
+`try_unit.rs`), and `mir/tests/exception/structuring.rs` into
+`structuring/` (`mod.rs`, `loops.rs`, `dispatcher_local.rs`).
+
+Notes for the budget slice (EH-12..EH-15):
+
+- The depth global's allocation point is `wasm/lower/mod.rs`
+  (`lower_module_with_plan`): the module's globals are assembled there
+  today, and the tag section's type indices are already appended in the same
+  function — the global (mutable `i32`, init 0, not exported) goes after the
+  literal-interning globals, which the same function's `globals` vec
+  already orders.
+- The watermark save/restore hooks are marked in
+  `wasm/lower/structure/region/try_unit.rs` (`emit_try_unit`): the save
+  immediately before the synthesized unwind `Op::Block`, the restore as the
+  catch path's first action after it. A fresh `i32` local per try region
+  needs the structurer to allocate locals beyond the lowered values —
+  `local_indices` in `wasm/lower/function/mod.rs` is where the lowered
+  locals are enumerated today.
+- The prologue/epilogue hook: `emit_function` in `wasm/lower/function/mod.rs`
+  drives the structurer per function; the prologue prepends to the entry
+  block's emission and the epilogue/`return_call*` decrements hook into
+  `emit_terminator` (`wasm/lower/structure/region/mod.rs`) at the
+  `Return`/`ReturnCall*` arms. `Function::frame_weight` is recorded at P9
+  (`mir/mod.rs`'s function lowering, once `mir/budget.rs` fixes the
+  constants).
 
 ## Evidence record and completion rule
 

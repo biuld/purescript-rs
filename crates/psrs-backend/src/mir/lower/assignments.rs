@@ -259,11 +259,21 @@ impl FunctionLowerer<'_> {
                         })?;
                     if let Some(import) = self.wit_imports.get(function).cloned() {
                         current = self.lower_wit_call(&import, assignment, current)?;
-                    } else if let Some(import) = self.runtime_imports.get(function).cloned() {
+                    } else if let Some(import) = self.runtime.imports.get(function).cloned() {
                         self.lower_storage_call(
                             current,
                             assignment.destination,
                             &import,
+                            arguments,
+                            assignment.span,
+                        )?;
+                    } else if let Some(provider) =
+                        self.runtime.exception_providers.get(function).cloned()
+                    {
+                        current = self.lower_exception_call(
+                            current,
+                            assignment.destination,
+                            &provider,
                             arguments,
                             assignment.span,
                         )?;

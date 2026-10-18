@@ -50,6 +50,7 @@ fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
         None,
+        &[],
     )
     .expect("the irreducible CFG should structure through the dispatcher");
     let module = WasmModule {

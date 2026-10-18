@@ -7,11 +7,21 @@ use crate::wasm::{Body, Op};
 use std::borrow::Cow;
 use wasm_encoder::{Instruction, ValType};
 
+/// A branch target on the active-label stack. The synthesized entries exist
+/// only so branch depths to outer labels stay correct; no emitted branch
+/// targets either of them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Label {
     Block(BlockId),
     Loop(BlockId),
+    /// The synthesized unwind block immediately enclosing a `try_table`; a
+    /// catch clause targets it through the clause's own label field.
+    Unwind,
+    /// The `try_table`'s own internal label.
+    TryTable,
 }
+
+mod try_unit;
 
 pub(super) trait RegionOps {
     fn emit_control_flow(
@@ -114,6 +124,12 @@ impl RegionOps for Structurer<'_> {
                 }
                 Ok(())
             }
+            UnitPlan::Try {
+                try_block,
+                protected,
+                handler,
+                payload,
+            } => self.emit_try_unit(*try_block, protected, *handler, *payload, labels, body),
         }
     }
 }
@@ -199,14 +215,26 @@ impl Structurer<'_> {
             } => {
                 self.emit_return_call_ref(*function, arguments, *span, body)?;
             }
-            // The structuring slice of the exception channel (EH-10/EH-11) is
-            // not implemented yet; a try/throw terminator reaching Wasm
-            // lowering is rejected at its own span instead of being miscompiled.
-            Terminator::Throw { span, .. } | Terminator::Try { span, .. } => {
-                return Err(wasm_error(
-                    *span,
-                    "MIR exception-channel terminators are not lowered to Wasm yet",
-                ));
+            // EH-09/EH-10: a throw rides the channel to the innermost
+            // executing try_table; catching is dynamic, so the throw emits
+            // its payload and nothing else. The MIR verifier already checked
+            // that the named handler is the innermost enclosing region's
+            // matching handler.
+            Terminator::Throw {
+                tag,
+                arguments,
+                span,
+                ..
+            } => {
+                for argument in arguments {
+                    self.emit_load(*argument, *span, body)?;
+                }
+                body.push(Op::Leaf(Instruction::Throw(tag.0)));
+            }
+            // A `Try` terminator is always the try unit's own block, handled
+            // by `emit_try_unit`; reaching this arm is invalid compiler IR.
+            Terminator::Try { span, .. } => {
+                return Err(wasm_error(*span, "MIR try terminator outside a try unit"));
             }
         }
         Ok(())

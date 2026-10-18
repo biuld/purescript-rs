@@ -21,10 +21,8 @@ use std::collections::{HashMap, HashSet};
 
 /// One `Try` terminator's region.
 pub(crate) struct TryRegion {
-    /// The block whose terminator is the `Try`. Consumed by the Wasm
-    /// structurer's try units (EH-10); the verifier and `mark_tail` do not
-    /// need it yet.
-    #[allow(dead_code)]
+    /// The block whose terminator is the `Try`. The Wasm structurer's try
+    /// unit (EH-10) emits it immediately before the synthesized unwind block.
     pub try_block: BlockId,
     /// The first protected block; control enters it normally from `try_block`.
     pub entry: BlockId,
@@ -33,10 +31,25 @@ pub(crate) struct TryRegion {
     /// Blocks dominated by `entry`, minus the protected regions of inner
     /// tries, minus every handler block.
     pub protected: HashSet<BlockId>,
+    /// The raw dominated set, before the carve-outs by inner tries and by
+    /// handler exclusion. The structurer builds the try unit's protected
+    /// sub-region from this set — inner tries reappear there as nested
+    /// units — and checks nesting of try regions against natural loops with
+    /// it.
+    pub raw: HashSet<BlockId>,
     pub span: TextRange,
 }
 
 impl TryRegion {
+    /// Every clause handler, in clause order plus `catch_all`.
+    pub(crate) fn handlers(&self) -> Vec<BlockId> {
+        self.catches
+            .iter()
+            .map(|(_, handler)| *handler)
+            .chain(self.catch_all)
+            .collect()
+    }
+
     /// The handler the region assigns to a throw with `tag`: the matching
     /// tag clause's handler, else the `catch_all` handler, else `None`.
     pub(crate) fn matching_handler(&self, tag: TagId) -> Option<BlockId> {
@@ -50,7 +63,10 @@ impl TryRegion {
 
 /// The partition of a function's blocks into try regions.
 pub(crate) struct TryRegions {
-    /// Outermost protected regions first (largest protected set first).
+    /// Innermost protected regions first (smallest raw dominated set first;
+    /// the sort is stable, so equal raw sets keep declaration order). Every
+    /// consumer that needs the nesting order reconstructs it by set
+    /// containment over `raw`.
     pub regions: Vec<TryRegion>,
     /// Every clause handler mapped to its owning try block.
     pub owners: HashMap<BlockId, BlockId>,
@@ -59,6 +75,12 @@ pub(crate) struct TryRegions {
 }
 
 impl TryRegions {
+    /// The region whose terminator is the given try block.
+    pub(crate) fn region(&self, try_block: BlockId) -> Option<&TryRegion> {
+        self.regions
+            .iter()
+            .find(|region| region.try_block == try_block)
+    }
     /// Every protected block, across all regions.
     pub(crate) fn protected_blocks(&self) -> HashSet<BlockId> {
         self.regions
@@ -144,7 +166,11 @@ pub(crate) fn plan(
         valid.push((*try_block, *protected, catches.clone(), *catch_all, *span));
     }
 
-    let dominators = cfg::dominators(function);
+    // Dominance over the CFG that includes unwind edges (the design's
+    // invariant section rechecks the partition on that CFG): the handler edge
+    // keeps a join shared by the protected and catch paths out of the raw
+    // dominated set, so the region protects only what the `try_table` covers.
+    let dominators = cfg::dominators_with_unwind_edges(function);
     // Raw regions: blocks dominated by the protected entry. Innermost first
     // (the stable sort keeps declaration order for equal sizes), so the
     // carve-out below always sees an inner try's final claim.
@@ -186,6 +212,7 @@ pub(crate) fn plan(
             catches,
             catch_all,
             protected,
+            raw,
             span,
         });
     }

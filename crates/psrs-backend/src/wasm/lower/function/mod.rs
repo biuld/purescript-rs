@@ -20,6 +20,7 @@ pub(super) fn lower_function(
     string_lengths: &HashMap<crate::types::DataId, u32>,
     literal_globals: &HashMap<crate::types::DataId, crate::wasm::GlobalIndex>,
     layout: Option<&crate::mir::layout::PlannedLayout>,
+    tags: &[crate::mir::Tag],
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
     let list_depth = structure::list_copy_depth(source);
@@ -60,6 +61,7 @@ pub(super) fn lower_function(
         literal_globals,
         list_locals,
         layout,
+        tags,
     };
     let mut body = Body::new();
     let uses_dispatcher = structurer.emit_control_flow(&mut body)?;
