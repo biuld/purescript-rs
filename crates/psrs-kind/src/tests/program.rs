@@ -120,6 +120,64 @@ fn reports_a_referenced_declaration_with_no_checked_scheme() {
     assert!(crate::check_module(&modules[0], &environment).is_empty());
 }
 
+/// `failing/2542.purs`: a where binding's signature names a type variable that
+/// no written `forall` quantifies — the enclosing declaration's annotation is a
+/// synonym, and synonym expansion must not bring its binders into scope.
+#[test]
+fn reports_an_undefined_type_variable_in_a_local_signature() {
+    let errors = check(
+        "module Main where\n\
+         type T = forall a. Array a\n\
+         foo :: T\n\
+         foo = bar where\n  bar :: Array a\n  bar = []\n",
+    );
+    assert!(
+        codes(&errors).contains(&"UndefinedTypeVariable"),
+        "{errors:?}"
+    );
+}
+
+/// A variable the enclosing declaration's annotation quantifies is in scope in
+/// local signatures, and a local signature's own `forall` binds for itself.
+#[test]
+fn written_scoped_type_variables_bind_in_local_annotations() {
+    check_ok(
+        "module Main where\n\
+         foo :: forall a. Array a\n\
+         foo = bar where\n  bar :: Array a\n  bar = []\n",
+    );
+    check_ok(
+        "module Main where\n\
+         foo :: Boolean\n\
+         foo = bar where\n  bar :: forall a. Array a\n  bar = []\n",
+    );
+}
+
+/// `let` and guard bindings are subject to the same rule.
+#[test]
+fn checks_undefined_variables_in_let_and_guard_bindings() {
+    let errors = check(
+        "module Main where\n\
+         foo = let\n  bar :: Array a\n  bar = []\nin bar\n",
+    );
+    assert!(
+        codes(&errors).contains(&"UndefinedTypeVariable"),
+        "{errors:?}"
+    );
+}
+
+/// An annotation in an instance member sees the free variables written in the
+/// instance head and its context.
+#[test]
+fn an_instance_member_sees_the_instance_head_free_variables() {
+    check_ok(
+        "module Main where\n\
+         data Proxy a = Proxy\n\
+         class C a f | a -> f where c :: Proxy f -> Proxy f\n\
+         instance C a (Proxy a) where\n  c p = f p where\n    f :: Proxy (Proxy a) -> Proxy (Proxy a)\n    f x = x\n",
+    );
+}
+
 #[test]
 fn a_primitive_read_as_a_kind_denotes_itself() {
     use crate::{Kind, KindScope, KindState, denote_kind, primitive_kind, type_kind};

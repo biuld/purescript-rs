@@ -16,6 +16,7 @@
 //! private reader for source syntax.
 
 use super::{EvidenceClass, PrimitiveArgs, PrimitiveEvidence, PrimitiveOutcome, PrimitiveRule};
+use crate::typecheck::kind::CoercionKinds;
 use crate::typecheck::*;
 
 mod givens;
@@ -41,13 +42,27 @@ pub(in crate::typecheck) const RULE: PrimitiveRule = PrimitiveRule {
 /// unknown is the conflation the four-outcome contract exists to prevent.
 /// `Undecided` sends the obligation into instance search, which is where an
 /// assumption about the unknown types would be found.
+///
+/// One answer shape aside from `Solved` is `Failed`, and only for the finding
+/// official solving reports itself: its `Entailment/Coercible.hs` unifies the
+/// kinds of a picked-up constraint's two arguments — including one its role
+/// decomposition just derived — and raises `KindsDoNotUnify` there rather than
+/// falling through to a bare `NoInstanceFound`. A pair whose kinds cannot
+/// unify is the one thing about a coercion there is nothing to search for.
 fn solve(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
     let arguments = args.resolved(checker);
     let [source, target] = arguments.as_slice() else {
         return PrimitiveOutcome::Undecided;
     };
-    if !checker.proves_coercible(source, target, args.span()) {
-        return PrimitiveOutcome::Undecided;
+    let mut kind_conflict = None;
+    if !checker.proves_coercible(source, target, args.span(), &mut kind_conflict) {
+        return match kind_conflict {
+            Some(error) => PrimitiveOutcome::Failed {
+                code: TypeCheckErrorKind::KindsDoNotUnify,
+                detail: error.message.to_owned(),
+            },
+            None => PrimitiveOutcome::Undecided,
+        };
     }
     PrimitiveOutcome::Solved {
         evidence: PrimitiveEvidence::Proof {
@@ -64,8 +79,9 @@ impl Checker {
         source: &InferType,
         target: &InferType,
         span: TextRange,
+        kind_conflict: &mut Option<psrs_kind::KindError>,
     ) -> bool {
-        self.proves_coercible_inner(source, target, span, 0, &mut HashSet::new())
+        self.proves_coercible_inner(source, target, span, 0, &mut HashSet::new(), kind_conflict)
     }
 
     fn proves_coercible_inner(
@@ -75,6 +91,7 @@ impl Checker {
         span: TextRange,
         depth: usize,
         path: &mut HashSet<(String, String)>,
+        kind_conflict: &mut Option<psrs_kind::KindError>,
     ) -> bool {
         if depth > 64 {
             return false;
@@ -114,10 +131,31 @@ impl Checker {
                 span,
                 depth + 1,
                 &mut nested,
+                kind_conflict,
             );
         }
-        if !self.coercion_kinds_compatible(&source, &target, span) {
-            return false;
+        // The kinds the pair would have to share. Official solving checks a
+        // pair's kinds exactly here, when it picks a constraint up: the shared
+        // solver holds kinds neither binding nor derivation invented, so a
+        // conflict it finds is the constraint's answer, not a side finding. The
+        // verdict is remembered for this proof attempt and reported once, from
+        // the outermost pair — the first constraint official solving would have
+        // picked up — and only for a genuine `KindsDoNotUnify` verdict: a kind
+        // that is not derivable is the kind pass's diagnostic, and this trial
+        // must not read it as a coercion verdict either way.
+        //
+        // The verdict stays a trial about the solver state, so a route this
+        // attempt declines can still leave no binding behind; the report is
+        // re-derived in one step in `solve`, through `Failed`.
+        match self.coercion_kinds_trial(&source, &target, span) {
+            CoercionKinds::Compatible => {}
+            CoercionKinds::Mismatch(error) => {
+                if kind_conflict.is_none() {
+                    *kind_conflict = Some(error);
+                }
+                return false;
+            }
+            CoercionKinds::Undetermined => return false,
         }
         if self.given_coercible(&source, &target) {
             return true;
@@ -144,12 +182,14 @@ impl Checker {
                     span,
                     depth + 1,
                     &mut field_path,
+                    kind_conflict,
                 ) && self.proves_coercible_inner(
                     source_tail,
                     target_tail,
                     span,
                     depth + 1,
                     &mut tail_path,
+                    kind_conflict,
                 );
             }
             (InferType::RowExtend { .. }, _)
@@ -165,13 +205,27 @@ impl Checker {
 
         if let Some(underlying) = self.unwrap_visible_newtype(&source) {
             let mut nested = path.clone();
-            if self.proves_coercible_inner(&underlying, &target, span, depth + 1, &mut nested) {
+            if self.proves_coercible_inner(
+                &underlying,
+                &target,
+                span,
+                depth + 1,
+                &mut nested,
+                kind_conflict,
+            ) {
                 return true;
             }
         }
         if let Some(underlying) = self.unwrap_visible_newtype(&target) {
             let mut nested = path.clone();
-            if self.proves_coercible_inner(&source, &underlying, span, depth + 1, &mut nested) {
+            if self.proves_coercible_inner(
+                &source,
+                &underlying,
+                span,
+                depth + 1,
+                &mut nested,
+                kind_conflict,
+            ) {
                 return true;
             }
         }
@@ -207,6 +261,7 @@ impl Checker {
                         span,
                         depth + 1,
                         &mut nested,
+                        kind_conflict,
                     )
                 }
                 hir::Role::Phantom => true,

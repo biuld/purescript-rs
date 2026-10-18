@@ -22,9 +22,20 @@ fn reports_a_kind_mismatch_between_constructor_fields() {
 }
 
 #[test]
+fn reports_a_value_signature_of_a_non_type_kind() {
+    // `failing/KindStar.purs`: a value signature's written type must have
+    // kind `Type`; the official `checkTypeKind` failure is `ExpectedType`.
+    let errors = check("module Main where\ndata List a\ntest :: List\ntest = unit\n");
+    assert!(codes(&errors).contains(&"ExpectedType"), "{errors:?}");
+}
+
+#[test]
 fn checks_kind_of_a_typed_pattern_annotation() {
+    // A typed binder's written type must have kind `Type`; official
+    // PureScript solves that equation through `checkTypeKind`, whose failure
+    // is `ExpectedType` (`failing/1570.purs` names the same position).
     let errors = check("module Main where\nbad (value :: Array) = value\n");
-    assert!(codes(&errors).contains(&"KindsDoNotUnify"), "{errors:?}");
+    assert!(codes(&errors).contains(&"ExpectedType"), "{errors:?}");
 }
 
 #[test]
@@ -95,7 +106,9 @@ fn rejects_an_unsaturated_foreign_data_constructor() {
          bad :: Effect\n\
          bad = 1\n",
     );
-    assert!(codes(&errors).contains(&"KindsDoNotUnify"), "{errors:?}");
+    // A value signature's written type must have kind `Type`, and the
+    // official `checkTypeKind` failure at an annotation is `ExpectedType`.
+    assert!(codes(&errors).contains(&"ExpectedType"), "{errors:?}");
 }
 
 #[test]

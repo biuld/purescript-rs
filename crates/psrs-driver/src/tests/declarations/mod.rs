@@ -56,6 +56,42 @@ fn reports_decl_conflict_between_a_class_and_a_type() {
 }
 
 #[test]
+fn reports_duplicate_type_class_for_two_classes_of_one_name() {
+    // Two class declarations sharing one name are the official
+    // `DuplicateTypeClass`, not the ordinary declaration conflict.
+    let source = "module Main where\nclass C\nclass C\n";
+    let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();
+    let codes: Vec<_> = errors
+        .iter()
+        .filter_map(|error| error.diagnostic.code)
+        .collect();
+    assert!(
+        codes.contains(&"DuplicateTypeClass") && !codes.contains(&"DeclConflict"),
+        "{codes:?}"
+    );
+}
+
+#[test]
+fn still_reports_decl_conflict_when_a_class_meets_another_declaration() {
+    // Only a class meeting an earlier class is `DuplicateTypeClass`; a class
+    // name colliding with a data type, a synonym, or a constructor keeps the
+    // ordinary `DeclConflict` code.
+    for source in [
+        "module Main where\nclass Fail\ndata Fail\n",
+        "module Main where\ndata Fail\nclass Fail\n",
+        "module Main where\ndata T = Fail\nclass Fail\n",
+    ] {
+        let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.diagnostic.code == Some("DeclConflict")),
+            "{source}: {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn imports_a_type_and_its_constructors_across_modules() {
     let library = "module Library where\ndata Maybe a = Nothing | Just a\n";
     let main = "\
@@ -344,5 +380,31 @@ fn reports_a_scope_conflict_for_a_duplicated_qualifier() {
         errors
             .iter()
             .any(|error| error.diagnostic.code == Some("ScopeConflict"))
+    );
+}
+
+#[test]
+fn an_export_shadowing_an_unused_import_conflicts_with_nothing() {
+    // The corpus shape `NonConflictingExports`: `Main (thing, main)` exports
+    // its own `thing` while `A`, imported but never used, also defines
+    // `thing`. The export refers to `Main.thing` only, so no export or scope
+    // conflict is reported, the program type checks, and `main` executes.
+    let a = "module A where\nthing :: Int\nthing = 1\n";
+    let main = "module Main (thing, main) where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport A\nimport WASI.Console\nthing :: Int\nthing = 2\nmain = let ignored = unsafePerformEffect (log \"Done\") in 0\n";
+    let sources = [("A.purs", a), ("Main.purs", main)];
+    // Compiling includes resolution, so acceptance here covers the export
+    // resolution as well as the type check.
+    crate::compile_program_sources_with_prelude(&sources)
+        .expect("a local declaration shadows an unused import");
+    let Some(output) = run_program_with_prelude_wasmtime(&sources) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert!(output.status.success(), "the guest must run to completion");
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .ends_with("Done"),
+        "the program must execute with its own export in place: {output:?}"
     );
 }

@@ -220,8 +220,11 @@ fn a_source_partial_constraint_reaches_the_registry_declaration() {
 
 #[test]
 fn a_source_partial_type_is_rejected_as_a_constraint_kinded_type() {
-    // `Partial` is a constraint, not a type of kind `Type`: `purs` reports the
-    // kind of `Partial` as `Constraint` for this same declaration.
+    // `Partial` has kind `Constraint`, so the value annotation's equation
+    // `kind ~ Type` fails. Official `TypeChecker/Kinds.hs` raises that
+    // equation through `checkTypeKind`, whose failure handler is
+    // `ExpectedType`; the kind unifier's own mismatch is reserved for kinds
+    // two types impose on each other.
     let source = "module Main where\n\
         import Prim\n\
         value :: Partial\n\
@@ -232,7 +235,7 @@ fn a_source_partial_type_is_rejected_as_a_constraint_kinded_type() {
     assert!(
         errors
             .iter()
-            .any(|error| error.diagnostic.code == Some("KindsDoNotUnify")),
+            .any(|error| error.diagnostic.code == Some("ExpectedType")),
         "{errors:?}"
     );
 }

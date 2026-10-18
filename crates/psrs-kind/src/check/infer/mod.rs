@@ -169,11 +169,43 @@ impl Checker<'_> {
         }
     }
 
+    /// Solves a type-annotation kind equation, reporting `ExpectedType` when
+    /// it fails.
+    ///
+    /// A value's written type must have kind `Type`, and at an annotation
+    /// (`x :: t`, a value signature, a binder annotation) official PureScript
+    /// solves exactly this equation through `checkTypeKind`
+    /// (`TypeChecker/Kinds.hs`), whose failure handler reports `ExpectedType`
+    /// with the written type and its kind. The kind unifier's own mismatch is
+    /// reserved for kinds two types impose on each other, so an annotation
+    /// that is not a type at all is not reported as a conflict between kinds.
+    ///
+    /// A failure may leave partial bindings behind; like the official
+    /// `unifyKindsWithFailure` failure handler, they stay and the report names
+    /// the kind the annotation carried when its equation failed.
+    pub(super) fn check_type_annotation_kind(
+        &mut self,
+        kind: Kind,
+        against: Kind,
+        span: TextRange,
+    ) {
+        if crate::solve::unify_kind(&mut self.state, kind.clone(), against, span).is_err() {
+            let kind = self.state.resolve(kind);
+            self.report(
+                EXPECTED_TYPE,
+                span,
+                format!(
+                    "in a type-annotated expression `x :: t`, the type `t` must have kind `Type`; it has kind `{kind:?}`"
+                ),
+            );
+        }
+    }
+
     fn check_module_definitions(&mut self, module: &hir::Module) {
         for signature in module.declared_value_signatures() {
             let mut scope = HashMap::new();
             let kind = self.kind_of_type(signature, &mut scope);
-            self.unify(kind, type_kind(), signature.span);
+            self.check_type_annotation_kind(kind, type_kind(), signature.span);
         }
         for declaration in &module.types {
             let Some(scheme) = self.schemes.get(&declaration.id).cloned() else {
@@ -228,29 +260,60 @@ impl Checker<'_> {
     /// kind and therefore cannot reject a head. Without this an instance is the
     /// one place a type is applied to a kind signature and never checked, so
     /// `class C :: Constraint -> Constraint` accepts `instance C Int`.
+    ///
+    /// The class does not have to be declared in the module that declares the
+    /// instance: a head whose class is foreign is still checked here against the
+    /// scheme its declaring module's run produced, because a program-level run
+    /// sees every module's scheme and a module-level run receives the imported
+    /// ones. What does not need to be the same is the arity source. A class this
+    /// module declares has its parameter list at hand; a foreign class is read
+    /// through its scheme (its kind is one arrow per parameter ending in
+    /// `Constraint`), and a scheme this run does not know leaves the head
+    /// unguarded, because a signature the program never checked must not be
+    /// replaced by an invention.
     fn check_instance_heads(&mut self, module: &hir::Module) {
         for instance in &module.instances {
             // A head that applies its class to the wrong number of arguments is
             // an arity error, not a kind error, and the class environment owns
             // that rule. Checking it here too would report `KindsDoNotUnify`
             // where `ClassInstanceArityMismatch` is the official code, and would
-            // pre-empt the arity diagnostic entirely. A class this module does
-            // not declare has no known arity here either, so it is left alone.
-            let Some(declared) = module
+            // pre-empt the arity diagnostic entirely.
+            let declared = module
                 .types
                 .iter()
-                .find(|declaration| declaration.id == instance.class_id)
-            else {
-                continue;
+                .find(|declaration| declaration.id == instance.class_id);
+            let parameters = match declared {
+                Some(declaration) => Some(declaration.parameters.len()),
+                None => self.scheme_parameter_count(instance.class_id),
             };
             let (_, arguments) = flatten_spine(&instance.head);
-            if arguments.len() != declared.parameters.len() {
+            let Some(parameters) = parameters else {
+                continue;
+            };
+            if arguments.len() != parameters {
                 continue;
             }
             let mut scope = HashMap::new();
             let kind = self.kind_of_type_against(&instance.head, &mut scope, false);
             self.unify(kind, constraint_kind(), instance.head.span);
         }
+    }
+
+    /// How many parameters a class's checked kind scheme takes.
+    ///
+    /// The scheme's kind is one function per parameter ending in `Constraint`,
+    /// so the count is the chain of function steps. `None` says this run has no
+    /// scheme for the class — a program this run is not closed over — and the
+    /// head is then left to whatever the scheme's absence reports elsewhere.
+    fn scheme_parameter_count(&self, id: TypeId) -> Option<usize> {
+        let scheme = self.schemes.get(&id)?;
+        let mut count = 0;
+        let mut kind = &scheme.kind;
+        while let Kind::Function(_, result) = kind {
+            count += 1;
+            kind = result;
+        }
+        Some(count)
     }
 }
 

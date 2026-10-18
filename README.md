@@ -51,9 +51,9 @@ what remains in each layer.
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
 | L2 resolution | 72/72 failing, 403/413 passing | official `errorCode`s; 6 passing files stop at P3 and 4 at P0; no harness blockers |
-| L3 kinds | 39/48 failing | official kind `errorCode`s |
-| L4 types | 39/50 failing | official `errorCode`s |
-| L5 classes | 81/97 failing | official `errorCode`s, measured 2026-10-17 |
+| L3 kinds | 44/48 failing | official kind `errorCode`s; measured 2026-10-18 |
+| L4 types | 41/50 failing | official `errorCode`s; `ExpectedType` 2/2 since the annotation-position rule |
+| L5 classes | 98/99 failing | official `errorCode`s; only `ClassHeadNoVTA3` (#123) remains; measured 2026-10-18 |
 | L6/M7 runtime | 287/340 programs | all exit 0; 53 do not agree; 74 support files remain program inputs, 25 FFI groups excluded |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 

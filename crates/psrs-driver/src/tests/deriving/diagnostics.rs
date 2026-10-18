@@ -182,10 +182,13 @@ fn fold_deriving_reports_missing_core_values_at_the_declaration() {
 #[test]
 fn deriving_rejects_non_constructor_heads_and_invalid_class_arity() {
     for (library, main, expected) in [
+        // A class the deriving module does not own and a primitive head make
+        // the declaration an official orphan: `checkOrphanInstance` throws
+        // before the derivation runs, so the orphan code is the whole report.
         (
             "module Data.Eq where\nclass Eq a where\n  eq :: a -> a -> Boolean\n",
             "module Main where\nimport Data.Eq\nderive instance eqInt :: Eq Int\nmain = 0\n",
-            "ExpectedTypeConstructor",
+            "OrphanInstance",
         ),
         (
             "module Data.Eq where\nclass Eq a b where\n  eq :: a -> b -> Boolean\n",

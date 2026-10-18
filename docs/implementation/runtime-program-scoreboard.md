@@ -334,3 +334,39 @@ open-row interaction regressions recorded in the
 [open-record checklist](open-records.md#integrated-topic-acceptance-review-2026-10-18).
 With every requirement row re-executed and the board re-measured, the open-record
 checklist is complete at commit `e331f9ba` plus this review.
+
+## Serial rerun after the instance and diagnostic slices: 2026-10-18
+
+Compiler master after the five instance/diagnostic slice merges (`54d69f92`
+instance-head kinds, `56fe3cda` annotation-position codes, `4a078b95`
+instance heads and cycles, `298cc585` the orphan rule, `fd7bf88a` duplicate
+type classes, `9a4c2e04` inclusion-minimal covering sets), package
+`e556bf2f` / `fnv1a64-v1:7d96f1c44d8d52cc` unchanged. The measurement host
+differs from the earlier close-outs: Wasmtime **CLI 48.0.1**, no `purs`
+installed. Protocol: **one worker per root, serially** (`xargs -P1`), each
+root filtered by `passing/<basename>` with a 110-second compile cap, all 365
+roots including `BigFunction.purs`; suite binary
+`target/release/deps/suite-461c5a8e1563a05b`, SHA-256
+`90da2757e8e2e2a362a7d8cfdd7f0f686d6655c502f006809385a7457439fa00`.
+
+The board is **287/340**: 287 completions exit zero, 25 FFI groups excluded,
+52 named non-agreements and the resource-bounded `BigFunction.purs`. The
+failing set is identical to the 2026-10-18 review's; the rows' stage
+attribution moved with the newly mapped kind and diagnostic codes (three rows
+now report `P5 kind check [ExpectedType]`: `4500.purs`, `4535.purs`,
+`TypeSynonymsInKinds.purs`, and three `P5 kind check [UndefinedTypeVariable]`).
+
+**Measurement caveat, recorded rather than claimed:** two rows
+(`NonConflictingExports.purs`, `NonOrphanInstanceFunDepExtra.purs`) time out
+at the board's fixed 10-second guest wall under concurrent measurement load
+(two full parallel board runs ran simultaneously when this was first seen)
+and **pass when re-measured individually** on the identical binary — `1/1,
+stdout: Done`, verified twice (2026-10-18, sequential). The number 287/340 is
+stable across the parallel and serial protocols; the caveat documents that
+these rows are load-sensitive, not that the success set grew. Raw per-root
+rows: `/tmp/opencode/s1l6/final.raw` (this tree) and `/tmp/opencode/s1l6/base.raw`
+(the 54-name pre-slice comparison at `cbdfceb2`, suite SHA-256
+`befcb214322a19f5ea61c23e3fdb6cf49954e9a84a7a681499e41895e2fcf318`).
+`BigFunction.purs` again did not finish inside a 90-second cap on this host
+(`/tmp/opencode/s1l6/bigfunc.verdict`); its resource-bounded row is unchanged
+in kind, and no compile acceptance is claimed.

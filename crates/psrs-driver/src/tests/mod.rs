@@ -34,6 +34,7 @@ mod number_rounding;
 mod number_sqrt;
 mod number_trunc;
 mod operators;
+mod orphan_instances;
 mod partial_application;
 mod primitive_foreign;
 mod record_storage;

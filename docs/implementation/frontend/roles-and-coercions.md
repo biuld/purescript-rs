@@ -13,6 +13,13 @@ independently at use sites, including quantifiers that shadow class parameters.
 The roles and `Coercible` acceptance evidence and remaining runtime limits are
 recorded below.
 
+A wanted `Coercible` constraint whose two arguments share no kind is not a
+missing instance: official solving unifies a picked-up constraint's argument
+kinds (`Entailment/Coercible.hs`), including one its role decomposition dissolves
+into, and raises `KindsDoNotUnify` there. The rule returns that verdict through
+its `Failed` outcome and the enclosing resolution does not add a second
+`NoInstanceFound` for it.
+
 ## Scope
 
 This record tracks source role declarations, checked role metadata, primitive

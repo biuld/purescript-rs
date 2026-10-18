@@ -6,6 +6,9 @@ fn derived_bifoldable_preserves_left_right_mapping_and_fold_order() {
 
 class Semigroup a where
   append :: a -> a -> a
+
+instance semigroupInt :: Semigroup Int where
+  append left right = intAdd left right
 "#;
     let monoid = r#"module Data.Monoid where
 
@@ -13,6 +16,9 @@ import Data.Semigroup
 
 class Semigroup a <= Monoid a where
   mempty :: a
+
+instance monoidInt :: Monoid Int where
+  mempty = 0
 "#;
     let foldable = r#"module Data.Bifoldable where
 
@@ -28,12 +34,6 @@ class Bifoldable t where
 import Data.Bifoldable
 import Data.Monoid
 import Data.Semigroup
-
-instance semigroupInt :: Semigroup Int where
-  append left right = intAdd left right
-
-instance monoidInt :: Monoid Int where
-  mempty = 0
 
 data Box a b = Empty | Box { left :: a, right :: b, inert :: Int }
 

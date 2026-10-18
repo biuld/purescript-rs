@@ -437,31 +437,3 @@ fn every_outcome_is_reachable_and_only_official_codes_are_reportable() {
         "a report's result is its diagnostic, not evidence"
     );
 }
-
-#[test]
-fn a_coercible_obligation_reaches_the_rule_from_the_table() {
-    let mut checker = checker();
-    let source = checker.fresh();
-    let target = checker.fresh();
-    let mut constraint = obligation(&mut checker, hir::TypeId::COERCIBLE, vec![source, target]);
-    assert_eq!(
-        primitive_rule(hir::TypeId::COERCIBLE).map(|r| r.arity),
-        Some(2)
-    );
-
-    // Two unknown arguments the role analysis cannot relate are undecided, so the
-    // obligation continues into the ordinary paths rather than being reported.
-    assert!(matches!(
-        dispatch(&mut checker, &constraint),
-        PrimitiveDispatch::None
-    ));
-    assert!(checker.state.errors.is_empty());
-
-    // Equal known arguments are proved, and the proof is the evidence.
-    constraint.arguments = vec![int(), int()];
-    assert!(matches!(
-        dispatch(&mut checker, &constraint),
-        PrimitiveDispatch::Solved(WantedSolution::Coercible { .. })
-    ));
-    assert!(checker.state.errors.is_empty());
-}

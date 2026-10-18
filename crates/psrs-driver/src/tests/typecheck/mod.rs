@@ -1,5 +1,6 @@
 use super::*;
 
+mod instance_heads;
 mod opaque;
 
 #[test]

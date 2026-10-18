@@ -17,7 +17,7 @@ mod denote;
 mod kind;
 mod solve;
 
-pub use check::{check_module, check_program};
+pub use check::{KINDS_DO_NOT_UNIFY, check_module, check_program};
 pub use denote::{KindScope, denote_kind};
 pub use kind::{
     CheckedKindEnv, Kind, KindDiagnostic, KindScheme, constraint_kind, primitive_kind, type_kind,

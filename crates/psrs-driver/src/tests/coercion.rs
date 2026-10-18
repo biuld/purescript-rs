@@ -371,7 +371,11 @@ fn foreign_data_roles_default_to_nominal_and_accept_explicit_signatures() {
 }
 
 #[test]
-fn rejects_coercion_between_type_constructors_with_different_kinds() {
+fn reports_a_coercion_between_type_constructors_with_different_kinds() {
+    // `failing/CoercibleKindMismatch.purs`: the constraint's role decomposition
+    // needs `Coercible Unary Binary`, and official solving unifies a picked-up
+    // constraint's argument kinds before refusing it, so the failure is the
+    // kind equation's verdict, not a missing instance.
     let source = r#"module Main where
 
 import Safe.Coerce (coerce)
@@ -387,7 +391,7 @@ type role Proxy representational
 bad :: Proxy Unary -> Proxy Binary
 bad = coerce
 "#;
-    rejects(&[("Main.purs", source)], "NoInstanceFound");
+    rejects(&[("Main.purs", source)], "KindsDoNotUnify");
 }
 
 #[test]

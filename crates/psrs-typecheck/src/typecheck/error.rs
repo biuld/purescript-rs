@@ -24,6 +24,11 @@ pub enum TypeCheckErrorKind {
     FundepConflict,
     /// More than one unrelated visible instance proves the same constraint.
     OverlappingInstances,
+    /// A local instance declares neither its class nor a type constructor that
+    /// covers one of the class's functional-dependency covering sets. `purs`
+    /// raises this in `TypeChecker.typeCheckAll` through
+    /// `findNonOrphanModules` and `checkOrphanInstance`.
+    OrphanInstance,
     /// A constraint still mentions variables that neither the result type nor
     /// the class's functional dependencies determine.
     AmbiguousConstraint,
@@ -38,6 +43,17 @@ pub enum TypeCheckErrorKind {
     /// contains a type wildcard. `purs` raises this in
     /// `TypeChecker.checkTypeClassInstance`; see `failing/TypeWildcards3.purs`.
     InvalidInstanceHead,
+    /// An instance search that never terminates because the selected instance's
+    /// own context contains the very constraint being solved, at a growing or
+    /// unchanging shape. `purs` raises this in `Entailment`'s `go` when the
+    /// subgoal chain exceeds its work bound; see `failing/438.purs`.
+    PossiblyInfiniteInstance,
+    /// A class's superclasses form a cycle, so the class environment is
+    /// unsatisfiable and dictionary construction would not terminate. `purs`
+    /// raises this for the class declaration that reintroduces an ancestor; see
+    /// `failing/Superclasses2.purs` and
+    /// `failing/SelfCycleInTypeClassDeclaration.purs`.
+    CycleInTypeClassDeclaration,
     /// An inferred public value mentions a local type omitted from exports.
     TransitiveExport,
     /// A class has no compiler-supported deriving rule. Official
@@ -120,12 +136,20 @@ impl TypeCheckErrorKind {
     /// Whether this error already reports why one wanted constraint failed to
     /// resolve. Callers must not add a second `NoInstanceFound` at an enclosing
     /// instance or deferral boundary.
+    ///
+    /// `KindsDoNotUnify` belongs here through the `Coercible` rule: official
+    /// solving reports a constraint's argument kinds when it picks the
+    /// constraint up, and that verdict *is* the resolution's answer, not a
+    /// side finding, so the bare `no instance` message would only say the same
+    /// failure again.
     pub(in crate::typecheck) fn reports_constraint_failure(self) -> bool {
         matches!(
             self,
             TypeCheckErrorKind::NoInstance
                 | TypeCheckErrorKind::OverlappingInstances
+                | TypeCheckErrorKind::PossiblyInfiniteInstance
                 | TypeCheckErrorKind::TypeMismatch
+                | TypeCheckErrorKind::KindsDoNotUnify
         )
     }
 
@@ -167,6 +191,7 @@ impl TypeCheckErrorKind {
             TypeCheckErrorKind::NoInstance => "NoInstanceFound",
             TypeCheckErrorKind::MissingInstanceMethod => "MissingClassMember",
             TypeCheckErrorKind::OverlappingInstances => "OverlappingInstances",
+            TypeCheckErrorKind::OrphanInstance => "OrphanInstance",
             TypeCheckErrorKind::AmbiguousConstraint => "AmbiguousTypeVariables",
             TypeCheckErrorKind::CannotGeneralizeRecursiveFunction => {
                 "CannotGeneralizeRecursiveFunction"
@@ -175,6 +200,8 @@ impl TypeCheckErrorKind {
                 "InvalidCoercibleInstanceDeclaration"
             }
             TypeCheckErrorKind::InvalidInstanceHead => "InvalidInstanceHead",
+            TypeCheckErrorKind::PossiblyInfiniteInstance => "PossiblyInfiniteInstance",
+            TypeCheckErrorKind::CycleInTypeClassDeclaration => "CycleInTypeClassDeclaration",
             TypeCheckErrorKind::TransitiveExport => "TransitiveExportError",
             TypeCheckErrorKind::CannotDerive => "CannotDerive",
             TypeCheckErrorKind::ExpectedTypeConstructor => "ExpectedTypeConstructor",

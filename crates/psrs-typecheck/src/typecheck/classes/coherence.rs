@@ -1,4 +1,6 @@
 use super::super::*;
+use super::fundeps::covering_sets;
+use std::collections::{BTreeSet, HashSet};
 
 impl Checker {
     /// Checks visible instance declarations for overlaps, excluding branches
@@ -76,66 +78,80 @@ fn collect_user_type_modules(ty: &InferType, modules: &mut HashSet<hir::ModuleId
     }
 }
 
-/// Computes the minimal sets of class arguments that determine all arguments
-/// under the class's functional dependencies.
-fn covering_sets(parameter_count: usize, fundeps: &[FundepInfo]) -> Vec<Vec<usize>> {
-    if fundeps.is_empty() {
-        return vec![(0..parameter_count).collect()];
+/// The module that declares an argument's leftmost spine-head type
+/// constructor: applications recurse into the function side, so an applied
+/// constructor names its nominal head's module, while type variables and
+/// decided literals name no module. This is `purs`'s `typeModule` inside
+/// `TypeChecker.findNonOrphanModules`.
+fn leftmost_head_module(ty: &InferType) -> Option<hir::ModuleId> {
+    match ty {
+        InferType::Constructor(TypeConstructor::User(type_id)) => Some(type_id.module),
+        InferType::Application(function, _) => leftmost_head_module(function),
+        _ => None,
     }
-    let mut result: Vec<Vec<usize>> = Vec::new();
-    enumerate_covering_sets(parameter_count, fundeps, 0, &mut Vec::new(), &mut result);
-    result
 }
 
-fn enumerate_covering_sets(
-    parameter_count: usize,
-    fundeps: &[FundepInfo],
-    next: usize,
-    chosen: &mut Vec<usize>,
-    result: &mut Vec<Vec<usize>>,
-) {
-    if dependency_closure(chosen, fundeps).len() == parameter_count {
-        if !result.iter().any(|cover| is_subset(cover, chosen)) {
-            result.push(chosen.clone());
+impl Checker {
+    /// Reports the official orphan instance error for one local instance
+    /// declaration, under the rule `purs` implements in
+    /// `TypeChecker.typeCheckAll`: the declaring module is non-orphan when it
+    /// declares the instance's class, or when for *every* covering set of the
+    /// class's parameters at least one covered head argument's leftmost type
+    /// constructor is declared in the declaring module (`purs` intersects the
+    /// modules found through each covering set and checks its containment).
+    ///
+    /// `checkOrphanInstance` throws after head synthesis — synonym resolution
+    /// included — and before the instance joins the searchable environment, so
+    /// an orphan instance is rejected here and never recorded: it cannot
+    /// overlap with another visible instance or submit a derived dictionary,
+    /// exactly as the official throw aborts the remaining checks.
+    ///
+    /// Returns whether the instance was reported as an orphan.
+    pub(super) fn report_orphan_instance(
+        &mut self,
+        instance: &hir::InstanceDeclaration,
+        class: &ClassInfo,
+        head_arguments: &[InferType],
+    ) -> bool {
+        let declaring = self.env.module_id;
+        if instance.class_id.module == declaring {
+            return false;
         }
-        return;
-    }
-    let mut possible = chosen.clone();
-    possible.extend(next..parameter_count);
-    if dependency_closure(&possible, fundeps).len() != parameter_count || next == parameter_count {
-        return;
-    }
-    chosen.push(next);
-    enumerate_covering_sets(parameter_count, fundeps, next + 1, chosen, result);
-    chosen.pop();
-    enumerate_covering_sets(parameter_count, fundeps, next + 1, chosen, result);
-}
-
-fn is_subset(left: &[usize], right: &[usize]) -> bool {
-    left.iter().all(|index| right.contains(index))
-}
-
-fn dependency_closure(seed: &[usize], fundeps: &[FundepInfo]) -> HashSet<usize> {
-    let mut closure = seed.iter().copied().collect::<HashSet<_>>();
-    loop {
-        let before = closure.len();
-        for fundep in fundeps {
-            if fundep
-                .determining
-                .iter()
-                .all(|index| closure.contains(index))
-            {
-                closure.extend(fundep.determined.iter().copied());
-            }
+        let sets = covering_sets(class.parameters.len(), &class.fundeps);
+        // The declaring module is non-orphan when every covering set contains
+        // a covered argument whose leftmost head constructor it declares; the
+        // instance is an orphan only when no covering set does.
+        let is_orphan = !sets.iter().all(|set| {
+            set.iter().any(|&index| {
+                head_arguments
+                    .get(index)
+                    .and_then(leftmost_head_module)
+                    .is_some_and(|module| module == declaring)
+            })
+        });
+        if !is_orphan {
+            return false;
         }
-        if closure.len() == before {
-            return closure;
-        }
+        let class_name = self
+            .env
+            .type_names
+            .get(&instance.class_id)
+            .cloned()
+            .unwrap_or_else(|| format!("Class{}", instance.class_id.index));
+        self.state.errors.push(TypeCheckError::new(
+            TypeCheckErrorKind::OrphanInstance,
+            instance.span,
+            format!(
+                "orphan instance of class `{class_name}`: neither the class nor a type \
+                 constructor covering its head is declared in this module"
+            ),
+        ));
+        true
     }
 }
 
 fn instances_are_apart(
-    covering_sets: &[Vec<usize>],
+    covering_sets: &BTreeSet<BTreeSet<usize>>,
     left: &[InferType],
     right: &[InferType],
 ) -> bool {

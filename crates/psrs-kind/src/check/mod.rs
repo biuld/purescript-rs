@@ -19,6 +19,12 @@ pub const PARTIALLY_APPLIED_SYNONYM: &str = "PartiallyAppliedSynonym";
 pub const CYCLE_IN_TYPE_SYNONYM: &str = "CycleInTypeSynonym";
 pub const CYCLE_IN_KIND_DECLARATION: &str = "CycleInKindDeclaration";
 pub const UNDEFINED_TYPE_VARIABLE: &str = "UndefinedTypeVariable";
+/// A type annotation's written type must have kind `Type`. Official
+/// PureScript solves this equation in `checkTypeKind`
+/// (`TypeChecker/Kinds.hs`), whose failure handler reports `ExpectedType`
+/// with the written type and its kind instead of the kind unifier's own
+/// mismatch.
+pub const EXPECTED_TYPE: &str = "ExpectedType";
 /// A referenced type that the program never checked, so no kind is known for
 /// it. This is the code official PureScript reports when `elaborateKind` cannot
 /// resolve a constructor: a missing kind is not an inferable parameter.
