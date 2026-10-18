@@ -17,6 +17,7 @@ mod assignment_array;
 mod assignment_string;
 mod assignments;
 mod conversion_helpers;
+mod exception;
 mod record_call;
 mod runtime_call;
 mod storage_call;
@@ -48,8 +49,7 @@ pub(super) fn lower_function(
     source: &cc::Function,
     id: FunctionId,
     wit_imports: &HashMap<SymbolId, BoundWasiImport>,
-    runtime_imports: &HashMap<SymbolId, super::Import>,
-    record_primitives: &HashMap<SymbolId, psrs_runtime::RecordPrimitive>,
+    runtime: &super::runtime::RuntimeContext,
     layout: &PlannedLayout,
     conversion_helpers: Option<&mut ConversionHelpers>,
     literals: Option<&mut StringLiterals>,
@@ -85,8 +85,8 @@ pub(super) fn lower_function(
             .max()
             .map_or(0, |max| max + 1),
         wit_imports,
-        runtime_imports,
-        record_primitives,
+        runtime,
+        target,
         layout,
         conversion_helpers,
         literals,
@@ -130,8 +130,10 @@ pub(super) struct FunctionLowerer<'a> {
     values: Vec<ValueDecl>,
     next_value: u32,
     wit_imports: &'a HashMap<SymbolId, BoundWasiImport>,
-    runtime_imports: &'a HashMap<SymbolId, super::Import>,
-    record_primitives: &'a HashMap<SymbolId, psrs_runtime::RecordPrimitive>,
+    runtime: &'a super::runtime::RuntimeContext,
+    /// The concrete target capability profile; the exception discharge checks
+    /// `exceptions` at the call's binding span.
+    target: crate::capability::TargetCapabilities,
     pub(in crate::mir) layout: &'a PlannedLayout,
     conversion_helpers: Option<&'a mut ConversionHelpers>,
     literals: Option<&'a mut StringLiterals>,

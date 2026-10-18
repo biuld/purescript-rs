@@ -15,7 +15,7 @@ impl FunctionLowerer<'_> {
         else {
             unreachable!("record primitive assignment lowering dispatch");
         };
-        if !self.record_primitives.contains_key(provider) {
+        if !self.runtime.record_primitives.contains_key(provider) {
             return Err(vec![
                 BackendError::invalid_ir(
                     "P9 runtime projection",

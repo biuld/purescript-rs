@@ -35,6 +35,7 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
         &HashMap::new(),
         &HashMap::new(),
         None,
+        &[],
     )
     .unwrap();
     let module = Module {

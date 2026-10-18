@@ -60,10 +60,13 @@ pub(super) struct Structurer<'a> {
     /// guest layout and representation type indices. `None` for a hand-built
     /// test module with no representation table.
     pub(super) layout: Option<&'a crate::mir::layout::PlannedLayout>,
+    /// The module's exception tags; a MIR `TagId` indexes this slice, and the
+    /// final `TagIndex` is the same position.
+    pub(super) tags: &'a [crate::mir::Tag],
 }
 impl Structurer<'_> {
     pub(super) fn emit_control_flow(&self, body: &mut Body) -> Result<bool, Vec<BackendError>> {
-        match cfg::ControlFlowPlan::build(self.function, &self.blocks)? {
+        match cfg::ControlFlowPlan::build(self.function, &self.blocks, self.tags)? {
             cfg::ControlFlowPlan::Dispatcher(blocks) => {
                 self.emit_dispatcher(&blocks, body)?;
                 Ok(true)

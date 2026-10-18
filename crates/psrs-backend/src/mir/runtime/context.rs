@@ -6,6 +6,9 @@ use std::collections::HashMap;
 pub(in crate::mir) struct RuntimeContext {
     pub(in crate::mir) imports: HashMap<SymbolId, Import>,
     pub(in crate::mir) record_primitives: HashMap<SymbolId, psrs_runtime::RecordPrimitive>,
+    /// Provider bindings discharged by the MIR lowering into inline try
+    /// regions; they plan no import because the provider has no host ABI.
+    pub(in crate::mir) exception_providers: HashMap<SymbolId, crate::bindings::ExceptionProvider>,
 }
 
 impl RuntimeContext {
@@ -23,7 +26,31 @@ impl RuntimeContext {
         })?;
         let mut imports = HashMap::new();
         let mut record_primitives = HashMap::new();
+        let mut exception_providers = HashMap::new();
         for binding in bindings {
+            if binding.module == crate::bindings::RUNTIME_EXCEPTION_MODULE {
+                // The provider has no host ABI: plan_import plans no import.
+                // P9 rechecks the CC shape here and the function lowerer
+                // discharges every live call into an inline try region.
+                let external = physical
+                    .externals
+                    .iter()
+                    .find(|external| external.symbol == binding.symbol)
+                    .and_then(|external| external.signature.as_ref())
+                    .ok_or_else(|| {
+                        binding_error(binding, "exception provider has no CC signature")
+                    })?;
+                let provider = crate::bindings::checked_provider(
+                    binding,
+                    external,
+                    &physical.representations,
+                    layout,
+                )?;
+                if live.direct_calls.contains(&binding.symbol) {
+                    exception_providers.insert(binding.symbol, provider);
+                }
+                continue;
+            }
             if binding.module == psrs_runtime::RECORD_STORAGE_MODULE {
                 let primitive = psrs_runtime::RecordPrimitive::from_export(&binding.function)
                     .ok_or_else(|| binding_error(binding, "unknown record-storage export"))?;
@@ -61,6 +88,7 @@ impl RuntimeContext {
         Ok(Self {
             imports,
             record_primitives,
+            exception_providers,
         })
     }
 }

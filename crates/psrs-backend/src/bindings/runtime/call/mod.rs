@@ -42,6 +42,9 @@ pub(crate) fn canonical_signature(
     if binding.module == psrs_runtime::RECORD_STORAGE_MODULE {
         return canonical_record_signature(binding, signature, table);
     }
+    if binding.module == super::exception::RUNTIME_EXCEPTION_MODULE {
+        return super::exception::canonical_signature(binding, signature, table);
+    }
     if binding.module != psrs_runtime::STORAGE_MODULE {
         return Err(error(binding, "unknown runtime storage provider"));
     }

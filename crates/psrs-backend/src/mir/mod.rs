@@ -19,7 +19,7 @@ mod planner;
 mod reachable;
 mod runtime;
 mod tag;
-mod try_region;
+pub(crate) mod try_region;
 mod value_identity;
 mod verify;
 mod wit;
@@ -326,8 +326,7 @@ fn lower_module_after_binding_validation(
             function,
             FunctionId(id as u32),
             &wit_imports,
-            &runtime.imports,
-            &runtime.record_primitives,
+            &runtime,
             &layout,
             Some(&mut conversion_helpers),
             Some(&mut literals),
@@ -347,8 +346,7 @@ fn lower_module_after_binding_validation(
             helper,
             FunctionId(first_helper_id + offset as u32),
             &wit_imports,
-            &runtime.imports,
-            &runtime.record_primitives,
+            &runtime,
             &layout,
             None,
             Some(&mut literals),

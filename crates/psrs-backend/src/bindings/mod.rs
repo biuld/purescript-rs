@@ -10,6 +10,11 @@ mod primitives;
 mod runtime;
 pub(crate) use primitives::lower as lower_primitives;
 pub(crate) use runtime::call::canonical_signature as runtime_cc_signature;
+#[cfg(test)]
+pub(crate) use runtime::exception::CHECK_THROWS_EXPORT;
+pub(crate) use runtime::exception::{
+    ExceptionProvider, RUNTIME_EXCEPTION_MODULE, checked_provider,
+};
 pub use runtime::metadata::RuntimeBinding;
 pub(crate) use runtime::metadata::{
     from_core as runtime_metadata_from_core, validate_core as validate_runtime_bindings,

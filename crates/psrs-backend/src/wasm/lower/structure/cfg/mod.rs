@@ -1,11 +1,17 @@
 use super::wasm_error;
 use crate::BackendError;
-use crate::mir::{BasicBlock, BlockId, Function, Terminator};
+use crate::mir::try_region;
+use crate::mir::{BasicBlock, BlockId, Function, Tag, Terminator};
+use crate::types::ValueType;
 use std::collections::{HashMap, HashSet};
 
+mod build;
 mod irreducible;
+mod try_context;
 
+use build::build_region;
 use irreducible::has_irreducible_component;
+use try_context::TryContext;
 
 #[derive(Clone, Debug)]
 pub(super) enum ControlFlowPlan {
@@ -27,12 +33,31 @@ pub(super) enum UnitPlan {
         header: BlockId,
         body: Box<RegionPlan>,
     },
+    /// EH-10: a composite unit covering the try block, the protected
+    /// sub-region, and the handler, occupying one slot in the enclosing
+    /// region's topological order. Handler blocks are not units of their
+    /// own; the composite unit emits each handler inline after the unwind
+    /// block.
+    Try {
+        try_block: BlockId,
+        protected: Box<RegionPlan>,
+        /// The one handler every clause of the region delivers to; `None`
+        /// when the region arms no clauses at all.
+        handler: Option<BlockId>,
+        /// The caught payload delivered through the synthesized unwind
+        /// block; `None` when the clauses are payload-less (`catch_all`).
+        payload: Option<ValueType>,
+    },
 }
 
 impl UnitPlan {
     pub(super) fn entry(&self) -> BlockId {
         match self {
-            Self::Block(block) | Self::Loop { header: block, .. } => *block,
+            Self::Block(block)
+            | Self::Loop { header: block, .. }
+            | Self::Try {
+                try_block: block, ..
+            } => *block,
         }
     }
 }
@@ -47,10 +72,22 @@ impl ControlFlowPlan {
     pub(super) fn build(
         function: &Function,
         blocks: &HashMap<BlockId, &BasicBlock>,
+        tags: &[Tag],
     ) -> Result<Self, Vec<BackendError>> {
+        // One definition of the protected-region partition, shared with the
+        // verifier and tail-call marking. Fails for malformed unwind edges;
+        // those are already diagnosed at P9.
+        let try_regions = try_region::plan(function, "P10 Wasm structuring")?;
         let reachable = reachable_blocks(function.entry, blocks, function.span)?;
         let predecessors = predecessors(&reachable, blocks);
         if has_irreducible_component(function.entry, &reachable, &predecessors, blocks) {
+            // EH-11: the dispatcher's state machine cannot arm a try_table.
+            if let Some(region) = try_regions.regions.first() {
+                return Err(wasm_error(
+                    region.span,
+                    "MIR function combines irreducible control flow with a try region; the dispatcher cannot arm a try_table",
+                ));
+            }
             return Ok(Self::Dispatcher(reachable));
         }
         let dominators = dominators(function.entry, &reachable, &predecessors);
@@ -69,6 +106,7 @@ impl ControlFlowPlan {
                 ));
             }
         }
+        let try_context = TryContext::new(try_regions, tags, &loops)?;
         let root = build_region(
             function,
             blocks,
@@ -76,6 +114,7 @@ impl ControlFlowPlan {
             &loops,
             None,
             function.entry,
+            &try_context,
         )?;
         Ok(Self::Reducible(root))
     }
@@ -103,10 +142,36 @@ fn reachable_blocks(
             return Err(wasm_error(span, "MIR block has no terminator"));
         };
         reachable.push(block_id);
-        pending.extend(successors(terminator).into_iter().rev());
+        // The region plan must cover the catch paths too: a handler and its
+        // successors execute when the armed region catches, so the walk
+        // follows the unwind edges as well as the normal ones. Try-free
+        // terminators have no unwind edges, so this is the same walk as
+        // before for them.
+        let mut next = successors(terminator);
+        next.extend(unwind_only_successors(terminator));
+        pending.extend(next.into_iter().rev());
     }
     reachable.sort_by_key(|block| block.0);
     Ok(reachable)
+}
+
+/// The unwind edges alone, so the region plan's walk can follow the catch
+/// paths without re-listing the normal successors.
+fn unwind_only_successors(terminator: &Terminator) -> Vec<BlockId> {
+    match terminator {
+        Terminator::Try {
+            catches, catch_all, ..
+        } => catches
+            .iter()
+            .map(|(_, handler)| *handler)
+            .chain(catch_all.iter().copied())
+            .collect(),
+        Terminator::Throw {
+            handler: Some(handler),
+            ..
+        } => vec![*handler],
+        _ => Vec::new(),
+    }
 }
 
 fn predecessors(
@@ -252,148 +317,6 @@ fn validate_loop_nesting(
     Ok(())
 }
 
-fn build_region(
-    function: &Function,
-    blocks: &HashMap<BlockId, &BasicBlock>,
-    members: &HashSet<BlockId>,
-    loops: &[NaturalLoop],
-    header: Option<BlockId>,
-    entry: BlockId,
-) -> Result<RegionPlan, Vec<BackendError>> {
-    let children = direct_children(members, loops, header);
-    let mut owner = HashMap::<BlockId, usize>::new();
-    for (index, loop_) in children.iter().enumerate() {
-        for block in &loop_.blocks {
-            if owner.insert(*block, index).is_some() {
-                return Err(wasm_error(
-                    function.span,
-                    "MIR natural loop regions overlap without a unique nesting order",
-                ));
-            }
-        }
-    }
-
-    let mut units = Vec::<UnitPlan>::new();
-    let mut unit_blocks = Vec::<HashSet<BlockId>>::new();
-    let mut unit_for_block = HashMap::<BlockId, usize>::new();
-    for loop_ in &children {
-        let index = units.len();
-        units.push(UnitPlan::Loop {
-            header: loop_.header,
-            body: Box::new(build_region(
-                function,
-                blocks,
-                &loop_.blocks,
-                loops,
-                Some(loop_.header),
-                loop_.header,
-            )?),
-        });
-        unit_blocks.push(loop_.blocks.clone());
-        for block in &loop_.blocks {
-            unit_for_block.insert(*block, index);
-        }
-    }
-    for block in members {
-        if owner.contains_key(block) {
-            continue;
-        }
-        let index = units.len();
-        units.push(UnitPlan::Block(*block));
-        unit_blocks.push(HashSet::from([*block]));
-        unit_for_block.insert(*block, index);
-    }
-
-    let mut edges = vec![HashSet::<usize>::new(); units.len()];
-    let mut indegree = vec![0usize; units.len()];
-    for (source_unit, source_blocks) in unit_blocks.iter().enumerate() {
-        for source in source_blocks {
-            let Some(terminator) = blocks
-                .get(source)
-                .and_then(|block| block.terminator.as_ref())
-            else {
-                return Err(wasm_error(function.span, "MIR block has no terminator"));
-            };
-            for target in successors(terminator) {
-                if Some(target) == header || !members.contains(&target) {
-                    continue;
-                }
-                let Some(target_unit) = unit_for_block.get(&target).copied() else {
-                    return Err(wasm_error(function.span, "MIR branch target has no region"));
-                };
-                if source_unit != target_unit && edges[source_unit].insert(target_unit) {
-                    indegree[target_unit] += 1;
-                }
-            }
-        }
-    }
-
-    let entry_unit = unit_for_block.get(&entry).copied().ok_or_else(|| {
-        wasm_error(
-            function.span,
-            "MIR region entry is not part of its control-flow region",
-        )
-    })?;
-    let mut order = Vec::with_capacity(units.len());
-    let mut emitted = vec![false; units.len()];
-    while order.len() < units.len() {
-        let next = (0..units.len())
-            .filter(|index| !emitted[*index] && indegree[*index] == 0)
-            .min_by_key(|index| (usize::from(*index != entry_unit), units[*index].entry().0));
-        let Some(next) = next else {
-            return Err(wasm_error(
-                function.span,
-                "MIR contains a cycle without a natural-loop header; the control flow is irreducible",
-            ));
-        };
-        emitted[next] = true;
-        order.push(next);
-        for target in &edges[next] {
-            indegree[*target] -= 1;
-        }
-    }
-    let sorted_units = order
-        .into_iter()
-        .map(|index| units[index].clone())
-        .collect();
-    let span = header
-        .and_then(|header| blocks.get(&header))
-        .map_or(function.span, |block| block_span(block, function.span));
-    Ok(RegionPlan {
-        header,
-        units: sorted_units,
-        span,
-    })
-}
-
-fn direct_children<'a>(
-    members: &HashSet<BlockId>,
-    loops: &'a [NaturalLoop],
-    header: Option<BlockId>,
-) -> Vec<&'a NaturalLoop> {
-    let candidates = loops
-        .iter()
-        .filter(|loop_| {
-            Some(loop_.header) != header
-                && loop_.blocks.is_subset(members)
-                && (header.is_none() || loop_.blocks.len() < members.len())
-        })
-        .collect::<Vec<_>>();
-    candidates
-        .iter()
-        .copied()
-        .filter(|candidate| {
-            !candidates.iter().any(|middle| {
-                candidate.header != middle.header
-                    && candidate.blocks.is_subset(&middle.blocks)
-                    && middle.blocks.is_subset(members)
-                    && candidate.blocks.len() < middle.blocks.len()
-                    && middle.blocks.len() < members.len()
-            })
-        })
-        .collect()
-}
-
 fn successors(terminator: &Terminator) -> Vec<BlockId> {
     crate::mir::cfg::successors(terminator)
 }
@@ -421,7 +344,11 @@ pub(super) fn unit_span(
     fallback: psrs_span::TextRange,
 ) -> psrs_span::TextRange {
     match unit {
-        UnitPlan::Block(block) | UnitPlan::Loop { header: block, .. } => blocks
+        UnitPlan::Block(block)
+        | UnitPlan::Loop { header: block, .. }
+        | UnitPlan::Try {
+            try_block: block, ..
+        } => blocks
             .get(block)
             .map_or(fallback, |block| block_span(block, fallback)),
     }
