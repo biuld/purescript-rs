@@ -152,6 +152,9 @@ impl Structurer<'_> {
                 body.push(Op::Leaf(Instruction::Unreachable));
             }
             Terminator::Return { value, span } => {
+                // EH-13: the epilogue decrement precedes every `return`; a
+                // trapping block (the `Trap` arm) needs none.
+                self.emit_budget_epilogue(body)?;
                 self.emit_load(*value, *span, body)?;
                 body.push(Op::Leaf(Instruction::Return));
             }
@@ -206,6 +209,9 @@ impl Structurer<'_> {
                 span,
                 ..
             } => {
+                // EH-13: the callee replaces this frame, so this frame's
+                // weight comes off the counter before the transfer.
+                self.emit_budget_tail_decrement(body)?;
                 self.emit_return_call(*function, arguments, *span, body)?;
             }
             Terminator::ReturnCallRef {
@@ -213,6 +219,7 @@ impl Structurer<'_> {
                 arguments,
                 span,
             } => {
+                self.emit_budget_tail_decrement(body)?;
                 self.emit_return_call_ref(*function, arguments, *span, body)?;
             }
             // EH-09/EH-10: a throw rides the channel to the innermost

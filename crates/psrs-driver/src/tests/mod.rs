@@ -77,6 +77,14 @@ fn wasmtime_available() -> Option<()> {
     Some(())
 }
 
+/// The engine stack limit every budget-dependent execution pins (EH-15): the
+/// wasmtime CLI's `-W max-wasm-stack=N`, in bytes. Passed explicitly rather
+/// than left to the engine default, so the budget-above-limit hazard cannot
+/// hide behind a moved engine default; the pinned 512 KiB was measured equal
+/// to wasmtime 48.0.1's default. The budget slice's runtime evidence runs
+/// through `psrs-backend`'s own runner, which pins the same value.
+const PINNED_MAX_WASM_STACK: u32 = 524_288;
+
 /// Runs a compiled multi-module program under Wasmtime.
 fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::Output> {
     wasmtime_available()?;
@@ -86,6 +94,8 @@ fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::O
     std::fs::write(&path, &artifact.wasm).unwrap();
     let output = std::process::Command::new("wasmtime")
         .arg("run")
+        .arg("-W")
+        .arg(format!("max-wasm-stack={PINNED_MAX_WASM_STACK}"))
         .arg(&path)
         .output()
         .unwrap();
@@ -103,6 +113,8 @@ fn run_program_with_prelude_wasmtime(sources: &[(&str, &str)]) -> Option<std::pr
     std::fs::write(&path, &artifact.wasm).unwrap();
     let output = std::process::Command::new("wasmtime")
         .arg("run")
+        .arg("-W")
+        .arg(format!("max-wasm-stack={PINNED_MAX_WASM_STACK}"))
         .arg(&path)
         .output()
         .unwrap();
@@ -147,6 +159,9 @@ fn run_wasmtime_with_dirs(
     std::fs::write(&path, &artifact.wasm).unwrap();
     let mut command = std::process::Command::new("wasmtime");
     command.arg("run");
+    command
+        .arg("-W")
+        .arg(format!("max-wasm-stack={PINNED_MAX_WASM_STACK}"));
     for (host, guest) in dirs {
         command
             .arg("--dir")

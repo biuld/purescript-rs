@@ -79,6 +79,7 @@ fn folds_branch_merges_prunes_blocks_and_projects_imports() {
         ],
         result: ValueId(3),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let imports = vec![Import {
@@ -200,6 +201,7 @@ fn preserves_switch_selectors_and_all_successors_through_p10() {
         ],
         result: ValueId(4),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
 

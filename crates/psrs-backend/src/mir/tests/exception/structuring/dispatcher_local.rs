@@ -21,9 +21,12 @@ fn does_not_allocate_a_dispatcher_local_on_reducible_input() {
     let wasm = crate::wasm::lower_module_with_plan(&mir, &mut wasi, enabled_target(), &link)
         .expect("the MIR should lower to Wasm");
     let non_parameters = nested_values().len();
+    // The budget slice's watermark locals: the fixture has two try regions,
+    // each with one fresh `i32` save local. Still no dispatcher state local.
+    let watermark_locals = 2;
     assert_eq!(
         wasm.functions[0].locals.len(),
-        non_parameters,
+        non_parameters + watermark_locals,
         "no dispatcher local"
     );
 }

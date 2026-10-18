@@ -165,7 +165,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         verify_body(
             &entry.body,
             module,
-            0,
+            entry.locals.len() as u32,
             function_count,
             module.span,
             &mut vec![function_label_type(module, entry.type_index)],

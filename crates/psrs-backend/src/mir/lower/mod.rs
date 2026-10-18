@@ -1,4 +1,5 @@
 use super::BoundWasiImport;
+use super::budget;
 use super::layout::{LayoutError, PlannedLayout};
 use super::literals::StringLiterals;
 use super::wit;
@@ -112,8 +113,12 @@ pub(super) fn lower_function(
         result_type: layout
             .value_type(&source.result_type)
             .map_err(|error| layout_error(source.span, error))?,
+        frame_weight: 0,
         span: source.span,
     };
+    // EH-12: the weight formula reads the *lowered* function's local count —
+    // P9's lowering may add fresh values beyond the CC source's.
+    function.frame_weight = budget::frame_weight(function.parameters.len() + function.values.len());
     for plan in &lowerer.wit_calls {
         plan.verify(&function)?;
     }

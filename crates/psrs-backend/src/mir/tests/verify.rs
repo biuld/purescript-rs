@@ -71,6 +71,7 @@ fn rejects_a_struct_new_with_a_mistyped_field() {
             }],
             result: ValueId(0),
             result_type: ValueType::I64,
+            frame_weight: 0,
             span: span(),
         }],
         span: span(),

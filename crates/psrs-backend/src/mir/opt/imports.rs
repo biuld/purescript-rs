@@ -135,6 +135,7 @@ mod tests {
                     nullable: false,
                     heap: HeapType::Index(DefinedTypeId(0)),
                 }),
+                frame_weight: 0,
                 span,
             }],
             entry: Some(entry),

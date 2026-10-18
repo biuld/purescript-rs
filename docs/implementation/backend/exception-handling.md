@@ -4,9 +4,9 @@
 
 **Design:** [Exception handling and stack exhaustion](../../design/backend/fp/exception-handling-and-stack-exhaustion.md)
 
-**Progress:** EH-01 through EH-11 Verified (slice 1: capability gate and
+**Progress:** EH-01 through EH-15 Verified (slice 1: capability gate and
 encoding; slice 2: the MIR representation; slice 3: the structuring
-integration). EH-12 through EH-17 Unverified.
+integration; slice 4: the budget mechanism). EH-16 through EH-17 Unverified.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), row **BC-08** (the exceptions family) and the runtime board rows that reference `Test.Assert.checkThrows` (#95's blocker, the L6/M7 `P8 closure/linking` failure row for `TCOMutRec.purs`). Status claims in D-04 land with the evidence of the slices below, never from this checklist alone.
 
@@ -45,10 +45,10 @@ record exact reproducible evidence for every Verified row.
 | EH-09 | `mir/lower/exception.rs` discharges a call to a `psrs:runtime-exception` binding into the inline try region; when the profile disables `exceptions` the call is rejected at the binding's span. | Direct-MIR discharge fixtures execute under wasmtime (catch returns the handler's value; normal path the protected value). | Verified |
 | EH-10 | The structurer's region plan gains `UnitPlan::Try` with the dominance carve-out; try regions nest or are disjoint; reducible try-free functions are unchanged. | Structuring fixtures: nested tries, try inside loop, loop inside protected region; no dispatcher local on reducible input; WAT inspection shows `try_table` at the expected nesting. | Verified |
 | EH-11 | A function whose CFG is irreducible and contains a try region is rejected with a diagnostic; try-free irreducible input still uses the dispatcher. | Direct-MIR fixture pair: the rejection and the unchanged dispatcher fixture. | Verified |
-| EH-12 | `mir/budget.rs` fixes the weight formula and constants; `Function::frame_weight` is recorded at P9. | Unit test for `frame_weight`; MIR inspection shows the weight on each function when the profile enables `exceptions`. | Unverified |
-| EH-13 | Every lowered function gains the prologue check and the epilogue decrement; `return_call*` sites decrement; trapping blocks do not. | WAT inspection: prologue before the first block, decrement on each return/tail path; a trapping block has no decrement; deep tail recursion still exits 0 (no false throw). | Unverified |
-| EH-14 | Every `try_table` is preceded by a watermark save and its catch path begins with the restore. | WAT inspection per try region; the leak fixture (a throw/catch loop followed by deep recursion) executes with the deep recursion reaching the budget point, proving no leak. | Unverified |
-| EH-15 | Budget/limit coordination: with the engine stack limit pinned via `-W max-wasm-stack` (CLI) or `Config::max_wasm_stack` (Rust API), deep non-tail recursion under `checkThrows` yields the compiler's exception, never `call stack exhausted`. | The coordination fixture executes under the pinned engine and limit; the recorded values (budget, weights, limit, engine version) are written into this record and the capability-profile notes. Failure as a trap means the constants are wrong and the row stays unverified. | Unverified |
+| EH-12 | `mir/budget.rs` fixes the weight formula and constants; `Function::frame_weight` is recorded at P9. | Unit test for `frame_weight`; MIR inspection shows the weight on each function when the profile enables `exceptions`. | Verified |
+| EH-13 | Every lowered function gains the prologue check and the epilogue decrement; `return_call*` sites decrement; trapping blocks do not. | WAT inspection: prologue before the first block, decrement on each return/tail path; a trapping block has no decrement; deep tail recursion still exits 0 (no false throw). | Verified |
+| EH-14 | Every `try_table` is preceded by a watermark save and its catch path begins with the restore. | WAT inspection per try region; the leak fixture (a throw/catch loop followed by deep recursion) executes with the deep recursion reaching the budget point, proving no leak. | Verified |
+| EH-15 | Budget/limit coordination: with the engine stack limit pinned via `-W max-wasm-stack` (CLI) or `Config::max_wasm_stack` (Rust API), deep non-tail recursion under `checkThrows` yields the compiler's exception, never `call stack exhausted`. | The coordination fixture executes under the pinned engine and limit; the recorded values (budget, weights, limit, engine version) are written into this record and the capability-profile notes. Failure as a trap means the constants are wrong and the row stays unverified. | Verified |
 | EH-16 | `Test.Assert.checkThrows` is implemented end to end: checked `psrs:runtime-exception#checkThrows` contract, P9 discharge, stdlib adaptation with its recorded target-adaptation entry, and `TCOMutRec.purs` executing (all four `assertThrows` catches, the four depth-100 `assertEqual`s, exit 0). | The corpus case executes under `PSRS_REQUIRE_WASMTIME=1`; the stdlib adaptation record names the pinned upstream declaration and the diff. | Unverified |
 | EH-17 | The stable default profile enables `exceptions` (with the budget) as the adoption's final revision; [DEC-05](../../decision/DEC-05-wasmtime-feature-set.md)'s amendment and the capability-profile default table are updated with the evidence. | The full L6/M7 runtime board is re-run by the scoreboard protocol and the new number recorded in D-04; the disabled-profile rejection evidence and the enabled execution evidence are both cited in the profile's implementation notes. | Unverified |
 
@@ -476,6 +476,218 @@ Notes for the budget slice (EH-12..EH-15):
   `Return`/`ReturnCall*` arms. `Function::frame_weight` is recorded at P9
   (`mir/mod.rs`'s function lowering, once `mir/budget.rs` fixes the
   constants).
+
+## Slice 4 record — the budget mechanism (EH-12..EH-15)
+
+The constants stay at the design's provisional values — `FRAME_WEIGHT_FIXED
+= 32`, `FRAME_WEIGHT_PER_LOCAL = 16`, `STACK_BUDGET = 262144` — because the
+coordination fixture validated them (EH-15 below); no revision was needed.
+Two shared CFG analyses had to be made truthful about unwind edges for the
+leak fixture to structure at all, both already mandated by the design's
+invariant section ("Dominance is rechecked on the CFG that includes unwind
+edges"), which slice 3 applied to the partition but not yet to:
+
+- **Value availability** (`mir/verify/function.rs`): the check consumed
+  `cfg::dominators` — the normal CFG, on which a handler block is
+  unreachable — so a handler could never read any enclosing value. A loop of
+  `checkThrows` guards needs exactly that (the handler carries the loop
+  counter forward), so the check now consumes `dominators_with_unwind_edges`.
+  Truthful in both directions: the handler sees the values its unwind
+  predecessors guaranteed, and a join shared by a normal and a handler path
+  no longer claims values defined on only one of them. All pre-existing
+  fixtures pass unchanged.
+- **The structurer's CFG** (`wasm/lower/structure/cfg/mod.rs`,
+  `cfg/irreducible.rs`): the predecessor map and the SCC's DFS counted only
+  normal edges while the reachable set already included handler blocks. A
+  handler jumping back into a loop's body then looked like an external entry
+  into its SCC — an irreducibility false positive on a reducible CFG, and
+  EH-11's rejection fired on the leak fixture. Predecessors now include the
+  unwind edges; the leak fixture structures through the reducible path, and
+  the EH-10/EH-11 fixture pair is unchanged.
+
+One lowering-accounting fact the implementation fixes, with the design's own
+words as authority ("`locals(f)` is the lowered function's local count"):
+P9's lowering adds fresh values beyond the CC source's (WIT call plans,
+Boolean/int conversions, control helpers), so `frame_weight` is recorded
+from the *lowered* function's parameter and value counts, not the CC
+source's. P10's list-copy and dispatcher locals stay unknown at P9 and are
+covered by the headroom; recorded in `mir/budget.rs`'s contract comment.
+
+The recorded calibration measurement (see EH-15): on wasmtime 48.0.1 with
+`-W max-wasm-stack=524288`, the budget fires at about 1,490 frames of the
+coordination fixture's `rec` (weight 176 per frame at P9) while the engine's
+trap on the same function sits between 6,000 and 7,000 frames — roughly a
+quarter of the engine's limit — and the depth-100 returning recursion
+consumes about 7% of the budget. The engine's *default* limit behaved
+identically (the same boundaries with and without the flag), so pinning is
+inert for the non-budget corpus today and pins the condition explicitly for
+EH-16/17. The fixture's failure mode was verified to be the hazard itself:
+with `STACK_BUDGET` raised beyond the engine limit, the same fixture fails
+with the engine's `call stack exhausted` trap (exit 134) instead of the
+caught exception.
+
+```text
+EH-12:
+  Implementation: crates/psrs-backend/src/mir/budget.rs (FRAME_WEIGHT_FIXED,
+    FRAME_WEIGHT_PER_LOCAL, STACK_BUDGET, frame_weight) and the recording at
+    P9: crates/psrs-backend/src/mir/mod.rs (`Function::frame_weight`) and
+    mir/lower/mod.rs (recorded from the lowered function's parameters +
+    values, after the lowerer has finished).
+  Tests: crates/psrs-backend/src/mir/budget.rs
+    frame_weight_adds_a_fixed_weight_per_local (the formula, the constants,
+    and the depth-100 recursion staying inside the budget);
+    crates/psrs-backend/src/mir/tests/exception/budget.rs
+    records_the_frame_weight_on_every_lowered_function (the checkThrows CC
+    module lowered through P9 with the enabled target: every function's
+    weight equals frame_weight(parameters + values) and is nonzero).
+  Input boundary: CC module through P9; the formula at the unit level.
+  Commands: PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+    (subset: cargo test -p psrs-backend --lib mir::tests::exception::budget)
+  Result: pass, 9/9 executed locally under the workspace run above (plus the
+    two coordination runtime fixtures, counted under EH-15).
+  Revision: this slice's commit.
+  Gaps: none for the row; P10's list-copy/dispatcher locals are outside the
+    P9-visible count and inside the headroom (documented in budget.rs).
+
+EH-13:
+  Implementation: crates/psrs-backend/src/wasm/lower/budget.rs (Budget:
+    increment/decrement/overflow_check), wasm/lower/function/mod.rs (the
+    prologue prepended before the first structured instruction; the watermark
+    locals appended), wasm/lower/structure/region/mod.rs (the epilogue
+    decrement at the `Return` arm and the tail decrement at the
+    `ReturnCall`/`ReturnCallRef` arms of emit_terminator; the `Trap` arm
+    emits only `unreachable`).
+  Tests: budget.rs emits_the_prologue_and_the_return_and_tail_decrements —
+    WAT: one `i32.gt_s` before the first `block`, the `if`/`throw` overflow
+    path before the first block; thin-IR window counts: main (trap + tail)
+    exactly one decrement, rec exactly two (its two return paths), so the
+    trapping block carries none; the tail decrement sits between the prologue
+    and the `return_call`. budget/budget_execution.rs
+    deep_tail_recursion_exits_0_without_a_false_throw — mutual `even`/`odd`
+    tail calls at depth 1,000,000 exit 0 with no trap (the decrements keep
+    the counter bounded).
+  Input boundary: hand-built direct MIR (entry zero-argument Int, per the
+    artifact's entry contract), WAT via wasmprinter over the encoded binary.
+  Commands: as EH-12.
+  Result: pass, 1/1 runtime fixture executed under wasmtime 48.0.1
+    (7bac2c277 2026-08-24) with `-W max-wasm-stack=524288`; the WAT/IR
+    inspections are local.
+  Revision: this slice's commit.
+  Gaps: none for the row.
+
+EH-14:
+  Implementation: crates/psrs-backend/src/wasm/lower/mod.rs (the depth
+    global planned after the literal-interning globals, mutable `i32`, init
+    0, not exported, via Budget::for_module) and
+    wasm/lower/structure/region/try_unit.rs (the save immediately before the
+    synthesized unwind block, the restore as the catch path's first action;
+    one fresh `i32` local per try region, numbered in block order and
+    appended after the lowered values and list-copy locals — a function with
+    try regions never allocates a dispatcher local, since EH-11 rejects that
+    combination first).
+  Tests: budget/watermark.rs every_try_table_carries_the_watermark_save_and_restore —
+    the nested-try fixture: WAT shows three `try_table`s (two regions + the
+    entry's); thin-IR walks count one save and one restore per try region in
+    the function and in the entry. budget/budget_execution.rs
+    a_throw_catch_loop_does_not_leak_the_depth_counter — 21,848 guarded
+    thrower iterations (each a throw/catch that leaks the thrower's 48 weight
+    per iteration if the restore is missing), then a *shallow* guarded
+    rec(100) that must return, then the deep guarded rec(100,000): exit 1 =
+    the deep recursion reaches the budget point after the loop; a leak would
+    fire the budget at the shallow guard (exit 2).
+  Input boundary: hand-built direct MIR under the enabled target.
+  Commands: as EH-12.
+  Result: pass, 1/1 runtime fixture executed under the pinned engine; the
+    watermark walk and WAT inspection are local.
+  Revision: this slice's commit.
+  Gaps: none for the row.
+
+EH-15:
+  Implementation: crates/psrs-backend/src/wasm/lower/entry.rs (the
+    synthesized `run` entry: with the budget, the call to `main` sits in a
+    `try_table (catch_all)`; the handler's first action restores the depth
+    global to the value saved at entry, then `exit-with-code 1` — and the
+    entry's own locals gained the watermark save local, carried through
+    wasm/mod.rs's `Entry::locals`, wasm/verify/mod.rs's entry local count,
+    and wasm/encode.rs's entry code emission);
+    crates/psrs-backend/src/mir/tests/exception/execution.rs
+    (run_component pins `-W max-wasm-stack=524288` for every target with
+    `exceptions` enabled);
+    crates/psrs-driver/src/tests/mod.rs (the run helpers pin the same value
+    — behavior-neutral for the current corpus, whose default-profile
+    programs carry no budget, but pinned for the budget-dependent evidence
+    EH-16/17 will run through the driver).
+  Tests: budget/coordination.rs — the checkThrows discharge fixture (CC
+    module: main guards a callable applying the genuinely non-tail
+    self-recursive `rec`; `1 +` after the call keeps every frame real):
+    deep_non_tail_recursion_yields_the_compiler_s_exception_never_a_trap
+    (depth 100,000: exit 1 = the guard's caught value; stderr contains
+    neither `call stack exhausted` nor `unreachable`),
+    depth_100_recursion_still_returns_under_the_pinned_budget (depth 100:
+    exit 0 — no grossly early firing). Sanity: with `STACK_BUDGET` beyond
+    the engine limit the same fixture fails with the engine's trap (exit
+    134), confirming the fixture's failure mode is the budget-above-limit
+    hazard.
+  Input boundary: CC module with the checked `psrs:runtime-exception#checkThrows`
+    binding, lowered through P8/P9, executed under the pinned engine.
+  Commands: PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+    (subset: cargo test -p psrs-backend --lib mir::tests::exception::budget::coordination).
+  Result: pass, 2/2 fixtures executed under wasmtime 48.0.1
+    (7bac2c277 2026-08-24), `-W max-wasm-stack=524288`; nothing skipped.
+    Measured calibration values: budget 262144; weights fixed 32, per-local
+    16; pinned limit 524288 bytes (512 KiB, measured equal to the engine
+    default); engine wasmtime 48.0.1 (7bac2c277 2026-08-24). Firing depth
+    1,490 frames (last non-firing 1,480); engine trap depth (budget off)
+    between 6,000 and 7,000 frames; the same fixture disabled traps (exit
+    134). Also recorded in the capability-profile implementation notes.
+  Revision: this slice's commit.
+  Gaps: the disabled-profile rejection and the enabled execution evidence
+    are cited here; the profile default flip and the D-04 remeasure belong
+    to EH-16/17.
+
+Budget-disabled regression: budget.rs the_disabled_profile_emits_no_budget_code —
+  the same trap/tail fixture lowered with the default profile: no depth
+  global, no tag, no `throw`, no `i32.gt_s`, no `global.set` in any body;
+  the_enabled_profile_adds_the_depth_global_and_tag pins the global's shape
+  (index 0 for a fixture without literal globals, mutable `i32`, init 0) and
+  the compiler-defined tag's presence.
+```
+
+Validation of the slice: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace` all pass
+(the scoreboard suites stay `#[ignore]`d, out of scope here; wasmtime 48.0.1,
+7bac2c277 2026-08-24): 2189 passed, 0 failed, 5 ignored. The 500-line limit
+held by splitting: `mir/mod.rs`
+shed `element_has_bytes`/`referenced_imports` into `mir/imports.rs`,
+`wasm/lower/mod.rs` moved the budget planning into `wasm/lower/budget.rs`
+(`Budget::for_module`) and the entry synthesis into `wasm/lower/entry.rs`,
+and `mir/tests/exception/budget.rs` split into `budget/` (`watermark.rs`,
+`budget_execution.rs`, `coordination.rs`).
+
+Notes for the library-surface slice (EH-16):
+
+- The discharge stands: P8 validates the `psrs:runtime-exception#checkThrows`
+  source contract and P9 lowers the call into the inline `catch_all` try
+  region; `plan_import` plans no host import. What EH-16 adds is the
+  *publishing* side (the provider's canonical signature in CC publication,
+  per `canonical_signature` in bindings/runtime/exception.rs) and the
+  stdlib's `Test/Assert.purs` adaptation (`checkThrows :: forall a. (Unit ->
+  a) -> Effect Boolean` over `Target.perform`, with its vendoring record).
+- The guarded callable must be a `FunctionRef` over a function whose body
+  calls the *deep* function directly: the fabricated Unit operand is the
+  callable's only argument, so the depth travels inside the closure's body,
+  not through the guard. TCOMutRec's `ntcoN` are plain functions; the
+  stdlib-side closure `\_ -> ntco1 100000` maps onto the coordination
+  fixture's `apply`/`rec` split exactly.
+- The budget executes under the pinned engine (512 KiB) with about 4×
+  trap-headroom and depth-100 at ~7% of the budget; the depth-100
+  `assertEqual` halves of TCOMutRec run inside the margin the coordination
+  fixture measured. EH-16's run must use the driver helpers, which now pin
+  `-W max-wasm-stack=524288`.
+- Residual gap before TCOMutRec executes: none known in the channel —
+  `assertThrows` needs a `Boolean` result and the discharge produces one;
+  `assert'`'s failure protocol (storage trap) is untouched in this slice.
 
 ## Evidence record and completion rule
 

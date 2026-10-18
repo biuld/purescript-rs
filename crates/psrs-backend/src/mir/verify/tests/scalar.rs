@@ -46,6 +46,7 @@ fn primitive_function(
         }],
         result: output,
         result_type: result_ty,
+        frame_weight: 0,
         span: span(),
     }
 }
@@ -134,6 +135,7 @@ fn rejects_a_boolean_constant_that_is_not_canonical() {
         }],
         result: output,
         result_type: ValueType::Boolean,
+        frame_weight: 0,
         span: span(),
     };
     let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
@@ -175,6 +177,7 @@ fn rejects_a_call_with_the_wrong_argument_type() {
         }],
         result: ValueId(0),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let argument = ValueId(0);
@@ -212,6 +215,7 @@ fn rejects_a_call_with_the_wrong_argument_type() {
         }],
         result: call_result,
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let mut module = module_with_function(caller, Vec::new());

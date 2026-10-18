@@ -194,6 +194,7 @@ fn array_map_function() -> Function {
         ],
         result: destination,
         result_type: array_ref(1),
+        frame_weight: 0,
         span: span(),
     }
 }

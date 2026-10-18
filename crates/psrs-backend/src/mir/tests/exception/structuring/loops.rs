@@ -118,7 +118,9 @@ fn re_arms_a_try_table_across_loop_iterations() {
         function(blocks.clone(), &values, vec![], 0),
         vec![tag(0, Vec::new())],
     );
-    assert_eq!(wat.matches("try_table").count(), 1, "{wat}");
+    // One try region in the function; the second `try_table` is the budget
+    // slice's synthesized `run` entry `try_table (catch_all)`.
+    assert_eq!(wat.matches("try_table").count(), 2, "{wat}");
     let loop_start = wat.find("loop").expect("the loop label");
     let try_table = wat.find("try_table").expect("the armed region");
     assert!(
@@ -233,7 +235,9 @@ fn keeps_a_loop_inside_the_protected_region() {
         function(blocks.clone(), &values, vec![], 0),
         vec![tag(0, Vec::new())],
     );
-    assert_eq!(wat.matches("try_table").count(), 1, "{wat}");
+    // One try region in the function; the second `try_table` is the budget
+    // slice's synthesized `run` entry `try_table (catch_all)`.
+    assert_eq!(wat.matches("try_table").count(), 2, "{wat}");
     let try_table = wat.find("try_table").expect("the armed region");
     let loop_start = wat.find("loop").expect("the loop label");
     assert!(

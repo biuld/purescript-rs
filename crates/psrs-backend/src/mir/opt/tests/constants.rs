@@ -57,6 +57,7 @@ fn folds_total_arithmetic_but_keeps_an_unused_trapping_operation() {
         }],
         result: ValueId(2),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
 

@@ -90,6 +90,7 @@ fn constructor(tag: i32, copy: bool) -> Module {
             }],
             result: ValueId(2),
             result_type,
+            frame_weight: 0,
             span,
         }],
     }

@@ -36,6 +36,7 @@ pub(super) fn function(
         blocks,
         result: ValueId(result),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: at(900),
     }
 }
@@ -171,14 +172,19 @@ fn structures_nested_tries_with_the_inner_try_inside_the_outer() {
         function(nested_blocks(), &nested_values(), vec![], 0),
         vec![tag(0, Vec::new())],
     );
-    assert_eq!(wat.matches("try_table").count(), 2, "{wat}");
+    // Two try regions in the function plus the budget slice's synthesized
+    // `run` entry `try_table (catch_all)` — three in the module.
+    assert_eq!(wat.matches("try_table").count(), 3, "{wat}");
     let outer = wat.find("try_table").expect("the outer try_table");
     let inner = wat[outer + 1..]
         .find("try_table")
         .expect("the inner try_table")
         + outer
         + 1;
-    let throw = wat.find("throw").expect("the throw");
+    // The budget prologue's own `throw` (the stack-exhaustion tag) sits at the
+    // function's start; the channel throw this test inspects comes after the
+    // inner try_table.
+    let throw = wat[inner..].find("throw").expect("the channel throw") + inner;
     assert!(outer < inner && inner < throw, "{wat}");
 
     let mir = module(

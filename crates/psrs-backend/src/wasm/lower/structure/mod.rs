@@ -63,6 +63,16 @@ pub(super) struct Structurer<'a> {
     /// The module's exception tags; a MIR `TagId` indexes this slice, and the
     /// final `TagIndex` is the same position.
     pub(super) tags: &'a [crate::mir::Tag],
+    /// The stack-exhaustion budget context (depth global, tag, budget), present
+    /// only when `target.exceptions` is enabled. `lower_function` prepends the
+    /// per-function prologue; the structurer emits the epilogue, the tail
+    /// decrements, and the try-region watermarks.
+    pub(super) budget: Option<super::budget::Budget>,
+    /// The first local index the try regions' fresh watermark locals occupy.
+    /// A function with try regions never uses the dispatcher (an irreducible
+    /// CFG with a try region is rejected), so these sit after the list-copy
+    /// locals with no dispatcher local between them.
+    pub(super) watermark_base: u32,
 }
 impl Structurer<'_> {
     pub(super) fn emit_control_flow(&self, body: &mut Body) -> Result<bool, Vec<BackendError>> {

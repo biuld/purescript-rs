@@ -215,6 +215,7 @@ fn fixture() -> mir::Module {
             }],
             result: value(10),
             result_type: ValueType::I32,
+            frame_weight: 0,
             span,
         }],
         entry: Some(symbol(20)),

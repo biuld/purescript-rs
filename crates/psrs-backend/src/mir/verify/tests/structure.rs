@@ -14,6 +14,7 @@ fn simple_function(values: Vec<ValueDecl>, blocks: Vec<BasicBlock>) -> Function 
         blocks,
         result: ValueId(0),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     }
 }

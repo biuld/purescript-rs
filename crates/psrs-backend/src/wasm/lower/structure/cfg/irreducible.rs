@@ -17,9 +17,12 @@ pub(super) fn has_irreducible_component(
             let next = blocks
                 .get(&block_id)
                 .and_then(|block| block.terminator.as_ref())
-                .map(successors)
+                .map(|terminator| {
+                    successors(terminator)
+                        .into_iter()
+                        .chain(super::unwind_only_successors(terminator))
+                })
                 .unwrap_or_default()
-                .into_iter()
                 .filter(|target| reachable_set.contains(target))
                 .collect::<Vec<_>>();
             (block_id, next)
