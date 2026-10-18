@@ -16,7 +16,14 @@ pub(crate) fn compile_program_sources_with_trusted_prefix(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
 ) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let report = compile_attempt(sources, trusted_prefix, false, false, None);
+    let report = compile_attempt(
+        sources,
+        trusted_prefix,
+        false,
+        false,
+        None,
+        psrs_backend::TargetCapabilities::default(),
+    );
     match report.artifact {
         Some(artifact) => Ok(artifact),
         None => Err(report.diagnostics),
@@ -29,6 +36,7 @@ pub(super) fn compile_attempt(
     capture_dumps: bool,
     trace_enabled: bool,
     runner: Option<&crate::prelude::CommandRunner>,
+    target: psrs_backend::TargetCapabilities,
 ) -> CompilationReport {
     let (core, source_warnings) = match if let Some(runner) = runner {
         super::lowering::lower_program_inner(
@@ -69,11 +77,7 @@ pub(super) fn compile_attempt(
 
     if trace_enabled {
         let linked_core = capture_dumps.then(|| core.clone());
-        let traced = psrs_backend::compile_with_context_traced(
-            core,
-            psrs_backend::TargetCapabilities::default(),
-            capture_dumps,
-        );
+        let traced = psrs_backend::compile_with_context_traced(core, target, capture_dumps);
         if let Some(frontend) = &mut frontend_trace {
             frontend.output_core = Some(traced.trace.initial_core);
         }
@@ -108,10 +112,7 @@ pub(super) fn compile_attempt(
 
     if capture_dumps {
         let linked_core = core.clone();
-        let stages = match psrs_backend::compile_with_context_capturing(
-            core,
-            psrs_backend::TargetCapabilities::default(),
-        ) {
+        let stages = match psrs_backend::compile_with_context_capturing(core, target) {
             Ok(stages) => stages,
             Err(failure) => {
                 let (dumps, _) = partial_dumps(*failure.partial, linked_core, None);
@@ -121,7 +122,7 @@ pub(super) fn compile_attempt(
         return success_report(stages, source_warnings, trusted_prefix, true, None, None);
     }
 
-    match psrs_backend::compile_with_context(core, psrs_backend::TargetCapabilities::default()) {
+    match psrs_backend::compile_with_context(core, target) {
         Ok(stages) => success_report(stages, source_warnings, trusted_prefix, false, None, None),
         Err(errors) => {
             CompilationReport::failed(backend_diagnostics(errors), PartialIrDumps::default())
