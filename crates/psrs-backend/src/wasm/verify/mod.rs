@@ -1,13 +1,37 @@
-use super::{Body, ExportIndex, ExportKind, GlobalInit, Module, Op};
+//! The thin Wasm IR verifier: module-level invariants live here, and the
+//! structured-body walk (label depths, catch clauses, leaf instructions) lives
+//! in [`body`].
+
+mod body;
+
+use super::{ExportIndex, ExportKind, GlobalInit, Module, TagIndex, TypeIndex};
 use crate::BackendError;
 use crate::types::CompositeType;
 use psrs_span::TextRange;
 use std::collections::HashSet;
-use wasm_encoder::{Instruction, RefType, ValType};
+use wasm_encoder::{BlockType, RefType, ValType};
 
-// A function body contributes an implicit label which branches can target to
-// return from the function, even when there is no explicit block or loop.
-const FUNCTION_LABEL_DEPTH: u32 = 1;
+pub(super) use body::verify_body;
+
+/// The result type an active label delivers to a branch or catch clause that
+/// targets it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LabelType {
+    /// No result values.
+    Empty,
+    /// Exactly one result value.
+    Value(ValType),
+    /// More than one result value, or an unresolvable type index; a catch
+    /// clause can never target such a label.
+    Many,
+}
+
+pub(super) fn structured_label(result: &Option<ValType>) -> LabelType {
+    match result {
+        Some(ty) => LabelType::Value(*ty),
+        None => LabelType::Empty,
+    }
+}
 
 /// Checks the structural invariants of the thin Wasm IR before encoding.
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
@@ -63,6 +87,25 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             ));
         }
     }
+    for tag in &module.tags {
+        match function_signature(module, tag.type_index.0) {
+            None => errors.push(wasm_error(tag.span, "Wasm tag type index is out of range")),
+            Some((payload, results)) => {
+                if !results.is_empty() {
+                    errors.push(wasm_error(
+                        tag.span,
+                        "Wasm tag function type must produce no results",
+                    ));
+                }
+                if payload.len() > 1 {
+                    errors.push(wasm_error(
+                        tag.span,
+                        "Wasm tag payload has more than one value",
+                    ));
+                }
+            }
+        }
+    }
     let function_count = (module.imports.len()
         + module.functions.len()
         + usize::from(module.entry.is_some())
@@ -108,7 +151,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             function.span,
-            FUNCTION_LABEL_DEPTH,
+            &mut vec![function_label_type(module, function.type_index)],
             &mut errors,
         );
     }
@@ -125,7 +168,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             0,
             function_count,
             module.span,
-            FUNCTION_LABEL_DEPTH,
+            &mut vec![function_label_type(module, entry.type_index)],
             &mut errors,
         );
     }
@@ -143,7 +186,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             realloc.span,
-            FUNCTION_LABEL_DEPTH,
+            &mut vec![function_label_type(module, realloc.type_index)],
             &mut errors,
         );
     }
@@ -161,7 +204,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             helper.span,
-            FUNCTION_LABEL_DEPTH,
+            &mut vec![function_label_type(module, helper.type_index)],
             &mut errors,
         );
     }
@@ -172,165 +215,84 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     }
 }
 
-fn verify_body(
-    body: &Body,
-    module: &Module,
-    local_count: u32,
-    function_count: u32,
-    span: TextRange,
-    label_depth: u32,
-    errors: &mut Vec<BackendError>,
-) {
-    let mut current_label_depth = label_depth;
-    let mut raw_label_depth = 0;
-    for op in body {
-        match op {
-            Op::Leaf(instruction) => {
-                verify_instruction(
-                    instruction,
-                    module,
-                    local_count,
-                    function_count,
-                    span,
-                    current_label_depth,
-                    errors,
-                );
-                match instruction {
-                    Instruction::Block(_) | Instruction::Loop(_) | Instruction::If(_) => {
-                        current_label_depth += 1;
-                        raw_label_depth += 1;
-                    }
-                    Instruction::End if raw_label_depth > 0 => {
-                        current_label_depth -= 1;
-                        raw_label_depth -= 1;
-                    }
-                    Instruction::End => {
-                        errors.push(wasm_error(
-                            span,
-                            "Wasm end does not close a raw structured label",
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-            Op::If {
-                then_body,
-                else_body,
-                ..
-            } => {
-                verify_body(
-                    then_body,
-                    module,
-                    local_count,
-                    function_count,
-                    span,
-                    current_label_depth + 1,
-                    errors,
-                );
-                verify_body(
-                    else_body,
-                    module,
-                    local_count,
-                    function_count,
-                    span,
-                    current_label_depth + 1,
-                    errors,
-                );
-            }
-            Op::Block { body, .. } | Op::Loop { body, .. } => {
-                verify_body(
-                    body,
-                    module,
-                    local_count,
-                    function_count,
-                    span,
-                    current_label_depth + 1,
-                    errors,
-                );
-            }
-        }
-    }
-    if raw_label_depth > 0 {
-        errors.push(wasm_error(
-            span,
-            "Wasm raw structured control label is not closed",
-        ));
-    }
+pub(super) fn valid_function_type(module: &Module, index: u32) -> bool {
+    function_signature(module, index).is_some()
 }
 
-fn verify_instruction(
-    instruction: &Instruction<'_>,
+/// The parameter and result value types of the function type behind a type
+/// index, resolved across defined types and plain function types. `None` when
+/// the index does not name a function type.
+pub(super) fn function_signature(
     module: &Module,
-    local_count: u32,
-    function_count: u32,
-    span: TextRange,
-    label_depth: u32,
-    errors: &mut Vec<BackendError>,
-) {
-    match instruction {
-        Instruction::LocalGet(index)
-        | Instruction::LocalSet(index)
-        | Instruction::LocalTee(index) => {
-            if *index >= local_count {
-                errors.push(wasm_error(span, "Wasm local index is out of range"));
-            }
-        }
-        Instruction::Call(index) if *index >= function_count => {
-            errors.push(wasm_error(span, "Wasm function index is out of range"));
-        }
-        Instruction::GlobalGet(index) | Instruction::GlobalSet(index)
-            if *index >= module.globals.len() as u32 =>
-        {
-            errors.push(wasm_error(span, "Wasm global index is out of range"));
-        }
-        Instruction::RefFunc(index) if *index >= function_count => {
-            errors.push(wasm_error(span, "Wasm ref.func index is out of range"));
-        }
-        Instruction::CallRef(index) if !valid_function_type(module, *index) => {
-            errors.push(wasm_error(span, "Wasm call_ref type index is out of range"));
-        }
-        Instruction::Br(depth) | Instruction::BrIf(depth) if *depth >= label_depth => {
-            errors.push(wasm_error(
-                span,
-                "Wasm branch depth does not target an enclosing label",
-            ));
-        }
-        Instruction::BrTable(targets, default)
-            if targets
-                .iter()
-                .chain(std::iter::once(default))
-                .any(|depth| *depth >= label_depth) =>
-        {
-            errors.push(wasm_error(
-                span,
-                "Wasm br_table depth does not target an enclosing label",
-            ));
-        }
-        Instruction::CallIndirect { type_index, .. }
-            if !valid_function_type(module, *type_index) =>
-        {
-            errors.push(wasm_error(
-                span,
-                "Wasm call_indirect type index is out of range",
-            ));
-        }
-        _ => {}
-    }
-}
-
-fn valid_function_type(module: &Module, index: u32) -> bool {
+    index: u32,
+) -> Option<(Vec<ValType>, Vec<ValType>)> {
     let defined = module.defined_type_count();
     if index < defined {
-        return module
+        let definition = module
             .type_defs
             .iter()
             .flat_map(|group| group.0.iter())
-            .nth(index as usize)
-            .is_some_and(|definition| matches!(definition.composite, CompositeType::Func { .. }));
+            .nth(index as usize)?;
+        return match &definition.composite {
+            CompositeType::Func {
+                parameters,
+                results,
+            } => Some((
+                parameters
+                    .iter()
+                    .copied()
+                    .map(super::convert::val_type)
+                    .collect(),
+                results
+                    .iter()
+                    .copied()
+                    .map(super::convert::val_type)
+                    .collect(),
+            )),
+            _ => None,
+        };
     }
-    index < defined + module.types.len() as u32
+    let ty = module.types.get(index as usize - defined as usize)?;
+    Some((ty.parameters.clone(), ty.results.clone()))
 }
 
-fn wasm_error(span: TextRange, message: &'static str) -> BackendError {
+/// The label type of the implicit function-body label: branching to it returns
+/// from the function with its result values.
+fn function_label_type(module: &Module, type_index: TypeIndex) -> LabelType {
+    match function_signature(module, type_index.0) {
+        Some((_, results)) => results_label(&results),
+        None => LabelType::Empty,
+    }
+}
+
+/// The label type of a raw leaf `block`/`loop`/`if`.
+pub(super) fn block_type_label(module: &Module, block_type: &BlockType) -> LabelType {
+    match block_type {
+        BlockType::Empty => LabelType::Empty,
+        BlockType::Result(ty) => LabelType::Value(*ty),
+        BlockType::FunctionType(index) => match function_signature(module, *index) {
+            Some((_, results)) => results_label(&results),
+            None => LabelType::Many,
+        },
+    }
+}
+
+fn results_label(results: &[ValType]) -> LabelType {
+    match results {
+        [] => LabelType::Empty,
+        [ty] => LabelType::Value(*ty),
+        _ => LabelType::Many,
+    }
+}
+
+/// The payload a `catch` clause delivers: the tag's function type carries the
+/// payload as its parameters. `None` when the tag index is out of range.
+pub(super) fn tag_payload(module: &Module, tag: TagIndex) -> Option<LabelType> {
+    let definition = module.tags.get(tag.0 as usize)?;
+    let (payload, _) = function_signature(module, definition.type_index.0)?;
+    Some(results_label(&payload))
+}
+
+pub(super) fn wasm_error(span: TextRange, message: &'static str) -> BackendError {
     BackendError::invalid_ir("P11 Wasm verification", span, message)
 }

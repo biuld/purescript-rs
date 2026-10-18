@@ -150,6 +150,7 @@ fn consumer(merge_groups: bool) -> Vec<u8> {
             span,
         }],
         memories: Vec::new(),
+        tags: Vec::new(),
         data: Vec::new(),
         globals: Vec::new(),
         helpers: Vec::new(),

@@ -200,6 +200,7 @@ pub(super) fn buffer_post_return_module() -> Module {
             minimum: 1,
             maximum: None,
         }],
+        tags: Vec::new(),
         data: Vec::new(),
         exports: vec![
             Export {

@@ -339,6 +339,7 @@ pub(crate) fn lower_module_with_plan(
             minimum,
             maximum: None,
         }],
+        tags: Vec::new(),
         globals,
         data,
         exports,

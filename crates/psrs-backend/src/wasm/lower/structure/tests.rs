@@ -46,6 +46,7 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
         type_defs: Vec::new(),
         functions: vec![lowered.clone()],
         memories: Vec::new(),
+        tags: Vec::new(),
         data: Vec::new(),
         exports: vec![Export {
             name: source.name.clone(),
@@ -71,6 +72,7 @@ pub(super) fn count_loops(body: &[wasm::Op]) -> usize {
         .map(|op| match op {
             wasm::Op::Loop { body, .. } => 1 + count_loops(body),
             wasm::Op::Block { body, .. } => count_loops(body),
+            wasm::Op::Try { body, .. } => count_loops(body),
             wasm::Op::If {
                 then_body,
                 else_body,
@@ -100,6 +102,7 @@ fn contains_branch_to_depth(body: &[wasm::Op], expected: u32) -> bool {
         wasm::Op::Block { body, .. } | wasm::Op::Loop { body, .. } => {
             contains_branch_to_depth(body, expected)
         }
+        wasm::Op::Try { body, .. } => contains_branch_to_depth(body, expected),
         wasm::Op::Leaf(_) => false,
     })
 }

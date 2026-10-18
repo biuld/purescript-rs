@@ -61,6 +61,7 @@ fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
         type_defs: Vec::new(),
         functions: vec![lowered.clone()],
         memories: Vec::new(),
+        tags: Vec::new(),
         data: Vec::new(),
         exports: vec![Export {
             name: source.name.clone(),
@@ -326,6 +327,7 @@ fn has_if_span(body: &[Op], span: TextRange) -> bool {
             ..
         } => *op_span == span || has_if_span(then_body, span) || has_if_span(else_body, span),
         Op::Block { body, .. } | Op::Loop { body, .. } => has_if_span(body, span),
+        Op::Try { body, .. } => has_if_span(body, span),
         Op::Leaf(_) => false,
     })
 }
@@ -401,6 +403,7 @@ fn dispatcher_uses_a_br_table_and_explicit_trap_for_invalid_state() {
                 ..
             } => contains_dispatch(then_body) || contains_dispatch(else_body),
             Op::Block { body, .. } | Op::Loop { body, .. } => contains_dispatch(body),
+            Op::Try { body, .. } => contains_dispatch(body),
             Op::Leaf(_) => false,
         })
     }
