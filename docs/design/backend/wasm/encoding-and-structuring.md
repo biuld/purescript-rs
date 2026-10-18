@@ -45,7 +45,9 @@ the opcode set, and encoding bytes directly while structuring.
 
 **Binary format and index spaces.** A core module is a sequence of sections in a
 fixed order: type, import, function, table, memory, global, export, start,
-element, code, data. Each entity kind has its own index space. Imported
+element, code, data (the exception family's tag section, when present, sits
+between memory and global per WebAssembly 3.0). Each entity kind has its own
+index space. Imported
 functions occupy the start of the function index space, defined functions follow
 in function-section order, and a function's body is found by subtracting the
 import count. Types are defined types first (in the GC case, recursion groups),
@@ -93,6 +95,10 @@ Op   = Leaf(wasm_encoder::Instruction)
                span: TextRange }
      | Block { body: Body, result: Option(ValType), span: TextRange }
      | Loop  { body: Body, result: Option(ValType), span: TextRange }
+     | Try   { body: Body, clauses: [CatchClause], span: TextRange }
+
+CatchClause = Catch    { tag: TagIndex, label: u32 }   // depth-relative label
+            | CatchAll { label: u32 }
 
 Entry        = { type_index: TypeIndex, body: Body }
 Memory       = { id: MemoryId, index: MemoryIndex,
@@ -107,8 +113,9 @@ ExportIndex  = Function(FunctionIndex) | Memory(MemoryIndex)
 ```
 
 The final index domains are `TypeIndex`, `FunctionIndex`, `MemoryIndex`,
-`GlobalIndex`, and `DataIndex`. They are distinct types, and distinct from MIR's
-module-local `DefinedTypeId`, `FunctionId`, `MemoryId`, and `DataId`. `Entry`,
+`GlobalIndex`, `DataIndex`, and `TagIndex`. They are distinct types, and
+distinct from MIR's
+module-local `DefinedTypeId`, `FunctionId`, `MemoryId`, `DataId`, and `TagId`. `Entry`,
 the optional `realloc` function, and the literal-interning globals are
 synthesized by P10 and therefore have no MIR identity of their own;
 `Module::defined_type_count` reports how many entries of the type index space
@@ -128,7 +135,14 @@ are defined (non-function) types.
   segment `index.0` equals its position.
 - Global indices are assigned in vector order, with `index.0` equal to the
   global's position; a global's `RefNull` initializer names the same nullable
-  reference type as its value type.
+  reference type as its value type. The mutable `i32` depth global of the
+  stack-exhaustion budget
+  ([exception handling](../fp/exception-handling-and-stack-exhaustion.md)), when
+  present, is allocated after the literal-interning globals.
+- Tag definitions occupy `TagIndex` values in vector order, and a
+  `CatchClause`'s `label` depth resolves, at the `try_table`'s position, to an
+  enclosing label whose result type equals the clause's payload (empty for
+  `catch_all`).
 - Every `Op::If` is immediately preceded in its body by the instruction that
   pushes its condition.
 - A `Leaf(Instruction::RefFunc(f))` index is in range and appears in the
@@ -346,6 +360,8 @@ encode_module(module):
         FunctionSection: functions, then entry, then realloc
     if memories non-empty:
         MemorySection
+    if tags non-empty:
+        TagSection (id 13, between memory and global per WebAssembly 3.0)
     if globals non-empty:
         GlobalSection
     if exports non-empty:
@@ -396,7 +412,9 @@ these types:
   defined types, functions, memories, globals, data segments, exports, optional
   entry, and optional `realloc`.
 - `Op` — the structured operation set: `Leaf(wasm_encoder::Instruction)` plus
-  the structured regions `If`, `Block`, and `Loop`. Every region shape this
+  the structured regions `If`, `Block`, `Loop`, and `Try` (the exception
+  region; [exception handling](../fp/exception-handling-and-stack-exhaustion.md)).
+  Every region shape this
   design names is an `Op` variant; the encoding must not mirror the WebAssembly
   opcode set.
 - `Function` — a defined function: symbol, name, final type index, parameter and

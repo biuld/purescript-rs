@@ -86,7 +86,8 @@ Two derived views make the profile operational:
 | `simd`, `relaxed_simd` | v128 value types and SIMD instructions. |
 | `tail_call` | `return_call`/`return_call_ref`. |
 | `multi_memory`, `memory64` | Additional memories and 64-bit addresses. |
-| `exceptions`, `threads`, `wide_arithmetic` | Their respective instruction families. |
+| `exceptions` | The exception channel: defined tags, `try_table` with `catch`/`catch_all`, `throw`, and the compiler-managed stack-exhaustion budget installed by lowering. The contract is [exception handling and stack exhaustion](../fp/exception-handling-and-stack-exhaustion.md) and [DEC-23](../../../decision/DEC-23-wasm-exception-channel.md); adoption is gated on that design's evidence, and a module requiring the channel is rejected when the gate is off. |
+| `threads`, `wide_arithmetic` | Their respective instruction families. |
 | `component_model`, `component_async`, `component_map`, `component_implements` | Component-model encoding and its async/map/implements extensions. |
 | `wasi_p1`, `wasi_p2`, `wasi_p3` | Which WASI ABI generation the artifact targets. |
 | `wasi_cli`, `wasi_io`, `wasi_clocks`, `wasi_random`, `wasi_filesystem`, `wasi_sockets`, `wasi_http`, `wasi_tls` | Which WASI service packages the ABI registry may resolve. |
@@ -118,7 +119,8 @@ for the default target and is also `Default::default()`. Its policy is:
 | Component Model and WASI 0.2 (`wasi_cli`, `wasi_io`, `wasi_clocks`, `wasi_random`, `wasi_filesystem`, `wasi_sockets`) | Enabled and required | The artifact boundary; canonical ABI and WIT metadata are emitted. Filesystem and sockets have `WASI.FileSystem` and `WASI.Network` wrappers over the vendored WIT and the pinned host. |
 | SIMD, relaxed SIMD | Disabled | Optimization track only. |
 | Tail calls | Enabled | Stack-safe direct and closure calls use `return_call`/`return_call_ref`; self recursion can also become a CFG loop. State calls require checked dependency transfer ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)). |
-| Exceptions, multi-memory, wide arithmetic, threads | Disabled | No lowering. |
+| Exceptions | Disabled until adoption evidence lands | [DEC-23](../../../decision/DEC-23-wasm-exception-channel.md) adopts the exception channel and the stack-exhaustion budget minimally behind this flag ([exception handling](../fp/exception-handling-and-stack-exhaustion.md)); the gate's contract is in the table above, and the default flips only after the lowering, validation, and enabled/disabled execution evidence that adoption requires. |
+| Multi-memory, wide arithmetic, threads | Disabled | No lowering. |
 | Memory64 | Disabled | Deferred; see below. |
 | WASI Preview 1, WASI 0.3 | Disabled | Separate compatibility tracks; neither is the artifact ABI. |
 | Component async/map/implements | Disabled | Not a stable compiler dependency. |

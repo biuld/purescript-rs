@@ -53,6 +53,7 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [data-representation.md](fp/data-representation.md) | ADTs, records, arrays, closures; GC layouts and evidence | mir |
 | [pattern-matching.md](fp/pattern-matching.md) | Pattern decision trees and exhaustiveness | cc-ir |
 | [control-flow-and-tail-calls.md](fp/control-flow-and-tail-calls.md) | CFG structuring, `Switch`, tail calls | mir |
+| [exception-handling-and-stack-exhaustion.md](fp/exception-handling-and-stack-exhaustion.md) | The minimal Wasm exception channel (tags, `try_table`, `throw`) and the compiler-managed stack-exhaustion budget (**Draft design**) | mir, control-flow-and-tail-calls, delimited-control, encoding-and-structuring, capability-profile |
 | [type-classes-and-dictionaries.md](fp/type-classes-and-dictionaries.md) | Dictionary passing and instance evidence | functional-core |
 | [algebraic-effects-and-handlers.md](fp/algebraic-effects-and-handlers.md) | Library operation functors, handlers, residual rows, and the `Run` wrapper over the control surface (AE-01–AE-11 and AC-01–AC-05 Verified) | DEC-03, delimited control, ordinary rows/classes, functional-core |
 | [delimited-control-and-resumable-frames.md](fp/delimited-control-and-resumable-frames.md) | Effect-agnostic delimited control (`Control f a` with `return`/`bind`/`perform`/`run`), the design-space selection, handler interface and lifetime semantics (**Draft design**) | DEC-03, DEC-19, cc-ir, mir, control-flow-and-tail-calls, capability-profile |
