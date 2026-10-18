@@ -105,6 +105,7 @@ fn effect_closure_call(
         }],
         result: ValueId(2),
         result_type: destination_type,
+        frame_weight: 0,
         span: span(),
     }
 }

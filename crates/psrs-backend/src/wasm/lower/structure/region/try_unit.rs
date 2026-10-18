@@ -53,6 +53,13 @@ impl Structurer<'_> {
         if block_traps(block) {
             return Ok(());
         }
+        // EH-14, the watermark save: the region's fresh `i32` local takes the
+        // depth counter's value immediately before the `try_table` arms. An
+        // EH throw unwinds frames without their epilogues; the catch path
+        // restores this value and settles every unwound frame at once.
+        let budget = self.budget(span)?;
+        let saved = self.watermark_local(try_block);
+        budget.watermark_save(saved, body);
         // The clause labels resolve at the try_table's emission point against
         // the active labels not counting the region's own internal label;
         // `0` is the synthesized unwind block immediately enclosing it.
@@ -99,7 +106,10 @@ impl Structurer<'_> {
             ],
         });
         // The catch path lands here, payload on the stack (if any). The
-        // watermark restore is the budget slice's first action here (EH-14).
+        // watermark restore is the catch path's first action (EH-14): every
+        // frame the throw unwound skipped its epilogue, and this one store
+        // settles all of them.
+        budget.watermark_restore(saved, body);
         let Some(handler) = handler else {
             return Ok(());
         };

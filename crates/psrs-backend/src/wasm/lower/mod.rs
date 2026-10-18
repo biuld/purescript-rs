@@ -1,7 +1,8 @@
+use self::budget::Budget;
 use super::convert::val_type;
 use super::{
-    Entry, Export, ExportIndex, ExportKind, FuncType, FunctionIndex, Import, Memory, MemoryIndex,
-    Module, Op, TypeIndex,
+    CatchClause, Entry, Export, ExportIndex, ExportKind, FuncType, FunctionIndex, Global,
+    GlobalIndex, GlobalInit, Import, Memory, MemoryIndex, Module, Op, TagDef, TagIndex, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
@@ -11,10 +12,12 @@ use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
-use wasm_encoder::{Instruction, RefType, ValType};
+use wasm_encoder::{RefType, ValType};
 
 mod asm;
+mod budget;
 mod codec;
+mod entry;
 mod extent;
 mod function;
 mod post_return;
@@ -127,6 +130,19 @@ pub(crate) fn lower_module_with_plan(
             span: tag.span,
         });
     }
+
+    // The stack-exhaustion budget (EH-12..EH-15): when the target enables
+    // `exceptions`, every lowered function carries the prologue check and the
+    // epilogue decrements against the depth global; `Budget::for_module`
+    // plans the context and appends the tag's type.
+    let budget = Budget::for_module(
+        module,
+        target,
+        defined,
+        &mut types,
+        &mut tag_defs,
+        literal_globals.globals.len(),
+    )?;
 
     // Core imports: the WASI imports MIR declared, then `exit-with-code` used
     // by the synthesized `run` entry when the target exposes WASI CLI.
@@ -250,6 +266,7 @@ pub(crate) fn lower_module_with_plan(
             &literal_globals.indices,
             module.layout.as_ref(),
             &module.tags,
+            budget.as_ref(),
         )
         .map_err(|errors| {
             errors
@@ -278,7 +295,15 @@ pub(crate) fn lower_module_with_plan(
         },
     ];
     let minimum = link.plan.memory().minimum_pages;
-    let globals = literal_globals.globals;
+    let mut globals = literal_globals.globals;
+    if let Some(budget) = &budget {
+        globals.push(Global {
+            index: GlobalIndex(budget.depth),
+            mutable: true,
+            ty: ValType::I32,
+            init: GlobalInit::I32(0),
+        });
+    }
     let mut realloc = None;
     if needs_realloc {
         let import_index = *import_indices.get(&abi::REALLOC_SYMBOL).ok_or_else(|| {
@@ -360,17 +385,13 @@ pub(crate) fn lower_module_with_plan(
         globals,
         data,
         exports,
-        entry: Some(Entry {
-            type_index: entry_type,
-            body: {
-                let mut body = vec![Op::Leaf(Instruction::Call(main_index.0))];
-                if let Some(exit_index) = exit_index {
-                    body.push(Op::Leaf(Instruction::Call(exit_index.0)));
-                    body.push(Op::Leaf(Instruction::I32Const(0)));
-                }
-                body
-            },
-        }),
+        entry: Some(entry::synthesize(
+            main_index,
+            exit_index,
+            entry_type,
+            budget.as_ref(),
+            module.span,
+        )),
         realloc,
         helpers,
         span: module.span,

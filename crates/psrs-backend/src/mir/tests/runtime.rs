@@ -118,6 +118,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
             }],
             result: ValueId(0),
             result_type: ValueType::I32,
+            frame_weight: 0,
             span: span(),
         }],
         span: span(),

@@ -51,6 +51,7 @@ fn callee(parameters: Vec<ValueDecl>, result_type: ValueType) -> Function {
             }],
             result,
             result_type: parameter_ty,
+            frame_weight: 0,
             span: span(),
         };
     }
@@ -88,6 +89,7 @@ fn callee(parameters: Vec<ValueDecl>, result_type: ValueType) -> Function {
         }],
         result,
         result_type,
+        frame_weight: 0,
         span: span(),
     }
 }
@@ -113,6 +115,7 @@ fn caller(
         }],
         result: ValueId(99),
         result_type,
+        frame_weight: 0,
         span: span(),
     }
 }

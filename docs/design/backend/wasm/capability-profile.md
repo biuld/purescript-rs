@@ -375,6 +375,21 @@ validator when SIMD is disabled, the four MIR-inferred gates, and independent
 gating of each WASI 0.2 service package currently admitted by the component
 world.
 
+The `exceptions` gate installs the stack-exhaustion budget with the channel.
+Its constants are the design's provisional values, validated by the
+coordination fixture (EH-15) under the pinned engine: on wasmtime 48.0.1
+(7bac2c277 2026-08-24) with the engine limit pinned at
+`-W max-wasm-stack=524288` (512 KiB — measured equal to that engine's
+default), the weights `FRAME_WEIGHT_FIXED = 32`,
+`FRAME_WEIGHT_PER_LOCAL = 16`, and `STACK_BUDGET = 262144` fire the compiler's
+stack-exhaustion exception at about 1,490 frames of the fixture's
+non-tail-recursive function (weight 176 per frame) while the engine's
+`call stack exhausted` trap on the same function sits between 6,000 and
+7,000 frames — the budget fires at roughly a quarter of the engine's limit,
+and the corpus's returning depth-100 recursion consumes about 7% of the
+budget. The default profile still ships `exceptions` disabled; flipping it is
+EH-17's final revision, gated on the full adoption evidence.
+
 ## References
 
 - WebAssembly 3.0 specification; [WebAssembly/proposals](https://github.com/WebAssembly/proposals).

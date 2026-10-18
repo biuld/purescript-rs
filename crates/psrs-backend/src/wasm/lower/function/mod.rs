@@ -13,6 +13,7 @@ use psrs_hir::SymbolId;
 use std::collections::HashMap;
 use wasm_encoder::ValType;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower_function(
     source: &MirFunction,
     type_index: TypeIndex,
@@ -21,6 +22,7 @@ pub(super) fn lower_function(
     literal_globals: &HashMap<crate::types::DataId, crate::wasm::GlobalIndex>,
     layout: Option<&crate::mir::layout::PlannedLayout>,
     tags: &[crate::mir::Tag],
+    budget: Option<&super::budget::Budget>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
     let list_depth = structure::list_copy_depth(source);
@@ -33,6 +35,20 @@ pub(super) fn lower_function(
             depth: list_depth,
         }
     });
+    // EH-14: one fresh `i32` watermark local per try region, allocated after
+    // the lowered values and the list-copy locals. A function with try regions
+    // never allocates a dispatcher state local (an irreducible CFG with a try
+    // region is rejected at `ControlFlowPlan::build`), so the two extra-local
+    // families never share an index.
+    let watermark_base = source.values.len() as u32
+        + list_locals.map_or(0, |locals| {
+            locals.index_count() + locals.scratch_count() + locals.array_count()
+        });
+    let watermark_count = source
+        .blocks
+        .iter()
+        .filter(|block| matches!(&block.terminator, Some(crate::mir::Terminator::Try { .. })))
+        .count();
     let parameters = source
         .parameters
         .iter()
@@ -62,8 +78,17 @@ pub(super) fn lower_function(
         list_locals,
         layout,
         tags,
+        budget: budget.copied(),
+        watermark_base,
     };
     let mut body = Body::new();
+    // EH-13: the budget prologue precedes the function's first structured
+    // instruction, and its overflow throw unwinds out of the function because
+    // no try region of this function is armed yet.
+    if let Some(budget) = budget {
+        budget.increment(source.frame_weight, &mut body);
+        budget.overflow_check(&mut body, source.span);
+    }
     let uses_dispatcher = structurer.emit_control_flow(&mut body)?;
     structurer.emit_load(source.result, source.span, &mut body)?;
     let mut locals = local_types;
@@ -82,6 +107,10 @@ pub(super) fn lower_function(
         }
     }
     if uses_dispatcher {
+        locals.push(ValType::I32);
+    }
+    // EH-14: the try regions' fresh watermark locals close the local list.
+    for _ in 0..watermark_count {
         locals.push(ValType::I32);
     }
     Ok(Function {

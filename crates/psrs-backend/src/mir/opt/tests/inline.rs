@@ -35,6 +35,7 @@ fn inlines_small_direct_functions_and_folds_the_result() {
         }],
         result: ValueId(1),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let callee = Function {
@@ -72,6 +73,7 @@ fn inlines_small_direct_functions_and_folds_the_result() {
         }],
         result: ValueId(2),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
 
@@ -130,6 +132,7 @@ fn inlining_uses_the_callee_function_result_value() {
         }],
         result: ValueId(0),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let callee = Function {
@@ -161,6 +164,7 @@ fn inlining_uses_the_callee_function_result_value() {
         }],
         result: ValueId(1),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
 

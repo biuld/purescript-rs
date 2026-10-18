@@ -90,6 +90,7 @@ fn return_function(
         }],
         result,
         result_type,
+        frame_weight: 0,
         span: span(),
     }
 }
@@ -233,6 +234,7 @@ fn method_function() -> Function {
         }],
         result,
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     }
 }
@@ -341,6 +343,7 @@ fn rejects_a_non_dominating_dictionary_projection() {
         ],
         result: projected,
         result_type: reference(HeapType::Func),
+        frame_weight: 0,
         span: span(),
     };
     let errors =

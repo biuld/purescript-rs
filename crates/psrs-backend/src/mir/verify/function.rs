@@ -110,7 +110,14 @@ pub(super) fn verify_function(
         }
     }
 
-    let dominators = crate::mir::cfg::dominators(function);
+    // Value availability is dominance over the CFG that includes unwind
+    // edges: a handler block's only predecessors are unwind edges, so the
+    // normal-CFG view would make every enclosing value unavailable inside a
+    // handler even though the structured handler reads the function's live
+    // locals. The unwind-edge view keeps the check truthful in both
+    // directions — a join shared by a normal and a handler path no longer
+    // claims values defined on only one of them.
+    let dominators = crate::mir::cfg::dominators_with_unwind_edges(function);
     for block in &function.blocks {
         let mut available = block.parameters.iter().copied().collect::<HashSet<_>>();
         for instruction in &block.instructions {

@@ -59,6 +59,7 @@ fn rejects_an_acyclic_branch_to_a_missing_target() {
         &std::collections::HashMap::new(),
         None,
         &[],
+        None,
     )
     .expect_err("a branch to a missing block must not structure");
     assert!(

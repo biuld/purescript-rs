@@ -115,6 +115,7 @@ fn number_format_module() -> Module {
             }],
             result: ValueId(0),
             result_type: ValueType::I32,
+            frame_weight: 0,
             span: span(),
         }],
         span: span(),

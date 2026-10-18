@@ -5,7 +5,7 @@ use wasm_encoder::{
     BlockType, Catch, CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection,
     Elements, EntityType, ExportKind as WasmExportKind, ExportSection, Function as EncoderFunction,
     FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, MemorySection,
-    MemoryType, Module as EncoderModule, TagKind, TagSection, TagType, TypeSection, ValType,
+    MemoryType, Module as EncoderModule, TagKind, TagSection, TagType, TypeSection,
 };
 
 /// Encodes the thin Wasm IR into a binary module.
@@ -144,7 +144,7 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             code.function(&encoded);
         }
         if let Some(entry) = &module.entry {
-            let mut encoded = EncoderFunction::new_with_locals_types(std::iter::empty::<ValType>());
+            let mut encoded = EncoderFunction::new_with_locals_types(entry.locals.iter().copied());
             emit_body(&entry.body, &mut encoded);
             encoded.instruction(&Instruction::End);
             code.function(&encoded);

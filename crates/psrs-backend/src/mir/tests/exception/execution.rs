@@ -6,6 +6,13 @@
 use crate::TargetCapabilities;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+/// The engine stack limit every budget-dependent execution pins (EH-15):
+/// wasmtime's CLI `-W max-wasm-stack=N`, in bytes. The value is the measured
+/// calibration condition recorded in the checklist's EH-15 record; it is
+/// passed explicitly rather than left to the engine's default, so the
+/// budget-above-limit hazard cannot hide behind a moved engine default.
+pub(crate) const PINNED_MAX_WASM_STACK: u32 = 524_288;
+
 pub(super) fn next_artifact_id() -> u32 {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -38,13 +45,23 @@ pub(super) fn run_output(
         next_artifact_id()
     ));
     std::fs::write(&path, &component).expect("writing component");
-    let output = std::process::Command::new("wasmtime")
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("running component");
+    let output = run_component(&path, target.exceptions);
     let _ = std::fs::remove_file(&path);
     Some(output)
+}
+
+/// Runs one component artifact under the wasmtime CLI. Budget-dependent
+/// evidence (any target with `exceptions` enabled) pins the engine's stack
+/// limit explicitly with `-W max-wasm-stack`.
+pub(super) fn run_component(path: &std::path::Path, exceptions: bool) -> std::process::Output {
+    let mut command = std::process::Command::new("wasmtime");
+    command.arg("run");
+    if exceptions {
+        command
+            .arg("-W")
+            .arg(format!("max-wasm-stack={PINNED_MAX_WASM_STACK}"));
+    }
+    command.arg(path).output().expect("running component")
 }
 
 /// Panics when `PSRS_REQUIRE_WASMTIME=1` but the engine is unusable; returns

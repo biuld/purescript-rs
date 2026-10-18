@@ -40,6 +40,7 @@ fn rejects_a_switch_with_a_non_i32_selector() {
         ],
         result: selector,
         result_type: ValueType::Boolean,
+        frame_weight: 0,
         span: span(),
     };
     let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
@@ -122,6 +123,7 @@ fn rejects_a_projection_that_is_not_dominated_by_its_tag_test() {
         ],
         result,
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();

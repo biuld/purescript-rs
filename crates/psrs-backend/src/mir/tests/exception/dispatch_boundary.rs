@@ -18,6 +18,7 @@ fn function(blocks: Vec<BasicBlock>, values: &[(u32, ValueType)], result: u32) -
         blocks,
         result: ValueId(result),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: at(950),
     }
 }

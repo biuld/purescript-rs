@@ -137,6 +137,7 @@ fn function_calling(instructions: Vec<Instruction>) -> Function {
         }],
         result: ValueId(1),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     }
 }

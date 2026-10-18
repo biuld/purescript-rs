@@ -50,6 +50,7 @@ fn rejects_constants_with_incompatible_result_types() {
         }],
         result: ValueId(0),
         result_type: ValueType::F64,
+        frame_weight: 0,
         span: span(),
     };
     let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
@@ -97,6 +98,7 @@ fn rejects_a_unary_primitive_with_mistyped_operands() {
         }],
         result: output,
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     for op in [
@@ -170,6 +172,7 @@ fn rejects_duplicate_switch_case_values() {
         ],
         result: selector,
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
@@ -223,6 +226,7 @@ fn rejects_values_used_before_definition() {
         }],
         result: ValueId(0),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
@@ -270,6 +274,7 @@ fn rejects_ref_func_with_a_different_target_signature() {
         }],
         result: ValueId(0),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let reference = ValueType::Ref(crate::types::RefType {
@@ -302,6 +307,7 @@ fn rejects_ref_func_with_a_different_target_signature() {
         }],
         result: ValueId(0),
         result_type: reference,
+        frame_weight: 0,
         span: span(),
     };
     let mut module = module_with_function(caller, vec![RecGroup(vec![function_type])]);
@@ -357,6 +363,7 @@ fn rejects_a_load_from_an_unknown_memory_id() {
         }],
         result: ValueId(1),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
@@ -454,6 +461,7 @@ fn rejects_a_branch_target_with_block_parameters() {
         ],
         result: merge_parameter,
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
     let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();

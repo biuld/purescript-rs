@@ -85,6 +85,7 @@ fn rejects_ref_cast_between_unrelated_heaps() {
         }],
         result: output,
         result_type: reference(HeapType::Index(DefinedTypeId(1))),
+        frame_weight: 0,
         span: span(),
     };
     let errors = crate::mir::verify_module(&custom_module(
@@ -134,6 +135,7 @@ fn accepts_an_erased_upcast_to_eqref() {
         }],
         result: output,
         result_type: reference(HeapType::Eq),
+        frame_weight: 0,
         span: span(),
     };
     crate::mir::verify_module(&custom_module(function, vec![RecGroup(vec![struct_type])]))
@@ -189,6 +191,7 @@ fn closure_callee() -> Function {
         }],
         result: argument,
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     }
 }
@@ -237,6 +240,7 @@ fn rejects_a_closure_capture_outside_the_eq_hierarchy() {
             }],
             result: closure,
             result_type: reference(HeapType::Index(DefinedTypeId(1))),
+            frame_weight: 0,
             span: span(),
         },
         closure_types(),
@@ -290,6 +294,7 @@ fn helper_function(blocks: Vec<BasicBlock>, values: Vec<ValueDecl>) -> Function 
         blocks,
         result: output,
         result_type: reference(HeapType::Index(DefinedTypeId(1))),
+        frame_weight: 0,
         span: span(),
     }
 }
@@ -395,6 +400,7 @@ fn get_capture_function(destination_type: ValueType) -> Function {
         }],
         result: destination,
         result_type: destination_type,
+        frame_weight: 0,
         span: span(),
     }
 }

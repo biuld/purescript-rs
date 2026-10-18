@@ -25,6 +25,7 @@ fn copy_forwarding_updates_the_structurer_result_value() {
         }],
         result: ValueId(1),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: span(),
     };
 

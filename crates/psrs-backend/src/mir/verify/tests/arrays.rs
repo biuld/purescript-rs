@@ -76,6 +76,7 @@ fn array_conversion_function(
         }],
         result: ValueId(3),
         result_type: array_reference,
+        frame_weight: 0,
         span: span(),
     };
     let types = vec![RecGroup(vec![DefinedType {
@@ -252,6 +253,7 @@ fn clone_function(element_storage: crate::types::StorageType) -> (Function, Vec<
         }],
         result: ValueId(1),
         result_type: array,
+        frame_weight: 0,
         span: span(),
     };
     let types = vec![RecGroup(vec![DefinedType {

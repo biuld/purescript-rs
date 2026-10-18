@@ -36,6 +36,7 @@ fn function(
         blocks,
         result,
         result_type,
+        frame_weight: 0,
         span: ACCESS_SPAN,
     }
 }

@@ -393,6 +393,7 @@ fn interns_repeated_string_literals_in_one_lazy_global() {
             }],
             result: ValueId(2),
             result_type: ValueType::I32,
+            frame_weight: 0,
             span: span(),
         }],
         span: span(),

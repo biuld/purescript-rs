@@ -206,6 +206,9 @@ pub struct DataSegment {
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub type_index: TypeIndex,
+    /// The entry's declared locals. Empty except for the budget's watermark
+    /// save local when the target enables `exceptions`.
+    pub locals: Vec<ValType>,
     pub body: Body,
 }
 

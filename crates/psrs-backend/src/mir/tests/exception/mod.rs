@@ -5,6 +5,7 @@
 //! boundary. Fixtures are hand-built direct MIR (or direct CC for the
 //! discharge) executed under wasmtime where the row requires it.
 
+mod budget;
 mod capability;
 mod discharge;
 mod dispatch_boundary;
@@ -82,6 +83,7 @@ pub(super) fn simple_function(
         blocks,
         result: ValueId(0),
         result_type: ValueType::I32,
+        frame_weight: 0,
         span: at(900),
     }
 }

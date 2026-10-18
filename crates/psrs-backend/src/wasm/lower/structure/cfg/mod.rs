@@ -157,7 +157,7 @@ fn reachable_blocks(
 
 /// The unwind edges alone, so the region plan's walk can follow the catch
 /// paths without re-listing the normal successors.
-fn unwind_only_successors(terminator: &Terminator) -> Vec<BlockId> {
+pub(super) fn unwind_only_successors(terminator: &Terminator) -> Vec<BlockId> {
     match terminator {
         Terminator::Try {
             catches, catch_all, ..
@@ -191,7 +191,10 @@ fn predecessors(
         else {
             continue;
         };
-        for target in successors(terminator) {
+        for target in successors(terminator)
+            .into_iter()
+            .chain(unwind_only_successors(terminator))
+        {
             if reachable_set.contains(&target) {
                 result.entry(target).or_default().insert(*source);
             }
