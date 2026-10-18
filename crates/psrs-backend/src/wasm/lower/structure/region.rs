@@ -199,6 +199,15 @@ impl Structurer<'_> {
             } => {
                 self.emit_return_call_ref(*function, arguments, *span, body)?;
             }
+            // The structuring slice of the exception channel (EH-10/EH-11) is
+            // not implemented yet; a try/throw terminator reaching Wasm
+            // lowering is rejected at its own span instead of being miscompiled.
+            Terminator::Throw { span, .. } | Terminator::Try { span, .. } => {
+                return Err(wasm_error(
+                    *span,
+                    "MIR exception-channel terminators are not lowered to Wasm yet",
+                ));
+            }
         }
         Ok(())
     }

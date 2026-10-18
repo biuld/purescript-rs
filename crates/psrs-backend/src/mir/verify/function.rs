@@ -14,6 +14,7 @@ pub(super) fn verify_function(
     function: &Function,
     signatures: &HashMap<SymbolId, Option<Signature>>,
     defined: &[&DefinedType],
+    tags: &[crate::mir::Tag],
 ) -> Result<(), Vec<BackendError>> {
     let blocks = function
         .blocks
@@ -172,6 +173,9 @@ pub(super) fn verify_function(
     }
     super::array_map::verify_array_maps(function)?;
     super::array_map::verify_conversion_helpers(function, defined)?;
+    // The exception channel's unwind edges, handlers, and protected-region
+    // rules; they need the same block map and dominance the checks above use.
+    super::exception::verify_function(function, &blocks, &definitions, tags)?;
     Ok(())
 }
 
@@ -197,12 +201,13 @@ fn value_available(
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
-        Terminator::Trap { .. } => Vec::new(),
+        Terminator::Trap { .. } | Terminator::Try { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
         Terminator::Switch { value, .. } => vec![*value],
         Terminator::ReturnCall { arguments, .. } => arguments.clone(),
+        Terminator::Throw { arguments, .. } => arguments.clone(),
         Terminator::ReturnCallRef {
             function,
             arguments,
@@ -221,7 +226,9 @@ fn terminator_span(terminator: &Terminator) -> psrs_span::TextRange {
         | Terminator::Branch { span, .. }
         | Terminator::Switch { span, .. }
         | Terminator::ReturnCall { span, .. }
-        | Terminator::ReturnCallRef { span, .. } => *span,
+        | Terminator::ReturnCallRef { span, .. }
+        | Terminator::Throw { span, .. }
+        | Terminator::Try { span, .. } => *span,
     }
 }
 
@@ -352,6 +359,10 @@ fn verify_terminator(
                 defined,
             )?;
         }
+        // `Throw`/`Try` payload and unwind-edge checks live in
+        // `super::exception`, which runs once per function with the
+        // protected-region partition.
+        Terminator::Throw { .. } | Terminator::Try { .. } => {}
     }
     Ok(())
 }

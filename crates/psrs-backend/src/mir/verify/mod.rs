@@ -12,6 +12,7 @@ mod array_map;
 mod call;
 mod capability;
 mod captures;
+mod exception;
 mod function;
 mod instruction;
 mod records;
@@ -36,6 +37,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
     super::control::verify(module, &mut errors);
     verify_defined_types(module, &mut errors);
+    exception::verify_tags(module, defined_type_count(module), &mut errors);
     variants::verify(module, &mut errors);
     let mut signatures = module
         .functions
@@ -83,7 +85,9 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         for value in &function.values {
             verify_value_type(&value.ty, defined_types, module.span, &mut errors);
         }
-        if let Err(function_errors) = function::verify_function(function, &signatures, &defined) {
+        if let Err(function_errors) =
+            function::verify_function(function, &signatures, &defined, &module.tags)
+        {
             errors.extend(
                 function_errors
                     .into_iter()

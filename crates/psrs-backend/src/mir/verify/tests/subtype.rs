@@ -14,6 +14,7 @@ fn span() -> TextRange {
 
 fn module_with(types: Vec<RecGroup>) -> Module {
     Module {
+        tags: Vec::new(),
         name: "SubtypeTest".into(),
         types,
         strings: Vec::new(),

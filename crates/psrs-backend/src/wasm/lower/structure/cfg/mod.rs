@@ -409,7 +409,9 @@ fn block_span(block: &BasicBlock, fallback: psrs_span::TextRange) -> psrs_span::
             | Terminator::Branch { span, .. }
             | Terminator::Switch { span, .. }
             | Terminator::ReturnCall { span, .. }
-            | Terminator::ReturnCallRef { span, .. } => *span,
+            | Terminator::ReturnCallRef { span, .. }
+            | Terminator::Throw { span, .. }
+            | Terminator::Try { span, .. } => *span,
         })
 }
 

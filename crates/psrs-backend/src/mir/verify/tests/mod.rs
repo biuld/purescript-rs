@@ -11,6 +11,7 @@ fn span() -> TextRange {
 
 fn module_with_function(function: Function, types: Vec<RecGroup>) -> Module {
     Module {
+        tags: Vec::new(),
         name: "VerifierTest".into(),
         types,
         strings: Vec::new(),
@@ -368,6 +369,7 @@ fn rejects_a_load_from_an_unknown_memory_id() {
 }
 
 mod arrays;
+mod capability;
 mod dictionary;
 mod dominance;
 mod effects;

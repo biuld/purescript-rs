@@ -98,12 +98,13 @@ fn eliminate_function(function: &mut Function) {
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
-        Terminator::Trap { .. } => Vec::new(),
+        Terminator::Trap { .. } | Terminator::Try { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
         Terminator::Switch { value, .. } => vec![*value],
         Terminator::ReturnCall { arguments, .. } => arguments.clone(),
+        Terminator::Throw { arguments, .. } => arguments.clone(),
         Terminator::ReturnCallRef {
             function,
             arguments,
@@ -373,12 +374,13 @@ pub(crate) fn remap_terminator(terminator: &mut Terminator, mapping: &HashMap<Va
         *value = mapping.get(value).copied().unwrap_or(*value);
     };
     match terminator {
-        Terminator::Trap { .. } => {}
+        Terminator::Trap { .. } | Terminator::Try { .. } => {}
         Terminator::Return { value, .. } => replace(value),
         Terminator::Jump { arguments, .. } => arguments.iter_mut().for_each(replace),
         Terminator::Branch { condition, .. } => replace(condition),
         Terminator::Switch { value, .. } => replace(value),
         Terminator::ReturnCall { arguments, .. } => arguments.iter_mut().for_each(replace),
+        Terminator::Throw { arguments, .. } => arguments.iter_mut().for_each(replace),
         Terminator::ReturnCallRef {
             function,
             arguments,

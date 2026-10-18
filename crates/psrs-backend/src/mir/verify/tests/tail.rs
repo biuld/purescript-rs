@@ -17,6 +17,7 @@ fn symbol(index: u32) -> SymbolId {
 
 fn module_with(caller: Function, callee: Function) -> Module {
     Module {
+        tags: Vec::new(),
         name: "TailVerifierTest".into(),
         types: Vec::new(),
         strings: Vec::new(),

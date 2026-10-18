@@ -330,6 +330,7 @@ fn interns_repeated_string_literals_in_one_lazy_global() {
     });
     let symbol = SymbolId::new(ModuleId(0), 0);
     let mir = MirModule {
+        tags: Vec::new(),
         name: "InternedStrings".into(),
         entry: Some(symbol),
         types: vec![RecGroup(vec![DefinedType {

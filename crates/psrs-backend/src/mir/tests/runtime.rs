@@ -30,6 +30,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         heap: HeapType::Index(crate::types::DefinedTypeId(0)),
     });
     let mir = Module {
+        tags: Vec::new(),
         name: "MirGc".into(),
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: vec![RecGroup(vec![struct_type])],

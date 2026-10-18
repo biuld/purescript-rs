@@ -29,6 +29,11 @@ pub(in crate::mir) fn rewrite(
     function: &mut Function,
     target: TargetCapabilities,
 ) -> Result<(), Vec<BackendError>> {
+    // EH-07: no forced tail call may live in a protected try region — Wasm
+    // pops the caller's frame at a `return_call`, discarding the armed
+    // `try_table`. Self-call loopification is unaffected: a loop allocates
+    // no frame.
+    let protected = crate::mir::try_region::plan(function, "P9 MIR lowering")?.protected_blocks();
     let returned = return_forwarded_values(function);
     let uses = use_counts(function);
     let symbol = function.symbol;
@@ -60,8 +65,12 @@ pub(in crate::mir) fn rewrite(
                 span,
                 ..
             } if *callee == symbol => {
+                // Self-call loopification is unaffected by protection: a
+                // loop allocates no frame.
                 self_calls.push((block.id, arguments.clone(), *span));
             }
+            // EH-07: keep a protected block's call ordinary plus its return.
+            _ if protected.contains(&block.id) => continue,
             Instruction::Call {
                 contract,
                 function: callee,
@@ -393,12 +402,13 @@ fn use_counts(function: &Function) -> HashMap<ValueId, usize> {
 
 fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
     match terminator {
-        Terminator::Trap { .. } => Vec::new(),
+        Terminator::Trap { .. } | Terminator::Try { .. } => Vec::new(),
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
         Terminator::Switch { value, .. } => vec![*value],
         Terminator::ReturnCall { arguments, .. } => arguments.clone(),
+        Terminator::Throw { arguments, .. } => arguments.clone(),
         Terminator::ReturnCallRef {
             function,
             arguments,

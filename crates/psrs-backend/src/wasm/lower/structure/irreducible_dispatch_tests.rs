@@ -32,6 +32,7 @@ fn block(
 
 fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
     crate::mir::verify_module(&MirModule {
+        tags: Vec::new(),
         name: source.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),
@@ -336,6 +337,7 @@ fn has_if_span(body: &[Op], span: TextRange) -> bool {
 fn structures_and_executes_irreducible_cfg_with_block_parameters_and_sparse_switch() {
     let function = irreducible_function();
     let mir = MirModule {
+        tags: Vec::new(),
         name: function.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),

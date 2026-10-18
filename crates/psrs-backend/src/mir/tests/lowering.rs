@@ -11,6 +11,7 @@ use psrs_hir::{ModuleId, SymbolId};
 #[test]
 fn defined_types_flow_into_the_wasm_type_section() {
     let mir = Module {
+        tags: Vec::new(),
         name: "MirTypes".into(),
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: vec![RecGroup(vec![DefinedType {
@@ -67,6 +68,7 @@ fn defined_types_flow_into_the_wasm_type_section() {
 fn lowers_and_validates_f64_to_f32_abi_conversions() {
     let symbol = SymbolId::new(ModuleId(0), 0);
     let mir = Module {
+        tags: Vec::new(),
         name: "FloatAbi".into(),
         entry: Some(symbol),
         types: Vec::new(),
@@ -156,6 +158,7 @@ fn lowers_an_imported_call() {
         .expect("get-stdout should resolve");
     let callee = import.symbol;
     let mir = Module {
+        tags: Vec::new(),
         name: "MirImport".into(),
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: Vec::new(),
@@ -217,6 +220,7 @@ fn lowers_an_imported_call() {
 #[test]
 fn wasm_lowering_requires_an_explicit_entry_symbol() {
     let mir = Module {
+        tags: Vec::new(),
         name: "NoEntry".into(),
         entry: None,
         types: Vec::new(),

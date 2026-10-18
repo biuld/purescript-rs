@@ -4,8 +4,8 @@
 
 **Design:** [Exception handling and stack exhaustion](../../design/backend/fp/exception-handling-and-stack-exhaustion.md)
 
-**Progress:** EH-01 through EH-04 Verified (slice 1, capability gate and
-encoding). EH-05 through EH-17 Unverified.
+**Progress:** EH-01 through EH-08 Verified (slice 1: capability gate and
+encoding; slice 2: the MIR representation). EH-09 through EH-17 Unverified.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), row **BC-08** (the exceptions family) and the runtime board rows that reference `Test.Assert.checkThrows` (#95's blocker, the L6/M7 `P8 closure/linking` failure row for `TCOMutRec.purs`). Status claims in D-04 land with the evidence of the slices below, never from this checklist alone.
 
@@ -37,10 +37,10 @@ record exact reproducible evidence for every Verified row.
 | EH-02 | The encoder emits the tag section (id 13) between memory and global; tags are declared only when used. | Binary/WAT regression tests: a tag-using module encodes with the tag section in position; a module without tags emits none; wasmparser accepts under the enabled profile. | Verified |
 | EH-03 | The validator is built from the profile so `exceptions` gates the encoding; no other feature is enabled implicitly. | wasmparser rejects a tag-using module built with `exceptions: false` and accepts it enabled; the independent-field test still passes. | Verified |
 | EH-04 | Hand-built direct-MIR/wasm fixtures execute under wasmtime: `throw` + named `catch` with a payload, `throw` + `catch_all` payload-less, unwinding through nested call frames. | `PSRS_REQUIRE_WASMTIME=1` execution asserts caught values/results and exit codes. | Verified |
-| EH-05 | MIR defines `Tag`/`TagId`, `Module::tags`, and the `Throw`/`Try` terminators with the documented fields. | Constructor inspection plus malformed fixtures: missing tag, wrong payload arity/type, unknown handler block. | Unverified |
-| EH-06 | The MIR verifier checks unwind edges: `Throw` handlers resolve to the innermost enclosing region's matching handler (or `None` outside every region); handlers have no normal predecessors and belong to exactly one `Try`; regions nest or are disjoint; no back edge targets a try block. | Negative fixtures for each rule, each diagnostic carrying the offending span. | Unverified |
-| EH-07 | No protected block ends in a forced `ReturnCall`/`ReturnCallRef`; `mark_tail` skips calls in protected blocks. | A protected-region fixture stays an ordinary call plus return under the enabled profile; a hand-written forced tail terminator in a protected region is rejected. | Unverified |
-| EH-08 | The MIR capability verifier requires `exceptions` when a tag exists or `Throw`/`Try` appears, and rejects a module requiring it under a disabled profile with a source-associated diagnostic. | Required-set inference tests; disabled-profile rejection diagnostic; `wasmtime_wasi_0_2()` unchanged in this slice. | Unverified |
+| EH-05 | MIR defines `Tag`/`TagId`, `Module::tags`, and the `Throw`/`Try` terminators with the documented fields. | Constructor inspection plus malformed fixtures: missing tag, wrong payload arity/type, unknown handler block. | Verified |
+| EH-06 | The MIR verifier checks unwind edges: `Throw` handlers resolve to the innermost enclosing region's matching handler (or `None` outside every region); handlers have no normal predecessors and belong to exactly one `Try`; regions nest or are disjoint; no back edge targets a try block. | Negative fixtures for each rule, each diagnostic carrying the offending span. | Verified |
+| EH-07 | No protected block ends in a forced `ReturnCall`/`ReturnCallRef`; `mark_tail` skips calls in protected blocks. | A protected-region fixture stays an ordinary call plus return under the enabled profile; a hand-written forced tail terminator in a protected region is rejected. | Verified |
+| EH-08 | The MIR capability verifier requires `exceptions` when a tag exists or `Throw`/`Try` appears, and rejects a module requiring it under a disabled profile with a source-associated diagnostic. | Required-set inference tests; disabled-profile rejection diagnostic; `wasmtime_wasi_0_2()` unchanged in this slice. | Verified |
 | EH-09 | `mir/lower/exception.rs` discharges a call to a `psrs:runtime-exception` binding into the inline try region; when the profile disables `exceptions` the call is rejected at the binding's span. | Direct-MIR discharge fixtures execute under wasmtime (catch returns the handler's value; normal path the protected value). | Unverified |
 | EH-10 | The structurer's region plan gains `UnitPlan::Try` with the dominance carve-out; try regions nest or are disjoint; reducible try-free functions are unchanged. | Structuring fixtures: nested tries, try inside loop, loop inside protected region; no dispatcher local on reducible input; WAT inspection shows `try_table` at the expected nesting. | Unverified |
 | EH-11 | A function whose CFG is irreducible and contains a try region is rejected with a diagnostic; try-free irreducible input still uses the dispatcher. | Direct-MIR fixture pair: the rejection and the unchanged dispatcher fixture. | Unverified |
@@ -149,6 +149,143 @@ Validation of the slice: `cargo fmt --all --check`,
 suites, out of scope here). The `wasm/tests.rs` and `wasm/verify.rs` files
 grew past the 500-line limit and are now module directories
 (`wasm/tests/`, `wasm/verify/`) with the existing content preserved.
+
+## Slice 2 record — MIR representation (EH-05..EH-08)
+
+No producer creates `Try`/`Throw` terminators yet (the P9 discharge is
+EH-09+), so every fixture is hand-built direct MIR verified by
+`verify_module` / `verify_module_with_capabilities`. The tag payloads draw
+from the existing MIR `ValueType` set; `TagId` is module-local and indexes
+`Module::tags` by position, mirroring the thin IR's `TagIndex` rule.
+
+One interpretation the implementation fixes (design-conformant, recorded for
+slice 3): a `Throw`'s handler field names the handler of the innermost
+enclosing region **that catches the tag** — a tag clause for the throw's tag,
+else `catch_all` — walking outward through the containing regions, which nest
+and therefore form a chain. A throw inside a *handler block* resolves from its
+owning try's block, because the owning region's `try_table` is disarmed when
+its catch path executes. A handler-less throw is rejected unless the throw
+block lies outside every protected region (and outside every armed extent).
+The "regions nest or are disjoint" check is structurally implied by dominance
+over the normal CFG (dominance is a tree order), so it has no violating
+fixture; it is kept as the partition's stated invariant check, and the
+closest structural violations (shared handlers) are caught by the
+single-owner rule.
+
+```text
+EH-05:
+  Implementation: crates/psrs-backend/src/mir/mod.rs (`Terminator::Throw`,
+    `Terminator::Try`, `Module::tags`), crates/psrs-backend/src/mir/tag.rs
+    (`Tag`, `TagId`).
+  Tests: crates/psrs-backend/src/mir/tests/exception/mod.rs —
+    try_and_throw_terminators_expose_the_documented_fields (constructs the
+    module, verifies it, and pattern-matches every documented field of both
+    terminators and of `Tag`),
+    rejects_a_throw_with_an_unknown_tag,
+    rejects_a_throw_payload_that_differs_from_its_tag (arity, type, and
+    agreement cases),
+    rejects_a_multi_value_tag_payload,
+    rejects_a_try_naming_a_missing_block (missing protected entry, missing
+    clause handler).
+  Input boundary: well-formed and malformed direct MIR (no lowering).
+  Commands: PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+    (subset: cargo test -p psrs-backend --lib mir::tests::exception)
+  Result: pass, 17/17 executed locally under the workspace run above;
+    nothing runtime-gated (no executable artifact in this slice).
+  Revision: this slice's commit.
+  Gaps: none for the row; tags are never emitted by the lowering until
+    EH-09+, so no lowered module carries a tag table yet.
+
+EH-06:
+  Implementation: crates/psrs-backend/src/mir/try_region.rs (the shared
+    try-region partition: dominance carve-out, handler exclusion, nesting
+    check, back-edge check) and crates/psrs-backend/src/mir/verify/exception.rs
+    (clause-tag resolution, handler parameter typing, normal-predecessor and
+    single-owner rules, `Throw` handler resolution, wired through
+    mir/verify/function.rs into `verify_module`).
+  Tests: crates/psrs-backend/src/mir/tests/exception/unwind.rs —
+    accepts_a_well_formed_try_region_and_nested_tries,
+    rejects_a_throw_whose_handler_is_not_the_matching_innermost_handler,
+    rejects_a_throw_tag_no_enclosing_region_catches,
+    rejects_a_throw_outside_every_region_that_names_a_handler,
+    rejects_a_throw_without_a_handler_inside_a_protected_region;
+    crates/psrs-backend/src/mir/tests/exception/regions.rs —
+    rejects_a_handler_with_a_normal_predecessor,
+    rejects_a_handler_claimed_by_two_try_regions,
+    rejects_a_back_edge_targeting_a_try_block.
+  Input boundary: malformed direct MIR; every diagnostic asserts the
+    offending terminator's span.
+  Commands: as EH-05.
+  Result: pass under the workspace run above. Gaps: the nesting check is
+    structurally implied (see the interpretation note); no fixture can
+    violate it.
+
+EH-07:
+  Implementation: crates/psrs-backend/src/mir/lower/tail.rs (`rewrite`
+    computes the shared partition once and skips tail conversion for calls
+    whose block is protected; self-call loopification stays active inside
+    regions) and the verifier rule in mir/verify/exception.rs
+    (`verify_no_forced_tail_calls`).
+  Tests: mir/tests/exception/tail.rs —
+    mark_tail_keeps_a_protected_region_call_an_ordinary_call (the protected
+    call stays `Call` + jump-to-join while the handler's identical call
+    becomes `ReturnCall`, under `tail_call: true, exceptions: true`);
+    mir/tests/exception/regions.rs —
+    rejects_a_forced_tail_call_in_a_protected_region (a hand-written
+    `ReturnCall` in a protected block is rejected at its own span).
+  Input boundary: hand-built direct MIR at the function level.
+  Commands: as EH-05.
+  Result: pass.
+  Revision: this slice's commit.
+  Gaps: none for the row.
+
+EH-08:
+  Implementation: crates/psrs-backend/src/mir/verify/capability.rs —
+    `RequiredCapabilities.exceptions`, set when the module declares a tag or
+    contains a `Throw`/`Try` terminator, rejected with
+    "the selected target does not support the WebAssembly exception-handling
+    proposal required by this module" at `module.span` (the same shape as the
+    other proposal gates). `TargetCapabilities::wasmtime_wasi_0_2()` and
+    `Default` are untouched.
+  Tests: crates/psrs-backend/src/mir/tests/exception/capability.rs —
+    exception_terminators_require_the_exceptions_capability,
+    a_declared_tag_requires_the_exceptions_capability; the existing
+    stable_profile_matches_the_documented_wasi_0_2_target (src/capability.rs)
+    still pins `exceptions: false`. The capability tests moved out of
+    mir/verify/capability.rs into mir/verify/tests/capability.rs for the
+    500-line limit; all pre-existing assertions preserved.
+  Input boundary: direct MIR under explicitly enabled and disabled profiles.
+  Commands: as EH-05.
+  Result: pass.
+  Revision: this slice's commit.
+  Gaps: none for the row; the stable default profile still disables
+    `exceptions` (the flip is EH-17).
+```
+
+Slice-2 notes for the structuring slice (EH-10/EH-11):
+
+- The protected-region partition lives once, in `mir/try_region.rs`
+  (`plan(function, pass) -> TryRegions`): `regions` (outermost protected sets
+  first, each with `try_block`, `entry`, `catches`, `catch_all`, `protected`,
+  `span`), `owners` (handler → owning try block), `conflicts`, plus
+  `protected_blocks()`/`handler_blocks()` and `handler_closure(function)` for
+  passes that must retain handler blocks without the dominance work. The
+  verifier, `mark_tail`, and the structurer all consume this one definition.
+- Wasm lowering (`wasm/lower/structure/region.rs`, `structure/dispatcher.rs`)
+  rejects a `Throw`/`Try` terminator with "MIR exception-channel terminators
+  are not lowered to Wasm yet" at the terminator's span; no lowered path
+  reaches it until EH-09/EH-10 produce try regions.
+- Optimizer awareness: `prune_unreachable` keeps handler blocks (they are
+  unreachable along normal edges); terminator simplification treats
+  `Throw`/`Try` blocks as opaque.
+
+Validation of the slice: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace` all pass
+(2168 passed, 0 failed, 5 ignored — the ignored ones are the scoreboard
+suites, out of scope here). The MIR verifier files stay under the
+500-line limit: `mir/verify/capability.rs` shed its test module into
+`mir/verify/tests/capability.rs`, and `mir/mod.rs` sits at exactly 500 lines.
 
 ## Evidence record and completion rule
 

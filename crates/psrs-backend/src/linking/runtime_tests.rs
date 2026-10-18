@@ -166,6 +166,7 @@ fn fixture() -> mir::Module {
         },
     ];
     mir::Module {
+        tags: Vec::new(),
         name: "RuntimeStorageConsumer".into(),
         types,
         strings: vec![],

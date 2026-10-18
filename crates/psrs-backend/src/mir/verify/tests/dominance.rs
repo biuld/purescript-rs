@@ -14,6 +14,7 @@ fn span() -> TextRange {
 
 fn module_with(function: Function) -> Module {
     Module {
+        tags: Vec::new(),
         name: "DominanceTest".into(),
         types: Vec::new(),
         strings: Vec::new(),

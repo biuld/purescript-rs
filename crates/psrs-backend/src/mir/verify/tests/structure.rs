@@ -150,6 +150,7 @@ fn recursive_references_are_scoped_to_their_declared_group() {
         }]),
     };
     let mut source = Module {
+        tags: Vec::new(),
         name: "recursive_group_scope".into(),
         types: vec![RecGroup(vec![definition(1), definition(0)])],
         strings: Vec::new(),

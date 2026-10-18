@@ -51,6 +51,7 @@ fn constructor(tag: i32, copy: bool) -> Module {
     });
     let symbol = SymbolId::new(ModuleId(0), 0);
     Module {
+        tags: Vec::new(),
         name: "NominalConstructor".into(),
         types: layout.types().to_vec(),
         layout: Some(layout),
