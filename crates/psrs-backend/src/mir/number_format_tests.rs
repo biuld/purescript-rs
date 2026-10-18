@@ -17,6 +17,7 @@ fn registry() -> crate::abi::WasiRegistry {
 /// formatter artifact's raw export, and returns the initialized byte length.
 fn number_format_module() -> Module {
     Module {
+        tags: Vec::new(),
         name: "NumberFormat".into(),
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: Vec::new(),

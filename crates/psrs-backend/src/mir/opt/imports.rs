@@ -87,6 +87,7 @@ mod tests {
         let imported = SymbolId::new(ModuleId(1), 0);
         let span = TextRange::new(0, 1);
         Module {
+            tags: Vec::new(),
             name: "ImportProjectionTest".into(),
             types: Vec::new(),
             strings: Vec::new(),

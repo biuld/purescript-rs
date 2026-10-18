@@ -1,6 +1,7 @@
 //! MIR-level tests grouped by the boundary each one exercises.
 use psrs_span::TextRange;
 
+mod exception;
 mod lowering;
 mod runtime;
 mod verify;

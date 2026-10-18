@@ -11,6 +11,7 @@ use psrs_hir::{ModuleId, SymbolId};
 #[test]
 fn rejects_a_struct_new_with_a_mistyped_field() {
     let mir = Module {
+        tags: Vec::new(),
         name: "BadStruct".into(),
         entry: None,
         types: vec![RecGroup(vec![DefinedType {

@@ -8,6 +8,32 @@ pub(super) fn prune_unreachable(module: &mut Module) -> bool {
     let mut changed = false;
     for function in &mut module.functions {
         let reachable = reachable_blocks(function.entry, &function.blocks);
+        // Exception handlers are reached only through unwind edges, which the
+        // normal-successor walk does not follow; keep every handler and
+        // everything it reaches normally.
+        let reachable = match crate::mir::try_region::handler_closure(function) {
+            handlers if handlers.is_empty() => reachable,
+            handlers => {
+                let by_id = function
+                    .blocks
+                    .iter()
+                    .map(|block| (block.id, block))
+                    .collect::<HashMap<_, _>>();
+                let mut kept = reachable;
+                let mut pending = VecDeque::from_iter(handlers);
+                while let Some(id) = pending.pop_back() {
+                    if !kept.insert(id) {
+                        continue;
+                    }
+                    if let Some(terminator) =
+                        by_id.get(&id).and_then(|block| block.terminator.as_ref())
+                    {
+                        pending.extend(crate::mir::cfg::successors(terminator));
+                    }
+                }
+                kept
+            }
+        };
         let original_len = function.blocks.len();
         function
             .blocks
@@ -57,6 +83,8 @@ pub(super) fn simplify_terminators(module: &mut Module) -> bool {
                     Terminator::Trap { .. }
                     | Terminator::Return { .. }
                     | Terminator::Jump { .. }
+                    | Terminator::Throw { .. }
+                    | Terminator::Try { .. }
                     | Terminator::ReturnCall { .. }
                     | Terminator::ReturnCallRef { .. } => return None,
                 };

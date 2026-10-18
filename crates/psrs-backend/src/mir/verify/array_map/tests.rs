@@ -8,6 +8,7 @@ fn verified_array_map_module(mut function: Function) -> crate::mir::Module {
     use crate::types::{CompositeType, DefinedType, FieldType, RecGroup, StorageType};
     function.parameters.push(ValueId(8));
     crate::mir::Module {
+        tags: Vec::new(),
         name: "ArrayMapVerifier".into(),
         types: vec![
             RecGroup(vec![DefinedType {

@@ -163,7 +163,13 @@ pub(in crate::mir) fn total_functions(
                 Some(Terminator::ReturnCall { function, .. }) => {
                     calls.insert(*function);
                 }
-                Some(Terminator::ReturnCallRef { .. } | Terminator::Trap { .. }) => safe = false,
+                Some(
+                    Terminator::ReturnCallRef { .. }
+                    | Terminator::Trap { .. }
+                    | Terminator::Throw { .. },
+                ) => {
+                    safe = false;
+                }
                 _ => {}
             }
         }

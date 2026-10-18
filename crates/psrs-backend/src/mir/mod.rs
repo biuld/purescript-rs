@@ -18,6 +18,8 @@ pub mod opt;
 mod planner;
 mod reachable;
 mod runtime;
+mod tag;
+mod try_region;
 mod value_identity;
 mod verify;
 mod wit;
@@ -29,6 +31,7 @@ use planner::{GcPlanner, RepresentationPlanner};
 pub use instruction::{Instruction, ListDirection};
 pub use numeric::{NumericOp, UnaryOp};
 pub use runtime::RuntimeImport;
+pub use tag::{Tag, TagId};
 pub use verify::{verify_module, verify_module_with_capabilities};
 
 #[cfg(test)]
@@ -57,6 +60,8 @@ pub struct Module {
     /// Checked physical ABI imports, selected from WIT or raw runtime contracts.
     pub imports: Vec<Import>,
     pub functions: Vec<Function>,
+    /// Compiler-defined exception tags; a `TagId` indexes this list.
+    pub tags: Vec<Tag>,
     /// The program entry declaration, if selected by the driver.
     pub entry: Option<SymbolId>,
     /// The concrete target layout the module was planned from. P10 reads the
@@ -162,6 +167,22 @@ pub enum Terminator {
     ReturnCallRef {
         function: ValueId,
         arguments: Vec<ValueId>,
+        span: TextRange,
+    },
+    /// Raises a tag's exception; the optional `handler` names the block it
+    /// unwinds to within this function (`None` unwinds to the caller).
+    Throw {
+        tag: TagId,
+        arguments: Vec<ValueId>,
+        handler: Option<BlockId>,
+        span: TextRange,
+    },
+    /// Arms a protected region: control proceeds to `protected` as a
+    /// parameterless `Jump` would; catch clauses declare unwind behavior.
+    Try {
+        protected: BlockId,
+        catches: Vec<(TagId, BlockId)>,
+        catch_all: Option<BlockId>,
         span: TextRange,
     },
 }
@@ -419,6 +440,7 @@ fn lower_module_after_binding_validation(
         strings,
         imports,
         functions,
+        tags: Vec::new(),
         entry: module.entry,
         layout: Some(layout),
         span: module.span,

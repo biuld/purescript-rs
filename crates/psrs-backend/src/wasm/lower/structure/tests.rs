@@ -17,6 +17,7 @@ pub(super) fn span() -> TextRange {
 
 pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
     crate::mir::verify_module(&crate::mir::Module {
+        tags: Vec::new(),
         name: source.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),

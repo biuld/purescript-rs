@@ -20,6 +20,7 @@ fn value(id: u32, ty: ValueType) -> ValueDecl {
 
 fn module(functions: Vec<Function>, imports: Vec<Import>, entry: SymbolId) -> Module {
     Module {
+        tags: Vec::new(),
         name: "OptimizationTest".into(),
         types: Vec::new(),
         strings: Vec::new(),

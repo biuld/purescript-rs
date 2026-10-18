@@ -117,10 +117,15 @@ pub(crate) fn reachable_without(
     Some(false)
 }
 
-/// The successor blocks named by a terminator.
+/// The successor blocks named by a terminator's normal edges. Exception
+/// unwind edges are not normal edges: a `Throw` has none (its handler is
+/// reached by unwinding), and a handler block must never become a normal
+/// successor.
 pub(crate) fn successors(terminator: &Terminator) -> Vec<BlockId> {
     match terminator {
         Terminator::Return { .. } | Terminator::Trap { .. } => Vec::new(),
+        Terminator::Throw { .. } => Vec::new(),
+        Terminator::Try { protected, .. } => vec![*protected],
         Terminator::Jump { target, .. } => vec![*target],
         Terminator::Branch {
             then_block,
@@ -199,6 +204,8 @@ pub(crate) fn join_blocks(function: &Function) -> HashSet<BlockId> {
             Terminator::Trap { .. }
             | Terminator::Return { .. }
             | Terminator::Jump { .. }
+            | Terminator::Throw { .. }
+            | Terminator::Try { .. }
             | Terminator::ReturnCall { .. }
             | Terminator::ReturnCallRef { .. } => continue,
         };

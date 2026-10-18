@@ -42,6 +42,7 @@ fn function(
 
 fn module(function: Function) -> Module {
     Module {
+        tags: Vec::new(),
         name: "ExtentTest".into(),
         types: Vec::new(),
         strings: Vec::new(),

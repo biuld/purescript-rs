@@ -163,6 +163,16 @@ impl Structurer<'_> {
                 self.emit_return_call_ref(*function, arguments, span, body)?;
                 return Ok(());
             }
+            // The structuring slice of the exception channel (EH-10/EH-11) is
+            // not implemented yet; a try/throw terminator reaching the
+            // dispatcher is rejected at its own span instead of being
+            // miscompiled.
+            Terminator::Throw { span, .. } | Terminator::Try { span, .. } => {
+                return Err(wasm_error(
+                    *span,
+                    "MIR exception-channel terminators are not lowered to Wasm yet",
+                ));
+            }
         }
         body.push(Op::Leaf(Instruction::Br(index as u32 + 1)));
         Ok(())
@@ -250,6 +260,8 @@ fn terminator_span(terminator: &Terminator) -> TextRange {
         | Terminator::Branch { span, .. }
         | Terminator::Switch { span, .. }
         | Terminator::ReturnCall { span, .. }
-        | Terminator::ReturnCallRef { span, .. } => *span,
+        | Terminator::ReturnCallRef { span, .. }
+        | Terminator::Throw { span, .. }
+        | Terminator::Try { span, .. } => *span,
     }
 }

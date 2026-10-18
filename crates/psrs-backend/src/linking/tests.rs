@@ -6,6 +6,7 @@ use crate::types::{
 
 fn module(import: mir::Import) -> mir::Module {
     mir::Module {
+        tags: Vec::new(),
         name: "ConsumerAbi".into(),
         entry: None,
         types: vec![],
