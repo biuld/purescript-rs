@@ -382,3 +382,29 @@ fn reports_a_scope_conflict_for_a_duplicated_qualifier() {
             .any(|error| error.diagnostic.code == Some("ScopeConflict"))
     );
 }
+
+#[test]
+fn an_export_shadowing_an_unused_import_conflicts_with_nothing() {
+    // The corpus shape `NonConflictingExports`: `Main (thing, main)` exports
+    // its own `thing` while `A`, imported but never used, also defines
+    // `thing`. The export refers to `Main.thing` only, so no export or scope
+    // conflict is reported, the program type checks, and `main` executes.
+    let a = "module A where\nthing :: Int\nthing = 1\n";
+    let main = "module Main (thing, main) where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport A\nimport WASI.Console\nthing :: Int\nthing = 2\nmain = let ignored = unsafePerformEffect (log \"Done\") in 0\n";
+    let sources = [("A.purs", a), ("Main.purs", main)];
+    // Compiling includes resolution, so acceptance here covers the export
+    // resolution as well as the type check.
+    crate::compile_program_sources_with_prelude(&sources)
+        .expect("a local declaration shadows an unused import");
+    let Some(output) = run_program_with_prelude_wasmtime(&sources) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert!(output.status.success(), "the guest must run to completion");
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .ends_with("Done"),
+        "the program must execute with its own export in place: {output:?}"
+    );
+}

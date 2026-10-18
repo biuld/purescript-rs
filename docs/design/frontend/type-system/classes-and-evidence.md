@@ -281,7 +281,12 @@ class, or when every covering set of the class parameters contains a covered
 argument whose leftmost spine-head type constructor it declares. An orphan
 instance reports `OrphanInstance` at that boundary and is not recorded, which
 reproduces the official throw order: an orphan can neither join the overlap
-check nor start its own derivation. All seven `OrphanInstance` corpus
+check nor start its own derivation. The covering sets are the official
+inclusion-minimal `typeClassCoveringSets`, computed once at
+`classes/fundeps/covering.rs` by the `computeCoveringSets` frontier search and
+read by the overlap check, the orphan check, and the determined-head rule; an
+enumeration that also kept covering supersets would be order-dependent and
+cannot replace it. All seven `OrphanInstance` corpus
 cases agree on the M5 board (measured 2026-10-18 with the annotations oracle).
 The `DuplicateTypeClass` code is owned by name resolution, not by the class
 environment: a class declaration whose name already belongs to a class in the
@@ -314,7 +319,8 @@ type-level literal, a type constructor, or a constructor or function
 application over those, and a row argument is legal only where the class's
 functional dependencies fully determine its position. The fully determined
 positions are official `typeClassDeterminedArguments`: the arguments standing
-in no inclusion-minimal covering set, ported from `computeCoveringSets`, so a
+in no inclusion-minimal covering set, derived from the shared
+`computeCoveringSets` result at `classes/fundeps/covering.rs`, so a
 parameter determined only by an argument it itself determines is not determined
 and official record helpers that place a closed record in a determined
 parameter keep compiling. Every trigger — a wildcard (`TypeWildcards3.purs`),

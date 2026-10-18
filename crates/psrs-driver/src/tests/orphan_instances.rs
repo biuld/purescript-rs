@@ -163,3 +163,38 @@ fn an_orphan_derived_instance_reports_only_the_orphan_code() {
         "an orphan must be rejected before the deriving half runs: {errors:?}"
     );
 }
+
+#[test]
+fn accepts_and_runs_a_foreign_fundep_class_instance_over_local_heads() {
+    // The corpus shape `NonOrphanInstanceFunDepExtra`: the class
+    // `C f l r | l -> r` and `L` live in `Lib`, while `Main` declares `F` and
+    // `R` and the instance. The class's one official covering set `{f, l}`
+    // contains the declaring module's `F`, so the instance is accepted and
+    // recorded, and `main` executes with it.
+    let sources = [
+        (
+            "Lib.purs",
+            "module Lib where\nclass C f l r | l -> r\ndata L\n",
+        ),
+        (
+            "Main.purs",
+            "module Main where\nimport Effect.Unsafe (unsafePerformEffect)\nimport Prelude\nimport Lib\nimport WASI.Console\ndata F\ndata R\ninstance cflr :: C F L R\nmain = let ignored = unsafePerformEffect (log \"Done\") in 0\n",
+        ),
+    ];
+    // Compiling runs the whole pipeline, whose typechecker applies the orphan
+    // rule at the common instance recorder; acceptance means the instance was
+    // recorded, not merely parsed.
+    crate::compile_program_sources_with_prelude(&sources)
+        .expect("a declaring module that covers the class's covering set is not an orphan");
+    let Some(output) = super::run_program_with_prelude_wasmtime(&sources) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert!(output.status.success(), "the guest must run to completion");
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .ends_with("Done"),
+        "the program must execute with the instance recorded: {output:?}"
+    );
+}

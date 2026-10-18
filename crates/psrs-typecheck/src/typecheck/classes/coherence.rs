@@ -1,5 +1,6 @@
 use super::super::*;
 use super::fundeps::covering_sets;
+use std::collections::{BTreeSet, HashSet};
 
 impl Checker {
     /// Checks visible instance declarations for overlaps, excluding branches
@@ -150,7 +151,7 @@ impl Checker {
 }
 
 fn instances_are_apart(
-    covering_sets: &[Vec<usize>],
+    covering_sets: &BTreeSet<BTreeSet<usize>>,
     left: &[InferType],
     right: &[InferType],
 ) -> bool {

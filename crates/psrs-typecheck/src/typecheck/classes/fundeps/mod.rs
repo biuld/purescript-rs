@@ -4,7 +4,7 @@ use std::collections::HashMap;
 mod covering;
 mod support;
 
-pub(super) use covering::covering_sets;
+pub(in crate::typecheck) use covering::covering_sets;
 use support::solution_uses_lexical_given;
 
 /// Functional-dependency improvement and ambiguity checking for wanted
