@@ -106,6 +106,7 @@ fn decode_module(bytes: &[u8]) -> Module {
             minimum: 1,
             maximum: None,
         }],
+        tags: Vec::new(),
         globals: Vec::new(),
         data: vec![DataSegment {
             id: DataId(0),

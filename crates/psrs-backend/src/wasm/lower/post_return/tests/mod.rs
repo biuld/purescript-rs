@@ -108,6 +108,7 @@ fn post_return_drops_an_owned_export_handle() {
             minimum: 1,
             maximum: None,
         }],
+        tags: Vec::new(),
         data: Vec::new(),
         exports: vec![
             Export {

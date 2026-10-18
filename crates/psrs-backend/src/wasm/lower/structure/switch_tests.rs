@@ -105,6 +105,7 @@ fn structures_sparse_negative_switch_tags_and_executes_the_default() {
                 ..
             } => contains_br_table(then_body) || contains_br_table(else_body),
             wasm::Op::Block { body, .. } | wasm::Op::Loop { body, .. } => contains_br_table(body),
+            wasm::Op::Try { body, .. } => contains_br_table(body),
             wasm::Op::Leaf(_) => false,
         })
     }

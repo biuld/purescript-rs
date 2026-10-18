@@ -36,6 +36,9 @@ pub struct DataIndex(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GlobalIndex(pub u32);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TagIndex(pub u32);
+
 /// A module-level global variable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Global {
@@ -135,6 +138,36 @@ pub enum Op {
         result: Option<ValType>,
         span: TextRange,
     },
+    /// A `try_table` region: the protected body executes inside the region's
+    /// own internal label, and the catch clauses arm its unwinding behavior.
+    /// A clause's `label` is depth-relative to the active-label stack at the
+    /// `try_table`'s emission point, not counting the region's internal label.
+    Try {
+        body: Body,
+        clauses: Vec<CatchClause>,
+        span: TextRange,
+    },
+}
+
+/// A `try_table` catch clause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatchClause {
+    /// `catch $tag $label`: an exception of the named tag is delivered to the
+    /// label as its branch arguments, so the label's result type must equal
+    /// the tag's payload.
+    Catch { tag: TagIndex, label: u32 },
+    /// `catch_all $label`: any exception is delivered to the label, which
+    /// must therefore take no arguments.
+    CatchAll { label: u32 },
+}
+
+/// A module-local exception tag. The tag attribute is always 0 (exception),
+/// and this design neither imports nor exports a tag; a tag's function type
+/// carries the payload as its parameters and produces no results.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagDef {
+    pub type_index: TypeIndex,
+    pub span: TextRange,
 }
 
 /// A sequence of structured Wasm operations.
@@ -190,6 +223,7 @@ pub struct Module {
     pub type_defs: Vec<crate::types::RecGroup>,
     pub functions: Vec<Function>,
     pub memories: Vec<Memory>,
+    pub tags: Vec<TagDef>,
     pub globals: Vec<Global>,
     pub data: Vec<DataSegment>,
     pub exports: Vec<Export>,

@@ -205,6 +205,8 @@ mod library_types;
 
 mod tail_calls;
 
+mod exception_handling;
+
 mod symbol_reflection;
 
 mod recursive_closures;

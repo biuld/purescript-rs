@@ -2,10 +2,10 @@ use super::{Body, DataMode, ExportIndex, ExportKind, GlobalInit, Module, Op};
 use crate::BackendError;
 use std::borrow::Cow;
 use wasm_encoder::{
-    BlockType, CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection, Elements,
-    EntityType, ExportKind as WasmExportKind, ExportSection, Function as EncoderFunction,
+    BlockType, Catch, CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection,
+    Elements, EntityType, ExportKind as WasmExportKind, ExportSection, Function as EncoderFunction,
     FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, MemorySection,
-    MemoryType, Module as EncoderModule, TypeSection, ValType,
+    MemoryType, Module as EncoderModule, TagKind, TagSection, TagType, TypeSection, ValType,
 };
 
 /// Encodes the thin Wasm IR into a binary module.
@@ -66,6 +66,20 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             });
         }
         encoder.section(&memories);
+    }
+
+    // The tag section (id 13) sits between the memory and global sections per
+    // the WebAssembly 3.0 binary format. Tags are emitted only when the module
+    // carries a `TagDef`; which tags a module defines belongs to the lowering.
+    if !module.tags.is_empty() {
+        let mut tags = TagSection::new();
+        for tag in &module.tags {
+            tags.tag(TagType {
+                kind: TagKind::Exception,
+                func_type_idx: tag.type_index.0,
+            });
+        }
+        encoder.section(&tags);
     }
 
     if !module.globals.is_empty() {
@@ -207,6 +221,9 @@ fn collect_references(body: &Body, references: &mut Vec<u32>) {
             Op::Block { body, .. } | Op::Loop { body, .. } => {
                 collect_references(body, references);
             }
+            Op::Try { body, .. } => {
+                collect_references(body, references);
+            }
             Op::Leaf(_) => {}
         }
     }
@@ -256,6 +273,27 @@ fn emit_body(body: &Body, function: &mut EncoderFunction) {
                     None => BlockType::Empty,
                 };
                 function.instruction(&Instruction::Loop(block_type));
+                emit_body(body, function);
+                function.instruction(&Instruction::End);
+            }
+            Op::Try { body, clauses, .. } => {
+                let catches = clauses
+                    .iter()
+                    .map(|clause| match clause {
+                        super::CatchClause::Catch { tag, label } => Catch::One {
+                            tag: tag.0,
+                            label: *label,
+                        },
+                        super::CatchClause::CatchAll { label } => Catch::All { label: *label },
+                    })
+                    .collect::<Vec<_>>();
+                // The thin encoding's try_table region always has an empty
+                // block type: the protected region's values flow through
+                // ordinary branches, never through the region's own label.
+                function.instruction(&Instruction::TryTable(
+                    BlockType::Empty,
+                    Cow::Owned(catches),
+                ));
                 emit_body(body, function);
                 function.instruction(&Instruction::End);
             }

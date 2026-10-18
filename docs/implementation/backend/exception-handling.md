@@ -4,8 +4,8 @@
 
 **Design:** [Exception handling and stack exhaustion](../../design/backend/fp/exception-handling-and-stack-exhaustion.md)
 
-**Progress:** EH-01 through EH-17 Unverified. This is a design-first slice: no
-row is claimed implemented and no evidence is recorded yet.
+**Progress:** EH-01 through EH-04 Verified (slice 1, capability gate and
+encoding). EH-05 through EH-17 Unverified.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), row **BC-08** (the exceptions family) and the runtime board rows that reference `Test.Assert.checkThrows` (#95's blocker, the L6/M7 `P8 closure/linking` failure row for `TCOMutRec.purs`). Status claims in D-04 land with the evidence of the slices below, never from this checklist alone.
 
@@ -33,10 +33,10 @@ record exact reproducible evidence for every Verified row.
 
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
-| EH-01 | The thin IR models `Op::Try` with catch clauses, `TagDef`, and the `TagIndex` domain; leaf opcodes stay `wasm_encoder::Instruction`. | Backend unit tests construct/inspect the nodes; the thin-IR verifier accepts them and rejects out-of-range tag indices and unresolved clause label depths. | Unverified |
-| EH-02 | The encoder emits the tag section (id 13) between memory and global; tags are declared only when used. | Binary/WAT regression tests: a tag-using module encodes with the tag section in position; a module without tags emits none; wasmparser accepts under the enabled profile. | Unverified |
-| EH-03 | The validator is built from the profile so `exceptions` gates the encoding; no other feature is enabled implicitly. | wasmparser rejects a tag-using module built with `exceptions: false` and accepts it enabled; the independent-field test still passes. | Unverified |
-| EH-04 | Hand-built direct-MIR/wasm fixtures execute under wasmtime: `throw` + named `catch` with a payload, `throw` + `catch_all` payload-less, unwinding through nested call frames. | `PSRS_REQUIRE_WASMTIME=1` execution asserts caught values/results and exit codes. | Unverified |
+| EH-01 | The thin IR models `Op::Try` with catch clauses, `TagDef`, and the `TagIndex` domain; leaf opcodes stay `wasm_encoder::Instruction`. | Backend unit tests construct/inspect the nodes; the thin-IR verifier accepts them and rejects out-of-range tag indices and unresolved clause label depths. | Verified |
+| EH-02 | The encoder emits the tag section (id 13) between memory and global; tags are declared only when used. | Binary/WAT regression tests: a tag-using module encodes with the tag section in position; a module without tags emits none; wasmparser accepts under the enabled profile. | Verified |
+| EH-03 | The validator is built from the profile so `exceptions` gates the encoding; no other feature is enabled implicitly. | wasmparser rejects a tag-using module built with `exceptions: false` and accepts it enabled; the independent-field test still passes. | Verified |
+| EH-04 | Hand-built direct-MIR/wasm fixtures execute under wasmtime: `throw` + named `catch` with a payload, `throw` + `catch_all` payload-less, unwinding through nested call frames. | `PSRS_REQUIRE_WASMTIME=1` execution asserts caught values/results and exit codes. | Verified |
 | EH-05 | MIR defines `Tag`/`TagId`, `Module::tags`, and the `Throw`/`Try` terminators with the documented fields. | Constructor inspection plus malformed fixtures: missing tag, wrong payload arity/type, unknown handler block. | Unverified |
 | EH-06 | The MIR verifier checks unwind edges: `Throw` handlers resolve to the innermost enclosing region's matching handler (or `None` outside every region); handlers have no normal predecessors and belong to exactly one `Try`; regions nest or are disjoint; no back edge targets a try block. | Negative fixtures for each rule, each diagnostic carrying the offending span. | Unverified |
 | EH-07 | No protected block ends in a forced `ReturnCall`/`ReturnCallRef`; `mark_tail` skips calls in protected blocks. | A protected-region fixture stays an ordinary call plus return under the enabled profile; a hand-written forced tail terminator in a protected region is rejected. | Unverified |
@@ -50,6 +50,105 @@ record exact reproducible evidence for every Verified row.
 | EH-15 | Budget/limit coordination: with the engine stack limit pinned via `-W max-wasm-stack` (CLI) or `Config::max_wasm_stack` (Rust API), deep non-tail recursion under `checkThrows` yields the compiler's exception, never `call stack exhausted`. | The coordination fixture executes under the pinned engine and limit; the recorded values (budget, weights, limit, engine version) are written into this record and the capability-profile notes. Failure as a trap means the constants are wrong and the row stays unverified. | Unverified |
 | EH-16 | `Test.Assert.checkThrows` is implemented end to end: checked `psrs:runtime-exception#checkThrows` contract, P9 discharge, stdlib adaptation with its recorded target-adaptation entry, and `TCOMutRec.purs` executing (all four `assertThrows` catches, the four depth-100 `assertEqual`s, exit 0). | The corpus case executes under `PSRS_REQUIRE_WASMTIME=1`; the stdlib adaptation record names the pinned upstream declaration and the diff. | Unverified |
 | EH-17 | The stable default profile enables `exceptions` (with the budget) as the adoption's final revision; [DEC-05](../../decision/DEC-05-wasmtime-feature-set.md)'s amendment and the capability-profile default table are updated with the evidence. | The full L6/M7 runtime board is re-run by the scoreboard protocol and the new number recorded in D-04; the disabled-profile rejection evidence and the enabled execution evidence are both cited in the profile's implementation notes. | Unverified |
+
+## Slice 1 record — capability gate and encoding (EH-01..EH-04)
+
+The MIR lowering and the structurer do not produce try regions yet (EH-05+),
+so every fixture constructs the thin Wasm IR directly. No MIR, structuring,
+frontend, or stdlib change belongs to this slice; the thin-IR verifier's
+clause checks also cover the tag-index and label-depth rules the design's
+structured verifier names (`wasm/verify.rs`: tag index range, catch-clause
+label depth resolution, and unwind-block result agreement with each clause's
+payload).
+
+```text
+EH-01:
+  Implementation: crates/psrs-backend/src/wasm/mod.rs (`Op::Try`, `CatchClause`,
+    `TagDef`, `TagIndex`, `Module::tags`);
+    crates/psrs-backend/src/wasm/verify/mod.rs (module-level tag checks,
+    function-type resolution) and crates/psrs-backend/src/wasm/verify/body.rs
+    (the structured-body walk: clause tag range, clause label depth, clause
+    payload agreement, try-region internal label in branch depths).
+  Tests: crates/psrs-backend/src/wasm/tests/exception/mod.rs —
+    accepts_try_regions_with_resolved_catch_clauses,
+    rejects_an_out_of_range_throw_tag_index,
+    rejects_an_out_of_range_catch_clause_tag_index,
+    rejects_an_unresolved_catch_clause_label_depth,
+    rejects_a_catch_clause_label_result_that_mismatches_the_payload,
+    counts_the_try_region_internal_label_in_branch_depths,
+    rejects_malformed_tag_definitions.
+  Input boundary: well-formed and malformed direct thin IR (no lowering).
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+    (subset: cargo test -p psrs-backend --lib wasm::tests::exception)
+  Result: pass, 7/7 executed locally under the workspace run above.
+  Revision: this slice's commit.
+  Gaps: none for the row; the tag section is never emitted by the lowering
+    until EH-05+, so no lowered module reaches these checks yet.
+
+EH-02:
+  Implementation: crates/psrs-backend/src/wasm/encode.rs — the tag section
+    (id 13) between the memory and global sections, `Op::Try` emission
+    (`try_table` with an empty block type, clauses, `end`).
+  Tests: crates/psrs-backend/src/wasm/tests/exception/encoding.rs —
+    encodes_the_tag_section_between_memory_and_global (wasmparser payload walk
+    pins memory < tag < global and the enabled-profile validator accepts),
+    encodes_no_tag_section_without_tags, prints_the_tagged_module_as_wat.
+  Input boundary: direct thin IR with and without tags.
+  Commands: as EH-01 (subset: cargo test -p psrs-backend --lib
+    wasm::tests::exception::encoding).
+  Result: pass.
+  Revision: this slice's commit.
+  Gaps: none.
+
+EH-03:
+  Implementation: the pipeline's validator is already built from the profile
+    (`crates/psrs-backend/src/pipeline/emission.rs` calls
+    `validator_for(target)` on the assembled binary); `capability.rs` already
+    maps `exceptions` to `WasmFeatures::EXCEPTIONS`. This slice adds no
+    implicit feature and leaves both untouched.
+  Tests: crates/psrs-backend/src/wasm/tests/exception/encoding.rs —
+    exceptions_gate_the_tag_using_module (validator_for with
+    `exceptions: false` rejects the encoded tag-using module with
+    "exceptions proposal not enabled"; with `exceptions: true` it accepts, and
+    the feature-set difference is exactly `WasmFeatures::EXCEPTIONS`).
+    crates/psrs-backend/src/capability.rs's
+    wasm_feature_flags_follow_independent_profile_fields keeps passing
+    unchanged.
+  Input boundary: encoded direct thin IR under both profile settings.
+  Commands: as EH-01.
+  Result: pass; the default profile still has `exceptions: false`.
+  Revision: this slice's commit.
+  Gaps: none.
+
+EH-04:
+  Implementation: crates/psrs-driver/src/tests/exception_handling.rs —
+    hand-built thin-IR fixtures encoded by `psrs_backend::wasm::encode_module`,
+    validated by `wasmparser::Validator::new_with_features` over an explicitly
+    exceptions-enabled profile, and executed by the wasmtime CLI
+    (`wasmtime run --invoke run`).
+  Tests: named_catch_delivers_the_tag_payload (exit 0, stdout `7`),
+    catch_all_observes_a_payload_less_throw (exit 0, stdout `42`),
+    throw_unwinds_through_nested_call_frames (a throw two call frames below
+    the handler; exit 0, stdout `5`), traps_are_not_exceptions (a trap inside
+    a protected region is not caught: non-zero exit, `unreachable` reported).
+  Input boundary: hand-built direct thin IR; explicit profiles only (the
+    default profile keeps `exceptions` disabled).
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib
+    tests::exception_handling; workspace run as EH-01.
+  Result: pass, 4/4 fixtures executed under wasmtime 48.0.1
+    (7bac2c277 2026-08-24); nothing skipped.
+  Revision: this slice's commit.
+  Gaps: none for the row; the fixtures exercise the channel only — no
+    budget, watermark, or entry synthesis exists yet (EH-12+).
+```
+
+Validation of the slice: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`PSRS_STDLIB_ROOT=… PSRS_REQUIRE_WASMTIME=1 cargo test --workspace` all pass
+(2151 passed, 0 failed, 5 ignored — the ignored ones are the scoreboard
+suites, out of scope here). The `wasm/tests.rs` and `wasm/verify.rs` files
+grew past the 500-line limit and are now module directories
+(`wasm/tests/`, `wasm/verify/`) with the existing content preserved.
 
 ## Evidence record and completion rule
 
