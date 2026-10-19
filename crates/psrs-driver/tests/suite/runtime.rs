@@ -231,6 +231,10 @@ fn check_the_runner() {
 }
 
 /// Runs one component under Wasmtime with no argv, no stdin, and no preopens.
+/// The engine stack limit is pinned explicitly (EH-15): the stable profile now
+/// carries the exception channel and the stack-exhaustion budget, so the
+/// budget-engine relation `STACK_BUDGET < engine limit` must not depend on an
+/// unpinned engine default.
 fn run_component(wasm: &[u8]) -> RunOutcome {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -244,6 +248,8 @@ fn run_component(wasm: &[u8]) -> RunOutcome {
     let stderr = std::fs::File::create(&stderr_path).expect("creating the stderr capture");
     let child = Command::new("wasmtime")
         .arg("run")
+        .arg("-W")
+        .arg("max-wasm-stack=524288")
         .arg(&wasm_path)
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))

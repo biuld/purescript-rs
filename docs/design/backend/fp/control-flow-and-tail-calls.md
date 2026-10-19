@@ -627,6 +627,21 @@ specific areas:
   the actual instructions/control with that conversion; independently checked
   scalar folding and function-position compaction remain admissible. This is a
   bounded transfer contract, not general arbitrary CFG optimization support.
+- **Tail-call boundary versus upstream's TCO classification (2026-10-19).**
+  The target's tail-call contract is the closure-tail reuse above:
+  `mark_tail` converts every returning-in-tail-position call to
+  `return_call`/`return_call_ref`, including the closure-mediated
+  mutual-recursion cycles of `tests/upstream/passing/TCOMutRec.purs`. This
+  deliberately does not reproduce upstream's TCO-classification
+  aggressiveness, where the TCO pass loopifies arity-matched named
+  mutual-recursion groups and leaves arity-mismatched closure-mediated cycles
+  growing the stack. Consequence, with the exception channel adopted
+  ([DEC-23](../../../decision/DEC-23-wasm-exception-channel.md)): the
+  stack-exhaustion budget's observability applies to genuinely non-tail
+  recursion, while arity-mismatched closure-mediated cycles run in constant
+  stack by contract, so corpus assertions that encode upstream's
+  classification (TCOMutRec's `assertThrows` halves) stay a recorded failure
+  row rather than a target bug; the verified tail-call row CF-07 is unchanged.
 
 ## References
 

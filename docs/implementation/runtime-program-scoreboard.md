@@ -370,3 +370,51 @@ rows: `/tmp/opencode/s1l6/final.raw` (this tree) and `/tmp/opencode/s1l6/base.ra
 `BigFunction.purs` again did not finish inside a 90-second cap on this host
 (`/tmp/opencode/s1l6/bigfunc.verdict`); its resource-bounded row is unchanged
 in kind, and no compile acceptance is claimed.
+
+## Exception-adoption profile flip rerun: 2026-10-19
+
+Compiler at the exception-handling adoption's final slice (the profile flip,
+branch `slice/eh-flip`, worktree of `f929525b`): the stable default profile
+enables the exception channel and its stack-exhaustion budget
+([DEC-23](../decision/DEC-23-wasm-exception-channel.md) amended 2026-10-19;
+calibration `STACK_BUDGET = 262144`, weights 32 + 16 × locals, engine limit
+pinned `-W max-wasm-stack=524288`). The board's runner
+(`tests/suite/runtime.rs::run_component`) pins that engine limit explicitly,
+because the flip makes every corpus program budget-bearing. Package
+`/home/biu/Projects/psrs-stdlib` at the locked branch commit `728a82f`
+(fingerprint `fnv1a64-v1:5dfa6f2ce6b3092c`). Wasmtime CLI 48.0.1. The same
+serial per-root protocol (one worker per root, `xargs -P1`, each root
+filtered by `passing/<basename>` with a 110-second outer cap, all 365 roots),
+release suite binary `target/release/deps/suite-461c5a8e1563a05b`, SHA-256
+`5d3bf0585021e936c34f83c229da881a4df64f454b2b5ec9852f659357cbae89`.
+
+The board is **287/340**. The failure-name set is identical to the
+2026-10-18 baseline; the complete diff is one row's re-attribution:
+`TCOMutRec.purs` moves from "P8 library linking []: foreign value
+`Test.Assert.checkThrows` has no target implementation" to "trapped:
+Assertion failed: An error should have been thrown" — the guard observes no
+throw because the backend's mandated closure-tail reuse
+(`mark_tail` → `ReturnCallRef`) runs the arity-mismatched `ntcoN` recursion
+in constant stack, and `assert'` takes its storage-trap failure; the
+case is re-attributed per the ownership decision, not recovered. The 53
+non-agreements are 29 P5 typecheck, 13 P5 kind check, 1 P8 closure
+conversion (`Stream.purs`), 5 P3 resolve, 2 P0 lex, 1 runtime trap, the
+`2288.purs` timeout (unchanged), and the bounded BigFunction compilation.
+
+Exit-code audit: a second serial per-root pass captured each root's
+exit-code histogram; every one of the 287 agreeing roots carries only exit
+code 0, and the agreeing set is identical across both passes. With the flip,
+a corpus program recursing past the budget outside a guard would exit 1
+through the entry's deterministic handler; **no such row exists** — no
+program exhausts the budget outside a guard, so no previously agreeing
+program silently changed its exit status. BigFunction, run separately under
+the 90-second cap and 2 GiB RSS guard, again did not finish inside the cap
+(killed at the cap, peak RSS 2,676 KiB on this run).
+
+Evidence: `/tmp/opencode/eh17/final.raw` and `/tmp/opencode/eh17/exitcodes.raw`
+(this tree), and the BigFunction verdict
+`/tmp/opencode/eh17/bigfunc.verdict`. The L1–L5 frontend boards were not run:
+the flip is backend-only and those boards read the vendored corpus with the
+annotations oracle without executing (L1 additionally needs `purs`,
+unavailable on this host); their last recorded numbers are the 2026-10-18
+reconfirmation.
