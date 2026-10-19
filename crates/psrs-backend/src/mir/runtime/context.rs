@@ -147,6 +147,10 @@ fn validate_assignments(
                     return Err(vec![error]);
                 }
             }
+            cc::AssignmentKind::Protect { body, handler, .. } => {
+                validate_assignments(&body.assignments, providers, metadata)?;
+                validate_assignments(&handler.assignments, providers, metadata)?;
+            }
             cc::AssignmentKind::If {
                 then_assignments,
                 else_assignments,

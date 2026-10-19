@@ -20,7 +20,7 @@ pub use control::{
 };
 pub(crate) use lower::{Family, Shape, plan_external_targets, plan_shape_for};
 mod assignment;
-pub use assignment::{Assignment, AssignmentKind, TagCase};
+pub use assignment::{Assignment, AssignmentKind, Region, RegionExit, TagCase};
 mod convert;
 mod layout;
 mod lower;

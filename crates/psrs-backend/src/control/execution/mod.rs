@@ -51,6 +51,23 @@ pub(crate) enum Outcome {
     Reject,
 }
 
+/// Exceptional actions supplement the normal dispatch inventory. They never
+/// publish a machine answer and always propagate the original channel token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ExceptionalAction {
+    RunAbort,
+    AcquiredCallbackExit,
+}
+
+impl ExceptionalAction {
+    pub(crate) fn program(self) -> Program {
+        match self {
+            Self::RunAbort => Program::Run,
+            Self::AcquiredCallbackExit => Program::Executor,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Selection {
     Computation(C),

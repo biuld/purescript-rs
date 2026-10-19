@@ -16,6 +16,7 @@ use tag_switch::verify_tag_switch;
 mod aggregate;
 mod arrays;
 mod control;
+mod exception;
 mod products;
 mod record;
 mod string_bytes;
@@ -420,6 +421,25 @@ pub(super) fn verify_assignments(
                     function_name,
                 )?;
                 uses.push(*value);
+            }
+            AssignmentKind::Protect {
+                body,
+                exception,
+                handler,
+            } => {
+                exception::verify(
+                    assignment,
+                    body,
+                    *exception,
+                    handler,
+                    available,
+                    declared,
+                    signatures,
+                    table,
+                    functions,
+                    function_span,
+                    function_name,
+                )?;
             }
             AssignmentKind::Unreachable => {}
         }

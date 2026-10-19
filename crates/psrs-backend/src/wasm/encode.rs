@@ -285,6 +285,9 @@ fn emit_body(body: &Body, function: &mut EncoderFunction) {
                             label: *label,
                         },
                         super::CatchClause::CatchAll { label } => Catch::All { label: *label },
+                        super::CatchClause::CatchAllRef { label } => {
+                            Catch::AllRef { label: *label }
+                        }
                     })
                     .collect::<Vec<_>>();
                 // The thin encoding's try_table region always has an empty

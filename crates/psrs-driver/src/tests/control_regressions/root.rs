@@ -2,23 +2,27 @@
 use super::{SOURCE, binding};
 use psrs_backend::cc::{AssignmentKind as A, ControlHelperRole as R};
 
+fn normal(function: &mut psrs_backend::cc::Function) -> &mut Vec<psrs_backend::cc::Assignment> {
+    let A::Protect { body, .. } = &mut function.assignments.last_mut().expect("guarded Run").kind
+    else {
+        panic!("Run protects execution and normal closure")
+    };
+    &mut body.assignments
+}
+
 #[test]
 fn cc_run_cannot_check_instead_of_closing_its_root() {
     let mut input = crate::lower_main_to_cc(SOURCE).unwrap();
     let (close, _) = binding(&input.cc.representations, R::Close);
     let (check, check_id) = binding(&input.cc.representations, R::Check);
+    let (run, _) = binding(&input.cc.representations, R::Run);
     let function = input
         .cc
         .functions
         .iter_mut()
-        .find(|f| {
-            f.assignments
-                .iter()
-                .any(|a| matches!(a.kind, A::DirectCall { function, .. } if function == close))
-        })
-        .expect("live Run must contain normal root cleanup");
-    let assignment = function
-        .assignments
+        .find(|f| f.symbol == run)
+        .unwrap();
+    let assignment = normal(function)
         .iter_mut()
         .find(|a| matches!(a.kind, A::DirectCall { function, .. } if function == close))
         .unwrap();
@@ -74,27 +78,25 @@ fn cc_run_requires_its_fresh_root_empty_queue_ordered_close_and_result() {
             .iter_mut()
             .find(|f| f.symbol == run)
             .unwrap();
-        let call_index = f
-            .assignments
+        let call_index = normal(f)
             .iter()
-            .position(|a| matches!(a.kind, A::DirectCall {function,..} if function == executor))
+            .position(|a| matches!(a.kind, A::DirectCall { function, .. } if function == executor))
             .unwrap();
-        let A::DirectCall { arguments, .. } = &f.assignments[call_index].kind else {
+        let A::DirectCall { arguments, .. } = &normal(f)[call_index].kind else {
             unreachable!()
         };
         let (queue, root, context) = (arguments[3], arguments[4], arguments[5]);
-        let close_index = f
-            .assignments
+        let close_index = normal(f)
             .iter()
-            .position(|a| matches!(a.kind, A::DirectCall {function,..} if function == close))
+            .position(|a| matches!(a.kind, A::DirectCall { function, .. } if function == close))
             .unwrap();
         match mutation {
             MissingClose => {
-                f.assignments.remove(close_index);
+                normal(f).remove(close_index);
             }
             EarlyClose => {
-                let close = f.assignments.remove(close_index);
-                f.assignments.insert(call_index, close);
+                let close = normal(f).remove(close_index);
+                normal(f).insert(call_index, close);
             }
             WrongResult => {
                 f.result = f.parameters[0];
@@ -104,7 +106,7 @@ fn cc_run_requires_its_fresh_root_empty_queue_ordered_close_and_result() {
                 let ty = f.values.iter().find(|v| v.id == root).unwrap().ty;
                 f.values.push(ValueDecl { id: extra, ty });
                 f.assignments.insert(
-                    call_index,
+                    0,
                     Assignment {
                         destination: extra,
                         kind: A::DirectCall {
@@ -116,28 +118,23 @@ fn cc_run_requires_its_fresh_root_empty_queue_ordered_close_and_result() {
                     },
                 );
                 if matches!(mutation, ExecutionRoot) {
-                    let A::DirectCall { arguments, .. } = &mut f.assignments[call_index + 1].kind
-                    else {
+                    let A::DirectCall { arguments, .. } = &mut normal(f)[call_index].kind else {
                         unreachable!()
                     };
                     arguments[4] = extra;
                 } else if matches!(mutation, DispatchRoot) {
-                    // The new root must be bound before the context allocation.
-                    let context_index = f
+                    let A::VariantNew { fields, .. } = &mut f
                         .assignments
-                        .iter()
-                        .position(|a| a.destination == context)
-                        .unwrap();
-                    let allocation = f.assignments.remove(call_index);
-                    f.assignments.insert(context_index, allocation);
-                    let A::VariantNew { fields, .. } = &mut f.assignments[context_index + 1].kind
+                        .iter_mut()
+                        .find(|a| a.destination == context)
+                        .unwrap()
+                        .kind
                     else {
                         unreachable!()
                     };
                     fields[0] = extra;
                 } else {
-                    let A::DirectCall { arguments, .. } = &mut f.assignments[close_index + 1].kind
-                    else {
+                    let A::DirectCall { arguments, .. } = &mut normal(f)[close_index].kind else {
                         unreachable!()
                     };
                     arguments[0] = extra;

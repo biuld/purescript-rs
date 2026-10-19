@@ -409,6 +409,7 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
         Terminator::Switch { value, .. } => vec![*value],
         Terminator::ReturnCall { arguments, .. } => arguments.clone(),
         Terminator::Throw { arguments, .. } => arguments.clone(),
+        Terminator::ThrowRef { exception, .. } => vec![*exception],
         Terminator::ReturnCallRef {
             function,
             arguments,

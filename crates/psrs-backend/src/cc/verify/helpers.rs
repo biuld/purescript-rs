@@ -121,6 +121,10 @@ fn collect_capture_shapes(
                     )]);
                 }
             }
+            AssignmentKind::Protect { body, handler, .. } => {
+                collect_capture_shapes(&body.assignments, declared, captures)?;
+                collect_capture_shapes(&handler.assignments, declared, captures)?;
+            }
             AssignmentKind::If {
                 then_assignments,
                 else_assignments,

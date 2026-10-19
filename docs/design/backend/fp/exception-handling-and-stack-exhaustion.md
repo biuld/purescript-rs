@@ -38,7 +38,8 @@ It does not own the terminator set's general contract ([MIR](mir.md)), the reduc
 
 ### MIR extension
 
-MIR gains a module-level tag table and two terminators. Nothing above MIR changes: CST, AST, HIR, THIR, and Typed Core never mention tags, exceptions, or the budget ([IR boundaries](../00-ir-boundaries.md)).
+MIR carries a module-level tag table and explicit native terminators. The bridge
+adds generic protection and opaque tokens to CC; source representations stay unchanged: CST, AST, HIR, THIR, and Typed Core never mention tags, exceptions, or the budget ([IR boundaries](../00-ir-boundaries.md)).
 
 ```text
 TagId = module-local tag identity (distinct from FunctionId, DefinedTypeId, ...)
@@ -48,16 +49,32 @@ Module     = { ...existing fields..., tags: [Tag] }
 Terminator = ...existing variants...
            | Throw { tag: TagId, arguments: [ValueId],
                      handler: Option(BlockId), span }
-           | Try   { protected: BlockId, catches: [(TagId, BlockId)],
-                     catch_all: Option(BlockId), span }
+           | ThrowRef { exception: ValueId, span }
+           | Try   { protected: BlockId, continuation: Option(BlockId),
+                     clauses: [CatchClause], span }
+CatchClause = Catch { tag: TagId, target: BlockId }
+            | CatchAll { target: BlockId }
+            | CatchAllRef { target: BlockId }
 ```
 
 - `Try` acts as an ordinary control transfer on its normal path: control proceeds to `protected` as a parameterless `Jump` would; the catch clauses declare the region's *unwinding* behavior.
-- A **handler block** receives its caught payload as block parameters: a tag clause's handler has parameters typed exactly as the tag's payload; a `catch_all` handler has none. A handler has no normal predecessors: every predecessor edge is the unwind edge of a `Throw` naming it, or a catch clause of the one `Try` that owns it.
+- A **handler block** receives its caught payload as block parameters: a tag clause's handler has parameters typed exactly as the tag's payload; a `catch_all` handler has none, and a `catch_all_ref` handler receives one non-null Exn reference. A handler has no normal predecessors: every predecessor edge is the unwind edge of a `Throw` naming it, or a catch clause of the one `Try` that owns it.
 - `Throw` names its tag, payload arguments, and optionally the handler block it unwinds to *within its own function*; `handler: None` unwinds out of this function's frames to the caller's handler.
 - A tag has at most one payload value: the structured unwind block carries a single result, matching the thin encoding's single `result: Option(ValType)` rule; a multi-value payload needs the multi-value block work and is rejected with an explicit diagnostic.
 
-**Region semantics.** The semantics is dynamic; the CFG makes it statically checkable. The **protected region** of a `Try` (try block `t`, protected entry `p`) is the set of blocks dominated by `p`, minus blocks claimed by an inner `Try` whose protected entry is dominated by `p`, minus every handler block — exactly the dominance property the structurer already computes for loops. A `Throw` in block `b` unwinds to the innermost try region whose protected entry dominates `b`; every path to `b` passes through `p`, so that `try_table` is on the native stack when `b` executes and no other region can be innermost — this is what `Throw`'s explicit `handler` field must name. Control leaves a protected region by ordinary means (`Return`, a branch to an outside label, a loop back-edge targeting the protected entry), ending the `try_table`'s dynamic extent; a later re-entry re-arms it.
+**Region semantics.** Catching is dynamic. The shared partition retains a raw
+region dominated by each protected entry using conservative Try-to-handler
+edges and a semantic normal-continuation summary edge. Its local protected claim subtracts inner claims and its own handlers;
+inner handlers remain protected by their enclosing regions. Known-tag Throw
+validation walks the enclosing raw-region chain to the first matching clause;
+None is permitted when no region matches. ThrowRef derives all potentially
+matching unshadowed catches and caller propagation through `mir/unwind.rs`.
+Neither operation reconstructs ownership independently of `mir/try_region.rs`.
+A Try's explicit normal continuation is outside protection even when all
+handlers diverge; None adds no explicit boundary beyond inferred joins/native exits. Control leaving a
+protected region ends that native catch's dynamic extent;
+a later normal entry re-arms it. The bridge adds nested-handler rethrow evidence
+that the original adoption alone did not establish.
 
 ### Structured Wasm extension
 
@@ -67,6 +84,7 @@ The thin encoding gains one structured node, a tag index domain, and the tag sec
 Op          = ... | Try { body: Body, clauses: [CatchClause], span }
 CatchClause = Catch    { tag: TagIndex, label: u32 }   // depth-relative label
             | CatchAll { label: u32 }
+            | CatchAllRef { label: u32 }
 Module      = { ...existing fields..., tags: [TagDef] }
 TagDef      = { attribute: 0, type_index: TypeIndex }
 TagIndex    — a final index domain, distinct from all other index types
@@ -86,14 +104,29 @@ The depth reached is measured at runtime; compile time computes only `W_f`, a re
 
 ### Composition with the control machine
 
-[DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md)'s resumable frames are GC heap objects driven by a compiler-generated trampoline loop: suspending and resuming a delimited continuation allocates and walks heap data and consumes **no** additional native stack per resumption — the trampoline is one Wasm frame. The budget counter sees one frame for a whole machine execution and the control machine adds no accounting of its own: no double accounting; the mechanisms are orthogonal. Callback invocations out of the trampoline are ordinary calls and are accounted normally. What does *not* compose yet: machine handlers do not intercept exception-channel throws — a throw through a delimiter unwinds native frames and discards the delimited computation without the machine's Publish/Reject bookkeeping. That composition belongs to the future `Effect.Exception` work; this slice's contract is that the budget is correct in the presence of machine executions and that the machine's own terminal outcomes keep their existing (trap/storage) mechanisms.
+[DEC-19](../../../decision/DEC-19-compiler-generated-resumable-frames.md)'s resumable frames are GC heap objects driven by a compiler-generated trampoline loop: suspension and resumption do not add a native frame per captured continuation frame. The budget instruments lowered native function activations, including ordinary callbacks from the trampoline; heap reachability alone does not define a budget charge or its settlement.
+
+The [Control exception bridge](control-exception-bridge.md) now protects the
+runner and acquired callbacks, closes a runner root before propagating an
+escaped channel exception, and completes an acquired owner on exceptional exit.
+These are native cleanup guarantees, not automatic exception handling by
+ordinary Control operation handlers or rollback of source effects. The bridge's
+[separate checklist](../../../implementation/backend/control-exception-bridge.md)
+owns its evidence; EH-01..17 alone do not verify that composition. Existing
+machine rejection traps remain non-catchable.
 
 ## Design
 
 ### Channel minimality
 
 - **Compiler-defined tags**, payload drawn from the existing MIR `ValueType` set — scalars and GC references ([DEC-09](../../../decision/DEC-09-gc-only-language-heap.md)). A GC reference payload is engine-managed during propagation, so the collector finds it without guest cooperation. The driving consumer needs exactly one tag, `psrs:stack-exhaustion`, with an *empty* payload: `checkThrows` observes only that a throw happened.
-- **`try_table` with `catch_all` and `catch` clauses, and `throw`.** `catch_all` is what the `checkThrows` guard uses (the upstream contract is tag-agnostic); named `catch` clauses are part of the same MIR and encoding model and are exercised by a direct-MIR fixture, because a future tag vocabulary builds on them. **Deferred, recorded as such:** `exnref`, the `catch_ref`/`catch_all_ref` clauses, and `throw_ref` — the minimal contract needs none of them; `Effect.Exception`'s catch-and-rethrow surface will drive them.
+- **`try_table` with `catch_all`, `catch`, and `catch_all_ref`, plus
+  `throw`/`throw_ref`.** The tag-agnostic `checkThrows` consumer discards a
+  caught exception; bridge cleanup preserves it as a non-null Exn reference
+  and propagates that token. Named catch-ref clauses that deliver both a
+  payload and an exception reference remain unsupported until multi-result
+  labels are available. The bridge needs no such clause.
+
 
 ### Structuring: what `try_table` adds
 
@@ -134,12 +167,16 @@ in the handler:      depth = saved          // settles every unwound frame at on
 
 This is an invariant of the MIR try/catch representation and its structuring, verified below. It composes: nested try regions each save and restore their own watermark; an unwinding discarding inner try regions discards their stale saved values; frames pushed after the save that returned normally already decremented; frames still live at the throw are exactly the delta between the saved and current values.
 
+This restore rule covers native unwinding within the landed channel contract.
+Saved machine queues own no native charges; the [bridge design](control-exception-bridge.md#native-charges)
+derives the same restore rule and specifies the separate lifecycle cleanup.
+
 ### Capability profile and rejection behavior
 
 Per [DEC-05](../../../decision/DEC-05-wasmtime-feature-set.md) — a proposal is not `Implemented` because the runtime accepts it:
 
 - the existing `exceptions` boolean field gates the family: emitting any tag, `try_table`, or `throw`, and installing the budget mechanism, requires `target.exceptions`;
-- the MIR capability verifier gains an `exceptions` entry in its required set, set when the module declares a tag or contains a `Throw`/`Try` terminator, and the module is rejected with a source-associated diagnostic when the gate is disabled — there is **no fallback ABI**;
+- the MIR capability verifier gains an `exceptions` entry in its required set, set when the module declares a tag or contains a `Throw`/`ThrowRef`/`Try` terminator or an Exn reference type, and the module is rejected with a source-associated diagnostic when the gate is disabled — there is **no fallback ABI**;
 - the structured encoding's tag section, `Op::Try`, and catch clauses are validated by the same `wasm_features(target)`-derived validator, which already maps the `exceptions` field;
 - the stable default profile now enables `exceptions` — the flip is the adoption's final profile revision (2026-10-19, after EH-01..EH-15's adoption evidence and the board remeasure of EH-17), and it updates the [DEC-05](../../../decision/DEC-05-wasmtime-feature-set.md) amendment and the [capability profile](../wasm/capability-profile.md) default table. Explicitly disabled targets keep rejecting a module that needs the channel.
 
@@ -150,18 +187,21 @@ Per [DEC-05](../../../decision/DEC-05-wasmtime-feature-set.md) — a proposal is
 ```text
 plan_try_regions(function):
     tries    = blocks whose terminator is Try
-    handlers = union of every clause's handler block
-    dominators(function)                        // existing analysis
-    for each try T (outermost first):
+    dominators = region_dominators(function)    // conservative seed unwind edges
+    for each try T (innermost first):
         protected(T) = { b : protected_entry(T) dominates b }
                        minus protected(T') for inner tries T'
-                       minus handlers
+                       minus T's own handlers
         check: protected regions of distinct tries are nested or disjoint
         check: no back edge targets a try block
     return the try units inserted into the region plan
 ```
 
-The partition reuses the dominator computation `mir/verify/function.rs` and `wasm/lower/structure/cfg/mod.rs` already perform; the only new rule is the carve-out by inner tries and the exclusion of handler blocks.
+The partition owns native catch membership. `mir/unwind.rs` builds the complete
+conservative edge graph from that partition, including opaque rethrows. Value
+availability, optimizer reachability and constant propagation, and structuring
+consume that graph. Partition discovery uses seed edges to avoid recursion
+through its own derived ThrowRef targets.
 
 ### Emitting a try unit
 
@@ -261,7 +301,7 @@ psrs-driver/src/
 
 Required types and entry points:
 
-- `mir/mod.rs` — `Terminator::Throw { tag, arguments, handler: Option<BlockId>, span }`, `Terminator::Try { protected, catches, catch_all, span }`, `Tag`, `TagId`, `Module::tags`, `Function::frame_weight: u32`.
+- `mir/mod.rs` — `Terminator::Throw { tag, arguments, handler: Option<BlockId>, span }`, `Terminator::Try { protected, clauses, span }`, `Terminator::ThrowRef { exception, span }`, `Tag`, `TagId`, `Module::tags`, `Function::frame_weight: u32`.
 - `mir/budget.rs` — `FRAME_WEIGHT_FIXED`, `FRAME_WEIGHT_PER_LOCAL`, `STACK_BUDGET`, and `fn frame_weight(locals: usize) -> u32`.
 - `mir/lower/exception.rs` — the discharge of a call to a `psrs:runtime-exception` binding into the inline try region; it must reject the call when `target.exceptions` is disabled, with the binding's span.
 - `wasm/lower/structure/cfg/mod.rs` — `UnitPlan::Try` and the partition rules; `wasm/lower/structure/region.rs` — `emit_try_unit` and the watermark save/restore; `wasm/mod.rs` — `Op::Try`, `CatchClause`, `TagDef`, `TagIndex`.
@@ -270,8 +310,8 @@ Required types and entry points:
 
 ## Invariants and verification
 
-- **MIR verifier.** Every `Throw`'s tag exists; its arguments match the tag's payload in arity and type (at most one payload value); its handler, when present, is the innermost enclosing region's matching handler, and when absent, the throw block must not lie in any protected region. Every `Try`'s protected entry and handlers exist; handler blocks have no normal predecessors; a handler belongs to exactly one `Try`; protected regions nest or are disjoint; no back edge targets a try block; no protected block ends in a forced `ReturnCall*`. Dominance is rechecked on the CFG that includes unwind edges.
-- **Capability gate.** A module declaring a tag or containing `Throw`/`Try` is rejected when `target.exceptions` is disabled, before any encoding ([capability profile](../wasm/capability-profile.md)).
+- **MIR verifier.** Every `Throw`'s tag exists; its arguments match the tag's payload in arity and type (at most one payload value); its handler, when present, is the innermost enclosing region's matching handler, and when absent, no enclosing clause may catch that tag. ThrowRef requires a non-null Exn token and uses the shared unwind graph. Every `Try`'s protected entry and handlers exist; handler blocks have no normal predecessors; a handler belongs to exactly one `Try`; protected regions nest or are disjoint; no back edge targets a try block; no protected block ends in a forced `ReturnCall*`. Dominance is rechecked on the CFG that includes unwind edges.
+- **Capability gate.** A module declaring a tag or containing `Throw`/`ThrowRef`/`Try` or Exn types is rejected when `target.exceptions` is disabled, before any encoding ([capability profile](../wasm/capability-profile.md)).
 - **Structured verifier.** Tag indices are in range; every catch clause's label depth resolves to an active label whose result type equals the clause's payload (empty for `catch_all`); the try_table's internal label is counted in branch-depth simulation. The encoded module is validated by wasmparser under the profile's feature set, then executed under the pinned runtime.
 - **Watermark invariant.** Every emitted `try_table` is immediately preceded by a watermark save into a fresh local, and every catch path it arms begins with the restore. Verified by an execution fixture: a loop of throw/catch iterations followed by a deep recursion that must still reach the budget point — a leaked counter would fire the budget early and produce the wrong result.
 - **Coordination invariant.** On the pinned engine with the pinned `max_wasm_stack`, deep non-tail recursion produces the compiler's stack-exhaustion exception and never the engine's `call stack exhausted` trap. The fixture recurses past `STACK_BUDGET` under `checkThrows` and asserts the caught result; its failure mode (a trap) is exactly the budget-above-limit hazard, so the fixture is the protocol that validates the budget, weight, and headroom constants.
@@ -299,7 +339,7 @@ foreign import "psrs:runtime-exception#checkThrows" checkThrowsImpl
 **MIR.** The closure `\ _ -> checkThrowsImpl fn` is a function whose body P9 lowers by discharging the binding call inline:
 
 ```text
-B0:  Try { protected: B1, catch_all: B2 }
+B0:  Try { protected: B1, clauses: [CatchAll { target: B2 }] }
 B1:  r = Call checkThrowsImpl [fn]        ; the guarded application
      Jump B3 [false]                      ; returned normally → did not throw
 B2:  Jump B3 [true]                       ; handler: no payload parameters
@@ -337,7 +377,7 @@ global.set $depth                     ;; watermark restore — first action
 - **From the standard library.** `Test.Assert.checkThrows` becomes an adapted stdlib surface under the [vendoring contract](../../../workflow/stdlib-vendoring.md): the official declaration's public type is preserved, the adaptation is recorded with its target justification, and behavior evidence covers normal, boundary, and failure cases. The upstream file's other foreigns — `assert'`'s failure taking `PSRS.Effect.Native`'s storage trap through `Target.abort` — keep their current target contract in this slice.
 - **To the capability profile.** The `exceptions` field's gate meaning, the required-capability inference, and the validator mapping are contract additions to [capability profile](../wasm/capability-profile.md); the default profile flips only with the adoption evidence.
 - **To the encoding.** `Op::Try`, catch clauses, `TagDef`/`TagIndex`, and the tag section join the thin encoding per [DEC-02](../../../decision/DEC-02-thin-structured-wasm-encoding.md); [Wasm encoding](../wasm/encoding-and-structuring.md) records them as part of the module skeleton.
-- **To the control machine.** Orthogonal accounting (stated in the Model); exception interception by machine handlers is explicitly out of scope and future work.
+- **To the control machine.** Native budget instrumentation is landed; the bridge owns runner interception, exceptional lifetime/owner cleanup, and their separate accounting evidence. The channel supplies transport, not transactional exception semantics.
 - **Pattern-match failure, today.** The decision compiler emits a `Trap` terminator / `unreachable` only where the coverage analysis has proved the decision total ([pattern matching](pattern-matching.md)), so an unmatched pattern is a non-catchable trap, not an exception. Making pattern-match failure observable on the channel has no corpus consumer today and is optional future work.
 - **Corpus boundaries.** TCOMutRec is the channel's only current consumer, and it is the adoption's **recorded, explained gap**: the channel is implemented and verified end to end, but the case's four `assertThrows` assertions observe upstream's tail-call *classification* (upstream loopifies arity-matched named mutual-recursion groups and leaves arity-mismatched closure-mediated cycles growing the stack), which this target does not reproduce — this backend's mandated closure-tail reuse runs those cycles in constant stack, so the guard sees no throw and the case fails visibly at its first `assert'` failure. Reproducing the assertions would need cross-function machinery the MIR does not have (collapsing a mutual recursion group into one function's loop) and is a normative decision for a future recursion-classification topic, not this adoption's scope. `tests/upstream/passing/4179.purs` also uses `assertThrows`, but through an FFI support module and against verbatim `ReferenceError` message strings from JavaScript's deferred module-initialization (TDZ) semantics; it is one of the FFI program groups the board excludes, and reproducing it would need those initialization semantics — recorded as future work, not designed half-way. `Effect.Exception`'s full throw/catch surface is future work for which this channel is the foundation.
 
@@ -346,12 +386,43 @@ global.set $depth                     ;; watermark restore — first action
 - **Budget calibration.** The weight constants, the headroom, and the resulting budget are provisional; the coordination fixture is the protocol, and values are recorded only when the fixture has run under the pinned engine and limit. Open: whether the calibration should also pin a *larger* engine limit (via the harness flag) to widen the headroom, or stay on the engine default the board protocol records.
 - **Weight formula refinement.** The chosen first approximation of native frame size is `FRAME_WEIGHT_FIXED + FRAME_WEIGHT_PER_LOCAL × locals`. Alternatives (uniform frame count; spill-slot-aware estimates after structuring) trade fidelity against coupling; revisit only with fixture evidence that the headroom is being wasted or exhausted.
 - **Payload vocabulary.** The stack-exhaustion tag carries no payload. The payload *type* vocabulary for future tags (a message-carrying GC value, an exception record) is open and belongs with `Effect.Exception`'s design; tags accept any single `ValueType` payload in the model today.
-- **`rethrow` and `exnref`.** Deferred with the rest of the catch-ref family; needed only when a consumer must re-raise a caught exception.
+- **Named catch-ref clauses.** Catch-all-ref and throw-ref support the bridge;
+  payload-plus-reference named clauses still need multi-result-label work.
 - **Multi-payload tags.** Rejected until the multi-value block work; the diagnostic names the gap.
 - **TDZ initialization semantics (4179).** Deferred-initialization reference errors are a frontend/runtime semantics topic, not an exception-channel topic; recorded as future work.
 - **Re-pointing `assert'` failures.** No corpus consumer today; would change the failure protocol of `assert`/`assert'`/`assertEqual` from the non-returning storage trap to the channel. Recorded as optional future work.
 - **Irreducible control flow with try regions.** Rejected by this design; compose the dispatcher with `try_table` only if a lowering ever produces it.
 - **Threads and configurability.** The depth global is per-instance; a threaded profile would need per-thread accounting (threads stay disabled). The budget is a profile-fixed constant; a WIT or initialization configuration surface is future work only.
+
+### Control-machine bridge
+
+The bridge is specified in [Control and native exception composition](control-exception-bridge.md)
+and tracked by [#156](https://github.com/biuld/purescript-rs/issues/156).
+Its [execution checklist](../../../implementation/backend/control-exception-bridge.md)
+records bridge acceptance separately; EH-01..17 do not verify this composition.
+
+The detailed design corrects the handoff's proposed saved-chain accounting:
+continuations are inert heap queues, and native returns/tail transfers already
+settle their activations. Cancellation and abandonment require no queue-weight
+subtraction, and native catches retain `depth = saved`. The bridge supplies exceptional root closure and exceptional one-shot completion,
+with opaque original-exception propagation and dynamically scoped catches.
+A run-level guard covers the flat executor's installs and interpreted resumes;
+ordinary heap `handle` contexts do not become native exception handlers.
+
+The consumer order remains:
+
+- **Stage 1 — bridge:** exception-reference transport, checked runner and owner
+  cleanup, native accounting evidence, and source composition tests.
+- **Stage 2 — exception as an effect:** a separately checked library operation
+  and transactional handler policy consuming the bridge. State rollback is not
+  implied by native exception interception.
+- **Stage 3 — official `Effect.Exception`:** direct dynamic native throw/catch,
+  with bridge cleanup when an exception exits a runner. This also consumes
+  stage 1 and does not strictly depend on stage 2.
+
+`Effect.Exception` remains unimplemented BE-21 foreign support. No current board
+establishes Control × exception behavior. Keep gate measurements unchanged
+until the relevant scoreboard is actually rerun.
 
 ## References
 

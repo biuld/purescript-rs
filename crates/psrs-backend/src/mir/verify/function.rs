@@ -117,7 +117,7 @@ pub(super) fn verify_function(
     // locals. The unwind-edge view keeps the check truthful in both
     // directions — a join shared by a normal and a handler path no longer
     // claims values defined on only one of them.
-    let dominators = crate::mir::cfg::dominators_with_unwind_edges(function);
+    let dominators = crate::mir::cfg::dominators_with_unwind_edges(function)?;
     for block in &function.blocks {
         let mut available = block.parameters.iter().copied().collect::<HashSet<_>>();
         for instruction in &block.instructions {
@@ -215,6 +215,7 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
         Terminator::Switch { value, .. } => vec![*value],
         Terminator::ReturnCall { arguments, .. } => arguments.clone(),
         Terminator::Throw { arguments, .. } => arguments.clone(),
+        Terminator::ThrowRef { exception, .. } => vec![*exception],
         Terminator::ReturnCallRef {
             function,
             arguments,
@@ -234,6 +235,7 @@ fn terminator_span(terminator: &Terminator) -> psrs_span::TextRange {
         | Terminator::Switch { span, .. }
         | Terminator::ReturnCall { span, .. }
         | Terminator::ReturnCallRef { span, .. }
+        | Terminator::ThrowRef { span, .. }
         | Terminator::Throw { span, .. }
         | Terminator::Try { span, .. } => *span,
     }
@@ -369,7 +371,7 @@ fn verify_terminator(
         // `Throw`/`Try` payload and unwind-edge checks live in
         // `super::exception`, which runs once per function with the
         // protected-region partition.
-        Terminator::Throw { .. } | Terminator::Try { .. } => {}
+        Terminator::ThrowRef { .. } | Terminator::Throw { .. } | Terminator::Try { .. } => {}
     }
     Ok(())
 }

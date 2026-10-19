@@ -21,8 +21,8 @@ pub(super) fn program() -> Exec {
             fields: vec![root.clone()],
         },
     );
-    let result = cursor.bind(
-        &mut ops,
+    let base = ops.len();
+    let protected = vec![
         Op::Helper {
             role: R::Executor,
             args: vec![
@@ -34,8 +34,19 @@ pub(super) fn program() -> Exec {
                 context,
             ],
         },
+        Op::CloseBoundary {
+            extent: root.clone(),
+        },
+    ];
+    let result = cursor.bind(
+        &mut ops,
+        Op::Protect {
+            action: crate::control::execution::ExceptionalAction::RunAbort,
+            ops: protected,
+            result: Operand::Temp(base),
+            cleanup: vec![Op::CloseBoundary { extent: root }],
+        },
     );
-    cursor.bind(&mut ops, Op::CloseBoundary { extent: root });
     steps(ops, Exec::Return { value: result })
 }
 

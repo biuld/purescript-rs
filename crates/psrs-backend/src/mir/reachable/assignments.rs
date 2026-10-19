@@ -75,6 +75,21 @@ pub(super) fn add_assignments(
             | AssignmentKind::BytesToString { representation, .. } => {
                 add_representation(*representation, representations, representation_work)
             }
+            AssignmentKind::Protect { body, handler, .. } => {
+                for region in [body, handler] {
+                    add_assignments(
+                        &region.assignments,
+                        direct_calls,
+                        value_types,
+                        needs_integer_box,
+                        needs_number_box,
+                        representations,
+                        signatures,
+                        representation_work,
+                        signature_work,
+                    );
+                }
+            }
             AssignmentKind::If {
                 then_assignments,
                 else_assignments,

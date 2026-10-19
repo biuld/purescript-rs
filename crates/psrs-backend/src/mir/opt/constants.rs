@@ -91,7 +91,7 @@ fn analyze(function: &Function) -> HashMap<ValueId, Fact> {
     // unreachable and materialize only the normal path's constants, silently
     // dropping the handler's (the same normal-CFG-only view the try-region
     // partition and value availability already had to give up).
-    let reachable = super::cfg::reachable_blocks_with_unwind(function.entry, &function.blocks);
+    let reachable = super::cfg::reachable_blocks_with_unwind(function);
     let predecessors = incoming_values(function, &reachable);
     let mut facts = function
         .values
@@ -179,6 +179,7 @@ fn incoming_values(function: &Function, reachable: &HashSet<crate::mir::BlockId>
             Terminator::Switch { .. }
             | Terminator::ReturnCall { .. }
             | Terminator::ReturnCallRef { .. }
+            | Terminator::ThrowRef { .. }
             | Terminator::Throw { .. }
             | Terminator::Try { .. } => {}
             Terminator::Return { .. } | Terminator::Trap { .. } => {}

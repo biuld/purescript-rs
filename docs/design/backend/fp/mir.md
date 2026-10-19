@@ -172,7 +172,7 @@ Terminator = Trap
 `Branch` omits `merge_block`: the structurer discovers joins from the graph
 ([control flow and tail calls](control-flow-and-tail-calls.md)). MIR and the
 verifier carry no structuring hint; the shared join derivation in
-`mir/cfg.rs` is used by the optimizer and structurer. `Switch` dispatches on an
+`mir/cfg/mod.rs` is used by the optimizer and structurer. `Switch` dispatches on an
 `i32` tag and is the target lowering for constructor matches.
 `ReturnCall`/`ReturnCallRef` are tail calls in the target model, produced by
 P9's tail analysis and gated on the target's `tail_call` flag
@@ -181,6 +181,14 @@ channel's `Try`/`Throw` terminators, tags, and the stack-exhaustion budget are
 specified by [exception handling and stack exhaustion](exception-handling-and-stack-exhaustion.md)
 (**Draft design**); the grammar above gains them with that topic's
 implementation.
+
+The [Control exception bridge](control-exception-bridge.md#ir-contracts) defines
+Exn references, an ordered catch-clause list with CatchAllRef, ThrowRef, and a
+semantic normal-continuation boundary on Try. The latter prevents a diverging
+catch from extending protection over a dominated result join.
+The shared try-region/unwind relation
+must own unknown-tag propagation; consumers may not invent a single handler
+for an opaque exception token.
 
 ### Instructions
 
@@ -548,7 +556,7 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
 - **Control flow.** MIR `Switch` is implemented for nullary-constructor matches
   with unique constructor tags; duplicate alternatives retain an ordered
   comparison chain. The `Branch`/`Switch` joins are derived from the CFG edges
-  by `mir/cfg.rs`; there is no `merge_block` hint, and a join is not required to
+  by `mir/cfg/mod.rs`; there is no `merge_block` hint, and a join is not required to
   emit a branch. The Wasm structurer builds one region plan for every reducible
   CFG, with or without loops: it computes dominators and natural loops,
   validates loop nesting, orders each region into block and loop units, and

@@ -8,6 +8,7 @@ mod control_calls;
 mod control_frames;
 mod dictionary;
 mod effects;
+mod exception;
 mod number_decimal;
 mod string_eq;
 mod structure;

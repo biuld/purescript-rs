@@ -5,7 +5,7 @@
 //! [`shape`] and from emitted CC by the P8 boundary checker; comparing the two
 //! is how the boundary validates that expansion emitted the checked program.
 
-use super::ir::{Exec, Family};
+use super::ir::{Exec, Family, Op};
 
 /// The terminal outcome class of one plan path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -25,12 +25,17 @@ pub(crate) enum Terminal {
 pub(crate) enum Shape {
     Switch(Family, Vec<(u32, Shape)>),
     Leaf(Terminal),
+    Sequence(Vec<Shape>),
 }
 
 /// Derive the shape of a plan.
 pub(crate) fn shape(exec: &Exec) -> Shape {
     match exec {
-        Exec::Steps { next, .. } => shape(next),
+        Exec::Steps { ops, next } => {
+            let mut shapes = operation_shapes(ops, false);
+            shapes.push(shape(next));
+            Shape::Sequence(shapes)
+        }
         Exec::Switch { case, arms, .. } => Shape::Switch(
             case.family(),
             arms.iter().map(|(tag, arm)| (*tag, shape(arm))).collect(),
@@ -40,6 +45,27 @@ pub(crate) fn shape(exec: &Exec) -> Shape {
         Exec::Publish { .. } | Exec::Return { .. } => Shape::Leaf(Terminal::Value),
         Exec::Reject { .. } => Shape::Leaf(Terminal::Reject),
     }
+}
+
+fn operation_shapes(ops: &[Op], cleanup: bool) -> Vec<Shape> {
+    let mut shapes = Vec::new();
+    for op in ops {
+        match op {
+            Op::CloseBoundary { .. } if cleanup => shapes.push(Shape::Switch(
+                Family::Extent,
+                crate::control::schema::ExtentCase::ALL
+                    .into_iter()
+                    .map(|case| (case.tag(), Shape::Leaf(Terminal::Value)))
+                    .collect(),
+            )),
+            Op::Protect { ops, cleanup, .. } => {
+                shapes.extend(operation_shapes(ops, false));
+                shapes.extend(operation_shapes(cleanup, true));
+            }
+            _ => {}
+        }
+    }
+    shapes
 }
 
 #[cfg(test)]

@@ -92,6 +92,9 @@ pub(crate) fn definitions(
                 definitions.insert(assignment.destination, &assignment.kind);
             }
             match &assignment.kind {
+                AssignmentKind::Protect { body, handler, .. } => {
+                    pending.extend([body.assignments.as_slice(), handler.assignments.as_slice()]);
+                }
                 AssignmentKind::If {
                     then_assignments,
                     else_assignments,

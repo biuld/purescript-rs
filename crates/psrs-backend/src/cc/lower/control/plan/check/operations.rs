@@ -7,6 +7,31 @@ impl Scope {
     pub(super) fn op(&self, op: &Op) -> Checked<Info> {
         use FieldKind as K;
         let kind = match op {
+            Op::Protect {
+                action,
+                ops,
+                result,
+                cleanup,
+            } => {
+                if action.program() != self.program {
+                    return Err("exception cleanup has the wrong machine action owner");
+                }
+                let mut body = self.clone();
+                for op in ops {
+                    let info = body.op(op)?;
+                    body.temps.push(info);
+                }
+                let result = body.info(result)?;
+                let mut handler = self.clone();
+                for op in cleanup {
+                    if !matches!(op, Op::CloseBoundary { .. } | Op::SetStatus { .. }) {
+                        return Err("exception cleanup must contain only private lifecycle stores");
+                    }
+                    let info = handler.op(op)?;
+                    handler.temps.push(info);
+                }
+                return Ok(result);
+            }
             Op::Project {
                 source,
                 case,

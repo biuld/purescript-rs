@@ -15,6 +15,22 @@ pub(super) fn verify_conversion(
     destination: ValueShape,
     table: &RepresentationTable,
 ) -> Result<(), Vec<BackendError>> {
+    if source != destination
+        && [source, destination].iter().any(|shape| {
+            matches!(
+                shape,
+                ValueShape::Reference(Reference {
+                    heap: RefShape::Exception,
+                    ..
+                })
+            )
+        })
+    {
+        return Err(assignment_error(
+            assignment,
+            "exception references cannot cross source payload conversions",
+        ));
+    }
     if conversion.source != source || conversion.destination != destination {
         return Err(assignment_error(
             assignment,

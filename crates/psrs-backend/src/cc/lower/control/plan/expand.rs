@@ -96,6 +96,48 @@ impl Machine<'_> {
         body: &mut Vec<Assignment>,
     ) -> ValueId {
         match op {
+            Op::Protect {
+                action: _,
+                ops,
+                result,
+                cleanup,
+            } => {
+                let mut protected = Vec::new();
+                let mut body_env = env.to_vec();
+                for op in ops {
+                    let value = self.expand_op(op, &body_env, params, &mut protected);
+                    body_env.push(value);
+                }
+                let value = self.operand(result, &body_env, params);
+                let mut handler = Vec::new();
+                let mut handler_env = env.to_vec();
+                for op in cleanup {
+                    let value = if let Op::CloseBoundary { extent } = op {
+                        let extent = self.operand(extent, &handler_env, params);
+                        self.close_boundary_inline(extent, &mut handler)
+                    } else {
+                        self.expand_op(op, &handler_env, params, &mut handler)
+                    };
+                    handler_env.push(value);
+                }
+                use super::super::fields::ControlEmitter;
+                let exception =
+                    self.fresh_value(crate::cc::ValueShape::Reference(crate::cc::Reference {
+                        nullable: false,
+                        heap: crate::cc::RefShape::Exception,
+                    }));
+                self.emit(self.value_shape(value), body, |_| AssignmentKind::Protect {
+                    body: crate::cc::Region {
+                        assignments: protected,
+                        exit: crate::cc::RegionExit::Yield(value),
+                    },
+                    exception,
+                    handler: crate::cc::Region {
+                        assignments: handler,
+                        exit: crate::cc::RegionExit::Propagate(exception),
+                    },
+                })
+            }
             Op::Project {
                 source,
                 case,

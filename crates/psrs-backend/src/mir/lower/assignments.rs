@@ -8,6 +8,20 @@ impl FunctionLowerer<'_> {
     ) -> Result<BlockId, Vec<BackendError>> {
         for assignment in assignments {
             match &assignment.kind {
+                AssignmentKind::Protect {
+                    body,
+                    exception,
+                    handler,
+                } => {
+                    current = self.lower_protect(
+                        current,
+                        assignment.destination,
+                        body,
+                        *exception,
+                        handler,
+                        assignment.span,
+                    )?;
+                }
                 AssignmentKind::ControlEvidence {
                     value,
                     implementation,

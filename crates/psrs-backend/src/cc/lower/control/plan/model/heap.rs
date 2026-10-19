@@ -12,6 +12,7 @@ pub(super) type Checked<T> = Result<T, Fault>;
 pub(super) enum Fault {
     Trap,
     CallbackTrap,
+    Channel(u32),
     InvalidModel,
     Exhausted,
 }

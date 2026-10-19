@@ -127,6 +127,13 @@ impl Case {
 /// is sequenced before the outcome even when its result is unused.
 #[derive(Clone, Debug)]
 pub(crate) enum Op {
+    /// Protected operations yield one result; cleanup propagates the caught token.
+    Protect {
+        action: crate::control::execution::ExceptionalAction,
+        ops: Vec<Op>,
+        result: Operand,
+        cleanup: Vec<Op>,
+    },
     Project {
         source: Operand,
         case: Case,

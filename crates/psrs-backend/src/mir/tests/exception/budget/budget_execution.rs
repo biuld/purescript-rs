@@ -56,8 +56,8 @@ fn leak_main() -> Function {
             vec![],
             Terminator::Try {
                 protected: BlockId(3),
-                catches: Vec::new(),
-                catch_all: Some(BlockId(4)),
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(4) }],
                 span: at(80),
             },
         ),
@@ -85,8 +85,8 @@ fn leak_main() -> Function {
             vec![],
             Terminator::Try {
                 protected: BlockId(7),
-                catches: Vec::new(),
-                catch_all: Some(BlockId(8)),
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(8) }],
                 span: at(84),
             },
         ),
@@ -115,8 +115,10 @@ fn leak_main() -> Function {
             vec![],
             Terminator::Try {
                 protected: BlockId(10),
-                catches: Vec::new(),
-                catch_all: Some(BlockId(11)),
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::CatchAll {
+                    target: BlockId(11),
+                }],
                 span: at(88),
             },
         ),

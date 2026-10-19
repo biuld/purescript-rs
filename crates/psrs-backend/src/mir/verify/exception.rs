@@ -48,25 +48,53 @@ pub(super) fn verify_function(
     // payload as block parameters typed exactly as the tag's payload (none
     // for `catch_all`).
     for region in &regions.regions {
-        for (tag_id, _) in &region.catches {
-            if tags.get(tag_id.0 as usize).is_none() {
+        let mut seen = std::collections::HashSet::new();
+        let mut closed = false;
+        for clause in &region.clauses {
+            if closed {
                 errors.extend(mir_error(
                     region.span,
-                    "MIR catch clause names an unknown tag",
+                    "MIR catch clause follows a catch-all clause",
                 ));
             }
-        }
-        for (tag_id, handler) in &region.catches {
-            let payload = tags
-                .get(tag_id.0 as usize)
-                .map(|tag| tag.payload.as_slice())
-                .unwrap_or(&[]);
-            check_handler_parameters(function, region.span, *handler, payload, &mut errors);
-        }
-        if let Some(handler) = region.catch_all {
-            check_handler_parameters(function, region.span, handler, &[], &mut errors);
+            let payload = match clause {
+                crate::mir::CatchClause::Catch { tag, .. } => {
+                    if !seen.insert(*tag) {
+                        errors.extend(mir_error(region.span, "MIR catch clause repeats a tag"));
+                    }
+                    match tags.get(tag.0 as usize) {
+                        Some(tag) => tag.payload.clone(),
+                        None => {
+                            errors.extend(mir_error(
+                                region.span,
+                                "MIR catch clause names an unknown tag",
+                            ));
+                            Vec::new()
+                        }
+                    }
+                }
+                crate::mir::CatchClause::CatchAll { .. } => {
+                    closed = true;
+                    Vec::new()
+                }
+                crate::mir::CatchClause::CatchAllRef { .. } => {
+                    closed = true;
+                    vec![ValueType::Ref(crate::types::RefType {
+                        nullable: false,
+                        heap: crate::types::HeapType::Exn,
+                    })]
+                }
+            };
+            check_handler_parameters(
+                function,
+                region.span,
+                clause.target(),
+                &payload,
+                &mut errors,
+            );
         }
     }
+
     // A handler belongs to exactly one `Try`.
     for (_, span) in &regions.conflicts {
         errors.extend(mir_error(
@@ -108,6 +136,25 @@ pub(super) fn verify_function(
         }
     }
     verify_throws(function, &regions, tags, definitions, &mut errors);
+    let graph = crate::mir::unwind::UnwindGraph::with_regions(function, &regions);
+    for block in &function.blocks {
+        if let Some(Terminator::ThrowRef { exception, span }) = &block.terminator {
+            if !graph.escapes(block.id) && graph.successors(block.id).is_empty() {
+                errors.extend(mir_error(*span, "MIR reference throw has no unwind exit"));
+            }
+            if definitions.get(exception)
+                != Some(&ValueType::Ref(crate::types::RefType {
+                    nullable: false,
+                    heap: crate::types::HeapType::Exn,
+                }))
+            {
+                errors.extend(mir_error(
+                    *span,
+                    "MIR throw_ref requires a non-null exception reference",
+                ));
+            }
+        }
+    }
     verify_no_forced_tail_calls(function, &regions, &mut errors);
     if errors.is_empty() {
         Ok(())
@@ -187,14 +234,7 @@ fn verify_throws(
         // owning region's `try_table` is already disarmed, so the enclosing
         // chain starts at the regions containing that try block. Regions
         // nest, so the containing regions form a chain.
-        let base = regions.owners.get(&block.id).copied().unwrap_or(block.id);
-        let is_handler_block = regions.owners.contains_key(&block.id);
-        let mut enclosing = regions
-            .regions
-            .iter()
-            .filter(|region| region.protected.contains(&base))
-            .collect::<Vec<_>>();
-        enclosing.sort_by_key(|region| region.protected.len());
+        let enclosing = regions.enclosing(block.id);
         let landing = enclosing
             .iter()
             .find(|region| region.matching_handler(*tag).is_some())
@@ -206,18 +246,9 @@ fn verify_throws(
                         *span,
                         "MIR throw must name the matching handler of the innermost enclosing try region",
                     ));
-                } else if !is_handler_block
-                    && regions
-                        .regions
-                        .iter()
-                        .any(|region| region.protected.contains(&block.id))
-                {
-                    errors.extend(mir_error(
-                        *span,
-                        "MIR throw without a handler lies inside a protected try region",
-                    ));
                 }
             }
+
             Some(resolved) => match landing {
                 None => errors.extend(mir_error(
                     *span,
@@ -269,6 +300,7 @@ fn terminator_span(terminator: &Terminator) -> TextRange {
         | Terminator::Switch { span, .. }
         | Terminator::ReturnCall { span, .. }
         | Terminator::ReturnCallRef { span, .. }
+        | Terminator::ThrowRef { span, .. }
         | Terminator::Throw { span, .. }
         | Terminator::Try { span, .. } => *span,
     }

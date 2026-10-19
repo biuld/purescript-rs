@@ -14,8 +14,8 @@ fn try_module() -> crate::mir::Module {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(1),
-                        catches: vec![],
-                        catch_all: Some(BlockId(2)),
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(2) }],
                         span: at(10),
                     },
                 ),

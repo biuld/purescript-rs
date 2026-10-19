@@ -38,8 +38,8 @@ fn re_arms_a_try_table_across_loop_iterations() {
             vec![],
             Terminator::Try {
                 protected: BlockId(3),
-                catches: Vec::new(),
-                catch_all: Some(BlockId(6)),
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(6) }],
                 span: at(32),
             },
         ),
@@ -158,8 +158,8 @@ fn keeps_a_loop_inside_the_protected_region() {
                 // The protected entry is a parameterless pre-header; the loop
                 // header (with its carried parameter) sits inside the region.
                 protected: BlockId(10),
-                catches: Vec::new(),
-                catch_all: Some(BlockId(6)),
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(6) }],
                 span: at(40),
             },
         ),

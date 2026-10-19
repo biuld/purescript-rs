@@ -19,10 +19,24 @@ use std::rc::Rc;
 
 fn edit(plan: &mut Exec, change: &mut impl FnMut(&mut Op) -> bool) -> bool {
     match plan {
-        Exec::Steps { ops, next } => ops.iter_mut().any(&mut *change) || edit(next, change),
+        Exec::Steps { ops, next } => edit_ops(ops, change) || edit(next, change),
         Exec::Switch { arms, .. } => arms.iter_mut().any(|(_, arm)| edit(arm, change)),
         _ => false,
     }
+}
+
+fn edit_ops(ops: &mut [Op], change: &mut impl FnMut(&mut Op) -> bool) -> bool {
+    for op in ops {
+        if change(op) {
+            return true;
+        }
+        if let Op::Protect { ops, cleanup, .. } = op
+            && (edit_ops(ops, change) || edit_ops(cleanup, change))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn arm(plan: &mut Exec, tag: C) -> &mut Exec {

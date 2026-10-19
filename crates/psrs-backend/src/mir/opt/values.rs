@@ -105,6 +105,7 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
         Terminator::Switch { value, .. } => vec![*value],
         Terminator::ReturnCall { arguments, .. } => arguments.clone(),
         Terminator::Throw { arguments, .. } => arguments.clone(),
+        Terminator::ThrowRef { exception, .. } => vec![*exception],
         Terminator::ReturnCallRef {
             function,
             arguments,
@@ -381,6 +382,7 @@ pub(crate) fn remap_terminator(terminator: &mut Terminator, mapping: &HashMap<Va
         Terminator::Switch { value, .. } => replace(value),
         Terminator::ReturnCall { arguments, .. } => arguments.iter_mut().for_each(replace),
         Terminator::Throw { arguments, .. } => arguments.iter_mut().for_each(replace),
+        Terminator::ThrowRef { exception, .. } => replace(exception),
         Terminator::ReturnCallRef {
             function,
             arguments,

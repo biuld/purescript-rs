@@ -219,6 +219,7 @@ mod tail_calls;
 
 mod exception_handling;
 
+mod control_exception_bridge;
 mod exception_library;
 
 mod symbol_reflection;

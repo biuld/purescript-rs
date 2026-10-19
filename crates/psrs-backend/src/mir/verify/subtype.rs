@@ -166,7 +166,7 @@ pub(in crate::mir) fn heap_subtype(
             }
             false
         }
-        HeapType::Extern | HeapType::I31 => false,
+        HeapType::Exn | HeapType::Extern | HeapType::I31 => false,
     }
 }
 

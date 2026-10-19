@@ -32,6 +32,8 @@ pub struct RefType {
 pub enum HeapType {
     Func,
     Extern,
+    /// Opaque native exception references, disjoint from aggregate references.
+    Exn,
     Any,
     Eq,
     I31,

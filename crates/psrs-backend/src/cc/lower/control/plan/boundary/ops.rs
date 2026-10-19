@@ -13,6 +13,48 @@ impl Checker<'_> {
     ) -> Checked<ValueId> {
         let operand = |value| self.operand(value, env);
         match op {
+            Op::Protect {
+                action: _,
+                ops,
+                result,
+                cleanup,
+            } => {
+                let a = self.next(body)?;
+                let A::Protect {
+                    body: protected,
+                    exception,
+                    handler,
+                } = &a.kind
+                else {
+                    return Err(MISMATCH);
+                };
+                let mut inner = protected.assignments.as_slice();
+                let mut body_env = env.to_vec();
+                for op in ops {
+                    let value = self.op(op, &body_env, &mut inner)?;
+                    body_env.push(value);
+                }
+                if protected.exit != crate::cc::RegionExit::Yield(self.operand(result, &body_env)?)
+                {
+                    return Err(MISMATCH);
+                }
+                self.end(&mut inner)?;
+                let mut inner = handler.assignments.as_slice();
+                let mut handler_env = env.to_vec();
+                for op in cleanup {
+                    let value = if let Op::CloseBoundary { extent } = op {
+                        self.close_inline(self.operand(extent, &handler_env)?, &mut inner)?
+                    } else {
+                        self.op(op, &handler_env, &mut inner)?
+                    };
+                    handler_env.push(value);
+                }
+                if handler.exit != crate::cc::RegionExit::Propagate(*exception) {
+                    return Err(MISMATCH);
+                }
+                self.end(&mut inner)?;
+                Ok(a.destination)
+            }
             Op::Project {
                 source,
                 case,
@@ -185,6 +227,45 @@ impl Checker<'_> {
             let result =
                 self.project(source, self.schema.context, case.tag(), field, &mut branch)?;
             self.equal(result, actual.value)?;
+            self.end(&mut branch)?;
+        }
+        self.reject(default_assignments, *default_value)?;
+        Ok(a.destination)
+    }
+}
+
+impl Checker<'_> {
+    fn close_inline(&self, source: ValueId, body: &mut &[Assignment]) -> Checked<ValueId> {
+        let tag = self.tag(source, self.schema.extent, body)?;
+        let a = self.next(body)?;
+        let A::TagSwitch {
+            value,
+            cases,
+            default_assignments,
+            default_value,
+        } = &a.kind
+        else {
+            return Err(MISMATCH);
+        };
+        self.equal(*value, tag)?;
+        if cases.len() != ExtentCase::ALL.len() {
+            return Err(MISMATCH);
+        }
+        for (actual, case) in cases.iter().zip(ExtentCase::ALL) {
+            if actual.tag != case.tag() as i32 {
+                return Err(MISMATCH);
+            }
+            let mut branch = actual.assignments.as_slice();
+            let cell = self.project(
+                source,
+                self.schema.extent,
+                case.tag(),
+                crate::control::schema::extent::STATUS,
+                &mut branch,
+            )?;
+            let closed = self.constant(1, &mut branch)?;
+            self.write(self.schema.status, cell, closed, &mut branch)?;
+            self.equal(source, actual.value)?;
             self.end(&mut branch)?;
         }
         self.reject(default_assignments, *default_value)?;

@@ -651,6 +651,12 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
 
 ## Open questions and future work
 
+The [Control exception bridge](control-exception-bridge.md#ir-contracts) defines
+generic protected regions with explicit Yield/Propagate exits and an opaque
+Exception reference shape disjoint from erased source payloads. These are
+generic CC operations; the exception token never enters ordinary payload erasure. Its construction
+boundary checks normal and exceptional cleanup independently of target encoding.
+
 - **Decision DAG and `Switch`.** The design target is the full matrix compiler;
   the abstract operations it needs already exist
   ([pattern matching](pattern-matching.md)).

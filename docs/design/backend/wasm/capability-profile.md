@@ -405,6 +405,11 @@ this target does not reproduce (see DEC-23's amendment). The disabled-profile
 rejection fixtures construct explicit `exceptions: false` targets and keep
 running against them.
 
+The [Control exception bridge](../fp/control-exception-bridge.md#ir-contracts)
+extends the `exceptions` requirement to opaque exception references,
+catch-all-ref, throw-ref, and generated runner cleanup guards. The bridge checklist
+records their coverage; the enabled profile alone is not execution evidence. Required guards must be rejected, never removed, on a disabled target.
+
 ## References
 
 - WebAssembly 3.0 specification; [WebAssembly/proposals](https://github.com/WebAssembly/proposals).

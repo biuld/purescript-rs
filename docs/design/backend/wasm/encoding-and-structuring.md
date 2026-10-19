@@ -553,6 +553,12 @@ import is present, the `cabi_realloc` export is emitted).
   a profile that changes the address type would revisit them
   ([capability profile](capability-profile.md)).
 
+The [Control exception bridge](../fp/control-exception-bridge.md#ir-contracts)
+adds catch-all-ref clauses and throw-ref leaves with Exn label/type validation.
+The bridge checklist records execution and rejection evidence; the existing
+single-result label model suffices for catch-all-ref. Named payload-plus-reference
+clauses still require multi-result-label work.
+
 ## References
 
 - WebAssembly 3.0 specification: binary format, structured control

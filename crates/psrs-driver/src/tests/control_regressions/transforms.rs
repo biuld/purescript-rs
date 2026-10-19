@@ -107,10 +107,9 @@ fn run_module() -> (SymbolId, SymbolId, SymbolId, Module) {
         .iter()
         .find(|function| function.symbol == run)
         .expect("Run helper");
-    assert_eq!(
-        function.blocks.len(),
-        1,
-        "pre-optimization Run is the straight-line plan"
+    assert!(
+        matches!(function.blocks[0].terminator, Some(T::Try { .. })),
+        "Run arms cleanup after allocating its root"
     );
     (start, close, executor, module)
 }
@@ -139,25 +138,26 @@ fn calls(module: &Module, target: SymbolId) -> usize {
 fn share_root(module: &mut Module, start: SymbolId) {
     let function = run_function(module);
     let span = function.span;
-    let start_at = function.blocks[0]
-        .instructions
+    // Start remains outside protection. Split the guarded execution block into
+    // exclusive successors that share that already-created root and guard.
+    let source = function
+        .blocks
         .iter()
-        .position(
-            |instruction| matches!(instruction, I::Call { function, .. } if *function == start),
-        )
-        .expect("Start call");
-    let tail = function.blocks[0].instructions.split_off(start_at + 1);
-    let result = match function.blocks[0].terminator.take() {
-        Some(T::Return { value, .. }) => value,
-        other => panic!("Run returns normally, got {other:?}"),
+        .position(|block| {
+            block.instructions.iter().any(
+                |instruction| matches!(instruction, I::Call { function, .. } if *function != start),
+            )
+        })
+        .unwrap();
+    let tail = std::mem::take(&mut function.blocks[source].instructions);
+    let terminator = function.blocks[source].terminator.take().unwrap();
+    let (target, result) = match &terminator {
+        T::Jump {
+            target, arguments, ..
+        } => (*target, arguments[0]),
+        other => panic!("protected execution rejoins its Run result: {other:?}"),
     };
-    assert!(
-        tail.iter()
-            .any(|instruction| instruction.destination() == Some(result)),
-        "the Run result is produced after Start"
-    );
     let (else_tail, copied) = duplicate(function, &tail);
-    let else_result = copied[&result];
     let then_block = BlockId(
         function
             .blocks
@@ -169,36 +169,59 @@ fn share_root(module: &mut Module, start: SymbolId) {
     );
     let else_block = BlockId(then_block.0 + 1);
     let condition = fresh_value(function, ValueType::Boolean);
-    function.blocks[0].instructions.push(I::Constant {
+    function.blocks[source].instructions.push(I::Constant {
         destination: condition,
         value: 1,
         span,
     });
-    function.blocks[0].terminator = Some(T::Branch {
+    function.blocks[source].terminator = Some(T::Branch {
         condition,
         then_block,
         else_block,
         span,
     });
     function.blocks.extend([
-        block_returning(then_block, tail, result, span),
-        block_returning(else_block, else_tail, else_result, span),
+        BasicBlock {
+            id: then_block,
+            parameters: vec![],
+            instructions: tail,
+            terminator: Some(terminator),
+        },
+        BasicBlock {
+            id: else_block,
+            parameters: vec![],
+            instructions: else_tail,
+            terminator: Some(T::Jump {
+                target,
+                arguments: vec![copied[&result]],
+                span,
+            }),
+        },
     ]);
 }
 
 fn distribute_close(module: &mut Module, close: SymbolId, trap: bool) {
     let function = run_function(module);
     let span = function.span;
-    let close_at = function.blocks[0]
+    let source = function
+        .blocks
+        .iter()
+        .position(|block| {
+            block.instructions.iter().any(
+                |instruction| matches!(instruction, I::Call { function, .. } if *function == close),
+            )
+        })
+        .expect("guarded Close call");
+    let close_at = function.blocks[source]
         .instructions
         .iter()
         .position(
             |instruction| matches!(instruction, I::Call { function, .. } if *function == close),
         )
         .expect("Close call");
-    let close_instruction = function.blocks[0].instructions.remove(close_at);
-    let suffix = function.blocks[0].instructions.split_off(close_at);
-    let terminator = function.blocks[0].terminator.take();
+    let close_instruction = function.blocks[source].instructions.remove(close_at);
+    let suffix = function.blocks[source].instructions.split_off(close_at);
+    let terminator = function.blocks[source].terminator.take();
     let destination = match &close_instruction {
         I::Call { destination, .. } => *destination,
         _ => unreachable!("Close is a call"),
@@ -227,12 +250,12 @@ fn distribute_close(module: &mut Module, close: SymbolId, trap: bool) {
     let else_block = BlockId(then_block.0 + 1);
     let join = BlockId(then_block.0 + 2);
     let condition = fresh_value(function, ValueType::Boolean);
-    function.blocks[0].instructions.push(I::Constant {
+    function.blocks[source].instructions.push(I::Constant {
         destination: condition,
         value: 1,
         span,
     });
-    function.blocks[0].terminator = Some(T::Branch {
+    function.blocks[source].terminator = Some(T::Branch {
         condition,
         then_block,
         else_block,
@@ -268,14 +291,23 @@ fn distribute_close(module: &mut Module, close: SymbolId, trap: bool) {
 fn copy_root(module: &mut Module, close: SymbolId) {
     let function = run_function(module);
     let span = function.span;
-    let close_at = function.blocks[0]
+    let source = function
+        .blocks
+        .iter()
+        .position(|block| {
+            block.instructions.iter().any(
+                |instruction| matches!(instruction, I::Call { function, .. } if *function == close),
+            )
+        })
+        .expect("guarded Close call");
+    let close_at = function.blocks[source]
         .instructions
         .iter()
         .position(
             |instruction| matches!(instruction, I::Call { function, .. } if *function == close),
         )
         .expect("Close call");
-    let root = match &function.blocks[0].instructions[close_at] {
+    let root = match &function.blocks[source].instructions[close_at] {
         I::Call { arguments, .. } => arguments[0],
         _ => unreachable!("Close is a call"),
     };
@@ -286,11 +318,11 @@ fn copy_root(module: &mut Module, close: SymbolId) {
         .unwrap()
         .ty;
     let alias = fresh_value(function, ty);
-    match &mut function.blocks[0].instructions[close_at] {
+    match &mut function.blocks[source].instructions[close_at] {
         I::Call { arguments, .. } => arguments[0] = alias,
         _ => unreachable!("Close is a call"),
     }
-    function.blocks[0].instructions.insert(
+    function.blocks[source].instructions.insert(
         close_at,
         I::Copy {
             destination: alias,
@@ -381,20 +413,6 @@ fn retarget(instruction: I, map: &HashMap<ValueId, ValueId>) -> I {
             span,
         },
         other => panic!("Run lowering produced an unexpected instruction: {other:?}"),
-    }
-}
-
-fn block_returning(
-    id: BlockId,
-    instructions: Vec<I>,
-    value: ValueId,
-    span: psrs_span::TextRange,
-) -> BasicBlock {
-    BasicBlock {
-        id,
-        parameters: vec![],
-        instructions,
-        terminator: Some(T::Return { value, span }),
     }
 }
 

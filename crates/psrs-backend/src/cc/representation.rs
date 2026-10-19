@@ -18,6 +18,8 @@ pub enum RefShape {
     Aggregate,
     /// The erased representation used by polymorphic values.
     Erased,
+    /// An opaque native exception token; never a source payload.
+    Exception,
     /// A closure value with the given abstract call signature.
     Closure(SignatureId),
 }
