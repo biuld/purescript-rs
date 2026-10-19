@@ -54,7 +54,7 @@ what remains in each layer.
 | L3 kinds | 44/48 failing | official kind `errorCode`s; measured 2026-10-18 |
 | L4 types | 41/50 failing | official `errorCode`s; `ExpectedType` 2/2 since the annotation-position rule |
 | L5 classes | 98/99 failing | official `errorCode`s; only `ClassHeadNoVTA3` (#123) remains; measured 2026-10-18 |
-| L6/M7 runtime | 287/340 programs | all exit 0; 53 do not agree; 74 support files remain program inputs, 25 FFI groups excluded |
+| L6/M7 runtime | 287/340 programs | all exit 0; 53 do not agree; 74 support files remain program inputs, 25 FFI groups excluded; remeasured 2026-10-19 with the stable profile flipped to enable the exception channel and its stack-exhaustion budget ([DEC-23](docs/design/decision/DEC-23-wasm-exception-channel.md)) |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Frontend counts use source files; runtime counts use program roots with their

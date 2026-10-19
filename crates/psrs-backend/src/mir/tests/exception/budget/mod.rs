@@ -447,7 +447,13 @@ fn the_disabled_profile_emits_no_budget_code() {
         ],
     );
     let mir = module(vec![main, rec_function()], Vec::new(), MAIN);
-    let wasm = lower(&mir, TargetCapabilities::default());
+    let wasm = lower(
+        &mir,
+        TargetCapabilities {
+            exceptions: false,
+            ..TargetCapabilities::default()
+        },
+    );
     assert!(wasm.globals.is_empty(), "no depth global");
     assert!(wasm.tags.is_empty(), "no stack-exhaustion tag");
     let wat = wat(&wasm);

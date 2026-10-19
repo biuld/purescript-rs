@@ -2,6 +2,8 @@
 
 **Status:** Accepted  
 **Date:** 2026-10-18  
+**Amended:** 2026-10-19 (the channel's corpus acceptance revised — see the
+amendment below).  
 **Amends:** [DEC-05](DEC-05-wasmtime-feature-set.md), the clause that keeps
 exceptions among the permanently disabled proposals.  
 **Updates the premise of:** [DEC-19](DEC-19-compiler-generated-resumable-frames.md)'s
@@ -62,8 +64,8 @@ stack-exhaustion budget** under the same flag.
   (`psrs:runtime-exception#checkThrows`) that lowers into an inline try region.
 - **No fallback ABI.** A module that needs the channel is rejected with a
   source-associated diagnostic when the profile disables `exceptions`; the
-  stable default profile stays disabled until the adoption evidence lands, and
-  flipping the default is the adoption's final profile revision.
+  stable default profile stayed disabled until the adoption evidence landed,
+  and flipping the default is the adoption's final profile revision.
 
 ### Amendment to DEC-05
 
@@ -123,6 +125,10 @@ reason from its reasoning.
   its current P8 blocker to passing — moving the recorded runtime board from
   287 to 288 of 340 program groups (a number that must be re-measured by the
   board protocol, never assumed) plus enabled/disabled execution evidence.
+  *Revised by the 2026-10-19 amendment above: TCOMutRec's corpus assertion is
+  upstream-implementation-specific and stays a recorded failure row
+  (re-attributed to a runtime trap); the board is re-measured with the
+  profile flip and the number recorded in D-04.*
 - Stack exhaustion stops being an unobservable trap on the target: deep
   non-tail recursion becomes a catchable compiler exception, matching
   upstream's observable contract at a shallower depth. The approximation is
@@ -141,3 +147,49 @@ reason from its reasoning.
   contract under the enabled profile; the artifact assumes a pinned engine
   stack limit above the budget, which the design's coordination fixture
   validates under the pinned wasmtime.
+
+## Amendment — 2026-10-19: the channel's acceptance revised
+
+The implementation slices landed the whole design (the checklist's
+EH-01..EH-15 Verified; the library surface EH-16 implemented through the real
+frontend), and this amendment records the ownership decision that closes the
+adoption (Option 2, decided 2026-10-19).
+
+**What is verified.** The channel is implemented and verified end to end:
+`checkThrows` is no longer an unimplemented foreign — the checked
+`psrs:runtime-exception#checkThrows` contract is published, discharged at P9
+into the inline `catch_all` try region, and executes under the pinned engine
+through the real frontend: with a genuinely non-tail recursion, the guard is
+interpreted when the Effect runs, the budget fires inside the guarded call,
+and the catch delivers `true` (the checklist's direct-MIR and driver
+fixtures, EH-09/EH-15/EH-16). The stable default profile enables `exceptions`
+with the measured calibration (budget 262144; weights 32 + 16 × locals;
+engine limit pinned `-W max-wasm-stack=524288`, wasmtime 48.0.1); the
+budget's purpose is unchanged — it converts genuine non-tail exhaustion into
+the compiler's exception, verified end to end (a depth-100000 genuinely
+non-tail recursion under the guard exhausts and catches; exit 0).
+
+**What is not reproduced, and stays a recorded failure row.** The target does
+not reproduce upstream's TCO-classification aggressiveness. This backend's
+mandated closure-tail reuse (`mark_tail` → `ReturnCallRef`; the verified
+tail-call row CF-07) runs arity-mismatched mutual recursion in constant
+stack, while upstream's TCO pass loopifies arity-matched named
+mutual-recursion groups and leaves arity-mismatched closure-mediated cycles
+growing the stack. `tests/upstream/passing/TCOMutRec.purs`'s four
+`assertThrows` assertions therefore encode upstream's classification — its
+own comment anticipates this ("the assertions can change") — and are
+upstream-implementation-specific, not reproduced by this target: the guard
+observes *no throw* (the guarded `ntcoN 100000` returns normally in constant
+stack) and `assert'` takes its storage-trap failure. The case **stays a
+failure row**, re-attributed from the P8 closure/linking row it held while
+`checkThrows` was a missing foreign to a runtime-trap row. Reproducing the
+assertions would need cross-function machinery the MIR does not have
+(collapsing a mutual recursion group into one function's loop) — a normative
+decision that would belong to a new recursion-classification topic, not to
+this adoption.
+
+**Consequence for the board.** The original expectation in the Consequences
+above — TCOMutRec moving to passing and the board to 288/340 — is withdrawn;
+the total stays 287/340 with the case's row re-attributed, and the profile
+flip plus the board remeasure are recorded in D-04 with the measured
+failure-set diff.

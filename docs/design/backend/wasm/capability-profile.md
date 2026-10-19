@@ -119,7 +119,7 @@ for the default target and is also `Default::default()`. Its policy is:
 | Component Model and WASI 0.2 (`wasi_cli`, `wasi_io`, `wasi_clocks`, `wasi_random`, `wasi_filesystem`, `wasi_sockets`) | Enabled and required | The artifact boundary; canonical ABI and WIT metadata are emitted. Filesystem and sockets have `WASI.FileSystem` and `WASI.Network` wrappers over the vendored WIT and the pinned host. |
 | SIMD, relaxed SIMD | Disabled | Optimization track only. |
 | Tail calls | Enabled | Stack-safe direct and closure calls use `return_call`/`return_call_ref`; self recursion can also become a CFG loop. State calls require checked dependency transfer ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)). |
-| Exceptions | Disabled until adoption evidence lands | [DEC-23](../../../decision/DEC-23-wasm-exception-channel.md) adopts the exception channel and the stack-exhaustion budget minimally behind this flag ([exception handling](../fp/exception-handling-and-stack-exhaustion.md)); the gate's contract is in the table above, and the default flips only after the lowering, validation, and enabled/disabled execution evidence that adoption requires. |
+| Exceptions | **Enabled** (the 2026-10-19 adoption revision) | [DEC-23](../../../decision/DEC-23-wasm-exception-channel.md) adopts the exception channel and the stack-exhaustion budget behind this flag ([exception handling](../fp/exception-handling-and-stack-exhaustion.md)); the gate's contract is in the table above. The default stayed disabled until the adoption evidence landed, and that evidence is now recorded: the lowering (MIR `Throw`/`Try`, the discharge of `psrs:runtime-exception#checkThrows`), validation (tag section, `try_table` clauses under the profile-derived validator), the enabled and disabled execution evidence of [the implementation checklist](../../../implementation/backend/exception-handling.md) (EH-01..EH-15), and the measured calibration on the pinned wasmtime 48.0.1: budget 262144, weights 32 + 16 × locals, engine limit pinned `-W max-wasm-stack=524288`. A module is still rejected with a source-associated diagnostic when an explicit profile disables the gate; there is no fallback ABI. |
 | Multi-memory, wide arithmetic, threads | Disabled | No lowering. |
 | Memory64 | Disabled | Deferred; see below. |
 | WASI Preview 1, WASI 0.3 | Disabled | Separate compatibility tracks; neither is the artifact ABI. |
@@ -303,9 +303,10 @@ consults the same profile through `wasi_interface_enabled(target, interface)` in
 ## Invariants and verification
 
 - `wasmtime_wasi_0_2()` enables GC, function references, reference types,
-  multi-value, tail calls, and the Component Model/WASI 0.2 families, and disables
-  SIMD, exceptions, memory64, threads, and Component async. A unit test
-  asserts this against `wasm_features`.
+  multi-value, tail calls, the Component Model/WASI 0.2 families, and the
+  exception channel with its stack-exhaustion budget, and disables SIMD,
+  memory64, threads, and Component async. A unit test asserts this against
+  `wasm_features`.
 - Lowering is rejected with a source-associated diagnostic whenever a required
   capability is disabled. The check runs in `verify_module_with_capabilities`,
   which P10 calls again before encoding, so no unverified MIR reaches the
@@ -387,8 +388,22 @@ non-tail-recursive function (weight 176 per frame) while the engine's
 `call stack exhausted` trap on the same function sits between 6,000 and
 7,000 frames — the budget fires at roughly a quarter of the engine's limit,
 and the corpus's returning depth-100 recursion consumes about 7% of the
-budget. The default profile still ships `exceptions` disabled; flipping it is
-EH-17's final revision, gated on the full adoption evidence.
+budget.
+
+With the adoption evidence complete, the stable default profile enables
+`exceptions` (2026-10-19): the default table above flipped, the checklist's
+EH-01..EH-15 carry the channel's lowering, validation, and enabled/disabled
+execution evidence, and the L6/M7 runtime board was re-measured with the
+flipped profile by the scoreboard protocol (see
+[the implementation checklist](../../../implementation/backend/exception-handling.md)
+and the D-04 gate row for the recorded number and its failure-set diff). The
+adoption's acceptance was revised the same day: the channel itself is
+implemented and verified end to end through the real frontend, while the
+corpus case `TCOMutRec.purs` keeps a recorded failure row — its
+`assertThrows` assertions encode upstream's tail-call classification, which
+this target does not reproduce (see DEC-23's amendment). The disabled-profile
+rejection fixtures construct explicit `exceptions: false` targets and keep
+running against them.
 
 ## References
 

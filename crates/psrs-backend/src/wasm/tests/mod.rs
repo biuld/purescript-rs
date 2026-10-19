@@ -404,8 +404,8 @@ fn interns_repeated_string_literals_in_one_lazy_global() {
     assert_eq!(wasm.data.len(), 1, "one deduplicated passive data segment");
     assert_eq!(
         wasm.globals.len(),
-        1,
-        "one interned global per distinct literal"
+        2, // the literal-interning global, then the budget's depth global (flipped profile)
+        "one interned global per distinct literal, then the budget depth global"
     );
     assert!(wasm.globals[0].mutable);
     assert_eq!(

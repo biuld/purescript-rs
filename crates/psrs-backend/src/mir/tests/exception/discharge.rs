@@ -275,9 +275,11 @@ fn the_discharged_normal_path_returns_the_protected_value() {
 #[test]
 fn rejects_a_check_throws_call_when_the_profile_disables_exceptions() {
     let (cc, bindings) = module();
-    let Err(errors) =
-        crate::mir::lower_module_with_bindings(cc, bindings, TargetCapabilities::default())
-    else {
+    let disabled = TargetCapabilities {
+        exceptions: false,
+        ..TargetCapabilities::default()
+    };
+    let Err(errors) = crate::mir::lower_module_with_bindings(cc, bindings, disabled) else {
         panic!("a disabled profile must reject the provider call");
     };
     assert!(

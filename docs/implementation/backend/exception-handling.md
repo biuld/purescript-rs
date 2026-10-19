@@ -4,14 +4,14 @@
 
 **Design:** [Exception handling and stack exhaustion](../../design/backend/fp/exception-handling-and-stack-exhaustion.md)
 
-**Progress:** EH-01 through EH-15 Verified (slice 1: capability gate and
+**Progress:** EH-01 through EH-16 Verified (slice 1: capability gate and
 encoding; slice 2: the MIR representation; slice 3: the structuring
-integration; slice 4: the budget mechanism). Slice 5 landed the library
-surface, the CC publication evidence, and a scalar-propagation repair; EH-16
-is **Blocked** on the corpus execution's tail-call conflict (see its record),
-EH-17 Unverified.
+integration; slice 4: the budget mechanism; slice 5: the library surface;
+slice 6: the profile flip and the 2026-10-19 ownership decision — see the
+slice 6 record for EH-16's revised corpus acceptance). EH-17 Verified with
+the board remeasure below.
 
-**Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), row **BC-08** (the exceptions family) and the runtime board rows that reference `Test.Assert.checkThrows` (#95's blocker, the L6/M7 `P8 closure/linking` failure row for `TCOMutRec.purs`). Status claims in D-04 land with the evidence of the slices below, never from this checklist alone.
+**Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), row **BC-08** (the exceptions family) and the runtime board rows that reference `Test.Assert.checkThrows` (#95's blocker; the L6/M7 failure row for `TCOMutRec.purs`, re-attributed from P8 closure/linking to a runtime trap by the 2026-10-19 ownership decision — see the slice 6 record). Status claims in D-04 land with the evidence of the slices below, never from this checklist alone.
 
 ## Scope and dependencies
 
@@ -52,8 +52,8 @@ record exact reproducible evidence for every Verified row.
 | EH-13 | Every lowered function gains the prologue check and the epilogue decrement; `return_call*` sites decrement; trapping blocks do not. | WAT inspection: prologue before the first block, decrement on each return/tail path; a trapping block has no decrement; deep tail recursion still exits 0 (no false throw). | Verified |
 | EH-14 | Every `try_table` is preceded by a watermark save and its catch path begins with the restore. | WAT inspection per try region; the leak fixture (a throw/catch loop followed by deep recursion) executes with the deep recursion reaching the budget point, proving no leak. | Verified |
 | EH-15 | Budget/limit coordination: with the engine stack limit pinned via `-W max-wasm-stack` (CLI) or `Config::max_wasm_stack` (Rust API), deep non-tail recursion under `checkThrows` yields the compiler's exception, never `call stack exhausted`. | The coordination fixture executes under the pinned engine and limit; the recorded values (budget, weights, limit, engine version) are written into this record and the capability-profile notes. Failure as a trap means the constants are wrong and the row stays unverified. | Verified |
-| EH-16 | `Test.Assert.checkThrows` is implemented end to end: checked `psrs:runtime-exception#checkThrows` contract, P9 discharge, stdlib adaptation with its recorded target-adaptation entry, and `TCOMutRec.purs` executing (all four `assertThrows` catches, the four depth-100 `assertEqual`s, exit 0). | The corpus case executes under `PSRS_REQUIRE_WASMTIME=1`; the stdlib adaptation record names the pinned upstream declaration and the diff. | Blocked |
-| EH-17 | The stable default profile enables `exceptions` (with the budget) as the adoption's final revision; [DEC-05](../../decision/DEC-05-wasmtime-feature-set.md)'s amendment and the capability-profile default table are updated with the evidence. | The full L6/M7 runtime board is re-run by the scoreboard protocol and the new number recorded in D-04; the disabled-profile rejection evidence and the enabled execution evidence are both cited in the profile's implementation notes. | Unverified |
+| EH-16 | `Test.Assert.checkThrows` is implemented end to end: checked `psrs:runtime-exception#checkThrows` contract, P9 discharge, stdlib adaptation with its recorded target-adaptation entry, and `TCOMutRec.purs` executing (all four `assertThrows` catches, the four depth-100 `assertEqual`s, exit 0). *The acceptance's corpus half is revised by the 2026-10-19 ownership decision (DEC-23's amendment): the channel and library surface are the verified obligations; TCOMutRec's `assertThrows` assertions encode upstream's tail-call classification and stay a recorded failure row, re-attributed to a runtime trap.* | The direct-MIR and driver guard fixtures execute under `PSRS_REQUIRE_WASMTIME=1` (a genuinely non-tail depth-100000 recursion under the guard exhausts and catches); the stdlib adaptation record names the pinned upstream declaration and the diff; the corpus case's revised outcome is recorded by the board remeasure of EH-17. | Verified |
+| EH-17 | The stable default profile enables `exceptions` (with the budget) as the adoption's final revision; [DEC-05](../../decision/DEC-05-wasmtime-feature-set.md)'s amendment and the capability-profile default table are updated with the evidence. | The full L6/M7 runtime board is re-run by the scoreboard protocol and the new number recorded in D-04; the disabled-profile rejection evidence and the enabled execution evidence are both cited in the profile's implementation notes. | Verified |
 
 ## Slice 1 record — capability gate and encoding (EH-01..EH-04)
 
@@ -698,7 +698,7 @@ note did not know.)*
   `assertThrows` needs a `Boolean` result and the discharge produces one;
   `assert'`'s failure protocol (storage trap) is untouched in this slice.
 
-## Slice 5 record — the library surface (EH-16, Blocked)
+## Slice 5 record — the library surface (EH-16, Blocked; closed out by slice 6)
 
 The slice landed the whole library surface and proved the channel end to end
 through the real frontend; the corpus execution that closes the row is blocked
@@ -839,6 +839,110 @@ still viewed only normal CFG edges — the same class slice 4 fixed twice:
   arguments are real incoming values. All pre-existing fixtures pass
   unchanged (psrs-backend 587 passed).
 
+## Slice 6 record — the profile flip and the ownership decision (EH-16 close-out, EH-17)
+
+The coordinator/user decision this slice lands (Option 2, decided 2026-10-19):
+the target does **not** reproduce upstream's TCO-classification
+aggressiveness. This backend's mandated closure-tail reuse (`mark_tail` →
+`ReturnCallRef`; CF-07's verified row) runs arity-mismatched mutual recursion
+in constant stack, while upstream's TCO pass loopifies arity-matched named
+mutual-recursion groups and leaves arity-mismatched closure-mediated cycles
+growing the stack. `TCOMutRec.purs`'s assertions encode upstream's
+classification (its own comment anticipates change), so its four
+`assertThrows` cases are upstream-implementation-specific and not reproduced
+by this target: the case stays a failure row, re-attributed from the P8
+missing-foreign row to a runtime-trap row. The stack budget's purpose is
+unchanged — it converts genuine non-tail exhaustion into the compiler's
+exception, verified end to end. The decision is recorded as DEC-23's
+amendment, in the design's Worked example and Boundaries, and as the
+tail-call boundary note in [the tail-calls design](../../design/backend/fp/control-flow-and-tail-calls.md).
+
+```text
+EH-16 (close-out):
+  Implementation: none beyond the flip and documentation — the channel and
+    the library surface were landed by slices 1–5; this slice re-owns the
+    corpus acceptance per the decision.
+  Tests: slice 5's guard fixtures stand unchanged
+    (check_throws_observes_the_budget_exception_end_to_end,
+    check_throws_reports_false_when_the_argument_returns,
+    tcomutrec_depth_100_halves_return_inside_the_budget);
+    tcomutrec_is_rejected_when_the_profile_disables_exceptions now
+    constructs its disabled target explicitly and keeps passing.
+  Input boundary: the adapted stdlib package through the real frontend,
+    executed components under the pinned engine.
+  Commands: PSRS_STDLIB_ROOT=/home/biu/Projects/psrs-stdlib
+    PSRS_REQUIRE_WASMTIME=1 cargo test --workspace (subset:
+    cargo test -p psrs-driver --lib tests::exception_library).
+  Result: pass; the channel and library surface are Verified, and the corpus
+    acceptance is re-owned and recorded: on the re-measured board the case
+    compiles and its row reads "trapped: Assertion failed: An error should
+    have been thrown" — the guard observes no throw (closure-tail reuse runs
+    the arity-mismatched `ntcoN` recursion in constant stack) and `assert'`
+    takes its storage-trap failure. Re-attributed from "P8 library linking
+    []: foreign value `Test.Assert.checkThrows` has no target
+    implementation".
+  Revision: this slice's commit.
+  Gaps: none for the revised row; reproducing upstream's classification
+    would need a new recursion-classification topic (recorded future work in
+    the design and DEC-23).
+
+EH-17:
+  Implementation: crates/psrs-backend/src/capability.rs — the stable default
+    profile (`wasmtime_wasi_0_2()`, and therefore `Default`) enables
+    `exceptions`, with the doc comment citing DEC-23's 2026-10-19 revision;
+    the disabled-profile rejection fixtures construct explicit
+    `exceptions: false` targets (mir/tests/exception/discharge.rs,
+    mir/tests/exception/budget/mod.rs, psrs-driver
+    tests/exception_library.rs) and keep passing; the board's own runner
+    (tests/suite/runtime.rs::run_component) now pins the engine stack limit
+    `-W max-wasm-stack=524288`, because the flip makes every corpus program
+    budget-bearing.
+  Tests: capability.rs stable_profile_matches_the_documented_wasi_0_2_target
+    pins the new documented truth; wasm_feature_flags_follow_independent_profile_fields
+    unchanged; the whole workspace run below.
+  Input boundary: the flipped stable profile over the full vendored corpus
+    (program groups), executed components under the pinned engine.
+  Commands: the board re-run per the recorded serial per-root protocol —
+    one worker per root (`xargs -P1`), each root filtered by
+    `passing/<basename>` with a 110-second outer cap, all 365 roots,
+    release suite binary `target/release/deps/suite-461c5a8e1563a05b`
+    (SHA-256 5d3bf0585021e936c34f83c229da881a4df64f454b2b5ec9852f659357cbae89),
+    `PSRS_STDLIB_ROOT=/home/biu/Projects/psrs-stdlib`,
+    `PSRS_REQUIRE_WASMTIME=1`, wasmtime CLI 48.0.1 (7bac2c277 2026-08-24).
+  Result: the board is **287/340** (287 completions exit zero, 25 FFI groups
+    excluded, 74 support sources remain inputs). The failure-name set is
+    identical to the 2026-10-18 baseline; the complete diff is one row's
+    re-attribution — `TCOMutRec.purs` from "P8 library linking []: foreign
+    value `Test.Assert.checkThrows` has no target implementation" to
+    "trapped: Assertion failed: An error should have been thrown" (the
+    decision above). Stage split of the 53 non-agreements: 29 P5 typecheck,
+    13 P5 kind check, 1 P8 closure conversion (the recursive local binding
+    in `Stream.purs`), 5 P3 resolve, 2 P0 lex (DEC-16), 1 runtime trap
+    (TCOMutRec), the 10-second runtime timeout in `2288.purs` (unchanged),
+    and the resource-bounded `BigFunction.purs` compilation (did not finish
+    inside the 90-second cap on this host; killed at the cap, peak RSS
+    2,676 KiB — resource-bounded row unchanged in kind). Exit-code audit: a
+    second serial per-root pass captured each root's exit-code histogram;
+    every one of the 287 agreeing roots carries only exit code 0 — no
+    program exits 1 through the entry's unguarded budget exception (the
+    agreeing set is identical across both passes). Nothing was recovered
+    and nothing regressed; the total is unchanged by measurement.
+    The L1–L5 frontend boards were not run: the flip is backend-only, and
+    those boards read the vendored corpus with the annotations oracle and do
+    not execute (L1 additionally needs `purs`, unavailable on this host) —
+    no number of theirs is restated as current.
+  Revision: this slice's commit.
+  Gaps: none for the row.
+```
+
+Validation of the slice: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`PSRS_STDLIB_ROOT=/home/biu/Projects/psrs-stdlib PSRS_REQUIRE_WASMTIME=1
+cargo test --workspace` all pass (the five `#[ignore]`d scoreboard suites
+are executed separately by the board protocol above). The D-04 gate row, the
+BC-08 row, the BE-21/Effects rows, the M7 progress paragraph, and the
+README's runtime row carry the numbers of this remeasure.
+
 ## Evidence record and completion rule
 
 For each ID record owning paths/functions, exact test names, input boundary,
@@ -865,12 +969,15 @@ EH-xx:
 
 ## Completion evidence and board protocol
 
-- The runtime board's expected acceptance for this topic is `TCOMutRec` moving
-  out of its P8 blocker row: the recorded L6/M7 runtime board stands at 287 of
-  340 program groups (D-04, remeasured 2026-10-18 serially with the 10-second
-  guest wall); the adoption claim requires a fresh scoreboard run by that
-  protocol, with the new number recorded in D-04 and the `Corpus cases` field
-  updated. Never restate the old number as current.
+- The adoption's corpus acceptance was revised by the 2026-10-19 ownership
+  decision (DEC-23's amendment): the channel's proof is the direct-MIR and
+  driver guard fixtures, and `TCOMutRec` stays a recorded failure row,
+  re-attributed from its P8 blocker to a runtime trap. The recorded L6/M7
+  runtime board (287 of 340 program groups, D-04, remeasured 2026-10-18
+  serially with the 10-second guest wall) was re-measured with the flipped
+  profile by the scoreboard protocol in EH-17's record below, with the new
+  number and the failure-set diff recorded in D-04. Never restate an old
+  number as current.
 - The 10-second guest wall on the measurement host still applies: the budget's
   per-frame overhead must keep TCOMutRec's deep cases inside the wall, and the
   wall is part of the protocol's conditions, not a number this checklist may

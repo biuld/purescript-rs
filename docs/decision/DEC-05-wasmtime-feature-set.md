@@ -31,9 +31,12 @@ can execute. The default profile is
 - The backend may emit only features enabled in the selected profile. The
   stable profile requires MVP Wasm plus the GC/reference/function-reference
   subset used by the current runtime representation, tail calls for stack-safe
-  callable execution, and the Component Model with WASI 0.2. SIMD, exceptions,
+  callable execution, and the Component Model with WASI 0.2. SIMD,
   threads, multi-memory,
   memory64, wide arithmetic, async components, and WASI 0.3 remain disabled.
+  (`exceptions` moved out of this disabled list by
+  [DEC-23](DEC-23-wasm-exception-channel.md)'s minimal adoption behind its
+  flag, amended 2026-10-19 with the stable profile's flip.)
 - A proposal is not `Implemented` because Wasmtime accepts it. It needs a
   lowering, profile validation, regression tests, and observable execution
   evidence. A profile flag is an adoption gate, not a claim that the current

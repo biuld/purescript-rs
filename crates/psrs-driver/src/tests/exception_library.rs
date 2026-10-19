@@ -43,9 +43,12 @@ fn tcomutrec_is_rejected_when_the_profile_disables_exceptions() {
         .iter()
         .map(|(path, text)| (path.as_str(), text.as_str()))
         .collect::<Vec<_>>();
-    let errors =
-        compile_program_sources_with_prelude_target(&sources, TargetCapabilities::default())
-            .expect_err("the disabled profile rejects the exception-channel call");
+    let disabled = TargetCapabilities {
+        exceptions: false,
+        ..TargetCapabilities::default()
+    };
+    let errors = compile_program_sources_with_prelude_target(&sources, disabled)
+        .expect_err("the disabled profile rejects the exception-channel call");
     assert!(
         errors.iter().any(|error| error
             .diagnostic

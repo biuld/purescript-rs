@@ -53,8 +53,13 @@ impl TargetCapabilities {
     /// The stable target used by `compile`.
     ///
     /// GC, typed function references and tail calls are required by the current
-    /// runtime representation and stack-safe callable execution. Other proposals
-    /// remain opt-in until a lowering and an execution test actually use them.
+    /// runtime representation and stack-safe callable execution. The exception
+    /// channel is enabled as the exception-handling adoption's final profile
+    /// revision (DEC-23, 2026-10-19): the channel has its lowering, validation,
+    /// and enabled/disabled execution evidence, and the `exceptions` gate
+    /// installs the compiler-managed stack-exhaustion budget with it. Other
+    /// proposals remain opt-in until a lowering and an execution test actually
+    /// use them.
     pub const fn wasmtime_wasi_0_2() -> Self {
         Self {
             mutable_globals: true,
@@ -70,7 +75,7 @@ impl TargetCapabilities {
             tail_call: true,
             multi_memory: false,
             memory64: false,
-            exceptions: false,
+            exceptions: true,
             extended_const: true,
             wide_arithmetic: false,
             threads: false,
@@ -178,7 +183,7 @@ mod tests {
             tail_call: true,
             multi_memory: false,
             memory64: false,
-            exceptions: false,
+            exceptions: true,
             extended_const: true,
             wide_arithmetic: false,
             threads: false,
