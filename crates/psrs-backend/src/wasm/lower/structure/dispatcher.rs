@@ -167,7 +167,9 @@ impl Structurer<'_> {
             // not implemented yet; a try/throw terminator reaching the
             // dispatcher is rejected at its own span instead of being
             // miscompiled.
-            Terminator::Throw { span, .. } | Terminator::Try { span, .. } => {
+            Terminator::ThrowRef { span, .. }
+            | Terminator::Throw { span, .. }
+            | Terminator::Try { span, .. } => {
                 return Err(wasm_error(
                     *span,
                     "MIR exception-channel terminators are not lowered to Wasm yet",
@@ -261,6 +263,7 @@ fn terminator_span(terminator: &Terminator) -> TextRange {
         | Terminator::Switch { span, .. }
         | Terminator::ReturnCall { span, .. }
         | Terminator::ReturnCallRef { span, .. }
+        | Terminator::ThrowRef { span, .. }
         | Terminator::Throw { span, .. }
         | Terminator::Try { span, .. } => *span,
     }

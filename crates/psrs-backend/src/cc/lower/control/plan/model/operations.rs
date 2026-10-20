@@ -12,6 +12,30 @@ impl Interpreter {
         self.tick()?;
         let value = |o| Self::operand(o, params, env);
         match op {
+            Op::Protect {
+                action,
+                ops,
+                result,
+                cleanup,
+            } => {
+                let mut scope = env.to_vec();
+                let attempt = (|| {
+                    for op in ops {
+                        let value = self.op(op, params, &scope)?;
+                        scope.push(value);
+                    }
+                    Self::operand(result, params, &scope)
+                })();
+                if matches!(attempt, Err(Fault::Channel(_))) {
+                    self.exceptional_actions.insert(*action);
+                    let mut scope = env.to_vec();
+                    for op in cleanup {
+                        let value = self.op(op, params, &scope)?;
+                        scope.push(value);
+                    }
+                }
+                attempt
+            }
             Op::Project {
                 source,
                 case,

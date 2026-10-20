@@ -300,39 +300,56 @@ pub(super) fn owned_resume(cursor: &mut Cursor) -> Exec {
             cell: status.clone(),
         },
     );
+    let base = ops.len();
+    let outer = cursor.clone();
+    let mut protected = Vec::new();
     cursor.bind(
-        &mut ops,
+        &mut protected,
         Op::SetStatus {
             cell: status.clone(),
             value: 1,
         },
     );
     let continuation = cursor.bind(
-        &mut ops,
+        &mut protected,
         Op::ReadCallback {
             cell: callback.clone(),
         },
     );
     cursor.bind(
-        &mut ops,
+        &mut protected,
         Op::WriteCallback {
             cell: callback,
             value: status.clone(),
         },
     );
     let next = cursor.bind(
-        &mut ops,
+        &mut protected,
         Op::Apply {
             callee: continuation,
             args: vec![value],
         },
     );
     cursor.bind(
-        &mut ops,
+        &mut protected,
         Op::SetStatus {
-            cell: status,
+            cell: status.clone(),
             value: 2,
         },
     );
+    *cursor = outer;
+    let next = cursor.bind(
+        &mut ops,
+        Op::Protect {
+            action: crate::control::execution::ExceptionalAction::AcquiredCallbackExit,
+            ops: protected,
+            result: next,
+            cleanup: vec![Op::SetStatus {
+                cell: status,
+                value: 2,
+            }],
+        },
+    );
+    debug_assert_eq!(base + 1, ops.len());
     steps(ops, advance_here(next, state(State::Sequence)))
 }

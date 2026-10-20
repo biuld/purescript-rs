@@ -166,6 +166,7 @@ pub(in crate::mir) fn total_functions(
                 Some(
                     Terminator::ReturnCallRef { .. }
                     | Terminator::Trap { .. }
+                    | Terminator::ThrowRef { .. }
                     | Terminator::Throw { .. },
                 ) => {
                     safe = false;

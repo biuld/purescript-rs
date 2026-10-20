@@ -146,8 +146,8 @@ switching (rejected for now, below).
 
 The WebAssembly stack-switching proposal is at Phase 3 (implementation), not merged
 into the core specification. The pinned runtime disables it by default
-(`Config::wasm_stack_switching = false`), it depends on the `exceptions` feature,
-and the pinned profile disables `exceptions`. Adopting it would be a deliberate
+(`Config::wasm_stack_switching = false`). Enabling EH in the pinned profile
+does not enable stack switching. Adopting it would be a deliberate
 target-profile revision that ties the artifact to a moving proposal and a
 non-default runtime configuration. DEC-19 therefore selects compiler-generated
 frames as the baseline and keeps stack switching as a future accelerator behind a
@@ -521,7 +521,7 @@ drives them, so the "remainder" is ordinary heap data the GC already understands
 | Dimension | Compiler resumable frames (CPS/defunctionalized) | Native stack switching |
 | --- | --- | --- |
 | Standardization | Uses standardized Wasm 3.0 features (GC, function references, tail calls) already in the profile | A Phase 3 proposal, not merged into the core specification; semantics may still change |
-| Runtime enablement | Runs on the default pinned runtime: those features are on by default | Wasmtime disables it by default; it additionally depends on the `exceptions` feature, which this profile disables |
+| Runtime enablement | Runs on the default pinned runtime: those features are on by default | Wasmtime disables it by default; enabling EH in the profile does not enable stack switching |
 | Portability | Any engine implementing the pinned profile | Only engines implementing the proposal with the matching configuration |
 | What is captured | An explicit heap chain of frame objects | The live Wasm execution stack (a continuation object) |
 | Capture cost | Allocates frame records proportional to the captured region; selective conversion limits it to the effectful part | The runtime captures or switches a stack segment; cost scales with the stack being captured |
@@ -739,6 +739,15 @@ Required acceptance scope is unchanged by this implementation order.
    it must define an explicit protocol and its lifetime contract.
 4. **Performance.** Measure allocation, frame churn, and deep execution to set the
    lowering's performance cost.
+5. **Exception-channel integration.** Native Wasm EH transport and its stack
+   budget compose with exceptional runner exit through a separate Abort path.
+   The [control-machine bridge](control-exception-bridge.md) specifies
+   runner-root and acquired-owner cleanup, original-exception forwarding, and
+   native accounting evidence. A run-level guard covers the flat executor,
+   including interpreted resumes; captured queues own no native budget charges
+   and do not retain native lexical catches.
+   Exception-as-effect handlers and the official `Effect.Exception` surface are
+   separate consumers of that bridge, with separate execution evidence.
 
 ## References
 

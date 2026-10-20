@@ -23,6 +23,11 @@ fn mutate(body: &mut [Assignment], edit: &mut impl FnMut(&mut A) -> bool) -> boo
                     return true;
                 }
             }
+            A::Protect { body, handler, .. } => {
+                if mutate(&mut body.assignments, edit) || mutate(&mut handler.assignments, edit) {
+                    return true;
+                }
+            }
             A::If {
                 then_assignments,
                 else_assignments,
@@ -367,6 +372,15 @@ fn callback_recovery_cannot_move_before_the_callback_clear() {
             .find(|case| case.tag == 5)
             .unwrap()
             .assignments;
+        let A::Protect { body, .. } = &mut body
+            .iter_mut()
+            .find(|assignment| matches!(assignment.kind, A::Protect { .. }))
+            .unwrap()
+            .kind
+        else {
+            panic!("owned callback is protected")
+        };
+        let body = &mut body.assignments;
         let recovery = body
             .iter()
             .position(|a| {

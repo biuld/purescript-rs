@@ -27,6 +27,7 @@ pub(super) fn val_type(ty: types::ValueType) -> ValType {
 pub(super) fn heap_type(heap: types::HeapType) -> HeapType {
     match heap {
         types::HeapType::Func => abstract_heap(AbstractHeapType::Func),
+        types::HeapType::Exn => abstract_heap(AbstractHeapType::Exn),
         types::HeapType::Extern => abstract_heap(AbstractHeapType::Extern),
         types::HeapType::Any => abstract_heap(AbstractHeapType::Any),
         types::HeapType::Eq => abstract_heap(AbstractHeapType::Eq),

@@ -155,6 +155,22 @@ fn verify_try_clauses(
                     )),
                 }
             }
+            CatchClause::CatchAllRef { label } => {
+                let expected =
+                    LabelType::Value(wasm_encoder::ValType::Ref(wasm_encoder::RefType {
+                        nullable: false,
+                        heap_type: wasm_encoder::HeapType::Abstract {
+                            shared: false,
+                            ty: wasm_encoder::AbstractHeapType::Exn,
+                        },
+                    }));
+                if resolve_label(labels, *label) != Some(expected) {
+                    errors.push(wasm_error(
+                        span,
+                        "Wasm catch_all_ref label must deliver one non-null exception reference",
+                    ));
+                }
+            }
             CatchClause::CatchAll { label } => match resolve_label(labels, *label) {
                 None => errors.push(wasm_error(
                     span,

@@ -501,6 +501,13 @@ The executor's contract:
 - It preserves the [invariants](#invariants-and-verification): frame identity, capture
   boundary, and one-shot status.
 
+Exceptional runner exit and acquired-callback completion are specified by the
+[Control exception bridge](control-exception-bridge.md), with execution evidence in its checklist. Its Run cleanup guard covers the flat executor; heap contexts
+do not add native catch scopes. Captured queues have no native budget charge.
+The exceptional outcome closes the runner root before propagation,
+and an acquired owner becomes Consumed on a channel throw. Neither outcome
+rolls back callback effects or changes rejection traps into exceptions.
+
 What the compiler and the runtime each own:
 
 | Concern | Compiler (guest code) | Runtime (`psrs-runtime`) |

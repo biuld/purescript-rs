@@ -123,6 +123,7 @@ impl PlannedLayout {
                         .ok_or(LayoutError::UnknownRepresentation)?,
                 ),
                 CcRefShape::Erased => HeapType::Eq,
+                CcRefShape::Exception => HeapType::Exn,
             },
         })
     }

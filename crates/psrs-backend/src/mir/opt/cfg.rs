@@ -7,33 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub(super) fn prune_unreachable(module: &mut Module) -> bool {
     let mut changed = false;
     for function in &mut module.functions {
-        let reachable = reachable_blocks(function.entry, &function.blocks);
-        // Exception handlers are reached only through unwind edges, which the
-        // normal-successor walk does not follow; keep every handler and
-        // everything it reaches normally.
-        let reachable = match crate::mir::try_region::handler_closure(function) {
-            handlers if handlers.is_empty() => reachable,
-            handlers => {
-                let by_id = function
-                    .blocks
-                    .iter()
-                    .map(|block| (block.id, block))
-                    .collect::<HashMap<_, _>>();
-                let mut kept = reachable;
-                let mut pending = VecDeque::from_iter(handlers);
-                while let Some(id) = pending.pop_back() {
-                    if !kept.insert(id) {
-                        continue;
-                    }
-                    if let Some(terminator) =
-                        by_id.get(&id).and_then(|block| block.terminator.as_ref())
-                    {
-                        pending.extend(crate::mir::cfg::successors(terminator));
-                    }
-                }
-                kept
-            }
-        };
+        let reachable = reachable_blocks_with_unwind(function);
         let original_len = function.blocks.len();
         function
             .blocks
@@ -83,6 +57,7 @@ pub(super) fn simplify_terminators(module: &mut Module) -> bool {
                     Terminator::Trap { .. }
                     | Terminator::Return { .. }
                     | Terminator::Jump { .. }
+                    | Terminator::ThrowRef { .. }
                     | Terminator::Throw { .. }
                     | Terminator::Try { .. }
                     | Terminator::ReturnCall { .. }
@@ -114,11 +89,19 @@ pub(super) fn reachable_blocks(entry: BlockId, blocks: &[BasicBlock]) -> HashSet
 /// edge. Analyses that read a block's incoming values or write its contents
 /// must see handlers, or they mistake catch-path joins for single-predecessor
 /// blocks.
-pub(super) fn reachable_blocks_with_unwind(
-    entry: BlockId,
-    blocks: &[BasicBlock],
-) -> HashSet<BlockId> {
-    reachable_with(entry, blocks, crate::mir::cfg::unwind_successors)
+pub(super) fn reachable_blocks_with_unwind(function: &crate::mir::Function) -> HashSet<BlockId> {
+    // Optimization is entered only after MIR verification. Structural edits
+    // preserve region ownership and are verified again before publication.
+    let graph = crate::mir::unwind::UnwindGraph::new(function, "P10 MIR optimization")
+        .expect("optimization consumes verified exception regions");
+    let mut seen = HashSet::new();
+    let mut pending = vec![function.entry];
+    while let Some(id) = pending.pop() {
+        if seen.insert(id) {
+            pending.extend(graph.successors(id).iter().copied());
+        }
+    }
+    seen
 }
 
 fn reachable_with(

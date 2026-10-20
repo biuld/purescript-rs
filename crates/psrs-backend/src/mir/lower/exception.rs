@@ -137,8 +137,10 @@ impl FunctionLowerer<'_> {
             block,
             Terminator::Try {
                 protected: protected_block,
-                catches: Vec::new(),
-                catch_all: Some(handler_block),
+                continuation: Some(join),
+                clauses: vec![crate::mir::CatchClause::CatchAll {
+                    target: handler_block,
+                }],
                 span,
             },
             span,

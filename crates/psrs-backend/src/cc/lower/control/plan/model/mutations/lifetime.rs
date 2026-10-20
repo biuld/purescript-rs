@@ -132,16 +132,16 @@ fn run_cannot_omit_normal_root_cleanup_or_publish_an_unrelated_result() {
                     value: Operand::Param(0),
                 };
             } else {
-                let close = ops
-                    .iter_mut()
-                    .find(|op| matches!(op, Op::CloseBoundary { .. }))
-                    .unwrap();
-                let Op::CloseBoundary { extent } = close else {
-                    unreachable!()
-                };
-                *close = Op::CheckBoundary {
-                    extent: extent.clone(),
-                };
+                assert!(edit_ops(ops, &mut |op| {
+                    if let Op::CloseBoundary { extent } = op {
+                        *op = Op::CheckBoundary {
+                            extent: extent.clone(),
+                        };
+                        true
+                    } else {
+                        false
+                    }
+                }));
             }
         });
     }

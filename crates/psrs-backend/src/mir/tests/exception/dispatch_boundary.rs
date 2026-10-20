@@ -78,8 +78,8 @@ fn try_blocks() -> Vec<BasicBlock> {
             vec![],
             Terminator::Try {
                 protected: BlockId(4),
-                catches: Vec::new(),
-                catch_all: Some(BlockId(5)),
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(5) }],
                 span: at(51),
             },
         ),

@@ -14,6 +14,7 @@ pub(super) enum Flow {
 pub(super) struct Interpreter {
     pub heap: Heap,
     pub actions: HashSet<ActionId>,
+    pub exceptional_actions: HashSet<crate::control::execution::ExceptionalAction>,
     pub plans: HashMap<Program, Rc<Exec>>,
     fuel: usize,
 }
@@ -58,6 +59,7 @@ impl Interpreter {
             heap,
             plans,
             actions: HashSet::new(),
+            exceptional_actions: HashSet::new(),
             fuel: 100_000,
         }
     }

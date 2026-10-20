@@ -10,6 +10,7 @@ mod capability;
 mod discharge;
 mod dispatch_boundary;
 mod execution;
+mod references;
 mod regions;
 mod structuring;
 mod tail;
@@ -139,8 +140,11 @@ fn try_and_throw_terminators_expose_the_documented_fields() {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(1),
-                        catches: vec![(TagId(0), BlockId(2))],
-                        catch_all: None,
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::Catch {
+                            tag: TagId(0),
+                            target: BlockId(2),
+                        }],
                         span: at(10),
                     },
                 ),
@@ -174,16 +178,21 @@ fn try_and_throw_terminators_expose_the_documented_fields() {
     let function = &module.functions[0];
     let Terminator::Try {
         protected,
-        catches,
-        catch_all,
+        clauses,
         span,
+        ..
     } = terminator(&function.blocks[0])
     else {
         panic!("the entry terminator is a Try");
     };
     assert_eq!(*protected, BlockId(1));
-    assert_eq!(*catches, vec![(TagId(0), BlockId(2))]);
-    assert_eq!(*catch_all, None);
+    assert_eq!(
+        *clauses,
+        vec![crate::mir::CatchClause::Catch {
+            tag: TagId(0),
+            target: BlockId(2)
+        }]
+    );
     assert_eq!(*span, at(10));
 
     let Terminator::Throw {
@@ -333,8 +342,8 @@ fn rejects_a_try_naming_a_missing_block() {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(9),
-                        catches: vec![],
-                        catch_all: Some(BlockId(1)),
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(1) }],
                         span: at(10),
                     },
                 ),
@@ -372,8 +381,8 @@ fn rejects_a_try_naming_a_missing_block() {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(1),
-                        catches: vec![],
-                        catch_all: Some(BlockId(9)),
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(9) }],
                         span: at(12),
                     },
                 ),

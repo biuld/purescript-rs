@@ -68,6 +68,11 @@ fn flatten(shape: &Shape) -> BTreeSet<(Family, u32)> {
 }
 
 fn collect(shape: &Shape, set: &mut BTreeSet<(Family, u32)>) {
+    if let Shape::Sequence(shapes) = shape {
+        for shape in shapes {
+            collect(shape, set);
+        }
+    }
     if let Shape::Switch(family, arms) = shape {
         for (tag, arm) in arms {
             set.insert((*family, *tag));

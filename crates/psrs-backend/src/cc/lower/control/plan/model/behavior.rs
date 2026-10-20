@@ -447,3 +447,48 @@ fn bounded_replay_preserves_order_sharing_freshness_and_three_extent_roles() {
         }
     }
 }
+
+#[test]
+fn channel_abort_closes_the_runner_root_and_consumes_acquired_owners() {
+    let mut f = Fixture::new();
+    let Object::Function { result, .. } = &mut f.heap.objects[f.callback] else {
+        unreachable!()
+    };
+    *result = Err(Fault::Channel(73));
+    let computation = f.heap.node(Node::OwnedResume(f.owner, f.answer));
+    let mut interpreter = Interpreter::new(f.heap.clone());
+    assert_eq!(
+        assert_matches(
+            &mut interpreter,
+            &f.heap,
+            Program::Run,
+            vec![f.state, f.handler, computation]
+        ),
+        Err(Fault::Channel(73))
+    );
+    let Node::Owner { callback, status } = interpreter.heap.get_node(f.owner).unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(interpreter.heap.status(status).unwrap(), 2);
+    assert_eq!(interpreter.heap.callback(callback).unwrap(), status);
+    // The newly allocated runner root is closed; roots that predate this run stay live.
+    let roots = interpreter.heap.objects[f.heap.objects.len()..]
+        .iter()
+        .filter_map(|object| {
+            if let Object::Node(Node::RootExtent(cell)) = object {
+                Some(*cell)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        interpreter.exceptional_actions,
+        std::collections::HashSet::from([
+            crate::control::execution::ExceptionalAction::AcquiredCallbackExit,
+            crate::control::execution::ExceptionalAction::RunAbort,
+        ])
+    );
+    assert_eq!(roots.len(), 1);
+    assert_eq!(interpreter.heap.status(roots[0]).unwrap(), 1);
+}

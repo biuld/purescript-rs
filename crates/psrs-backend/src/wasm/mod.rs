@@ -159,6 +159,8 @@ pub enum CatchClause {
     /// `catch_all $label`: any exception is delivered to the label, which
     /// must therefore take no arguments.
     CatchAll { label: u32 },
+    /// Delivers the original exception as one non-null exception reference.
+    CatchAllRef { label: u32 },
 }
 
 /// A module-local exception tag. The tag attribute is always 0 (exception),

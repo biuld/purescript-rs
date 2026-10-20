@@ -163,6 +163,14 @@ pub(super) fn verify_instruction(
             let ValueType::Ref(operand) = require_value(definitions, *value, *span)? else {
                 return Err(mir_error(*span, "MIR ref.test operand must be a reference"));
             };
+            if operand.heap == crate::types::HeapType::Exn
+                || reference.heap == crate::types::HeapType::Exn
+            {
+                return Err(mir_error(
+                    *span,
+                    "MIR exception references do not support aggregate casts or tests",
+                ));
+            }
             if !super::subtype::heap_related(operand.heap, reference.heap, defined) {
                 return Err(mir_error(
                     *span,
@@ -183,6 +191,14 @@ pub(super) fn verify_instruction(
             let ValueType::Ref(operand) = require_value(definitions, *value, *span)? else {
                 return Err(mir_error(*span, "MIR ref.cast operand must be a reference"));
             };
+            if operand.heap == crate::types::HeapType::Exn
+                || reference.heap == crate::types::HeapType::Exn
+            {
+                return Err(mir_error(
+                    *span,
+                    "MIR exception references do not support aggregate casts or tests",
+                ));
+            }
             if !super::subtype::heap_related(operand.heap, reference.heap, defined) {
                 return Err(mir_error(
                     *span,

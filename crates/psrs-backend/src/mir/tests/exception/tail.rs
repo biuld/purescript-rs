@@ -17,8 +17,8 @@ fn mark_tail_keeps_a_protected_region_call_an_ordinary_call() {
                 vec![],
                 Terminator::Try {
                     protected: BlockId(1),
-                    catches: vec![],
-                    catch_all: Some(BlockId(2)),
+                    continuation: None,
+                    clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(2) }],
                     span: at(10),
                 },
             ),

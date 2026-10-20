@@ -1,28 +1,21 @@
-use crate::mir::{BasicBlock, BlockId};
+use crate::mir::BlockId;
 use std::collections::{HashMap, HashSet};
-
-use super::successors;
 
 pub(super) fn has_irreducible_component(
     entry: BlockId,
     reachable: &[BlockId],
     predecessors: &HashMap<BlockId, HashSet<BlockId>>,
-    blocks: &HashMap<BlockId, &BasicBlock>,
+    graph: &crate::mir::unwind::UnwindGraph,
 ) -> bool {
     let reachable_set = reachable.iter().copied().collect::<HashSet<_>>();
     let successors = reachable
         .iter()
         .copied()
         .map(|block_id| {
-            let next = blocks
-                .get(&block_id)
-                .and_then(|block| block.terminator.as_ref())
-                .map(|terminator| {
-                    successors(terminator)
-                        .into_iter()
-                        .chain(super::unwind_only_successors(terminator))
-                })
-                .unwrap_or_default()
+            let next = graph
+                .successors(block_id)
+                .iter()
+                .copied()
                 .filter(|target| reachable_set.contains(target))
                 .collect::<Vec<_>>();
             (block_id, next)

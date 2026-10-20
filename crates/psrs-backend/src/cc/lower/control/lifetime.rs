@@ -144,6 +144,29 @@ impl Machine<'_> {
         self.call(function, vec![boundary], body)
     }
 
+    pub(super) fn close_boundary_inline(
+        &mut self,
+        boundary: ValueId,
+        body: &mut Vec<Assignment>,
+    ) -> ValueId {
+        let cases = ExtentCase::ALL
+            .into_iter()
+            .map(|case| {
+                let mut branch = Vec::new();
+                let cell = self.field(
+                    boundary,
+                    self.layout.boundary,
+                    case.tag(),
+                    crate::control::schema::extent::STATUS,
+                    &mut branch,
+                );
+                self.set_status(cell, 1, &mut branch);
+                arm(case.tag(), branch, boundary)
+            })
+            .collect();
+        self.switch(boundary, self.layout.boundary, cases, body)
+    }
+
     pub(super) fn start_boundary(mut self) -> Function {
         let program = super::plan::build(super::plan::Program::Start);
         let mut body = Vec::new();

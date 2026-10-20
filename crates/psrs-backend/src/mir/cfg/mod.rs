@@ -124,7 +124,7 @@ pub(crate) fn reachable_without(
 pub(crate) fn successors(terminator: &Terminator) -> Vec<BlockId> {
     match terminator {
         Terminator::Return { .. } | Terminator::Trap { .. } => Vec::new(),
-        Terminator::Throw { .. } => Vec::new(),
+        Terminator::Throw { .. } | Terminator::ThrowRef { .. } => Vec::new(),
         Terminator::Try { protected, .. } => vec![*protected],
         Terminator::Jump { target, .. } => vec![*target],
         Terminator::Branch {
@@ -152,10 +152,15 @@ pub(crate) fn unwind_successors(terminator: &Terminator) -> Vec<BlockId> {
     let mut next = successors(terminator);
     match terminator {
         Terminator::Try {
-            catches, catch_all, ..
+            clauses,
+            continuation,
+            ..
         } => {
-            next.extend(catches.iter().map(|(_, handler)| *handler));
-            next.extend(catch_all);
+            next.extend(clauses.iter().map(|clause| clause.target()));
+            // A semantic region-exit summary, not a direct runtime branch.
+            // It keeps the normal continuation outside protection even when
+            // every catch diverges, and retains an otherwise dead exit marker.
+            next.extend(continuation);
         }
         Terminator::Throw {
             handler: Some(handler),
@@ -229,6 +234,7 @@ pub(crate) fn join_blocks(function: &Function) -> HashSet<BlockId> {
             Terminator::Trap { .. }
             | Terminator::Return { .. }
             | Terminator::Jump { .. }
+            | Terminator::ThrowRef { .. }
             | Terminator::Throw { .. }
             | Terminator::Try { .. }
             | Terminator::ReturnCall { .. }
@@ -301,7 +307,7 @@ pub(crate) fn dominators_from(
     entry: BlockId,
     stop: Option<BlockId>,
 ) -> HashMap<BlockId, HashSet<BlockId>> {
-    dominators_with(function, entry, stop, successors)
+    dominators_with(function, entry, stop, |_, term| successors(term))
 }
 
 /// Dominance over the CFG that includes unwind edges — the try-region
@@ -310,15 +316,25 @@ pub(crate) fn dominators_from(
 /// entry alone.
 pub(crate) fn dominators_with_unwind_edges(
     function: &Function,
-) -> HashMap<BlockId, HashSet<BlockId>> {
-    dominators_with(function, function.entry, None, unwind_successors)
+) -> Result<HashMap<BlockId, HashSet<BlockId>>, Vec<crate::BackendError>> {
+    let graph = super::unwind::UnwindGraph::new(function, "P9 MIR verification")?;
+    Ok(dominators_with(function, function.entry, None, |id, _| {
+        graph.successors(id).to_vec()
+    }))
+}
+
+/// Conservative seed edges avoid a recursion through region discovery.
+pub(crate) fn region_dominators(function: &Function) -> HashMap<BlockId, HashSet<BlockId>> {
+    dominators_with(function, function.entry, None, |_, term| {
+        unwind_successors(term)
+    })
 }
 
 fn dominators_with(
     function: &Function,
     entry: BlockId,
     stop: Option<BlockId>,
-    edge_successors: impl Fn(&Terminator) -> Vec<BlockId>,
+    edge_successors: impl Fn(BlockId, &Terminator) -> Vec<BlockId>,
 ) -> HashMap<BlockId, HashSet<BlockId>> {
     let blocks = function
         .blocks
@@ -332,7 +348,7 @@ fn dominators_with(
             continue;
         }
         if let Some(terminator) = blocks.get(&id).and_then(|block| block.terminator.as_ref()) {
-            pending.extend(edge_successors(terminator));
+            pending.extend(edge_successors(id, terminator));
         }
     }
     let all = reachable.iter().copied().collect::<HashSet<_>>();
@@ -345,7 +361,7 @@ fn dominators_with(
         let Some(terminator) = blocks.get(id).and_then(|block| block.terminator.as_ref()) else {
             continue;
         };
-        for successor in edge_successors(terminator) {
+        for successor in edge_successors(*id, terminator) {
             if let Some(preds) = predecessors.get_mut(&successor) {
                 preds.insert(*id);
             }
@@ -393,93 +409,4 @@ fn dominators_with(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mir::Terminator;
-    use crate::types::ValueId;
-    use psrs_span::TextRange;
-
-    fn span() -> TextRange {
-        TextRange::new(0, 1)
-    }
-
-    fn block(id: u32, parameters: Vec<u32>, terminator: Terminator) -> BasicBlock {
-        BasicBlock {
-            id: BlockId(id),
-            parameters: parameters.into_iter().map(ValueId).collect(),
-            instructions: Vec::new(),
-            terminator: Some(terminator),
-        }
-    }
-
-    fn branch(then_block: u32, else_block: u32) -> Terminator {
-        Terminator::Branch {
-            condition: ValueId(0),
-            then_block: BlockId(then_block),
-            else_block: BlockId(else_block),
-            span: span(),
-        }
-    }
-
-    fn jump(target: u32) -> Terminator {
-        Terminator::Jump {
-            target: BlockId(target),
-            arguments: Vec::new(),
-            span: span(),
-        }
-    }
-
-    fn return_empty() -> Terminator {
-        Terminator::Return {
-            value: ValueId(0),
-            span: span(),
-        }
-    }
-
-    #[test]
-    fn derives_a_diamond_join_from_the_edges() {
-        let blocks = vec![
-            block(0, vec![], branch(1, 2)),
-            block(1, vec![], jump(3)),
-            block(2, vec![], jump(3)),
-            block(3, vec![7], return_empty()),
-        ];
-        assert_eq!(
-            common_join(&blocks, &[BlockId(1), BlockId(2)]),
-            Some(BlockId(3))
-        );
-    }
-
-    #[test]
-    fn derives_the_nearest_common_join() {
-        // B0 -> {B1, B2}; B1 -> {B3, B4} -> B5; B2 -> B6; B5 -> B6.
-        // The inner join B5 is not reachable from B2, so the outer join is B6.
-        let blocks = vec![
-            block(0, vec![], branch(1, 2)),
-            block(1, vec![], branch(3, 4)),
-            block(2, vec![], jump(6)),
-            block(3, vec![], jump(5)),
-            block(4, vec![], jump(5)),
-            block(5, vec![8], jump(6)),
-            block(6, vec![9], return_empty()),
-        ];
-        assert_eq!(
-            common_join(&blocks, &[BlockId(3), BlockId(4)]),
-            Some(BlockId(5))
-        );
-        assert_eq!(
-            common_join(&blocks, &[BlockId(1), BlockId(2)]),
-            Some(BlockId(6))
-        );
-    }
-
-    #[test]
-    fn reports_no_join_when_arms_terminate_independently() {
-        let blocks = vec![
-            block(0, vec![], branch(1, 2)),
-            block(1, vec![], return_empty()),
-            block(2, vec![], return_empty()),
-        ];
-        assert_eq!(common_join(&blocks, &[BlockId(1), BlockId(2)]), None);
-    }
-}
+mod tests;

@@ -22,6 +22,7 @@ mod reachable;
 mod runtime;
 mod tag;
 pub(crate) mod try_region;
+pub(crate) mod unwind;
 mod value_identity;
 mod verify;
 mod wit;
@@ -184,14 +185,45 @@ pub enum Terminator {
         handler: Option<BlockId>,
         span: TextRange,
     },
+    /// Propagates an opaque, non-null caught exception.
+    ThrowRef {
+        exception: ValueId,
+        span: TextRange,
+    },
     /// Arms a protected region: control proceeds to `protected` as a
     /// parameterless `Jump` would; catch clauses declare unwind behavior.
     Try {
         protected: BlockId,
-        catches: Vec<(TagId, BlockId)>,
-        catch_all: Option<BlockId>,
+        /// The normal continuation is outside protection even when a diverging
+        /// catch cannot reach it. None protects through the native exit.
+        continuation: Option<BlockId>,
+        clauses: Vec<CatchClause>,
         span: TextRange,
     },
+}
+
+/// Ordered native exception clauses. Catch-all clauses must be last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatchClause {
+    Catch { tag: TagId, target: BlockId },
+    CatchAll { target: BlockId },
+    CatchAllRef { target: BlockId },
+}
+
+impl CatchClause {
+    pub fn target(self) -> BlockId {
+        match self {
+            Self::Catch { target, .. }
+            | Self::CatchAll { target }
+            | Self::CatchAllRef { target } => target,
+        }
+    }
+    pub fn matches(self, tag: TagId) -> bool {
+        match self {
+            Self::Catch { tag: caught, .. } => caught == tag,
+            Self::CatchAll { .. } | Self::CatchAllRef { .. } => true,
+        }
+    }
 }
 
 /// Lowers a CC module to MIR, returning the module and the ABI registry that

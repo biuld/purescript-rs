@@ -18,8 +18,8 @@ fn every_try_table_carries_the_watermark_save_and_restore() {
     fn try_blocks(protected: BlockId, catch: BlockId) -> Terminator {
         Terminator::Try {
             protected,
-            catches: Vec::new(),
-            catch_all: Some(catch),
+            continuation: None,
+            clauses: vec![crate::mir::CatchClause::CatchAll { target: catch }],
             span: at(10),
         }
     }

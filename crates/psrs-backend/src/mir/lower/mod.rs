@@ -19,6 +19,7 @@ mod assignment_string;
 mod assignments;
 mod conversion_helpers;
 mod exception;
+mod protect;
 mod record_call;
 mod runtime_call;
 mod storage_call;

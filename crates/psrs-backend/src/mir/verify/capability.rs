@@ -67,8 +67,11 @@ pub(super) fn validate_target_capabilities(
             {
                 required.tail_call = true;
             }
-            if let Some(mir::Terminator::Throw { .. } | mir::Terminator::Try { .. }) =
-                &block.terminator
+            if let Some(
+                mir::Terminator::ThrowRef { .. }
+                | mir::Terminator::Throw { .. }
+                | mir::Terminator::Try { .. },
+            ) = &block.terminator
             {
                 required.exceptions = true;
             }
@@ -149,6 +152,7 @@ fn mark_reference_type(reference: crate::types::RefType, required: &mut Required
         | HeapType::Struct
         | HeapType::Array
         | HeapType::Index(_) => required.gc = true,
+        HeapType::Exn => required.exceptions = true,
         HeapType::Extern => {}
     }
 }

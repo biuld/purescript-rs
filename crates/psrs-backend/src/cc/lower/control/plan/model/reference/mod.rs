@@ -31,9 +31,14 @@ impl<'a> Reference<'a> {
                 let mut current = vec![*state, *handler, *computation, empty, root, context];
                 let result = loop {
                     let args: [Value; 6] = current.try_into().map_err(|_| Fault::InvalidModel)?;
-                    match self.step(args)? {
-                        Step::Advance(next) => current = next,
-                        Step::Publish(result) => break result,
+                    match self.step(args) {
+                        Ok(Step::Advance(next)) => current = next,
+                        Ok(Step::Publish(result)) => break result,
+                        Err(error @ Fault::Channel(_)) => {
+                            self.close(root)?;
+                            return Err(error);
+                        }
+                        Err(error) => return Err(error),
                         _ => return Err(Fault::InvalidModel),
                     }
                 };

@@ -127,14 +127,20 @@ impl TryContext {
 /// with no clauses arms nothing and emits no handler.
 fn uniform_clauses(region: &try_region::TryRegion, tags: &[Tag]) -> Option<UniformClauses> {
     let mut projected = Vec::new();
-    for (tag_id, handler) in &region.catches {
-        let payload = tags
-            .get(tag_id.0 as usize)
-            .and_then(|tag| tag.payload.first().copied());
-        projected.push((payload, *handler));
-    }
-    if let Some(handler) = region.catch_all {
-        projected.push((None, handler));
+    for clause in &region.clauses {
+        let payload = match clause {
+            crate::mir::CatchClause::Catch { tag, .. } => tags
+                .get(tag.0 as usize)
+                .and_then(|tag| tag.payload.first().copied()),
+            crate::mir::CatchClause::CatchAll { .. } => None,
+            crate::mir::CatchClause::CatchAllRef { .. } => {
+                Some(ValueType::Ref(crate::types::RefType {
+                    nullable: false,
+                    heap: crate::types::HeapType::Exn,
+                }))
+            }
+        };
+        projected.push((payload, clause.target()));
     }
     let mut clauses = projected.iter();
     let first = *clauses.next()?;

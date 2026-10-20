@@ -96,7 +96,11 @@ impl Reference<'_> {
                 self.heap.set_status(status, 1)?;
                 let callback_value = self.heap.callback(callback)?;
                 self.heap.set_callback(callback, status)?;
-                state[2] = self.apply(callback_value, vec![value])?;
+                let result = self.apply(callback_value, vec![value]);
+                if matches!(result, Err(Fault::Channel(_))) {
+                    self.heap.set_status(status, 2)?;
+                }
+                state[2] = result?;
                 self.heap.set_status(status, 2)?;
             }
             _ => return Err(Fault::InvalidModel),

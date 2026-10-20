@@ -65,17 +65,23 @@ impl Structurer<'_> {
         // `0` is the synthesized unwind block immediately enclosing it.
         let mut clauses = Vec::new();
         if let Some(Terminator::Try {
-            catches, catch_all, ..
+            clauses: mir_clauses,
+            ..
         }) = &block.terminator
         {
-            for (tag_id, _) in catches {
-                clauses.push(crate::wasm::CatchClause::Catch {
-                    tag: TagIndex(tag_id.0),
-                    label: 0,
+            for clause in mir_clauses {
+                clauses.push(match clause {
+                    crate::mir::CatchClause::Catch { tag, .. } => crate::wasm::CatchClause::Catch {
+                        tag: TagIndex(tag.0),
+                        label: 0,
+                    },
+                    crate::mir::CatchClause::CatchAll { .. } => {
+                        crate::wasm::CatchClause::CatchAll { label: 0 }
+                    }
+                    crate::mir::CatchClause::CatchAllRef { .. } => {
+                        crate::wasm::CatchClause::CatchAllRef { label: 0 }
+                    }
                 });
-            }
-            if catch_all.is_some() {
-                clauses.push(crate::wasm::CatchClause::CatchAll { label: 0 });
             }
         }
 

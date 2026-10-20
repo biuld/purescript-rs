@@ -78,9 +78,10 @@ impl ControlFlowPlan {
         // verifier and tail-call marking. Fails for malformed unwind edges;
         // those are already diagnosed at P9.
         let try_regions = try_region::plan(function, "P10 Wasm structuring")?;
-        let reachable = reachable_blocks(function.entry, blocks, function.span)?;
-        let predecessors = predecessors(&reachable, blocks);
-        if has_irreducible_component(function.entry, &reachable, &predecessors, blocks) {
+        let graph = crate::mir::unwind::UnwindGraph::with_regions(function, &try_regions);
+        let reachable = reachable_blocks(function.entry, blocks, function.span, &graph)?;
+        let predecessors = predecessors(&reachable, blocks, &graph);
+        if has_irreducible_component(function.entry, &reachable, &predecessors, &graph) {
             // EH-11: the dispatcher's state machine cannot arm a try_table.
             if let Some(region) = try_regions.regions.first() {
                 return Err(wasm_error(
@@ -124,6 +125,7 @@ fn reachable_blocks(
     entry: BlockId,
     blocks: &HashMap<BlockId, &BasicBlock>,
     span: psrs_span::TextRange,
+    graph: &crate::mir::unwind::UnwindGraph,
 ) -> Result<Vec<BlockId>, Vec<BackendError>> {
     if !blocks.contains_key(&entry) {
         return Err(wasm_error(span, "MIR entry block does not exist"));
@@ -147,36 +149,17 @@ fn reachable_blocks(
         // follows the unwind edges as well as the normal ones. Try-free
         // terminators have no unwind edges, so this is the same walk as
         // before for them.
-        let mut next = successors(terminator);
-        next.extend(unwind_only_successors(terminator));
-        pending.extend(next.into_iter().rev());
+        let _ = terminator;
+        pending.extend(graph.successors(block_id).iter().rev().copied());
     }
     reachable.sort_by_key(|block| block.0);
     Ok(reachable)
 }
 
-/// The unwind edges alone, so the region plan's walk can follow the catch
-/// paths without re-listing the normal successors.
-pub(super) fn unwind_only_successors(terminator: &Terminator) -> Vec<BlockId> {
-    match terminator {
-        Terminator::Try {
-            catches, catch_all, ..
-        } => catches
-            .iter()
-            .map(|(_, handler)| *handler)
-            .chain(catch_all.iter().copied())
-            .collect(),
-        Terminator::Throw {
-            handler: Some(handler),
-            ..
-        } => vec![*handler],
-        _ => Vec::new(),
-    }
-}
-
 fn predecessors(
     reachable: &[BlockId],
     blocks: &HashMap<BlockId, &BasicBlock>,
+    graph: &crate::mir::unwind::UnwindGraph,
 ) -> HashMap<BlockId, HashSet<BlockId>> {
     let reachable_set = reachable.iter().copied().collect::<HashSet<_>>();
     let mut result = reachable
@@ -191,10 +174,8 @@ fn predecessors(
         else {
             continue;
         };
-        for target in successors(terminator)
-            .into_iter()
-            .chain(unwind_only_successors(terminator))
-        {
+        let _ = terminator;
+        for target in graph.successors(*source).iter().copied() {
             if reachable_set.contains(&target) {
                 result.entry(target).or_default().insert(*source);
             }
@@ -336,6 +317,7 @@ fn block_span(block: &BasicBlock, fallback: psrs_span::TextRange) -> psrs_span::
             | Terminator::Switch { span, .. }
             | Terminator::ReturnCall { span, .. }
             | Terminator::ReturnCallRef { span, .. }
+            | Terminator::ThrowRef { span, .. }
             | Terminator::Throw { span, .. }
             | Terminator::Try { span, .. } => *span,
         })

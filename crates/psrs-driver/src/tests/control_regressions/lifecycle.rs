@@ -22,6 +22,13 @@ fn visit(body: &mut [Assignment], mutation: &mut impl FnMut(&mut A) -> bool) -> 
                     return true;
                 }
             }
+            A::Protect { body, handler, .. } => {
+                if visit(&mut body.assignments, mutation)
+                    || visit(&mut handler.assignments, mutation)
+                {
+                    return true;
+                }
+            }
             A::If {
                 then_assignments,
                 else_assignments,

@@ -199,16 +199,18 @@ fn discharges_a_check_throws_call_into_the_inline_try_region() {
     // the Boolean through the assignment's destination parameter.
     let Terminator::Try {
         protected,
-        catches,
-        catch_all,
+        clauses,
         span,
+        ..
     } = main.blocks[0].terminator.as_ref().expect("terminated")
     else {
         panic!("the entry terminator is the discharged Try");
     };
     assert_eq!(*protected, BlockId(1));
-    assert_eq!(*catches, Vec::<(TagId, BlockId)>::new());
-    assert_eq!(*catch_all, Some(BlockId(2)));
+    assert_eq!(
+        *clauses,
+        vec![crate::mir::CatchClause::CatchAll { target: BlockId(2) }]
+    );
     assert_eq!(*span, at(0));
     // Both paths join on the shared block whose parameter is the destination.
     let jump = |block: &crate::mir::BasicBlock| match &block.terminator {

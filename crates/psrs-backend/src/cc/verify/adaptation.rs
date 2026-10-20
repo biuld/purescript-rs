@@ -25,6 +25,12 @@ pub(super) fn verify_erased_adaptation(
             "representation adaptation requires a reference operand",
         ));
     };
+    if source.heap == RefShape::Exception || target.heap == RefShape::Exception {
+        return Err(assignment_error(
+            assignment,
+            "exception references cannot cross source payload erasure",
+        ));
+    }
     if source.heap == target.heap {
         return Ok(());
     }

@@ -7,13 +7,13 @@
 //! The protected region of a `Try` (try block `t`, protected entry `p`) is the
 //! set of blocks dominated by `p` over the normal CFG — the `Try` terminator
 //! contributes the ordinary edge `t -> p` — minus the protected regions of
-//! inner tries, minus every handler block. Dominance is a tree order, so raw
+//! inner tries, minus the region's own handler blocks. Dominance is a tree order, so raw
 //! regions are nested or disjoint by construction; the carve-out turns nested
 //! raw regions into sibling claims. The verifier's nesting check guards that
 //! invariant.
 
 use super::cfg;
-use super::{BlockId, Function, Terminator};
+use super::{BlockId, CatchClause, Function, Terminator};
 use crate::BackendError;
 use crate::mir::tag::TagId;
 use psrs_span::TextRange;
@@ -26,8 +26,7 @@ pub(crate) struct TryRegion {
     pub try_block: BlockId,
     /// The first protected block; control enters it normally from `try_block`.
     pub entry: BlockId,
-    pub catches: Vec<(TagId, BlockId)>,
-    pub catch_all: Option<BlockId>,
+    pub clauses: Vec<CatchClause>,
     /// Blocks dominated by `entry`, minus the protected regions of inner
     /// tries, minus every handler block.
     pub protected: HashSet<BlockId>,
@@ -43,21 +42,15 @@ pub(crate) struct TryRegion {
 impl TryRegion {
     /// Every clause handler, in clause order plus `catch_all`.
     pub(crate) fn handlers(&self) -> Vec<BlockId> {
-        self.catches
-            .iter()
-            .map(|(_, handler)| *handler)
-            .chain(self.catch_all)
-            .collect()
+        self.clauses.iter().map(|clause| clause.target()).collect()
     }
 
-    /// The handler the region assigns to a throw with `tag`: the matching
-    /// tag clause's handler, else the `catch_all` handler, else `None`.
+    /// The first matching clause in this region.
     pub(crate) fn matching_handler(&self, tag: TagId) -> Option<BlockId> {
-        self.catches
+        self.clauses
             .iter()
-            .find(|(clause_tag, _)| *clause_tag == tag)
-            .map(|(_, handler)| *handler)
-            .or(self.catch_all)
+            .find(|clause| clause.matches(tag))
+            .map(|clause| clause.target())
     }
 }
 
@@ -75,6 +68,18 @@ pub(crate) struct TryRegions {
 }
 
 impl TryRegions {
+    /// Native catches active at a block, innermost first. Inner handler bodies
+    /// remain inside outer raw regions but outside their owning Try.
+    pub(crate) fn enclosing(&self, block: BlockId) -> Vec<&TryRegion> {
+        let mut regions = self
+            .regions
+            .iter()
+            .filter(|region| region.raw.contains(&block) && !region.handlers().contains(&block))
+            .collect::<Vec<_>>();
+        regions.sort_by_key(|region| region.raw.len());
+        regions
+    }
+
     /// The region whose terminator is the given try block.
     pub(crate) fn region(&self, try_block: BlockId) -> Option<&TryRegion> {
         self.regions
@@ -125,7 +130,9 @@ pub(crate) fn plan(
     let mut conflicts = Vec::new();
     for (try_block, terminator, span) in &tries {
         for handler in clause_handlers(terminator) {
-            if owners.insert(handler, *try_block).is_some() {
+            if let Some(owner) = owners.insert(handler, *try_block)
+                && owner != *try_block
+            {
                 conflicts.push((handler, *span));
             }
         }
@@ -137,13 +144,26 @@ pub(crate) fn plan(
     for (try_block, terminator, span) in &tries {
         let Terminator::Try {
             protected,
-            catches,
-            catch_all,
+            continuation,
+            clauses,
             ..
         } = terminator
         else {
             continue;
         };
+        if continuation.is_some_and(|exit| {
+            !blocks.contains_key(&exit)
+                || exit == *try_block
+                || exit == *protected
+                || clause_handlers(terminator).contains(&exit)
+        }) {
+            errors.push(invalid(
+                pass,
+                *span,
+                "MIR try normal continuation is missing or lies inside its entry/handlers",
+            ));
+            continue;
+        }
         if !blocks.contains_key(protected) {
             errors.push(invalid(
                 pass,
@@ -163,20 +183,20 @@ pub(crate) fn plan(
             ));
             continue;
         }
-        valid.push((*try_block, *protected, catches.clone(), *catch_all, *span));
+        valid.push((*try_block, *protected, clauses.clone(), *span));
     }
 
     // Dominance over the CFG that includes unwind edges (the design's
     // invariant section rechecks the partition on that CFG): the handler edge
     // keeps a join shared by the protected and catch paths out of the raw
     // dominated set, so the region protects only what the `try_table` covers.
-    let dominators = cfg::dominators_with_unwind_edges(function);
+    let dominators = cfg::region_dominators(function);
     // Raw regions: blocks dominated by the protected entry. Innermost first
     // (the stable sort keeps declaration order for equal sizes), so the
     // carve-out below always sees an inner try's final claim.
     let mut ordered = valid
         .iter()
-        .map(|(try_block, entry, catches, catch_all, span)| {
+        .map(|(try_block, entry, clauses, span)| {
             let raw = function
                 .blocks
                 .iter()
@@ -187,14 +207,14 @@ pub(crate) fn plan(
                 })
                 .map(|block| block.id)
                 .collect::<HashSet<_>>();
-            (*try_block, *entry, catches.clone(), *catch_all, *span, raw)
+            (*try_block, *entry, clauses.clone(), *span, raw)
         })
         .collect::<Vec<_>>();
-    ordered.sort_by_key(|(_, _, _, _, _, raw)| raw.len());
+    ordered.sort_by_key(|(_, _, _, _, raw)| raw.len());
 
     let mut computed: Vec<(BlockId, HashSet<BlockId>)> = Vec::new();
     let mut regions = Vec::new();
-    for (try_block, entry, catches, catch_all, span, raw) in ordered {
+    for (try_block, entry, clauses, span, raw) in ordered {
         let mut protected = raw.clone();
         // Carve out every already-computed inner region's claim. Equal raw
         // sets are one region claimed by two tries; neither carves the other,
@@ -204,13 +224,12 @@ pub(crate) fn plan(
                 protected.retain(|block| !done.contains(block));
             }
         }
-        protected.retain(|block| !owners.contains_key(block));
+        protected.retain(|block| owners.get(block) != Some(&try_block));
         computed.push((try_block, protected.clone()));
         regions.push(TryRegion {
             try_block,
             entry,
-            catches,
-            catch_all,
+            clauses,
             protected,
             raw,
             span,
@@ -266,39 +285,6 @@ pub(crate) fn plan(
     }
 }
 
-/// The handler blocks named by any try clause, catch_all, or throw, without
-/// the partition's dominance work. Passes that must not drop handler blocks
-/// (reachability pruning) use this; the partition derives the same set from
-/// the clauses it plans.
-pub(crate) fn handler_closure(function: &Function) -> HashSet<BlockId> {
-    let mut handlers = HashSet::new();
-    for block in &function.blocks {
-        let Some(terminator) = &block.terminator else {
-            continue;
-        };
-        match terminator {
-            Terminator::Try {
-                catches, catch_all, ..
-            } => {
-                for (_, handler) in catches {
-                    handlers.insert(*handler);
-                }
-                if let Some(handler) = catch_all {
-                    handlers.insert(*handler);
-                }
-            }
-            Terminator::Throw {
-                handler: Some(handler),
-                ..
-            } => {
-                handlers.insert(*handler);
-            }
-            _ => {}
-        }
-    }
-    handlers
-}
-
 fn try_blocks(function: &Function) -> Vec<(BlockId, &Terminator, TextRange)> {
     function
         .blocks
@@ -311,20 +297,10 @@ fn try_blocks(function: &Function) -> Vec<(BlockId, &Terminator, TextRange)> {
 }
 
 fn clause_handlers(terminator: &Terminator) -> Vec<BlockId> {
-    let Terminator::Try {
-        catches, catch_all, ..
-    } = terminator
-    else {
-        return Vec::new();
-    };
-    let mut handlers = catches
-        .iter()
-        .map(|(_, handler)| *handler)
-        .collect::<Vec<_>>();
-    if let Some(handler) = catch_all {
-        handlers.push(*handler);
+    match terminator {
+        Terminator::Try { clauses, .. } => clauses.iter().map(|clause| clause.target()).collect(),
+        _ => Vec::new(),
     }
-    handlers
 }
 
 fn terminator_span(terminator: &Terminator) -> TextRange {
@@ -336,6 +312,7 @@ fn terminator_span(terminator: &Terminator) -> TextRange {
         | Terminator::Switch { span, .. }
         | Terminator::ReturnCall { span, .. }
         | Terminator::ReturnCallRef { span, .. }
+        | Terminator::ThrowRef { span, .. }
         | Terminator::Throw { span, .. }
         | Terminator::Try { span, .. } => *span,
     }

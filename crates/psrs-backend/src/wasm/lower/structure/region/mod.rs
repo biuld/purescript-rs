@@ -238,6 +238,14 @@ impl Structurer<'_> {
                 }
                 body.push(Op::Leaf(Instruction::Throw(tag.0)));
             }
+            Terminator::ThrowRef { exception, span } => {
+                body.push(Op::Leaf(Instruction::LocalGet(local(
+                    &self.locals,
+                    *exception,
+                    *span,
+                )?)));
+                body.push(Op::Leaf(Instruction::ThrowRef));
+            }
             // A `Try` terminator is always the try unit's own block, handled
             // by `emit_try_unit`; reaching this arm is invalid compiler IR.
             Terminator::Try { span, .. } => {

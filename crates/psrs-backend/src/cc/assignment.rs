@@ -184,6 +184,12 @@ pub enum AssignmentKind {
         default_assignments: Vec<Assignment>,
         default_value: ValueId,
     },
+    /// Generic native protection. The exception binder is scoped to handler.
+    Protect {
+        body: Region,
+        exception: ValueId,
+        handler: Region,
+    },
     /// An explicit trap result used by impossible decision-DAG edges.
     Unreachable,
 }
@@ -194,4 +200,17 @@ pub struct TagCase {
     pub tag: i32,
     pub assignments: Vec<Assignment>,
     pub value: ValueId,
+}
+
+/// A structured region with an explicit normal or exceptional exit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Region {
+    pub assignments: Vec<Assignment>,
+    pub exit: RegionExit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegionExit {
+    Yield(ValueId),
+    Propagate(ValueId),
 }

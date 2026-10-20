@@ -273,7 +273,7 @@ pub(super) fn reference_type<L: WitCallLowerer>(
             RefShape::Repr(repr) => HeapType::Index(lowerer.wit_repr_index(repr)?),
             RefShape::Aggregate => HeapType::Struct,
             RefShape::Erased => HeapType::Eq,
-            RefShape::Closure(_) => return None,
+            RefShape::Exception | RefShape::Closure(_) => return None,
         },
     })
 }

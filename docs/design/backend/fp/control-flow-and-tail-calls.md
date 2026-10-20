@@ -598,7 +598,7 @@ specific areas:
 
 - The `merge_block` hint has been removed. `Branch` carries only its condition
   and two targets, and the nearest common join is derived from the CFG edges.
-  The derivation lives in `mir/cfg.rs` (`common_join`, `join_blocks`) and is
+  The derivation lives in `mir/cfg/mod.rs` (`common_join`, `join_blocks`) and is
   used by analyses and optimizations such as the constant-parameter optimizer.
   It is not an emission precondition: the structurer emits every reducible
   block once and targets it by label, so no branch or switch needs a join.

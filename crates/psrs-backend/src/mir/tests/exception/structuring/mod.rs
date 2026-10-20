@@ -105,8 +105,8 @@ pub(super) fn nested_blocks() -> Vec<BasicBlock> {
             vec![],
             Terminator::Try {
                 protected: BlockId(1),
-                catches: Vec::new(),
-                catch_all: Some(BlockId(8)),
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(8) }],
                 span: at(10),
             },
         ),
@@ -116,8 +116,8 @@ pub(super) fn nested_blocks() -> Vec<BasicBlock> {
             vec![],
             Terminator::Try {
                 protected: BlockId(2),
-                catches: Vec::new(),
-                catch_all: Some(BlockId(3)),
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(3) }],
                 span: at(11),
             },
         ),
@@ -214,8 +214,11 @@ fn delivers_a_named_catch_payload_to_the_handler_parameter() {
             vec![],
             Terminator::Try {
                 protected: BlockId(1),
-                catches: vec![(TagId(0), BlockId(2))],
-                catch_all: None,
+                continuation: None,
+                clauses: vec![crate::mir::CatchClause::Catch {
+                    tag: TagId(0),
+                    target: BlockId(2),
+                }],
                 span: at(20),
             },
         ),

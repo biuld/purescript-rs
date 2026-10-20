@@ -53,7 +53,9 @@ pub(super) fn equivalent(
         (Ok(Step::Return(a)), Ok(Step::Return(b)))
         | (Ok(Step::Publish(a)), Ok(Step::Publish(b))) => compare.value(*a, *b),
         (Ok(Step::Advance(a)), Ok(Step::Advance(b))) => compare.values(a, b),
-        (Err(a), Err(b)) => a == b && matches!(a, Fault::Trap | Fault::CallbackTrap),
+        (Err(a), Err(b)) => {
+            a == b && matches!(a, Fault::Trap | Fault::CallbackTrap | Fault::Channel(_))
+        }
         _ => false,
     };
     result

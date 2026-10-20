@@ -15,8 +15,8 @@ fn rejects_a_handler_with_a_normal_predecessor() {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(1),
-                        catches: vec![],
-                        catch_all: Some(BlockId(2)),
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(2) }],
                         span: at(10),
                     },
                 ),
@@ -67,8 +67,11 @@ fn rejects_a_handler_claimed_by_two_try_regions() {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(1),
-                        catches: vec![(TagId(0), BlockId(4))],
-                        catch_all: None,
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::Catch {
+                            tag: TagId(0),
+                            target: BlockId(4),
+                        }],
                         span: at(10),
                     },
                 ),
@@ -88,8 +91,11 @@ fn rejects_a_handler_claimed_by_two_try_regions() {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(3),
-                        catches: vec![(TagId(0), BlockId(4))],
-                        catch_all: None,
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::Catch {
+                            tag: TagId(0),
+                            target: BlockId(4),
+                        }],
                         span: at(12),
                     },
                 ),
@@ -139,8 +145,8 @@ fn rejects_a_back_edge_targeting_a_try_block() {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(1),
-                        catches: vec![],
-                        catch_all: Some(BlockId(2)),
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(2) }],
                         span: at(10),
                     },
                 ),
@@ -199,8 +205,8 @@ fn rejects_a_forced_tail_call_in_a_protected_region() {
                     vec![],
                     Terminator::Try {
                         protected: BlockId(1),
-                        catches: vec![],
-                        catch_all: Some(BlockId(2)),
+                        continuation: None,
+                        clauses: vec![crate::mir::CatchClause::CatchAll { target: BlockId(2) }],
                         span: at(10),
                     },
                 ),

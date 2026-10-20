@@ -307,7 +307,7 @@ pub(in crate::mir) fn add_reference(
     match reference.heap {
         RefShape::Repr(id) => add_representation(id, representations, representation_work),
         RefShape::Closure(id) => add_signature(id, signatures, signature_work),
-        RefShape::Aggregate | RefShape::Erased => {}
+        RefShape::Exception | RefShape::Aggregate | RefShape::Erased => {}
     }
 }
 
