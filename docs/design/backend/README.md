@@ -59,6 +59,7 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 | [delimited-control-and-resumable-frames.md](fp/delimited-control-and-resumable-frames.md) | Effect-agnostic delimited control (`Control f a` with `return`/`bind`/`perform`/`run`), the design-space selection, handler interface and lifetime semantics (**Draft design**) | DEC-03, DEC-19, cc-ir, mir, control-flow-and-tail-calls, capability-profile |
 | [control-machine.md](fp/control-machine.md) | The compiler-generated continuation machine: node inventory, per-IR representation, lowering, flat driver and sequence replay (**Draft design**) | delimited control, control elimination, cc-ir, mir, data-representation |
 | [control-exception-bridge.md](fp/control-exception-bridge.md) | Native exception propagation through Control runners, exceptional root/owner cleanup, native charge invariants and generic CC/MIR contracts (**Draft design**) | control-machine, handler scopes, exception channel, DEC-21 |
+| [exceptions-as-effects.md](fp/exceptions-as-effects.md) | Typed abortive Except requests, labelled elimination, completion-before-recovery, handler order and explicit leaf-result adapters (**Stable contract; EE-01..EE-17 Verified**) | algebraic effects, handler scopes, control-machine, control-exception-bridge |
 | [native-effect-and-st-handlers.md](fp/native-effect-and-st-handlers.md) | Official Effect/ST facades, common native computation, typed storage/host handlers, and region safety (NE-01–NE-13 Verified 2026-10-16) | algebraic effects, delimited control, roles, rank-N, runtime linking |
 | [effects.md](fp/effects.md) | Effect representation and the platform boundary (**withdrawn 2026-10-11**; replacement is native Effect/ST) | functional-core |
 | [state-primitives-and-dependency-lowering.md](fp/state-primitives-and-dependency-lowering.md) | Primitive State semantics and cross-pass dependencies (**withdrawn 2026-10-11**) | primitive types, functional-core, CC, MIR |
@@ -103,3 +104,7 @@ Scope, Background, Model, Design, Algorithms, Code map, Invariants and
 verification, Worked example, Boundaries and interfaces, Open questions,
 References. Each document is a complete design and also a learning resource for
 readers with a functional-programming, WebAssembly, and compilers background.
+
+The synchronous official [Effect.Exception contract](fp/effect-exception.md)
+uses the native source-error tag; its [acceptance checklist](../../implementation/backend/effect-exception.md)
+tracks source fidelity, selective catch and public runtime evidence separately.

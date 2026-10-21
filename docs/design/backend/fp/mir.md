@@ -190,6 +190,16 @@ The shared try-region/unwind relation
 must own unknown-tag propagation; consumers may not invent a single handler
 for an opaque exception token.
 
+P9 may discharge a diverging provider call directly into a `Throw`
+terminator without defining the call's destination. Once a block is terminated,
+remaining assignments in that sequence are unreachable; normal function,
+branch, switch and protection exits must not append a return or jump to it.
+After constructing the complete function CFG, P9 resolves each local `Throw`'s
+handler using the shared try-region partition. `handler: None` means no
+enclosing clause catches the tag, including throws from a disarmed handler.
+The [throw-destination probe](../../../implementation/backend/effect-exception-probe-1.md)
+records the focused compilation and runtime evidence for this lowering.
+
 ### Instructions
 
 ```text

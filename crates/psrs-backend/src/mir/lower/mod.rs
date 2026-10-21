@@ -94,7 +94,7 @@ pub(super) fn lower_function(
         literals,
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
-    lowerer.set_terminator(
+    lowerer.terminate_if_open(
         end,
         Terminator::Return {
             value: source.result,
@@ -120,6 +120,18 @@ pub(super) fn lower_function(
     // EH-12: the weight formula reads the *lowered* function's local count —
     // P9's lowering may add fresh values beyond the CC source's.
     function.frame_weight = budget::frame_weight(function.parameters.len() + function.values.len());
+    // Region ownership is known only after the complete CFG exists. Resolve
+    // local throws through the same partition the verifier consumes; throws
+    // from a handler must not re-enter that handler's disarmed protection.
+    let regions = super::try_region::plan(&function, "P9 MIR lowering")?;
+    for block in &mut function.blocks {
+        if let Some(Terminator::Throw { tag, handler, .. }) = &mut block.terminator {
+            *handler = regions
+                .enclosing(block.id)
+                .into_iter()
+                .find_map(|region| region.matching_handler(*tag));
+        }
+    }
     for plan in &lowerer.wit_calls {
         plan.verify(&function)?;
     }
@@ -284,6 +296,28 @@ impl FunctionLowerer<'_> {
             span,
         )?;
         Ok(destination)
+    }
+
+    fn is_terminated(
+        &mut self,
+        block: BlockId,
+        span: TextRange,
+    ) -> Result<bool, Vec<BackendError>> {
+        Ok(self.find_block_mut(block, span)?.terminator.is_some())
+    }
+
+    /// Attach a normal region exit only when evaluation can reach it. A
+    /// diverging provider has already supplied the block's terminal exit.
+    fn terminate_if_open(
+        &mut self,
+        block: BlockId,
+        terminator: Terminator,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        if self.is_terminated(block, span)? {
+            return Ok(());
+        }
+        self.set_terminator(block, terminator, span)
     }
 
     pub(in crate::mir) fn set_terminator(

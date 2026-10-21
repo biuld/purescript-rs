@@ -407,6 +407,9 @@ fn lower_module_after_binding_validation(
             result: import.result,
         })
         .collect();
+    // Exception tags are planned with the provider inventory; capture them
+    // before the runtime context is consumed below.
+    let tags = runtime.exception_tags.clone();
     imports.extend(
         runtime
             .imports
@@ -477,7 +480,7 @@ fn lower_module_after_binding_validation(
         strings,
         imports,
         functions,
-        tags: Vec::new(),
+        tags,
         entry: module.entry,
         layout: Some(layout),
         span: module.span,

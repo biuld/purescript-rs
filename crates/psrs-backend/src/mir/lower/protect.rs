@@ -35,7 +35,7 @@ impl FunctionLowerer<'_> {
                 },
                 RegionExit::Propagate(exception) => Terminator::ThrowRef { exception, span },
             };
-            self.set_terminator(end, terminator, span)?;
+            self.terminate_if_open(end, terminator, span)?;
         }
         Ok(join)
     }

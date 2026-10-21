@@ -35,6 +35,12 @@ switching.
 The proposal follows DEC-03's library encoding. It does not reauthorize the
 withdrawn compiler-owned `Effect` or `State` mechanisms.
 
+The [exceptions-as-effects contract](exceptions-as-effects.md) applies this model
+to abortive `Except e` requests over Control. It specifies labelled elimination
+and recovery after source lifetime completion, with state policy determined by
+handler order. Its public module is implemented and its EE-01..EE-17 acceptance
+is verified; it does not turn generic handlers into native exception catches.
+
 **The type system is unchanged.** This design adds no effect rows, no effect
 tracking, and no effect reasoning — no effect inference, propagation, subsumption,
 or solving — to CST, AST, HIR, THIR, or Typed Core. An "operation requirement" is an

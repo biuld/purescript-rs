@@ -54,7 +54,7 @@ what remains in each layer.
 | L3 kinds | 44/48 failing | official kind `errorCode`s; measured 2026-10-18 |
 | L4 types | 41/50 failing | official `errorCode`s; `ExpectedType` 2/2 since the annotation-position rule |
 | L5 classes | 98/99 failing | official `errorCode`s; only `ClassHeadNoVTA3` (#123) remains; measured 2026-10-18 |
-| L6/M7 runtime | 287/340 programs | all exit 0; 53 do not agree; 74 support files remain program inputs, 25 FFI groups excluded; remeasured 2026-10-20 after the [Control exception bridge](docs/implementation/backend/control-exception-bridge.md), with agreeing/failing sets unchanged and all 365 roots accounted for; BigFunction compilation remains unverified (outer timeout; no compiler verdict) |
+| L6/M7 runtime | 287/340 programs | all exit 0; 53 do not agree; 74 support sources remain inputs, 25 FFI groups excluded. Remeasured 2026-10-21 serially against the official-exception lock, with unchanged agreeing/failing sets. All 365 roots are accounted for; BigFunction remains without a compiler verdict after allocation failure under an 8 GiB compiler-only limit (the earlier run was kernel-OOM killed at 38.7 GB RSS). See [stage 3 acceptance](docs/implementation/backend/effect-exception.md). |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Frontend counts use source files; runtime counts use program roots with their

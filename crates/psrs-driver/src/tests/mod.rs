@@ -16,6 +16,8 @@ mod data_tuple;
 mod declaration_calls;
 mod deriving;
 mod diagnosis_trace;
+mod effect_exception;
+mod exceptions_as_effects;
 mod foldable;
 mod functor;
 mod guard_coverage;
