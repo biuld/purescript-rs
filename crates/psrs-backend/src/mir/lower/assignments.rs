@@ -7,6 +7,9 @@ impl FunctionLowerer<'_> {
         mut current: BlockId,
     ) -> Result<BlockId, Vec<BackendError>> {
         for assignment in assignments {
+            if self.is_terminated(current, assignment.span)? {
+                break;
+            }
             match &assignment.kind {
                 AssignmentKind::Protect {
                     body,
@@ -400,7 +403,7 @@ impl FunctionLowerer<'_> {
                         assignment.span,
                     )?;
                     let then_end = self.lower_assignments(then_assignments, then_block)?;
-                    self.set_terminator(
+                    self.terminate_if_open(
                         then_end,
                         Terminator::Jump {
                             target: merge,
@@ -410,7 +413,7 @@ impl FunctionLowerer<'_> {
                         assignment.span,
                     )?;
                     let else_end = self.lower_assignments(else_assignments, else_block)?;
-                    self.set_terminator(
+                    self.terminate_if_open(
                         else_end,
                         Terminator::Jump {
                             target: merge,
@@ -449,7 +452,7 @@ impl FunctionLowerer<'_> {
                     )?;
                     for (case, block) in cases.iter().zip(case_blocks) {
                         let end = self.lower_assignments(&case.assignments, block)?;
-                        self.set_terminator(
+                        self.terminate_if_open(
                             end,
                             Terminator::Jump {
                                 target: merge,
@@ -460,7 +463,7 @@ impl FunctionLowerer<'_> {
                         )?;
                     }
                     let end = self.lower_assignments(default_assignments, default_block)?;
-                    self.set_terminator(
+                    self.terminate_if_open(
                         end,
                         Terminator::Jump {
                             target: merge,

@@ -9,6 +9,10 @@ pub(in crate::mir) struct RuntimeContext {
     /// Provider bindings discharged by the MIR lowering into inline try
     /// regions; they plan no import because the provider has no host ABI.
     pub(in crate::mir) exception_providers: HashMap<SymbolId, crate::bindings::ExceptionProvider>,
+    /// The module's planned exception tags. Empty unless a live binding raises
+    /// or recovers the source error tag; `checkThrows`-only modules therefore
+    /// never gain a tag section.
+    pub(in crate::mir) exception_tags: Vec<crate::mir::Tag>,
 }
 
 impl RuntimeContext {
@@ -24,6 +28,29 @@ impl RuntimeContext {
                 failure.to_string(),
             )]
         })?;
+        // The source error tag is planned once, before any provider is
+        // checked, so every live `throw`/`catch` binding shares it. A module
+        // that only uses `checkThrows` plans none and keeps its tag section
+        // empty.
+        let source_error = if bindings.iter().any(|binding| {
+            binding.module == crate::bindings::RUNTIME_EXCEPTION_MODULE
+                && live.direct_calls.contains(&binding.symbol)
+                && crate::bindings::ExceptionOperation::from_export(&binding.function)
+                    .is_some_and(crate::bindings::ExceptionOperation::uses_source_error_tag)
+        }) {
+            let payload = layout
+                .value_type(&cc::ValueShape::String)
+                .map_err(|error| {
+                    vec![BackendError::invalid_ir(
+                        "P9 runtime projection",
+                        physical.span,
+                        format!("source-error payload has no concrete layout: {error:?}"),
+                    )]
+                })?;
+            Some((crate::mir::TagId(0), payload))
+        } else {
+            None
+        };
         let mut imports = HashMap::new();
         let mut record_primitives = HashMap::new();
         let mut exception_providers = HashMap::new();
@@ -40,15 +67,22 @@ impl RuntimeContext {
                     .ok_or_else(|| {
                         binding_error(binding, "exception provider has no CC signature")
                     })?;
+                if !live.direct_calls.contains(&binding.symbol) {
+                    crate::bindings::runtime_cc_signature(
+                        binding,
+                        external,
+                        &physical.representations,
+                    )?;
+                    continue;
+                }
                 let provider = crate::bindings::checked_provider(
                     binding,
                     external,
                     &physical.representations,
                     layout,
+                    source_error,
                 )?;
-                if live.direct_calls.contains(&binding.symbol) {
-                    exception_providers.insert(binding.symbol, provider);
-                }
+                exception_providers.insert(binding.symbol, provider);
                 continue;
             }
             if binding.module == psrs_runtime::RECORD_STORAGE_MODULE {
@@ -85,10 +119,19 @@ impl RuntimeContext {
             }
         }
         validate_record_operations(physical, bindings, &record_primitives)?;
+        let exception_tags = match source_error {
+            Some((_, payload)) => vec![crate::mir::Tag {
+                name: crate::bindings::SOURCE_ERROR_TAG_NAME.into(),
+                payload: vec![payload],
+                span: physical.span,
+            }],
+            None => Vec::new(),
+        };
         Ok(Self {
             imports,
             record_primitives,
             exception_providers,
+            exception_tags,
         })
     }
 }

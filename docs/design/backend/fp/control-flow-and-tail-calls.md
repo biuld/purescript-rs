@@ -178,7 +178,8 @@ handle, and it is validated by execution tests rather than assumed.
 
 ### Self-recursion to a loop
 
-A self tail call is rewritten to a back edge to a new loop header instead of a
+Outside a protected exception region, a self tail call is rewritten to a back
+edge to a new loop header instead of a
 `return_call`. The original function entry remains a preheader: it passes the
 function parameters to the loop header's block parameters. Each recursive call
 evaluates all arguments before jumping to that header with the new values. The
@@ -188,6 +189,11 @@ then sees an ordinary natural loop and encodes it as a `loop`, so
 deep self-recursion runs in constant stack on every profile, including profiles
 with the tail-call proposal disabled. Non-self tail calls use
 `return_call`/`return_call_ref` and require the proposal.
+
+Calls inside a protected exception region retain their native activation,
+including self-calls. A recursive callee can catch and rethrow into the older
+activation's handler; branching back to the function header would discard it.
+The shared exception-region partition owns this restriction.
 
 ### Tail calls and the capability profile
 
@@ -427,11 +433,13 @@ Required types and entry points:
   fn mark_tail(function: &mut MirFunction) -> Result<(), MirError>;
   ```
 
-  It must rewrite a self tail call to a jump to a loop header with block
+  Outside protected exception regions, it must rewrite a self tail call to a
+  jump to a loop header with block
   parameters, reached initially from an entry preheader. A non-self call
   through a typed function reference becomes `ReturnCallRef`; another non-self
   tail call becomes `ReturnCall`. When the profile disables `tail_call`, it
-  emits an ordinary call plus return instead.
+  emits an ordinary call plus return instead. Calls in protected exception
+  regions remain ordinary calls regardless of self-target or profile.
 - `mir/lower/assignments.rs` must lower CC `If` and tag-based `case` to
   `Branch` and `Switch` without a structuring hint; joins are derived later.
 - `wasm/lower/structure.rs` must expose the structuring entry point:
@@ -613,7 +621,7 @@ specific areas:
   by using the existing chain of `If` decisions instead of `TagSwitch`.
 - `TargetCapabilities::tail_call` controls Wasm validation and gates the MIR
   rewrite. `mir/lower/tail.rs::mark_tail` recognizes calls whose result is
-  returned unchanged through one-parameter joins. A self call becomes a back
+  returned unchanged through one-parameter joins. Outside protection, a self call becomes a back
   edge to a fresh loop header, so deep self-recursion runs in constant stack on
   every profile. A non-self direct call becomes `ReturnCall`; a `CallRef` or
   closure call becomes `ReturnCallRef` after projecting the code reference and

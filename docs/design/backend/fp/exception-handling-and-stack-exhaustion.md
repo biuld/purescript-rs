@@ -139,7 +139,7 @@ The structuring machinery of [control flow and tail calls](control-flow-and-tail
 
 ### Tail calls inside try regions
 
-Wasm pops the caller's frame at a `return_call`, discarding every handler armed in that frame — including this function's `try_table`. A `Throw` whose statically attributed innermost region was discarded would then unwind past it, contradicting the MIR semantics. Therefore: **no `ReturnCall`/`ReturnCallRef` terminator may exist in a protected block.** The tail-call rewrite (`mir/lower/tail.rs`) must skip calls in protected blocks, and the MIR verifier rejects a forced tail terminator in a protected region. Tail calls outside the region, and tail calls inside callees (which replace *callee* frames, leaving the guard's frame intact), are unaffected. Loopification of self-recursion inside a protected region is unaffected: a loop allocates no frame.
+Wasm pops the caller's frame at a `return_call`, discarding every handler armed in that frame — including this function's `try_table`. A `Throw` whose statically attributed innermost region was discarded would then unwind past it, contradicting the MIR semantics. Therefore: **no `ReturnCall`/`ReturnCallRef` terminator may exist in a protected block.** The tail-call rewrite (`mir/lower/tail.rs`) must skip calls in protected blocks, and the MIR verifier rejects a forced tail terminator in a protected region. Tail calls outside the region, and tail calls inside callees (which replace *callee* frames, leaving the guard's frame intact), are unaffected. Self-calls inside a protected region must also remain ordinary calls. A loop back edge can discard the current activation's dynamic handler, and can create an illegal back edge to a try block. A callee's handler may rethrow into that older activation, so allocating no new frame is not a sufficient justification for loopification. Self-loopification outside protection remains available.
 
 ### The stack-exhaustion budget
 
@@ -379,13 +379,13 @@ global.set $depth                     ;; watermark restore — first action
 - **To the encoding.** `Op::Try`, catch clauses, `TagDef`/`TagIndex`, and the tag section join the thin encoding per [DEC-02](../../../decision/DEC-02-thin-structured-wasm-encoding.md); [Wasm encoding](../wasm/encoding-and-structuring.md) records them as part of the module skeleton.
 - **To the control machine.** Native budget instrumentation is landed; the bridge owns runner interception, exceptional lifetime/owner cleanup, and their separate accounting evidence. The channel supplies transport, not transactional exception semantics.
 - **Pattern-match failure, today.** The decision compiler emits a `Trap` terminator / `unreachable` only where the coverage analysis has proved the decision total ([pattern matching](pattern-matching.md)), so an unmatched pattern is a non-catchable trap, not an exception. Making pattern-match failure observable on the channel has no corpus consumer today and is optional future work.
-- **Corpus boundaries.** TCOMutRec is the channel's only current consumer, and it is the adoption's **recorded, explained gap**: the channel is implemented and verified end to end, but the case's four `assertThrows` assertions observe upstream's tail-call *classification* (upstream loopifies arity-matched named mutual-recursion groups and leaves arity-mismatched closure-mediated cycles growing the stack), which this target does not reproduce — this backend's mandated closure-tail reuse runs those cycles in constant stack, so the guard sees no throw and the case fails visibly at its first `assert'` failure. Reproducing the assertions would need cross-function machinery the MIR does not have (collapsing a mutual recursion group into one function's loop) and is a normative decision for a future recursion-classification topic, not this adoption's scope. `tests/upstream/passing/4179.purs` also uses `assertThrows`, but through an FFI support module and against verbatim `ReferenceError` message strings from JavaScript's deferred module-initialization (TDZ) semantics; it is one of the FFI program groups the board excludes, and reproducing it would need those initialization semantics — recorded as future work, not designed half-way. `Effect.Exception`'s full throw/catch surface is future work for which this channel is the foundation.
+- **Corpus boundaries.** TCOMutRec is the channel's only current consumer, and it is the adoption's **recorded, explained gap**: the channel is implemented and verified end to end, but the case's four `assertThrows` assertions observe upstream's tail-call *classification* (upstream loopifies arity-matched named mutual-recursion groups and leaves arity-mismatched closure-mediated cycles growing the stack), which this target does not reproduce — this backend's mandated closure-tail reuse runs those cycles in constant stack, so the guard sees no throw and the case fails visibly at its first `assert'` failure. Reproducing the assertions would need cross-function machinery the MIR does not have (collapsing a mutual recursion group into one function's loop) and is a normative decision for a future recursion-classification topic, not this adoption's scope. `tests/upstream/passing/4179.purs` also uses `assertThrows`, but through an FFI support module and against verbatim `ReferenceError` message strings from JavaScript's deferred module-initialization (TDZ) semantics; it is one of the FFI program groups the board excludes, and reproducing it would need those initialization semantics — recorded as future work, not designed half-way. The separate [Effect.Exception consumer](effect-exception.md) now implements the synchronous throw/catch surface over this channel.
 
 ## Open questions and future work
 
 - **Budget calibration.** The weight constants, the headroom, and the resulting budget are provisional; the coordination fixture is the protocol, and values are recorded only when the fixture has run under the pinned engine and limit. Open: whether the calibration should also pin a *larger* engine limit (via the harness flag) to widen the headroom, or stay on the engine default the board protocol records.
 - **Weight formula refinement.** The chosen first approximation of native frame size is `FRAME_WEIGHT_FIXED + FRAME_WEIGHT_PER_LOCAL × locals`. Alternatives (uniform frame count; spill-slot-aware estimates after structuring) trade fidelity against coupling; revisit only with fixture evidence that the headroom is being wasted or exhausted.
-- **Payload vocabulary.** The stack-exhaustion tag carries no payload. The payload *type* vocabulary for future tags (a message-carrying GC value, an exception record) is open and belongs with `Effect.Exception`'s design; tags accept any single `ValueType` payload in the model today.
+- **Payload vocabulary.** The stack-exhaustion tag carries no payload. The [Effect.Exception design](effect-exception.md) fixes the source-error payload to one non-null GC String reference; the generic model still accepts any single `ValueType` payload.
 - **Named catch-ref clauses.** Catch-all-ref and throw-ref support the bridge;
   payload-plus-reference named clauses still need multi-result-label work.
 - **Multi-payload tags.** Rejected until the multi-value block work; the diagnostic names the gap.
@@ -413,16 +413,17 @@ The consumer order remains:
 
 - **Stage 1 — bridge:** exception-reference transport, checked runner and owner
   cleanup, native accounting evidence, and source composition tests.
-- **Stage 2 — exception as an effect:** a separately checked library operation
-  and transactional handler policy consuming the bridge. State rollback is not
+- **Stage 2 — exception as an effect:** an ordinary typed library operation
+  with completion-before-recovery, consuming the bridge. State rollback is not
   implied by native exception interception.
 - **Stage 3 — official `Effect.Exception`:** direct dynamic native throw/catch,
   with bridge cleanup when an exception exits a runner. This also consumes
   stage 1 and does not strictly depend on stage 2.
 
-`Effect.Exception` remains unimplemented BE-21 foreign support. No current board
-establishes Control × exception behavior. Keep gate measurements unchanged
-until the relevant scoreboard is actually rerun.
+The [official exception checklist](../../../implementation/backend/effect-exception.md)
+records separate native Error and direct catch/throw evidence. Generic transport
+and Control lifecycle acceptance remain in the bridge checklist. Full BE-21
+and gate completion require the remaining API and corpus obligations.
 
 ## References
 

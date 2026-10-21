@@ -31,8 +31,8 @@ pub(in crate::mir) fn rewrite(
 ) -> Result<(), Vec<BackendError>> {
     // EH-07: no forced tail call may live in a protected try region — Wasm
     // pops the caller's frame at a `return_call`, discarding the armed
-    // `try_table`. Self-call loopification is unaffected: a loop allocates
-    // no frame.
+    // `try_table`. A self-call's back edge would also discard the current
+    // activation's protection, so it must retain its ordinary call as well.
     let protected = crate::mir::try_region::plan(function, "P9 MIR lowering")?.protected_blocks();
     let returned = return_forwarded_values(function);
     let uses = use_counts(function);
@@ -59,18 +59,17 @@ pub(in crate::mir) fn rewrite(
             continue;
         }
         match last {
+            // Keep the activation and its dynamic guards, including for a
+            // self-call whose callee can rethrow into this older activation.
+            _ if protected.contains(&block.id) => continue,
             Instruction::Call {
                 function: callee,
                 arguments,
                 span,
                 ..
             } if *callee == symbol => {
-                // Self-call loopification is unaffected by protection: a
-                // loop allocates no frame.
                 self_calls.push((block.id, arguments.clone(), *span));
             }
-            // EH-07: keep a protected block's call ordinary plus its return.
-            _ if protected.contains(&block.id) => continue,
             Instruction::Call {
                 contract,
                 function: callee,

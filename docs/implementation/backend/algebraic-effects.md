@@ -1863,9 +1863,12 @@ results. Evidence is the native checklist's
 rejection of `unsafeCoerce 1 :: Ref Int`, all on fingerprint
 `fnv1a64-v1:ad19620ada1d2ecf`.
 
-`Test.Assert.checkThrows`, `Effect.Console` timers, `Effect.Exception`, and
-`Effect.Aff` remain unimplemented JavaScript foreigns. F-02 does not require a
+`Effect.Console` timers and `Effect.Aff` remain unimplemented JavaScript foreigns. F-02 does not require a
 JavaScript FFI, and an instance-terminal trap cannot return `Boolean`. The
 package commit and lock revision are
 `4c73aab52226e8f5e7b1f17052f1a19d717a472e`. D-04 numbers stay at the
 last measurement.
+
+Current synchronous exception support is recorded by [EX-01..EX-18](effect-exception.md).
+The former Effect.Exception unsupported entry is superseded by that separate
+consumer; its source-error catch does not recover budget exhaustion or traps.

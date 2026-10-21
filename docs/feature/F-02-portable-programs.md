@@ -4,7 +4,8 @@
 **Design:** [wasm encoding — Wasm Lowering](../design/backend/wasm/encoding-and-structuring.md),
 [linking and runtime (Draft)](../design/backend/wasm/linking-and-runtime.md),
 [algebraic effects and handlers (Draft proposal)](../design/backend/fp/algebraic-effects-and-handlers.md),
-[native Effect/ST handlers (Draft proposal)](../design/backend/fp/native-effect-and-st-handlers.md)
+[native Effect/ST handlers (Draft proposal)](../design/backend/fp/native-effect-and-st-handlers.md),
+[exceptions as effects](../design/backend/fp/exceptions-as-effects.md)
 
 ## User need
 
@@ -24,6 +25,13 @@ interpreting an expired continuation, reusing a spent owner, or resuming a
 cancelled owner traps. Full library APIs, host interpretation and official-suite
 acceptance remain incomplete; this does not restore the former `Effect Unit`
 entry capability.
+
+The typed-failure library provides abortive requests and recovery. Recovery
+starts after the failed computation's scope has completed, leaving its retained
+continuations expired. Handler nesting determines whether pure state results are
+retained; shared mutation and external output are not automatically rolled back.
+This library is separate from the official native exception APIs and does not
+claim that arbitrary runtime failures can be caught as typed application errors.
 
 The intended workflow is:
 
@@ -198,3 +206,10 @@ function calls.
 - Optimizations preserve observable program behavior.
 - Node.js and JavaScript FFI compatibility, sockets, HTTP, and asynchronous
   WASI services are later or separate work.
+
+Synchronous `Effect.Exception` preserves the official public API with a
+message-only Error: name is Error, stack is Nothing, and Show uses the stackless
+error-string fallback. Throw/catch actions execute when interpreted. Source
+catches recover source errors only; stack exhaustion and engine traps propagate.
+Source stack traces and asynchronous exceptions remain separate work. See the
+[exception contract](../design/backend/fp/effect-exception.md).

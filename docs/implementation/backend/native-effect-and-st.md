@@ -146,7 +146,7 @@ schemes that appear only on the import.
 At the adapter checkpoint above every row was Unverified; the current table
 supersedes that snapshot. `Effect.Uncurried` and the remaining NE rows closed
 in the [2026-10-16 acceptance](#acceptance-2026-10-16). `checkThrows`,
-`Effect.Console` timers, `Effect.Exception`, and `Effect.Aff` stay explicit
+`Effect.Console` timers and `Effect.Aff` stay explicit
 unsupported JavaScript foreigns. The compiler lock revision is
 `4c73aab52226e8f5e7b1f17052f1a19d717a472e`.
 
@@ -284,4 +284,8 @@ Commands:
 - `conformance/native-effect.mjs`: **13/13 accepted** (`PureBind`, `GlobalCells`, `Modify`, `Self`, `Unpublished`, `Deep`, `Allocation`, `Arrays`, `Algebraic`, `Command`, `CommandTrap`, `Identity`, `HostOrder`); `/private/tmp/psrs-native-effect-oracle/native.json` (241.41s).
 - `conformance/native-uncurried.mjs`: **21/21 accepted**; `/private/tmp/psrs-native-uncurried-oracle-2/uncurried.json` (281.61s).
 
-Explicit unsupported JavaScript foreigns, left unimplemented: `Test.Assert.checkThrows` (a trap aborts the instance and cannot return `Boolean`), `Effect.Console` timers, `Effect.Exception`, and `Effect.Aff`. Per-IR machine recognizers stay retired. DEC-21's trust boundary stays in place. `unsafeThaw` shares the array reference inside a new cell; JavaScript object identity of that thaw is a documented target difference.
+Explicit unsupported JavaScript foreigns, left unimplemented: `Test.Assert.checkThrows` (a trap aborts the instance and cannot return `Boolean`), `Effect.Console` timers and `Effect.Aff`. Per-IR machine recognizers stay retired. DEC-21's trust boundary stays in place. `unsafeThaw` shares the array reference inside a new cell; JavaScript object identity of that thaw is a documented target difference.
+
+Current synchronous exception support is recorded by [EX-01..EX-18](effect-exception.md).
+The former Effect.Exception unsupported entry is superseded by that separate
+consumer; its source-error catch does not recover budget exhaustion or traps.

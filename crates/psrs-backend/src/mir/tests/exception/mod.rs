@@ -7,13 +7,16 @@
 
 mod budget;
 mod capability;
+mod catch_discharge;
 mod discharge;
 mod dispatch_boundary;
 mod execution;
+mod protected_recursion;
 mod references;
 mod regions;
 mod structuring;
 mod tail;
+mod throw_destination;
 mod unwind;
 
 use crate::mir::{BasicBlock, BlockId, Function, Instruction, Module, Tag, TagId, Terminator};

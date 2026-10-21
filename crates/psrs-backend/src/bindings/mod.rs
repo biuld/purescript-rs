@@ -13,7 +13,8 @@ pub(crate) use runtime::call::canonical_signature as runtime_cc_signature;
 #[cfg(test)]
 pub(crate) use runtime::exception::CHECK_THROWS_EXPORT;
 pub(crate) use runtime::exception::{
-    ExceptionProvider, RUNTIME_EXCEPTION_MODULE, checked_provider,
+    ExceptionOperation, ExceptionProvider, RUNTIME_EXCEPTION_MODULE, SOURCE_ERROR_TAG_NAME,
+    checked_provider,
 };
 pub use runtime::metadata::RuntimeBinding;
 pub(crate) use runtime::metadata::{

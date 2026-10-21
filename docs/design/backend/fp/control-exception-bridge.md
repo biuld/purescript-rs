@@ -385,20 +385,27 @@ not the successful value semantics or tail-finalization equivalence rules.
 The independent stdlib keeps its official sources and explicit unsupported
 foreign declarations until their separate implementation lands.
 
-Exception-as-effect handlers must introduce a checked operation and typed
-recovery boundary. They cannot reinterpret every native throw as a source
-request or turn ordinary `handle` into a native catch. Official
+The [exceptions-as-effects contract](exceptions-as-effects.md) defines an ordinary
+typed Except operation and a completion-before-recovery boundary using existing
+Handle/Bind. It cannot reinterpret every native throw as a source request or
+turn ordinary `handle` into a native catch. Official
 `Effect.Exception` uses direct dynamic native protection and the bridge when a
-throw exits a runner. Both require their own public Error representation,
-source-fidelity and behavior evidence. Neither depends on the other consumer.
+throw exits a runner and owns the native Error representation. The source effect
+is parametric in its error payload and needs no native Error ABI. Both consumers
+require separate source-fidelity and behavior evidence; neither depends on
+implementation of the other consumer.
 Automatic rollback of state or resources would require a separate explicit
 transaction/resource contract.
 
 ## Open questions and future work
 
-- Design the two consumer APIs and their Error representation. Recovery *inside*
-  the same logical runner needs its own typed recovery context and lifecycle
-  cut; root-abort propagation is not evidence for selective recovery.
+- The [source-effect consumer](exceptions-as-effects.md) is accepted: it uses
+  ordinary handler completion as its recovery lifetime cut, and its own
+  checklist records that selective recovery. Root-abort propagation alone
+  remains no proof of it.
+- The separate [official native exception consumer](effect-exception.md) owns
+  Error, direct throw/catch and the explicit try conversion to Either Error.
+  Source stack traces remain a future shadow-call-stack topic.
 - Named catch-ref clauses with payloads need the multi-result-label contract.
 - Native stack capture or asynchronous suspension would invalidate the
   no-saved-native-charge premise and needs a separate accounting design.

@@ -24,7 +24,7 @@ fn enabled_target() -> TargetCapabilities {
 
 /// The CC requirements of the fixture: one `checkThrows` provider binding and
 /// one guarded callable `thrower :: captures -> Unit -> Int`.
-fn module() -> (CcModule, ExternalBindings) {
+pub(super) fn module() -> (CcModule, ExternalBindings) {
     let mut representations = crate::cc::RepresentationTable::default();
     let callable = representations.add_signature(Signature {
         parameters: vec![crate::cc::ValueShape::Integer],
@@ -242,7 +242,33 @@ fn discharges_a_check_throws_call_into_the_inline_try_region() {
 
 #[test]
 fn the_discharged_catch_path_returns_the_handler_s_value() {
-    let (cc, bindings) = module();
+    let (mut cc, bindings) = module();
+    // An uncaught channel exception also exits 1 at command entry. Observe
+    // caught=true as 42 so a missing guard cannot satisfy this regression.
+    let main = &mut cc.functions[0];
+    for id in [6, 7] {
+        main.values.push(crate::cc::ValueDecl {
+            id: ValueId(id),
+            ty: crate::cc::ValueShape::Integer,
+        });
+    }
+    main.assignments.extend([
+        crate::cc::Assignment {
+            destination: ValueId(6),
+            kind: crate::cc::AssignmentKind::Constant(42),
+            span: at(0),
+        },
+        crate::cc::Assignment {
+            destination: ValueId(7),
+            kind: crate::cc::AssignmentKind::Primitive {
+                op: crate::cc::BinaryOp::IntMul,
+                left: ValueId(2),
+                right: ValueId(6),
+            },
+            span: at(0),
+        },
+    ]);
+    main.result = ValueId(7);
     let target = enabled_target();
     let (mut mir, _) =
         crate::mir::lower_module_with_bindings(cc, bindings, target).expect("the discharge lowers");
@@ -253,8 +279,12 @@ fn the_discharged_catch_path_returns_the_handler_s_value() {
     };
     assert_eq!(
         output.status.code(),
-        Some(1),
+        Some(42),
         "the catch path must report `true`: {output:?}"
+    );
+    assert!(
+        output.stdout.is_empty() && output.stderr.is_empty(),
+        "{output:?}"
     );
 }
 

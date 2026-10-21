@@ -227,8 +227,7 @@ EH-06:
 EH-07:
   Implementation: crates/psrs-backend/src/mir/lower/tail.rs (`rewrite`
     computes the shared partition once and skips tail conversion for calls
-    whose block is protected; self-call loopification stays active inside
-    regions) and the verifier rule in mir/verify/exception.rs
+    whose block is protected, including self-call loopification) and the verifier rule in mir/verify/exception.rs
     (`verify_no_forced_tail_calls`).
   Tests: mir/tests/exception/tail.rs —
     mark_tail_keeps_a_protected_region_call_an_ordinary_call (the protected
@@ -331,7 +330,7 @@ inline emission is never emitted twice.
 
 ```text
 EH-09:
-  Implementation: crates/psrs-backend/src/bindings/runtime/exception.rs (the
+  Implementation: crates/psrs-backend/src/bindings/runtime/exception/mod.rs (the
     checked source contract: `ExceptionOperation::CheckThrows`,
     `validate_source`, `checked_provider` rechecking the CC call shape, and
     `canonical_signature` for CC publication); bindings/runtime/mod.rs
@@ -680,7 +679,7 @@ note did not know.)*
   source contract and P9 lowers the call into the inline `catch_all` try
   region; `plan_import` plans no host import. EH-16 added the *publishing*
   side (the provider's canonical signature in CC publication, per
-  `canonical_signature` in bindings/runtime/exception.rs) and the
+  `canonical_signature` in bindings/runtime/exception/mod.rs) and the
   stdlib's `Test/Assert.purs` adaptation (`checkThrows :: forall a. (Unit ->
   a) -> Effect Boolean` over `Target.perform`, with its vendoring record).
 - The guarded callable must be a `FunctionRef` over a function whose body
@@ -723,7 +722,7 @@ EH-16:
       native-effect.md/effect-restoration.md updated. Package fingerprint
       fnv1a64-v1:5dfa6f2ce6b3092c; stdlib.lock.json pins the branch commit
       and fingerprint in this slice's compiler commit.
-    Compiler publication side: bindings/runtime/exception.rs
+    Compiler publication side: bindings/runtime/exception/mod.rs
       `canonical_signature` publishes the checked CC signature for the
       provider (one non-nullable closure-reference operand whose checked
       signature takes exactly the erased `Unit`, a Boolean result) and adapts
@@ -985,3 +984,18 @@ EH-xx:
 - The pinned wasmtime baseline is 48.x (CI installs 48.0.2 and sets
   `PSRS_REQUIRE_WASMTIME=1`); evidence records the exact engine version and,
   for budget-dependent rows, the pinned `max_wasm_stack` value.
+
+## Official synchronous exception consumer
+
+Stage 3 uses the existing channel with a second, String-carrying source-error
+tag, two checked throw/catch primitives and ordinary library wrappers. The
+[EX checklist](effect-exception.md) owns its evidence; EH and CB evidence alone
+does not establish its complete public API. Source catches select only that
+tag; checkThrows remains tag-agnostic and exhaustion remains distinct.
+
+2026-10-21 review correction: protected self-calls must retain their activation.
+The former no-new-frame rationale was insufficient: a recursive callee can
+rethrow into the caller's older guard. The new protected_recursion regression
+first failed P9 with a back edge to Try; after the shared tail guard applies to
+self-calls it observes the outer handler's 42 with tail-call capability both
+enabled and disabled, before and after MIR optimization.
