@@ -9,6 +9,11 @@ fn local_binding_constraints_and_annotations_match_official_purs() {
     }
     for (name, body, expected) in [
         (
+            "used-alias-without-instance",
+            "class C a where\n  method :: a -> a\nf :: Int\nf = let g = method in g 1\n",
+            Some("NoInstanceFound"),
+        ),
+        (
             "unused-constrained-local",
             "class C a where\n  method :: a -> a\nf y = let g x = method x in y\n",
             Some("AmbiguousTypeVariables"),

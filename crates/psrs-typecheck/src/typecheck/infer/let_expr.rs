@@ -1,9 +1,10 @@
 //! Local `let` and `where` bindings share the enclosing declaration's unknowns.
 //!
-//! Unannotated locals are monomorphic, including their class obligations.
+//! Unannotated locals do not generalize new unknowns or class obligations.
 //! Solving and generalization belong to the enclosing declaration. An explicit
 //! polymorphic annotation retains its checked quantifiers and is instantiated
-//! independently at each local use.
+//! independently at each local use. An inherited quantified value keeps its
+//! quantifiers even without an annotation on the alias.
 
 use super::super::*;
 
@@ -35,15 +36,12 @@ impl Checker {
             let mut inferred = Vec::with_capacity(bindings.len());
             for (binding, mut binder) in bindings.iter().zip(binders) {
                 let mut value = checker.infer_expr(&binding.value)?;
-                // A visible binder left by a preceding `@T` is instantiated,
-                // and so is a constraint at the head. A leading invisible
-                // quantifier is the value's rank-N type (`make 0` returning
-                // `forall a. a -> a`) and each use instantiates it. A binder
-                // annotation or a value ascription is that written type.
-                if local_annotation(binding).is_none()
-                    && !matches!(binding.value.kind, hir::ExprKind::Typed { .. })
-                {
-                    value = checker.instantiate_binding_expr(value, binding.span);
+                // A local alias retains quantifiers already present in its
+                // inferred value. Only constraints exposed before a quantifier
+                // are obligations of the enclosing declaration.
+                if local_annotation(binding).is_none() {
+                    value = checker.instantiate_head_constraints(value, binding.span);
+                    value = checker.preserve_quantified_expression(value)?;
                 }
                 checker.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
                 binder.scheme = Scheme::monomorphic(checker.resolve_type(value.ty.clone()));

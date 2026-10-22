@@ -14,7 +14,7 @@ This document owns schemes, instantiation, generalization, bidirectional checkin
 
 ## Background
 
-HM inference supplies declaration generalization; unannotated local bindings remain monomorphic. PureScript additionally supports `forall` beneath arrows, constrained types, explicit type application, and row-polymorphic records. A use of a polymorphic value instantiates its `forall`; checking against an expected `forall` skolemizes it and rejects escaping skolems. Subsumption handles function variance and inserts dictionary evidence at permitted expression boundaries. Recursive declarations are checked as dependency groups; signatures supply polymorphic recursion where accepted by the source language.
+HM inference supplies declaration generalization; unannotated local bindings do not generalize new inference unknowns, but retain quantifiers already present in their values. PureScript additionally supports `forall` beneath arrows, constrained types, explicit type application, and row-polymorphic records. Variable synthesis freshens an existing scheme while retaining its `forall`; value application and monomorphic checking instantiate it. Checking against an expected `forall` skolemizes it and rejects escaping skolems. Subsumption handles function variance and inserts dictionary evidence at permitted expression boundaries. Recursive declarations are checked as dependency groups; signatures supply polymorphic recursion where accepted by the source language.
 
 ## Model
 
@@ -162,6 +162,14 @@ check(expr, expected):
         check argument against parameter; apply result evidence to application
     otherwise synthesize expr and subsume synthesized type against expected
 
+infer_variable(scheme):
+    freshen existing binders and their kinds, preserving visibility
+    retain forall and its nested constraints; apply only exposed constraints
+
+infer_local_binding(value):
+    synthesize value; retain its existing quantifiers without generalizing unknowns
+    elaborate a retained pending method under its quantified dictionary parameters
+
 infer_application(function, argument):
     synthesize function; instantiate only its leading quantifiers/constraints
     if its arrow is known: check argument against the parameter type
@@ -258,7 +266,7 @@ Every THIR expression and binder has a kind-valid type; every reference is resol
 
 ## Worked example
 
-`apply :: (forall a. a -> a) -> Int` requires an argument polymorphic at the call site. `apply (\x -> x)` checks the lambda against a skolemized `forall a. a -> a`; a monomorphic `Int -> Int` argument fails. A local binding needs an explicit polymorphic annotation for independent instantiation: `let id = (\x -> x) :: forall a. a -> a in id id`. An unannotated local identity is monomorphic, so self-application is an infinite type.
+`apply :: (forall a. a -> a) -> Int` requires an argument polymorphic at the call site. `apply (\x -> x)` checks the lambda against a skolemized `forall a. a -> a`; a monomorphic `Int -> Int` argument fails. An inferred local lambda needs an explicit polymorphic annotation for independent instantiation: `let id = (\x -> x) :: forall a. a -> a in id id`. An unannotated local identity is monomorphic, so self-application is an infinite type.
 
 For `class C a where method :: a -> a`, the declaration `f x = method x` has one wanted `C ?a` that no instance discharges. Generalization retains it, checks that `?a` occurs in `f`'s result type `?a -> ?a`, quantifies `?a` with kind `Type`, and gives `f` the scheme `forall a. C a => a -> a` with one dictionary parameter. `f 1` then instantiates that scheme and solves `C Int` at the use, while `f (\y -> y)` is rejected for lacking `C (Int -> Int)` if no such instance exists.
 
@@ -341,9 +349,23 @@ explicit THIR scope for internal types without choosing a default type or
 adding evidence for an unsolved obligation; unused binders in the public type
 remain meaningful when the implementation mentions them.
 
-Unannotated local `let` and `where` bindings are monomorphic, as in official
-PureScript's `inferLetBinding`. They share the enclosing declaration's inference
-unknowns and wanted constraints. Local uses can solve those unknowns before the
+Unannotated local `let` and `where` bindings do not generalize fresh unknowns,
+as in official PureScript's `inferLetBinding`. They retain an existing quantified
+value, regardless of binder visibility: `let f = identity` can use a declared
+polymorphic identity at different types, and `let f = method` retains the class
+parameter and its qualified dictionary function. Only already-exposed constraints
+become enclosing obligations. A pending method field selection must be elaborated
+under dictionary parameters when its quantified value is retained; ordinary
+terms already contain their dictionary function and keep their evaluation order.
+Variable synthesis shares one scheme-freshening operation across globals,
+locals, imported declarations and foreign signatures, preserving binder kinds
+and source spans. Applications, monomorphic checks, inferred lambda results,
+record projection/update and Boolean conditions consume their required
+monotypes through the shared instantiation and expected-checking operations. This is preservation of inherited quantifiers,
+not inference of a new local qualified scheme.
+
+Fresh unknowns and wanteds introduced by a local lambda or application still
+belong to the enclosing declaration. Local uses can solve those unknowns before the
 enclosing binding group solves, checks ambiguity, and generalizes. A local's
 unused class obligation is still an obligation of that declaration: `f y = let
 g x = method x in y` is ambiguous when `method :: C a => a -> a`, because the

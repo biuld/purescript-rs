@@ -29,6 +29,9 @@ fn source_rank_n_acceptance_and_rejection() {
     if let Err(errors) = psrs_driver::check_program(cases::LINKED) {
         failures.push(format!("linked: {errors:?}"));
     }
+    if let Err(errors) = psrs_driver::check_program(cases::aliases::IMPORTED) {
+        failures.push(format!("imported aliases: {errors:?}"));
+    }
     for (name, source) in cases::ACCEPT.iter().chain(cases::CHECK_ONLY) {
         if let Err(errors) = psrs_driver::check_source(name, source) {
             failures.push(format!("{name}: {errors:?}"));
@@ -67,6 +70,14 @@ fn executes_rank_n_values_at_distinct_instantiations() {
             }
             Err(errors) => failures.push(format!("{name}: {errors:?}")),
         }
+    }
+    match psrs_driver::compile_program_sources(cases::aliases::IMPORTED) {
+        Ok(artifact) => {
+            if let Err(error) = expect_execution("imported_aliases", &artifact.wasm) {
+                failures.push(error);
+            }
+        }
+        Err(errors) => failures.push(format!("imported aliases: {errors:?}")),
     }
     // The intrinsic indexer is target-specific; CHECK_ONLY compares the
     // annotated polymorphic element boundary with the official compiler.
@@ -109,4 +120,43 @@ fn expect_execution(name: &str, wasm: &[u8]) -> Result<(), String> {
     } else {
         Err(format!("{name}: {output:?}"))
     }
+}
+
+#[test]
+fn official_operator_alias_executes_and_missing_alias_evidence_is_rejected() {
+    let errors = psrs_driver::check_source("missing-alias", cases::aliases::MISSING)
+        .expect_err("an alias use still requires its instance");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.code == Some("NoInstanceFound")),
+        "{errors:?}"
+    );
+    let available = Command::new("wasmtime")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !available {
+        assert_ne!(std::env::var("PSRS_REQUIRE_WASMTIME").as_deref(), Ok("1"));
+        return;
+    }
+    let artifact = psrs_driver::compile_program_sources_with_prelude(&[(
+        "2803.purs",
+        include_str!("../../../tests/upstream/passing/2803.purs"),
+    )])
+    .expect("the unchanged official operator alias program compiles");
+    let path = std::env::temp_dir().join(format!("psrs-2803-{}.wasm", std::process::id()));
+    std::fs::write(&path, artifact.wasm).unwrap();
+    let output = Command::new("wasmtime")
+        .arg("run")
+        .arg(&path)
+        .output()
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "Done",
+        "{output:?}"
+    );
 }

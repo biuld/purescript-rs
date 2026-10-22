@@ -132,52 +132,19 @@ impl Checker {
         })
     }
 
-    /// A local pattern-matching scrutinee retains structural `forall` types so
-    /// a typed binder can check a rank-N pattern against the value's declared
-    /// type. Ordinary local references still instantiate those quantifiers.
+    /// Variable-only patterns preserve the synthesized quantified value. Other
+    /// patterns consume a monotype through the ordinary instantiation operation.
     pub(super) fn infer_pattern_scrutinee(
         &mut self,
         expression: &hir::Expr,
         requires_monotype: bool,
     ) -> Option<InferredExpr> {
+        let value = self.infer_expr(expression)?;
         if requires_monotype {
-            let value = self.infer_expr(expression)?;
-            return Some(self.instantiate_all_expr(value, expression.span));
+            Some(self.instantiate_all_expr(value, expression.span))
+        } else {
+            self.preserve_quantified_expression(value)
         }
-        let hir::ExprKind::Local(id) = expression.kind else {
-            return self.infer_expr(expression);
-        };
-        let Some(scheme) = self.scope.locals.get(&id).cloned() else {
-            self.state.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::InvalidHir,
-                expression.span,
-                "local pattern scrutinee has no type environment entry",
-            ));
-            return None;
-        };
-        let mapping = self
-            .instantiate_type_variables(scheme.variables.iter().copied(), &scheme.variable_kinds);
-        let ty = super::super::unify::substitute(&scheme.ty, &mapping);
-        let ty = self.freshen_foralls(&ty);
-        let ty = self.resolve_type(ty);
-        let constraints = scheme
-            .constraints
-            .iter()
-            .map(|constraint| ClassConstraint {
-                arguments: constraint
-                    .arguments
-                    .iter()
-                    .map(|argument| super::super::unify::substitute(argument, &mapping))
-                    .collect(),
-                ..constraint.clone()
-            })
-            .collect();
-        let value = InferredExpr {
-            kind: InferredExprKind::Local(id),
-            ty,
-            span: expression.span,
-        };
-        Some(self.apply_constraints(value, constraints, expression.span))
     }
 
     /// Instantiates a constructor's parameter variables and returns its result

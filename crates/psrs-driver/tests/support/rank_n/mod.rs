@@ -1,5 +1,6 @@
 //! Source cases shared by semantic, differential, and execution acceptance.
 
+pub mod aliases;
 mod consumption;
 mod contextual;
 mod reify;
@@ -37,6 +38,17 @@ main = case Holder (make 0) of
 ];
 
 pub const ACCEPT: &[(&str, &str)] = &[
+    ("ordinary_polymorphic_alias", aliases::ORDINARY),
+    ("polymorphic_record_projection", aliases::RECORD_PROJECT),
+    ("polymorphic_record_update", aliases::RECORD_UPDATE),
+    ("polymorphic_condition", aliases::CONDITION),
+    ("method_variable_pattern", aliases::METHOD_PATTERN),
+    ("ordinary_variable_pattern", aliases::ORDINARY_PATTERN),
+    ("qualified_global_alias", aliases::GLOBAL),
+    ("unused_qualified_alias", aliases::UNUSED),
+    ("qualified_alias_distinct_uses", aliases::DISTINCT),
+    ("partially_visible_qualified_alias", aliases::PARTIAL),
+    ("qualified_alias_chain", aliases::CHAIN),
     ("inferred_lambda_result", consumption::LAMBDA_RESULT),
     ("constructor_scrutinee", consumption::CONSTRUCTOR_SCRUTINEE),
     ("literal_scrutinee", consumption::LITERAL_SCRUTINEE),

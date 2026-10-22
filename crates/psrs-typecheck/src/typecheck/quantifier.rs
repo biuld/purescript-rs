@@ -1,7 +1,7 @@
 //! One instantiation rule for quantified types.
 //!
 //! A binder is visible when its source wrote `@`. Ordinary instantiation
-//! consumes only an invisible prefix. A visible application selects the next
+//! in a consuming context opens only an invisible prefix. A visible application selects the next
 //! visible binder and leaves the rest quantified. Class parameters are that
 //! visible prefix on a method type; they are not a side table.
 
@@ -30,6 +30,40 @@ impl Checker {
             self.state.rigid.insert(*id);
         }
         (emitted, quantify(rest, rest_visible, kept, ty))
+    }
+
+    /// Freshens a variable's existing scheme without consuming its binders.
+    /// Synthesis retains the quantified type; the surrounding application,
+    /// monomorphic check or explicit type application decides what to consume.
+    pub(in crate::typecheck) fn synthesize_scheme_type(&mut self, scheme: &Scheme) -> InferType {
+        let mapping = self.freshen_binders(&scheme.variables, &scheme.variable_kinds);
+        let variables = scheme
+            .variables
+            .iter()
+            .map(|id| match mapping[id] {
+                InferType::Variable(fresh) => fresh,
+                _ => unreachable!("freshened scheme binders are variables"),
+            })
+            .collect();
+        let constraints = scheme
+            .constraints
+            .iter()
+            .map(|constraint| ClassConstraint {
+                arguments: constraint
+                    .arguments
+                    .iter()
+                    .map(|ty| substitute(ty, &mapping))
+                    .collect(),
+                ..constraint.clone()
+            })
+            .collect();
+        let ty = self.freshen_foralls(&substitute(&scheme.ty, &mapping));
+        quantify(
+            variables,
+            visible_flags(&scheme.visible, scheme.variables.len()),
+            constraints,
+            ty,
+        )
     }
 
     /// Instantiates a scheme at a use.
@@ -105,58 +139,6 @@ impl Checker {
                 } => {
                     let mapping = self.instantiate_type_variables(variables, &HashMap::new());
                     expression.ty = self.resolve_type(substitute(&body, &mapping));
-                }
-                InferType::Constrained { constraints, body } => {
-                    expression.ty = *body;
-                    expression = self.apply_constraints(expression, constraints, span);
-                }
-                _ => break,
-            }
-        }
-        expression
-    }
-
-    /// Instantiates leftover visible binders on an unannotated local, and
-    /// keeps a leading invisible quantifier.
-    ///
-    /// `let f = make 0` where `make` returns `forall a. a -> a` must keep that
-    /// quantifier: each use instantiates its own `a`. A visible binder left
-    /// by a preceding `@T` is not a rank-N result, so it is instantiated here
-    /// and the dictionary of a following constraint is selected.
-    pub(in crate::typecheck) fn instantiate_binding_expr(
-        &mut self,
-        mut expression: InferredExpr,
-        span: TextRange,
-    ) -> InferredExpr {
-        loop {
-            let ty = self.resolve_type(expression.ty.clone());
-            match ty {
-                InferType::ForAll {
-                    variables,
-                    visible,
-                    body,
-                } => {
-                    let flags = visible_flags(&visible, variables.len());
-                    if !flags.first().copied().unwrap_or(false) {
-                        break;
-                    }
-                    let split = flags
-                        .iter()
-                        .position(|flag| !*flag)
-                        .unwrap_or(variables.len());
-                    let mapping = self.instantiate_type_variables(
-                        variables.iter().copied().take(split),
-                        &HashMap::new(),
-                    );
-                    let mut rest = substitute(&body, &mapping);
-                    if split < variables.len() {
-                        rest = InferType::ForAll {
-                            variables: variables[split..].to_vec(),
-                            visible: visible_flags(&flags[split..], variables.len() - split),
-                            body: Box::new(rest),
-                        };
-                    }
-                    expression.ty = self.resolve_type(rest);
                 }
                 InferType::Constrained { constraints, body } => {
                     expression.ty = *body;

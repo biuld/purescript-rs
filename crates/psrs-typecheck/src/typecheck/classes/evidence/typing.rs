@@ -203,20 +203,35 @@ impl Checker {
         expression
     }
 
-    /// Uses an inferred expression at a scheme, instantiating its quantified
-    /// variables and applying the dictionaries its constrained type exposes.
-    /// This is shared by variables, applications, and contextual ascriptions so
-    /// none can silently discard a constrained expression's evidence.
-    pub(in crate::typecheck) fn instantiate_expression_use(
+    /// Imported and foreign signatures enter the same scheme synthesis as
+    /// locally checked declarations, retaining quantifiers across modules.
+    pub(in crate::typecheck) fn synthesize_signature_use(
+        &mut self,
+        symbol: SymbolId,
+        signature: &hir::Type,
+        span: TextRange,
+    ) -> InferredExpr {
+        let ty = self.elaborate_type_mode(signature, &mut HashMap::new(), true);
+        self.note_elaborated_kinds(&[], &ty, signature.span);
+        let base = InferredExpr {
+            kind: InferredExprKind::Global(symbol),
+            ty: ty.clone(),
+            span,
+        };
+        self.synthesize_expression_use(base, &Scheme::monomorphic(ty), span)
+    }
+
+    /// Synthesizes a variable at its freshened scheme. Existing quantifiers
+    /// remain structural; only already-exposed constraints select dictionaries.
+    pub(in crate::typecheck) fn synthesize_expression_use(
         &mut self,
         mut expression: InferredExpr,
         scheme: &Scheme,
         span: TextRange,
     ) -> InferredExpr {
-        let (constraints, ty) = self.instantiate_use(scheme);
-        expression.ty = ty;
+        expression.ty = self.synthesize_scheme_type(scheme);
         expression.span = span;
-        self.apply_constraints(expression, constraints, span)
+        self.instantiate_head_constraints(expression, span)
     }
 
     pub(in crate::typecheck) fn push_wanted(
