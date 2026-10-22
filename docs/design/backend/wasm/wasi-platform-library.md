@@ -141,8 +141,29 @@ wrapper owns the corpus-facing name.
 | `Data.Foldable` | `class Foldable`, `foldr`, `foldl`, `foldMap` | `Data.Monoid` and the array index primitives; `Array`, `Maybe`, and `Either a` instances | FE-14 |
 | `Data.Tuple` | `Tuple`, `fst`, `snd`, `curry`, `uncurry`, `swap` | the closed record `{ _1 :: a, _2 :: b }` that FE-06 already lowers a tuple to; `type Tuple a b` is that record, not an algebraic `data Tuple a b = Tuple a b` | FE-06 |
 | `Effect` | re-exports the `Prelude` surface above | `Prelude` | FE-02 |
-| `Effect.Console` | `log`, `warn`, `error`, `logShow` | `WASI.Console`, and the library `Data.Show.show` for `logShow` | BE-21 |
-| `Test.Assert` | `assert`, `assert'`, `assertTrue`, `assertFalse` | `Effect.Console.error` and `Prelude.trap` | BE-21, BE-27 |
+| `Effect.Console` | `log`, `warn`, `error`, `logShow`; the timers `time`, `timeLog`, `timeEnd`, and `clear` are unimplemented ([#160](https://github.com/biuld/purescript-rs/issues/160)) | `WASI.Console`, and the library `Data.Show.show` for `logShow` | BE-21 |
+| `Test.Assert` | `assert`, `assert'`, `assertEqual`, `assertEqual'`, `assertTrue`, `assertTrue'`, `assertFalse`, `assertFalse'`, `assertThrows`, `assertThrows'` | `Effect.Console.error`, `Prelude.trap`, and the checked `psrs:runtime-exception#checkThrows` channel for `assertThrows` | BE-21, BE-27 |
+| `Type.Proxy` | `Proxy`, `proxy` | the compiler's type spine; `data Proxy (a :: Type)` has no runtime payload | FE-11, FE-17 |
+| `Partial.Unsafe` | `unsafePartial`, `unsafeCrashWith`, `unsafePerformEffect` | the compiler's partiality and effect interfaces; no fabricated result | FE-14, BE-21 |
+| `Prim.*` | `Prim.Row`, `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, `Prim.Boolean`, `Prim.Ordering` | the compiler-owned primitive hierarchy; the library-visible half. `Prim.Number` is intentionally not an official child module | FE-02, FE-14 |
+
+### Package ownership
+
+The locked package is larger than the wrapper table: `psrs-stdlib/lib/trusted`
+names **311 trusted modules** at lock
+`618bede18e4bf7fc57206c057781a12fcef2b3b4`. The platform services (`WASI.*`)
+and corpus-facing wrappers above carry explicit FE/BE owners. Every other module
+is a pinned official library module, owned by the FE row for the language
+feature it exercises (FE-05 through FE-18) and the shared BE rows in D-04; a
+`PSRS.*` target primitive is owned by the shared BE rows that consume it. The
+package's `upstream-lock.json` records each source package, tag, and commit, so
+a vendored module does not need a separate row here to have an owner. The
+authoritative module list and load order is `psrs-stdlib/lib/trusted`, not this
+table. Two trusted modules still carry unimplemented foreigns: the
+`Effect.Console` timers and `Effect.Aff`, tracked as
+[#160](https://github.com/biuld/purescript-rs/issues/160) and
+[#161](https://github.com/biuld/purescript-rs/issues/161) under Phase 5 /
+BE-21.
 
 ### Capability matrix
 
@@ -244,9 +265,16 @@ observes the trailing constant, which exists to give the entry its declared
 ### The platform library
 
 The platform library is source code under `psrs-stdlib/lib`, read from disk and
-resolved, type-checked, and linked like any module. `psrs-stdlib/lib/trusted` fixes
-the trusted prefix order (`Prelude`, `Data.Function`, `Data.Semigroup`,
-`Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, `WASI`). `Data.Function`
+resolved, type-checked, and linked like any module. `psrs-stdlib/lib/trusted` is
+the authoritative module list and load order: **311 modules** at lock
+`618bede18e4bf7fc57206c057781a12fcef2b3b4`, comprising the platform layer, the
+corpus-facing wrappers, and the pinned official v0.15.16 package set. The
+platform and wrapper layer comprises `Prelude`, `Data.Function`, `Data.Semigroup`,
+`Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, `WASI`; the
+remaining modules are the `PSRS.*` target primitives and the vendored official
+package; the former are owned by the shared BE rows, the latter by the FE row
+for the language feature each exercises. The wrapper table above gives the
+explicit FE/BE owner for each corpus-facing module. `Data.Function`
 declares the application operators and their fixities; `Data.Semigroup`
 declares the `Semigroup` class, its method, and the `<>` alias; `Data.Monoid` declares `Monoid` and `mempty` for `String`, `Unit`, and `Array a`; `Data.Foldable` declares `Foldable` with `foldr`, `foldl`, and `foldMap` for `Array`, `Maybe`, and `Either a`; `Prelude`
 re-exports `$`, `#`, `const`, `flip`, and `Data.Semigroup`'s
@@ -464,9 +492,9 @@ wrapped. `WASI.Process.arguments` and `WASI.Process.environment` wrap
 with execution tests. `WASI.Network` wraps the socket services and lowers; it
 has no execution test, and HTTP/TLS are not implemented, so their capability
 flags stay disabled in the default profile. The standard library is read from
-`psrs-stdlib/lib` at runtime (`psrs-stdlib/lib/trusted` lists `Prelude`, `Data.Function`,
-`Data.Semigroup`, `Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, and `WASI` in
-trusted-prefix order). The driver discovers user modules from the entry files'
+`psrs-stdlib/lib` at runtime (`psrs-stdlib/lib/trusted` is the authoritative list and load order, 311 modules
+at lock `618bede18e4bf7fc57206c057781a12fcef2b3b4`; The platform library names
+the platform and wrapper layer). The driver discovers user modules from the entry files'
 directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`
 files by module name and follows the `import` graph, never searching names the
 on-disk library provides. Resolution, duplicate-module, and cycle checks remain
