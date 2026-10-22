@@ -405,12 +405,7 @@ fn lower_expr_inner(expression: cst::Expr) -> Result<Expr, LowerError> {
                 ty,
             }
         }
-        CstExprKind::Hole(_) => {
-            return Err(LowerError::new(
-                span,
-                "this expression syntax is not supported yet",
-            ));
-        }
+        CstExprKind::Hole(name) => ExprKind::Hole(name),
     };
     Ok(Expr { kind, span })
 }

@@ -17,6 +17,9 @@ use super::*;
 #[derive(Clone, Debug)]
 pub(super) struct Scheme {
     pub(super) variables: Vec<u32>,
+    /// Parallel to `variables`. `true` is a source `@` binder. Empty means every
+    /// variable is invisible, which is what generalization produces.
+    pub(super) visible: Vec<bool>,
     pub(super) variable_kinds: HashMap<u32, Kind>,
     pub(super) constraints: Vec<ClassConstraint>,
     pub(super) ty: InferType,
@@ -26,6 +29,7 @@ impl Scheme {
     pub(super) fn monomorphic(ty: InferType) -> Self {
         Self {
             variables: Vec::new(),
+            visible: Vec::new(),
             variable_kinds: HashMap::new(),
             constraints: Vec::new(),
             ty,

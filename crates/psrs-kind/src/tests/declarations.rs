@@ -176,17 +176,93 @@ fn a_scheme_quantifies_only_the_kinds_the_definition_leaves_undetermined() {
         "{phantom:?}"
     );
     fn free_variables(kind: &Kind, out: &mut Vec<u32>) {
-        match kind {
-            Kind::Variable(variable) => out.push(*variable),
-            Kind::App(head, argument) | Kind::Function(head, argument) => {
-                free_variables(head, out);
-                free_variables(argument, out);
+        fn walk(kind: &Kind, bound: &mut Vec<u32>, out: &mut Vec<u32>) {
+            match kind {
+                Kind::Variable(variable) if !bound.contains(variable) => out.push(*variable),
+                Kind::Variable(_) => {}
+                Kind::App(head, argument) | Kind::Function(head, argument) => {
+                    walk(head, bound, out);
+                    walk(argument, bound, out);
+                }
+                Kind::RowExtend { field, tail, .. } => {
+                    walk(field, bound, out);
+                    walk(tail, bound, out);
+                }
+                Kind::ForAll { variable, body } => {
+                    bound.push(*variable);
+                    walk(body, bound, out);
+                    bound.pop();
+                }
+                Kind::Builtin(_) | Kind::Named(_) | Kind::RowEmpty | Kind::TypeVariable(_) => {}
             }
-            Kind::Builtin(_) | Kind::Named(_) => {}
         }
+        walk(kind, &mut Vec::new(), out);
     }
     let mut unbound = Vec::new();
     free_variables(&phantom.kind, &mut unbound);
     unbound.sort_unstable();
     assert_eq!(unbound, phantom.variables, "{phantom:?}");
+}
+
+#[test]
+fn a_polykinded_constructor_instantiates_at_each_use() {
+    // `failing/PolykindGeneralizationLet.purs`. Nothing in `Proxy`'s
+    // declaration determines its parameter, so each signature instantiates
+    // a fresh kind. Sharing the raw variable would reject `Int` and `"foo"`.
+    let errors = check(
+        "module Main where\n\
+         data Proxy a = Proxy\n\
+         data F f a = F (f a)\n\
+         fproxy :: forall f a. Proxy f -> Proxy a -> Proxy (F f a)\n\
+         fproxy _ _ = Proxy\n\
+         intProxy :: Proxy Int\n\
+         intProxy = Proxy\n\
+         symProxy :: Proxy \"foo\"\n\
+         symProxy = Proxy\n",
+    );
+    assert!(!codes(&errors).contains(&"KindsDoNotUnify"), "{errors:?}");
+}
+
+#[test]
+fn a_shared_argument_cannot_have_two_row_kinds() {
+    // `failing/3765-kinds.purs`. `{a :: Int | r}` and `{b :: Int | r}` share
+    // `r` and differ in the known label, so one argument cannot be both.
+    let errors = check(
+        "module Main where\n\
+         data Tricky :: forall r. {a :: Int | r} -> {b :: Int | r} -> Type\n\
+         data Tricky x y = Tricky\n\
+         type MkTricky x = Tricky x x\n",
+    );
+    assert!(codes(&errors).contains(&"KindsDoNotUnify"), "{errors:?}");
+}
+
+#[test]
+fn a_quantified_kind_does_not_escape_into_a_synonym() {
+    // `passing/Rank2Kinds.purs`, without the effect import. The parameter
+    // annotation stays a quantified kind, and each use of `f` instantiates it.
+    let errors = check(
+        "module Main where\n\
+         data A (a :: forall k. k -> Type) = A\n\
+         data B :: (forall k. k -> Type) -> Type\n\
+         data B a = B\n\
+         data Pair a b = Pair\n\
+         data Proxy a = Proxy\n\
+         type Id a = a\n\
+         type MkP (f :: forall k. k -> k) = Pair (f Int) (f \"foo\")\n",
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn a_quantified_kind_escapes_through_a_polykinded_proxy() {
+    // `failing/SkolemEscapeKinds.purs`. `A`'s kind contains
+    // `forall k. k -> Type` in a negative position, and `Proxy`'s parameter
+    // is an inferred kind, so the synonym captures that quantifier.
+    let errors = check(
+        "module Main where\n\
+         data Proxy a = Proxy\n\
+         data A (a :: forall k. k -> Type) = A\n\
+         type B = Proxy A\n",
+    );
+    assert!(codes(&errors).contains(&"EscapedSkolem"), "{errors:?}");
 }

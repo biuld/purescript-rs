@@ -58,7 +58,8 @@ fn collect_globals_inner(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
         | hir::ExprKind::Integer(_)
         | hir::ExprKind::Number(_)
         | hir::ExprKind::String(_)
-        | hir::ExprKind::Char(_) => {}
+        | hir::ExprKind::Char(_)
+        | hir::ExprKind::Hole(_) => {}
         hir::ExprKind::Array(elements) => {
             for element in elements {
                 collect_globals(element, out);

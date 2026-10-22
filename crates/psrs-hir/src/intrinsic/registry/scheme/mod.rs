@@ -51,6 +51,7 @@ fn forall(names: &[&str], body: Type) -> Type {
                     name: (*name).to_owned(),
                     name_span: empty_span(),
                     kind: None,
+                    visible: false,
                 })
                 .collect(),
             body: Box::new(body),

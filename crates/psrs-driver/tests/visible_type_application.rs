@@ -5,16 +5,11 @@
 //! that quantifier's kind, and erases the application. `e @_` consumes a
 //! quantifier without choosing a type for it.
 //!
-//! `purs` 0.15.16's CST/Convert.hs makes a binder visible only when the source
-//! wrote `forall @a.`; a plain `forall a.` binder becomes `TypeVarInvisible` and
-//! is instantiated before a visible application can select it, so `purs`
-//! answers `f @Int` for `f :: forall a. a -> a` with
-//! `CannotApplyExpressionOfTypeOnType`. This compiler's CST does not yet carry
-//! that visibility — see `docs/design/frontend/type-system/type-inference.md` —
-//! so a visible application here selects a plain `forall a.` binder too. That
-//! is a known divergence in the permissive direction and is pinned by
-//! `a_visible_application_accepts_a_plain_forall_binder_that_purs_rejects`.
-//! Everything else below was checked against `purs` 0.15.16.
+//! A binder is visible only when the source wrote `forall @a.`. A plain
+//! `forall a.` binder is instantiated before a visible application can select
+//! it. `@T` selects the next visible binder and leaves the ones it did not
+//! name quantified, so `f @A @B` and `f @_ @B` both resolve. These cases were
+//! checked against `purs` 0.15.16.
 
 /// The `errorCode` the driver's type-check stage reports, so a case states which
 /// obligation failed.
@@ -77,10 +72,8 @@ main = case Proxy @Int of _ -> 0
     );
 }
 
-/// `@_` consumes a quantifier without choosing a type for it. A later
-/// application stepping past it to the *next* quantifier is a chain, which this
-/// compiler does not yet resolve; see
-/// `a_chained_visible_application_is_reported_rather_than_resolved`.
+/// `@_` makes the outermost visible binder invisible without substituting it.
+/// The following value arguments instantiate that binder.
 #[test]
 fn a_wildcard_argument_consumes_a_quantifier() {
     accepts(
@@ -113,13 +106,37 @@ main = both @Int 0 0
     );
 }
 
-/// A chain selects a quantifier an earlier application left behind. Choosing
-/// between the remaining ones needs the scheme to record which variables a
-/// visible application has consumed, which it does not yet do, so the chain is
-/// reported instead of resolved against a binder list no other stage would share.
+/// Class parameters are the visible prefix, so `constClass @Int @Number`
+/// selects both and a data parameter is selected the same way.
 #[test]
-fn a_chained_visible_application_is_reported_rather_than_resolved() {
-    let errors = psrs_driver::check_source(
+fn a_class_head_chain_selects_each_parameter() {
+    accepts(
+        "vta-class-head.purs",
+        r#"module Main where
+
+class ConstClass a where
+  constClass :: forall @b. a -> b -> a
+
+instance ConstClass a where
+  constClass a _ = a
+
+constClassInt = constClass @Int @Number
+
+data Tree a = Leaf a | Branch (Tree a) (Tree a)
+
+treeInt :: Int -> Tree Int
+treeInt = Leaf @Int
+
+main :: Int
+main = constClassInt 1 0.0
+"#,
+    );
+}
+
+/// A chain selects the quantifier an earlier application left quantified.
+#[test]
+fn a_chained_visible_application_selects_the_next_binder() {
+    accepts(
         "vta-chain.purs",
         r#"module Main where
 
@@ -129,13 +146,22 @@ both _ _ = 7
 main :: Int
 main = both @Int @Int 0 0
 "#,
-    )
-    .expect_err("a chain must be reported rather than resolved");
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("chained visible type application")),
-        "the diagnostic must name the chain it cannot resolve: {errors:#?}"
+    );
+}
+
+/// `@_` steps over one visible binder so the next `@T` selects the one after it.
+#[test]
+fn a_skip_then_a_visible_argument_selects_the_next_binder() {
+    accepts(
+        "vta-skip-chain.purs",
+        r#"module Main where
+
+both :: forall @a @b. a -> b -> Int
+both _ _ = 7
+
+main :: Int
+main = both @_ @Int 0 0
+"#,
     );
 }
 
@@ -174,12 +200,12 @@ main = 1 @_
     );
 }
 
-/// A second application on the same line is a chain, and is reported as one
-/// rather than resolved: `purs` accepts `identity2 @Int @Int` only because it
-/// keeps the quantifier left behind rigid, which this compiler does not model.
+/// A second application with no quantifier left is
+/// `CannotApplyExpressionOfTypeOnType`. `purs` does not keep a consumed
+/// binder around for another `@T`.
 #[test]
-fn a_second_application_on_one_line_is_reported_as_a_chain() {
-    let errors = psrs_driver::check_source(
+fn a_second_application_with_no_binder_left_is_rejected() {
+    let errors = rejection(
         "vta-twice.purs",
         r#"module Main where
 
@@ -189,26 +215,19 @@ identity2 x = x
 main :: Int
 main = identity2 @Int @Int 1
 "#,
-    )
-    .expect_err("a chain must be reported");
+    );
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("chained visible type application")),
-        "the diagnostic must name the chain it cannot resolve: {errors:#?}"
+            .any(|(_, code)| *code == "CannotApplyExpressionOfTypeOnType"),
+        "a consumed binder cannot take another argument: {errors:?}"
     );
 }
 
-/// Known divergence, pinned so it cannot change unnoticed. `purs` 0.15.16 makes
-/// a plain `forall a.` binder invisible and answers this with
-/// `CannotApplyExpressionOfTypeOnType`; this compiler's CST does not carry that
-/// visibility yet, so it accepts the program. The acceptance is in the permissive
-/// direction — the program is still typechecked — and it is the reason a visible
-/// application must not be read as agreement with `purs` until the binder's
-/// visibility is modelled.
+/// A plain `forall a.` binder is invisible, so `@Int` has nothing to select.
 #[test]
-fn a_visible_application_accepts_a_plain_forall_binder_that_purs_rejects() {
-    accepts(
+fn a_plain_forall_binder_is_not_selectable() {
+    let errors = rejection(
         "vta-plain-binder.purs",
         r#"module Main where
 
@@ -218,6 +237,54 @@ identity2 x = x
 main :: Int
 main = case identity2 @Int 1 of _ -> 0
 "#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|(_, code)| *code == "CannotApplyExpressionOfTypeOnType"),
+        "a plain forall binder must be official's error: {errors:?}"
+    );
+}
+
+/// The three corpus programs named by issue #123, checked through the shipped
+/// entry with the annotated `errorCode`.
+#[test]
+fn corpus_visible_type_application_failures_use_the_annotated_codes() {
+    let invisible = rejection(
+        "VisibleTypeApplications1.purs",
+        include_str!("../../../tests/upstream/failing/VisibleTypeApplications1.purs"),
+    );
+    assert!(
+        invisible
+            .iter()
+            .any(|(_, code)| *code == "CannotApplyExpressionOfTypeOnType"),
+        "VisibleTypeApplications1: {invisible:?}"
+    );
+    let monomorphic = rejection(
+        "VisibleTypeApplications2.purs",
+        include_str!("../../../tests/upstream/failing/VisibleTypeApplications2.purs"),
+    );
+    assert!(
+        monomorphic
+            .iter()
+            .any(|(_, code)| *code == "CannotApplyExpressionOfTypeOnType"),
+        "VisibleTypeApplications2: {monomorphic:?}"
+    );
+    let class_head = rejection(
+        "ClassHeadNoVTA3.purs",
+        include_str!("../../../tests/upstream/failing/ClassHeadNoVTA3.purs"),
+    );
+    assert!(
+        class_head
+            .iter()
+            .any(|(_, code)| *code == "NoInstanceFound"),
+        "ClassHeadNoVTA3: {class_head:?}"
+    );
+    assert!(
+        class_head
+            .iter()
+            .all(|(_, code)| *code == "NoInstanceFound"),
+        "ClassHeadNoVTA3 must not report a second code: {class_head:?}"
     );
 }
 
@@ -248,5 +315,127 @@ main =
     assert!(
         !artifact.wasm.is_empty(),
         "a visible application must still produce a component artifact"
+    );
+}
+
+/// A visible argument is checked against its quantifier's kind, not against
+/// kind `Type`. `Symbol` and `Type -> Type` are both legal arguments.
+#[test]
+fn a_visible_argument_may_have_a_non_type_kind() {
+    accepts(
+        "vta-symbol.purs",
+        r#"module Main where
+
+data Proxy :: forall k. k -> Type
+data Proxy a = Proxy
+
+symbol :: forall (@s :: Symbol). Proxy s -> Int
+symbol _ = 0
+
+higher :: forall (@f :: Type -> Type). Proxy f -> Int
+higher _ = 1
+
+useSymbol :: Int
+useSymbol = symbol @"hi" (Proxy @"hi")
+
+useHigher :: Int
+useHigher = higher @Array (Proxy @Array)
+
+main :: Int
+main = useSymbol
+"#,
+    );
+}
+
+/// An argument whose kind is not the quantifier's kind is a kind mismatch.
+#[test]
+fn a_visible_argument_of_the_wrong_kind_is_rejected() {
+    let errors = rejection(
+        "vta-kind-mismatch.purs",
+        r#"module Main where
+
+identity :: forall (@a :: Type). a -> a
+identity x = x
+
+main :: Int
+main = identity @"hi" 0
+"#,
+    );
+    assert!(
+        errors.iter().any(|(_, code)| *code == "KindsDoNotUnify"),
+        "a Symbol argument does not have kind Type: {errors:?}"
+    );
+}
+
+/// Dropping the `Type` equation must not drop the undefined-variable check.
+#[test]
+fn a_visible_argument_still_rejects_an_undefined_variable() {
+    let errors = rejection(
+        "vta-undefined.purs",
+        r#"module Main where
+
+identity :: forall @a. a -> a
+identity x = x
+
+main :: Int
+main = identity @b 0
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|(_, code)| *code == "UndefinedTypeVariable"),
+        "an undefined argument must still be named: {errors:?}"
+    );
+}
+
+/// One instantiation shares a kind variable across the constructor's
+/// parameters. A later argument of a different kind is a mismatch.
+#[test]
+fn one_constructor_use_shares_its_kind_variable() {
+    let errors = rejection(
+        "vta-shared-kind.purs",
+        r#"module Main where
+
+data Pair :: forall k. k -> k -> Type
+data Pair a b = Pair
+
+main :: Int
+main = case Pair @Int @"no" of _ -> 0
+"#,
+    );
+    assert!(
+        errors.iter().any(|(_, code)| *code == "KindsDoNotUnify"),
+        "Int and a Symbol do not share k: {errors:?}"
+    );
+}
+
+/// A quantifier kind `forall a. a -> a` opens before it is checked, so a
+/// matching constructor and a partially applied one are legal arguments.
+#[test]
+fn a_visible_argument_may_have_a_quantified_kind() {
+    accepts(
+        "vta-quantified-kind.purs",
+        r#"module Main where
+
+foreign import data Id :: forall (a :: Type). a -> a
+
+identityCheck :: forall (@f :: forall (a :: Type). a -> a). Int
+identityCheck = 0
+
+foreign import data Const :: forall a b. a -> b -> a
+
+constCheck :: forall (a :: Type) (@f :: forall (b :: Type). b -> a). Int
+constCheck = 0
+
+identityPass :: Int
+identityPass = identityCheck @Id
+
+constPass :: Int
+constPass = constCheck @(Const Int)
+
+main :: Int
+main = identityPass
+"#,
     );
 }

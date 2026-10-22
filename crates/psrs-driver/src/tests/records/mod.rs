@@ -326,7 +326,9 @@ main = getX { y: true }
 ";
     let errors = check_source("Main.purs", missing).expect_err("missing label");
     assert!(errors.iter().any(|error| {
-        error.stage == "P5 typecheck" && error.message.contains("record has no field `x`")
+        error.stage == "P5 typecheck"
+            && error.code == Some("PropertyIsMissing")
+            && error.message.contains("`x`")
     }));
     let hidden = "\
 module Main where

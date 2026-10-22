@@ -110,6 +110,8 @@ pub enum ExprKind {
     /// A guarded declaration RHS. P4 expands clauses to ordered conditions and
     /// cases after the resolver has assigned IDs to pattern and let guards.
     Guarded(Vec<GuardedExpr>),
+    /// A typed hole `?name`. The name is reported with the type inference solves.
+    Hole(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

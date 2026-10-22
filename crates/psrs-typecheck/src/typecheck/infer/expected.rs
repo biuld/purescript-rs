@@ -81,7 +81,10 @@ impl Checker {
             return Some(checked);
         }
 
-        if let InferType::ForAll { variables, body } = expected.clone() {
+        if let InferType::ForAll {
+            variables, body, ..
+        } = expected.clone()
+        {
             let checked = self.with_scope(|checker| {
                 for variable in &variables {
                     if let Some(name) = checker.scope.type_variable_names.get(variable) {
@@ -260,13 +263,11 @@ impl Checker {
         }
 
         let inferred = self.infer_expr(expression)?;
-        // A bare class-method use keeps its method-local quantifiers and
-        // constraints on the inferred type. Instantiating them here matches the
-        // application path, so `eq = eq1` provides the `Eq a` dictionary the
-        // method signature requires instead of unifying the constraint with a
-        // plain function type.
-        let scheme = Scheme::monomorphic(inferred.ty.clone());
-        let mut inferred = self.instantiate_expression_use(inferred, &scheme, expression.span);
+        // Checking against a monotype instantiates every leading quantifier.
+        // That is what turns `useMultiMissing @Int`, whose leftover class
+        // parameter is still visible, into the `NoInstanceFound` constraint
+        // instead of a polymorphic binding.
+        let mut inferred = self.instantiate_all_expr(inferred, expression.span);
         if matches!(
             inferred.kind,
             InferredExprKind::CoerceFunction { .. } | InferredExprKind::UnsafeCoerceFunction { .. }

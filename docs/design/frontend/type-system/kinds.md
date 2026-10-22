@@ -27,7 +27,8 @@ TypeExpr = Constructor | Variable | Application
 
 Kind = Builtin(BuiltinType) | Named(TypeId)    # a constructor read as a kind
      | App(Kind, Kind) | Function(Kind, Kind) | Variable(KindVarId)
-KindScheme = { quantified_kind_vars, kind }
+KindScheme = { variables, kind, binders: [KindBinder] }
+KindBinder = { variable, kind }
 CheckedKindEnv = { kind_schemes: TypeId -> KindScheme, roles: TypeId -> [Role],
                    declaring_module: TypeId -> ModuleId,
                    synonym_templates: TypeId -> { parameters, body } }
@@ -56,7 +57,7 @@ Roles are ordered from most restrictive to most permissive: `Nominal < Represent
 
 Register primitive kinds and declaration heads before checking bodies. Resolve kind signatures, infer missing parameter kinds, instantiate polymorphic kinds at uses, and skolemize expected `forall` kinds when checking annotations. Ordinary type application consumes an arrow kind, while quantified kind arguments are instantiated implicitly from use, because no source form applies a kind argument to a type constructor. `forall @a b .` supplies a binder's kind explicitly and `t :: k` ascribes one; both are ordinary source forms rather than kind application. Check class heads against `Constraint`, value types against `Type`, row entries against their row parameter, and type-level literals against `Symbol` or `Int`.
 
-A declaration's kind scheme quantifies the kind unknowns its own definition leaves undetermined and keeps the kinds that definition determines. `data Tree m = Tree (m Tree)` determines `m`'s kind through its own field, so generalizing `m` instead of inferring it loses the occurs check that rejects the declaration. Quantification must also be well scoped: an implicitly generalized kind variable that mentions a type variable requires that type variable to be quantified explicitly, which is the official `QuantificationCheckFailureInKind` case.
+A declaration's kind scheme quantifies the kind unknowns its own definition leaves undetermined and keeps the kinds that definition determines. `data Tree m = Tree (m Tree)` determines `m`'s kind through its own field, so generalizing `m` instead of inferring it loses the occurs check that rejects the declaration. Quantification must also be well scoped: an implicitly generalized kind variable that mentions a type variable requires that type variable to be quantified explicitly, which is the official `QuantificationCheckFailureInKind` case. A kind unknown that remains inside a constructor field or a synonym body is not generalized there. Official `checkTypeQuantification` reports `QuantificationCheckFailureInType` when a `forall`, a kind application, or a constrained type still contains one. An unknown that occurs in the declaration's own kind is the variable that declaration quantifies, so it is not one of those leftovers: `type Natural f g = forall a. f a -> g a` has kind `forall k. (k -> Type) -> (k -> Type) -> Type`. Inferred parameter kinds are shared inside one binding group and instantiated at a use in another group, so a field cannot solve a different declaration's parameter, and a monomorphic group can still determine its own.
 
 Kind checking runs once per program and produces one environment. `check_program` registers the primitive table and every declaration head, checks synonyms and cycles, infers and generalizes declaration kinds, infers roles to a fixed point, and returns the environment together with its diagnostics. Each diagnostic records the module that declares the offending type, so a conflict in module A is reported against A's source even though B's use exposed it. A per-module kind check consumes the imported schemes from that environment and re-checks only the module's own declarations, annotations, and instance heads; it never re-derives an imported declaration's kind.
 
@@ -178,11 +179,11 @@ P5 consumes normalized resolved HIR and emits a checked kind environment for ter
 
 ## Open questions and future work
 
-Expression-level kind checking remains future work; it builds on the shared denotation and solver above rather than on a separate kind path. Official's CST has no kind-application node — its kind checker synthesizes `KindApp` while instantiating a polymorphic kind — and this compiler performs the same instantiation in the kind solver without retaining `KindApplication` in the source type spine. The source forms that do name a kind or type explicitly, `forall @a b .`, `t :: k`, and the visible type application `e @T`, are separate nodes with their own lowering; the last of these is frontend coverage under FE-17 and is what still blocks `passing/4500.purs`, `passing/4535.purs`, and `passing/VTAsClassHeads.purs` at P2. The kind requirements of the `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, and `Prim.TypeError` members are specified in [primitives](prim.md) and are checked here from the registry. Where the current type language reaches a form the shared model already defines, the model stays as the target and the gap is recorded as implementation coverage. Role implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md); `Coercible` constraint solving and evidence are specified in [classes and evidence](classes-and-evidence.md).
+The `Coercible` solver kind-checks a constraint when it picks the constraint up, using the shared denotation and solver above. A representational polykind pair and an expression ascription report `KindsDoNotUnify` at typecheck; a phantom polykind coercion is accepted. `data Wrap :: Box Type -> Type` keeps that application as the parameter kind. A nullary constructor is accepted, and using the parameter where kind `Type` is required is `KindsDoNotUnify`, matching `purs` 0.15.16. Official's CST has no kind-application node — its kind checker synthesizes `KindApp` while instantiating a polymorphic kind — and this compiler performs the same instantiation in the kind solver without retaining `KindApplication` in the source type spine. The source forms that do name a kind or type explicitly, `forall @a b .`, `t :: k`, and the visible type application `e @T`, are separate nodes with their own lowering. The type checker checks `e @T` against the quantifier's kind. This kind pass names an undefined type variable in that argument and does not solve the argument against kind `Type`. A `Symbol` argument, a higher-kinded argument, and a leading quantified kind such as `forall a. a -> a` are checked by that equation, and a mismatch is `KindsDoNotUnify`. A visible binder that the result type does not mention stays quantified, so the local forms `identityCheck @Id` and `constCheck @(Const Int)` type-check. Each use of a polykinded constructor instantiates its kind variable, and the parameters of one use share that variable. `passing/4500.purs` and `passing/4535.purs` still import `Prelude`, `Effect.Console`, `Data.Reflectable`, `Type.Proxy`, `Data.Maybe`, and `Data.Tuple.Nested`; this slice does not treat those corpus files as compiled. `passing/VTAsClassHeads.purs` type-checks. The kind requirements of the `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, and `Prim.TypeError` members are specified in [primitives](prim.md) and are checked here from the registry. Where the current type language reaches a form the shared model already defines, the model stays as the target and the gap is recorded as implementation coverage. Role implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md); `Coercible` constraint solving and evidence are specified in [classes and evidence](classes-and-evidence.md).
 
 ## References
 
-- [PureScript `Types.hs`](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/Types.hs), [`Kinds.hs`](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/TypeChecker/Kinds.hs), and [`Environment.hs`](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/Environment.hs). `primTypes` is the reference for the primitive kind table, `elaborateKind` for kind denotation, `generalizeUnknowns` and `checkQuantification` for declaration kind quantification, and `UnknownName` for missing kind metadata.
+- [PureScript `Types.hs`](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/Types.hs), [`Kinds.hs`](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/TypeChecker/Kinds.hs), and [`Environment.hs`](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/Environment.hs). `primTypes` is the reference for the primitive kind table, `elaborateKind` for kind denotation, `generalizeUnknowns` and `checkQuantification` for declaration kind quantification, `checkTypeQuantification` for a kind unknown left in a constructor field or synonym body, `checkVisibleTypeQuantification` for a type variable left in a synonym kind, and `UnknownName` for missing kind metadata.
 - [PureScript role inference](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/TypeChecker/Roles.hs).
 - [PureScript synonym checking](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/TypeChecker/Synonyms.hs).
 
@@ -248,36 +249,67 @@ brings a binder into scope, which is the official `withScopedTypeVars` scoping a
 the recorded #2542 rule. Any other named variable is `UndefinedTypeVariable`
 before the kind is read, so `failing/2542.purs` (`bar :: Array a` under
 `foo :: T`, with `T = forall a. Array a`) reports the code against the `a` the
-synonym's expansion hid. A visible type application's argument is checked against
-the kind of the quantifier it instantiates officially, and this pass cannot see
-that kind yet, so it keeps the pre-existing `Type` solve there while the
-new scope rule applies to the argument's variables the same way.
+synonym's expansion hid. A visible type application's argument keeps that
+scope check. The argument's kind equation is solved later, against the
+quantifier it instantiates, so this pass does not also solve the argument
+against kind `Type`.
 
 What remains, and what the next wave owns:
 
-- The well-scoped-quantification rule is not implemented. A scheme quantifies the kind
-  unknowns its own definition leaves undetermined and keeps the kinds the definition
-  determines, and `data Branch m = Branch (m Branch)` is rejected by the occurs check
-  rather than generalized, but no `QuantificationCheckFailureInKind` is reported when
-  an implicitly generalized kind mentions a type variable that is not quantified
-  explicitly. Kind variables and type-level `forall` binders live in different state
-  here, so the dependency order the official check needs is not recorded yet.
+- Well-scoped quantification is checked. A scheme's `binders` list implicit unknowns
+  before the explicit `forall` binders. `variables` is still the set substituted into
+  the published kind spine. An implicit unknown whose sort mentions a binder that is
+  not yet in scope makes a later dependent binder report
+  `QuantificationCheckFailureInKind`. `failing/QuantificationCheckFailure.purs`
+  reports that code (1/1; the later type-quantification remeasure is L3 50/50). A declaration still quantifies only
+  the kind unknowns its own definition leaves undetermined, and
+  `data Branch m = Branch (m Branch)` is rejected by the occurs check rather than
+  generalized. A signature whose elaboration cannot instantiate a polykinded
+  constructor falls back to the explicit binders and does not invent the diagnostic.
+- A kind unknown left in a data-constructor field or a synonym body is
+  `QuantificationCheckFailureInType`. `failing/QuantificationCheckFailure2.purs`
+  reports it: `forall a. Proxy a` still contains the unknown kind `Proxy` was
+  instantiated at. A field whose kinds are solved, including `forall a. a -> a`
+  and `forall (a :: Type). Proxy a`, is accepted. Inferred parameter kinds are
+  shared inside one binding group and instantiated in another, so
+  `data Branch m = Branch (m Branch)` still fails the occurs check and
+  `failing/MonoKindDataBindingGroup.purs` reports `KindsDoNotUnify`. A kind
+  variable that appears in the declaration's resolved kind is the one that
+  declaration quantifies and is not reported, so
+  `type Natural f g = forall a. f a -> g a` is accepted. Measured
+  2026-10-22, that code is 1/1 and L3 is 50/50. A later remeasure the same
+  day, after that generalization, stayed L3 50/50, L4 59/59, and L5 101/101.
 - Cross-module instance heads agree now: a head is checked against its class's
   checked kind scheme whether the class is declared in the checking module or
-  imported, with the arity read from the scheme for a foreign class. What still
-  generalizes nothing is a scheme whose variables the run's own checks have not
-  quantified yet: within one run the scheme of a class whose definition leaves a
-  parameter's kind undetermined is monomorphic, so two instance heads at
-  different eligible kinds disagree with each other's fixings. Publishing needs
-  the declaration check to finish before the scheme is fixed, which is the
-  polykind-generalization machinery #100/#123 own — the same boundary
-  `failing/PolykindInstantiatedInstance.purs` and
-  `failing/PolykindGeneralizationLet.purs` remain open at.
-- `data Wrap :: Lib.Box Type -> Type` reads `Lib.Box Type` as the kind "`Lib.Box`
-  applied to `Type`", because a kind annotation is read as a kind rather than
-  elaborated as a type. Official `elaborateKind` eliminates an application of an arrow
-  kind instead, so the two differ for a higher-kinded user declaration used in a kind
-  signature. The shared model is the target; the divergence is unmeasured.
+  imported, with the arity read from the scheme for a foreign class. After
+  the declaration bodies are checked, each scheme quantifies the kind
+  unknowns its definition left free, and each instance head instantiates
+  that scheme. `failing/PolykindGeneralizationLet.purs` reports
+  `TypesDoNotUnify` (measured 2026-10-22 in the quantified-kinds run, when L4 was 44/50; the hole measurement the same day was L4 53/59, and the later coercion measurement is L4 59/59; the infinite-coercion run the same day kept L4 at 59/59).
+  A method or value signature solves the kinds its body forces onto its
+  binders before a use instantiates them, so
+  `failing/PolykindInstantiatedInstance.purs` and `failing/3077.purs`
+  report `KindsDoNotUnify`. The L3 board reads those typecheck diagnostics
+  as well as the kind pass, which is why `CoercibleKindMismatch` agrees.
+  Measured 2026-10-22, L3 is 50/50 (`QuantificationCheckFailureInKind` 1/1,
+  `QuantificationCheckFailureInType` 1/1).
+  A row literal read as a kind keeps its labels, so `failing/3765-kinds.purs`
+  reports `KindsDoNotUnify`.
+- `data Wrap :: Box Type -> Type` reads `Box Type` as the kind "`Box` applied to
+  `Type`". A nullary constructor is accepted, and a field of the parameter is
+  `KindsDoNotUnify`, because that parameter kind is not `Type`. `purs` 0.15.16
+  reports the same pair: it keeps `Box Type` rather than reducing the
+  application through `elaborateKind`. Measured 2026-10-22.
+- A type-position kind annotation `(t :: k)` is a `Kinded` type on AST and HIR.
+  The annotation is the kind of the type, and the inner type is checked against
+  it. A type variable in that annotation stays a type variable, so it is not
+  generalized away. `failing/QuantificationCheckFailure3.purs` reports
+  `VisibleQuantificationCheckFailureInType` and does not report
+  `QuantificationCheckFailureInType`. `(Int :: Type)` and
+  `(Proxy :: Type -> Type)` are accepted. `(Int :: Type -> Type)` is
+  `KindsDoNotUnify`. The corpus file contains `foreign import`, so the L3 board
+  does not count it. Remeasured 2026-10-22: L3 stayed 50/50, L4 stayed 59/59,
+  and L5 stayed 101/101.
 - Three signatures in the code map above differ from what is exported.
   `denote_kind` returns `Option<Kind>` so an unlowered type operator chain is a
   reported error rather than a fabricated kind; `infer_roles_fixed_point` takes no
@@ -287,21 +319,25 @@ What remains, and what the next wave owns:
   modules produced. `kind_of_type` over an `InferType` is not implemented in
   `psrs-kind`, because an inference type is not HIR: it lives in the type checker's
   `kind.rs` and reads the same solver.
-- Two corpus cases in the M4 set still diverge at the kind stage, both anchored in
-  the polykind model, not in a diagnostic choice:
-  `failing/SkolemEscapeKinds.purs` and `failing/PolykindGeneralizationLet.purs`.
-  Officially the kind checker accepts both and the failures surface later — an
-  `EscapedSkolem` raised by `checkEscapedSkolems` over a type synonym body
-  (`SkolemEscapeKinds`), and a `TypesDoNotUnify` raised by term checking
-  (`PolykindGeneralizationLet`, `where` a top-level binding group of the same
-  three `Proxy :: _ ...` uses passes). Here the kind pass rejects
-  `PolykindGeneralizationLet` with `KindsDoNotUnify` because declaration
-  parameters' kinds are shared raw variables across use sites, so
-  `data F f a = F (f a)`'s field equation is solved against a use the
-  declaration never checked. The official acceptance is the annotation-based
-  board; measured 2026-10-18 on this tree, L3 is 40/48 (`UndefinedTypeVariable`
-  4/4, `KindsDoNotUnify` 16/24) and L4 is 41/50 (`ExpectedType` 2/2,
-  `EscapedSkolem` 1/2) with the L2 failing board unchanged at 72/72.
+- A quantified kind stays a quantifier. `forall k. k -> Type` in a kind
+  annotation is not collapsed to `Type -> Type`. Applying a constructor
+  instantiates a leading kind quantifier. A `forall` that remains in a
+  negative position, and is passed to an inferred kind parameter inside a
+  type synonym, is the official `checkEscapedSkolems` case:
+  `failing/SkolemEscapeKinds.purs` reports `EscapedSkolem` (the quantified-kinds
+  measurement on 2026-10-22, when L4 was 44/50; the hole measurement was L4
+  53/59, and the later coercion measurement is L4 59/59; the infinite-coercion run the same day kept L4 at 59/59). `failing/PolykindGeneralizationLet.purs` used to be rejected
+  in the kind pass, because a declaration's parameter kinds were shared raw
+  variables across later uses, so `data F f a = F (f a)`'s field equation
+  was solved against a use the declaration never checked. Declaration bodies
+  are now checked first and the scheme quantifies the unknowns they leave
+  free; each signature and annotation instantiates that scheme. The kind
+  pass accepts the file, and term checking reports `TypesDoNotUnify`. The
+  2026-10-18 measurement on this tree was L3 40/48 (`UndefinedTypeVariable`
+  4/4, `KindsDoNotUnify` 16/24) and L4 41/50 (`ExpectedType` 2/2,
+  `EscapedSkolem` 1/2), with L2 failing unchanged at 72/72. The L3 gate row
+  was 44/48, then 47/48 after signature kinds, 48/48 after row kinds, and
+  49/49 after well-scoped quantification, and 50/50 after type quantification.
 
 Consolidating `psrs-kind` into the type checker is now a consequence of packaging
 alone: kind checking's main consumer is still P5, and the crate split is not what

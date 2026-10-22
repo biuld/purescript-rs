@@ -53,6 +53,7 @@ fn forall(variables: Vec<(&str, u32)>, body: HirType, start: u32) -> HirType {
                     name: name.into(),
                     name_span: TextRange::new(span, span + 1),
                     kind: None,
+                    visible: false,
                 })
                 .collect(),
             body: Box::new(body),
@@ -230,6 +231,7 @@ fn synonym(id: u32, name: &str, parameters: &[&str], body: HirType) -> psrs_hir:
                 name: (*parameter).into(),
                 name_span: TextRange::new(0, 1),
                 kind: None,
+                visible: false,
             })
             .collect(),
         constructors: Vec::new(),
@@ -376,6 +378,7 @@ fn data_declaration(
                 name: (*parameter).into(),
                 name_span: TextRange::new(0, 1),
                 kind: None,
+                visible: false,
             })
             .collect(),
         constructors: constructors

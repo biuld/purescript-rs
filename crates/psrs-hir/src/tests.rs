@@ -54,6 +54,7 @@ fn type_substitution_renames_forall_binders_to_preserve_free_replacements() {
                 name: "b".into(),
                 name_span: span,
                 kind: None,
+                visible: false,
             }],
             body: Box::new(Type {
                 kind: TypeKind::Function {

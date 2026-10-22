@@ -10,10 +10,13 @@ use std::collections::{HashMap, HashSet};
 /// read in a kind position and the two grammars cannot drift apart. A primitive
 /// constructor read as a kind is [`Kind::Builtin`], a user declaration read as a
 /// kind is its resolved identity, and everything else is an application, an
-/// arrow, or a kind variable.
+/// arrow, a kind variable, or a row literal.
 ///
-/// There is deliberately no reserved constant for one primitive and no
-/// dedicated head for `Row`: a constant only for `Type` would make the same
+/// `Row k`, the kind of a row whose entries have kind `k`, stays [`Kind::row`]:
+/// an application of [`BuiltinType::Row`]. [`Kind::RowEmpty`] and
+/// [`Kind::RowExtend`] are only the labels of a row literal read as a kind, so
+/// `{a :: Int | r}` and `{b :: Int | r}` stay different. There is no reserved
+/// constant for one primitive: a constant only for `Type` would make the same
 /// kind expression denote two different things depending on which module reads
 /// it, and the two readings do not unify.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,6 +32,26 @@ pub enum Kind {
     Function(Box<Kind>, Box<Kind>),
     /// An inference kind variable. Rigid variables come from `forall` binders.
     Variable(u32),
+    /// A quantified kind, `forall k. k`. The binder is rigid. This is the
+    /// quantifier inside a kind, as in `(forall k. k -> Type) -> Type`, not
+    /// the scheme that generalizes a declaration's own parameters.
+    ForAll {
+        variable: u32,
+        body: Box<Kind>,
+    },
+    /// The empty tail of a closed row kind.
+    RowEmpty,
+    /// One field of a row kind. Denotation sorts labels, so two literals with
+    /// the same fields are the same kind whatever order the source wrote.
+    RowExtend {
+        label: String,
+        field: Box<Kind>,
+        tail: Box<Kind>,
+    },
+    /// A type variable left inside a kind. Official kinds are types, so the
+    /// kind `KProxy k` mentions the type variable `k`. That is not a kind
+    /// unknown: it is not solved and it is not generalized.
+    TypeVariable(String),
 }
 
 impl Kind {
@@ -86,12 +109,29 @@ pub fn primitive_kind(builtin: BuiltinType) -> Kind {
     }
 }
 
+/// One binder in a kind scheme's quantification order.
+///
+/// Implicitly generalized unknowns come first, then the explicit `forall`
+/// binders, which is the order `checkQuantification` walks. `kind` is the
+/// sort of `variable` and may mention other binders in this list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KindBinder {
+    pub variable: u32,
+    pub kind: Kind,
+}
+
 /// A possibly polymorphic kind. Every variable in `variables` is rigid at every
 /// use, so instantiating the scheme is what makes the kind usable.
+///
+/// `variables` is the set substituted into `kind`. `binders` is the separate
+/// quantification order: an implicit unknown that occurs only in another
+/// binder's sort is recorded there even when the published kind spine does
+/// not mention it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KindScheme {
     pub variables: Vec<u32>,
     pub kind: Kind,
+    pub binders: Vec<KindBinder>,
 }
 
 impl KindScheme {
@@ -99,6 +139,7 @@ impl KindScheme {
         Self {
             variables: Vec::new(),
             kind,
+            binders: Vec::new(),
         }
     }
 }
@@ -236,8 +277,13 @@ pub fn collect_type_ids(ty: &psrs_hir::Type, out: &mut Vec<TypeId>) {
                 collect_type_ids(tail, out);
             }
         }
+        TypeKind::Kinded { expression, kind } => {
+            collect_type_ids(expression, out);
+            collect_type_ids(kind, out);
+        }
         TypeKind::Variable(_)
         | TypeKind::Wildcard
+        | TypeKind::Hole(_)
         | TypeKind::Constructor(_)
         | TypeKind::Integer(_)
         | TypeKind::String(_) => {}

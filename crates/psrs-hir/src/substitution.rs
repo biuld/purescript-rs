@@ -60,6 +60,10 @@ fn substitute(ty: &Type, substitutions: &HashMap<String, Type>, next_fresh: &mut
                 .as_deref()
                 .map(|tail| Box::new(substitute(tail, substitutions, next_fresh))),
         },
+        TypeKind::Kinded { expression, kind } => TypeKind::Kinded {
+            expression: Box::new(substitute(expression, substitutions, next_fresh)),
+            kind: Box::new(substitute(kind, substitutions, next_fresh)),
+        },
         _ => return ty.clone(),
     };
     Type {
@@ -164,6 +168,7 @@ fn rename_bound(ty: &Type, old: &str, new: &str) -> Type {
                         name: variable.name.clone(),
                         name_span: variable.name_span,
                         kind,
+                        visible: variable.visible,
                     }
                 })
                 .collect();
@@ -192,6 +197,10 @@ fn rename_bound(ty: &Type, old: &str, new: &str) -> Type {
             tail: tail
                 .as_deref()
                 .map(|tail| Box::new(rename_bound(tail, old, new))),
+        },
+        TypeKind::Kinded { expression, kind } => TypeKind::Kinded {
+            expression: Box::new(rename_bound(expression, old, new)),
+            kind: Box::new(rename_bound(kind, old, new)),
         },
         _ => return ty.clone(),
     };
@@ -261,6 +270,10 @@ fn collect_free_variables(ty: &Type, bound: &mut HashSet<String>, free: &mut Has
             if let Some(tail) = tail {
                 collect_free_variables(tail, bound, free);
             }
+        }
+        TypeKind::Kinded { expression, kind } => {
+            collect_free_variables(expression, bound, free);
+            collect_free_variables(kind, bound, free);
         }
         _ => {}
     }
@@ -332,6 +345,10 @@ fn collect_variable_names(ty: &Type, names: &mut HashSet<String>) {
             if let Some(tail) = tail {
                 collect_variable_names(tail, names);
             }
+        }
+        TypeKind::Kinded { expression, kind } => {
+            collect_variable_names(expression, names);
+            collect_variable_names(kind, names);
         }
         _ => {}
     }

@@ -45,10 +45,12 @@ impl Checker {
                 InferType::ForAll {
                     variables: left_variables,
                     body: left_body,
+                    ..
                 },
                 InferType::ForAll {
                     variables: right_variables,
                     body: right_body,
+                    ..
                 },
             ) if left_variables.len() == right_variables.len() => {
                 let mapping = right_variables
@@ -236,7 +238,9 @@ impl Checker {
                     )
                 }
             }
-            InferType::ForAll { variables, body } => format!(
+            InferType::ForAll {
+                variables, body, ..
+            } => format!(
                 "(forall {}. {})",
                 variables
                     .iter()
@@ -288,8 +292,13 @@ impl Checker {
                 ty: Box::new(self.resolve_type(*ty)),
                 tail: Box::new(self.resolve_type(*tail)),
             },
-            InferType::ForAll { variables, body } => InferType::ForAll {
+            InferType::ForAll {
                 variables,
+                visible,
+                body,
+            } => InferType::ForAll {
+                variables,
+                visible,
                 body: Box::new(self.resolve_type(*body)),
             },
             InferType::Constrained { constraints, body } => InferType::Constrained {
@@ -332,7 +341,9 @@ impl Checker {
                 self.adjust_levels_excluding(function, max_level, bound);
                 self.adjust_levels_excluding(argument, max_level, bound);
             }
-            InferType::ForAll { variables, body } => {
+            InferType::ForAll {
+                variables, body, ..
+            } => {
                 let mut bound = bound.clone();
                 bound.extend(variables.iter().copied());
                 self.adjust_levels_excluding(body, max_level, &bound);
@@ -400,7 +411,9 @@ impl Checker {
                 let argument = self.finalize_type(&argument, span, interner, generics);
                 Some(interner.intern(Type::Application(function?, argument?)))
             }
-            InferType::ForAll { variables, body } => {
+            InferType::ForAll {
+                variables, body, ..
+            } => {
                 let mut scoped_generics = generics.clone();
                 scoped_generics.extend(variables.iter().copied());
                 let body = self.finalize_type(&body, span, interner, &scoped_generics)?;
@@ -441,13 +454,18 @@ pub(super) fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> I
             Box::new(substitute(function, mapping)),
             Box::new(substitute(argument, mapping)),
         ),
-        InferType::ForAll { variables, body } => {
+        InferType::ForAll {
+            variables,
+            visible,
+            body,
+        } => {
             let mut mapping = mapping.clone();
             for variable in variables {
                 mapping.remove(variable);
             }
             InferType::ForAll {
                 variables: variables.clone(),
+                visible: visible.clone(),
                 body: Box::new(substitute(body, &mapping)),
             }
         }

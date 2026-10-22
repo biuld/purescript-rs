@@ -2,7 +2,10 @@ use super::*;
 use crate::kind::{flatten_spine, type_kind};
 use crate::solve::substitute;
 
+mod binding_group;
+mod closed_type;
 mod pattern_annotations;
+mod quantify;
 mod type_kind;
 
 impl Checker<'_> {
@@ -30,7 +33,22 @@ impl Checker<'_> {
                         variables.push(variable);
                     }
                 }
-                (*id, KindScheme { variables, kind })
+                let binders = scheme
+                    .binders
+                    .iter()
+                    .map(|binder| KindBinder {
+                        variable: binder.variable,
+                        kind: self.state.resolve(binder.kind.clone()),
+                    })
+                    .collect();
+                (
+                    *id,
+                    KindScheme {
+                        variables,
+                        kind,
+                        binders,
+                    },
+                )
             })
             .collect()
     }
@@ -51,10 +69,27 @@ impl Checker<'_> {
         match self.schemes.get(&id).cloned() {
             Some(scheme) if !scheme.variables.is_empty() => {
                 let mut mapping = HashMap::new();
-                for variable in scheme.variables {
-                    mapping.insert(variable, self.fresh());
+                for variable in &scheme.variables {
+                    // A binder that does not occur in the kind is the sort of
+                    // another binder. Allocating it must not look like an
+                    // unknown left in the type: official quantification only
+                    // sees unknowns that the elaborated type still contains.
+                    let fresh = if crate::solve::occurs(*variable, &scheme.kind) {
+                        self.fresh_closed_unknown()
+                    } else {
+                        self.fresh()
+                    };
+                    mapping.insert(*variable, fresh);
                 }
                 substitute(&scheme.kind, &mapping)
+            }
+            // An inferred scheme's parameter kinds are still flexible. A use
+            // outside this binding group instantiates them, so one field cannot
+            // solve another declaration's parameter. Uses inside the group keep
+            // the shared kind: that is what solves `A` from `B`, and what the
+            // occurs check reads.
+            Some(scheme) if self.in_closed_type && !self.same_kind_group(id) => {
+                self.instantiate_inferred(&scheme)
             }
             Some(scheme) => scheme.kind,
             None => {
@@ -90,8 +125,13 @@ impl Checker<'_> {
         for declaration in declarations {
             let scheme = match &declaration.declared_kind {
                 Some(signature) => {
-                    let (variables, kind) = self.parse_declared_kind(signature);
-                    KindScheme { variables, kind }
+                    let (variables, kind, binders) =
+                        self.parse_declared_kind(declaration.id, signature);
+                    KindScheme {
+                        variables,
+                        kind,
+                        binders,
+                    }
                 }
                 None => {
                     let mut scope = HashMap::new();
@@ -130,7 +170,11 @@ impl Checker<'_> {
     /// Each binder becomes a rigid kind variable, so the annotation is checked
     /// against the polymorphic kind it declares rather than against a variable
     /// the annotation itself may bind.
-    fn parse_declared_kind(&mut self, signature: &hir::Type) -> (Vec<u32>, Kind) {
+    fn parse_declared_kind(
+        &mut self,
+        id: hir::TypeId,
+        signature: &hir::Type,
+    ) -> (Vec<u32>, Kind, Vec<KindBinder>) {
         // The whole signature is walked for an unsaturated synonym once, so the
         // binders below read their annotations through `denote` alone.
         self.check_annotation_saturation(signature);
@@ -157,7 +201,11 @@ impl Checker<'_> {
             body = inner;
         }
         let kind = self.denote(body, &mut scope);
-        (variables, kind)
+        // The denoted spine is what uses instantiate. The binder list is the
+        // separate implicit-before-explicit order, with each binder's sort,
+        // and it is what rejects an ill-scoped generalization.
+        let binders = self.signature_binders(id, signature, &variables);
+        (variables, kind, binders)
     }
 
     // ----- Definition checking -----------------------------------------
@@ -165,7 +213,17 @@ impl Checker<'_> {
     pub(super) fn check_definitions(&mut self) {
         for module in self.modules {
             self.current = module.id;
-            self.check_module_definitions(module);
+            self.check_declared_types(module);
+        }
+        // A declaration's scheme quantifies the unknowns its own definition
+        // left free. Value signatures, instance heads, and expression
+        // annotations instantiate that scheme, so one use cannot solve
+        // another use's copy of the same parameter.
+        let generalized = self.checked_schemes();
+        self.schemes = generalized;
+        for module in self.modules {
+            self.current = module.id;
+            self.check_uses(module);
         }
     }
 
@@ -201,17 +259,39 @@ impl Checker<'_> {
         }
     }
 
-    fn check_module_definitions(&mut self, module: &hir::Module) {
+    fn check_uses(&mut self, module: &hir::Module) {
         for signature in module.declared_value_signatures() {
             let mut scope = HashMap::new();
             let kind = self.kind_of_type(signature, &mut scope);
             self.check_type_annotation_kind(kind, type_kind(), signature.span);
         }
-        for declaration in &module.types {
+        self.check_instance_heads(module);
+        self.check_local_type_annotations(module);
+    }
+
+    fn check_declared_types(&mut self, module: &hir::Module) {
+        let (groups, order) = binding_group::order(module);
+        self.kind_group = groups;
+        let position: HashMap<TypeId, usize> = module
+            .types
+            .iter()
+            .enumerate()
+            .map(|(index, declaration)| (declaration.id, index))
+            .collect();
+        for id in order {
+            let Some(&index) = position.get(&id) else {
+                continue;
+            };
+            self.current_type = Some(id);
+            let declaration = &module.types[index];
             let Some(scheme) = self.schemes.get(&declaration.id).cloned() else {
                 continue;
             };
             let (parameters, result) = strip_function(&scheme.kind, declaration.parameters.len());
+            self.guarded_kinds.clear();
+            for kind in &parameters {
+                collect_kind_variables(kind, &mut self.guarded_kinds);
+            }
             let mut scope = HashMap::new();
             for (parameter, kind) in declaration.parameters.iter().zip(parameters) {
                 scope.insert(parameter.name.clone(), kind);
@@ -220,15 +300,20 @@ impl Checker<'_> {
                 TypeDeclarationKind::Data | TypeDeclarationKind::Newtype => {
                     for constructor in &declaration.constructors {
                         for field in &constructor.fields {
-                            let kind = self.kind_of_type(field, &mut scope);
+                            let kind = self.kind_of_closed_type(field, &mut scope);
                             self.unify(kind, type_kind(), field.span);
+                            self.report_closed_unknowns(field.span);
                         }
                     }
                 }
                 TypeDeclarationKind::TypeSynonym => {
                     if let Some(body) = &declaration.body {
-                        let kind = self.kind_of_type(body, &mut scope);
+                        self.in_synonym = true;
+                        let kind = self.kind_of_closed_type(body, &mut scope);
+                        self.in_synonym = false;
                         self.unify(kind, result, body.span);
+                        self.report_closed_unknowns(body.span);
+                        self.report_visible_type_quantification(body.span);
                     }
                 }
                 TypeDeclarationKind::Class => {
@@ -246,8 +331,7 @@ impl Checker<'_> {
                 TypeDeclarationKind::Foreign => {}
             }
         }
-        self.check_instance_heads(module);
-        self.check_local_type_annotations(module);
+        self.current_type = None;
     }
 
     /// Checks every instance head against its class's kind scheme.
@@ -317,19 +401,28 @@ impl Checker<'_> {
     }
 }
 
-fn collect_kind_variables(kind: &Kind, out: &mut Vec<u32>) {
-    match kind {
-        Kind::Variable(variable) => out.push(*variable),
-        Kind::App(function, argument) => {
-            collect_kind_variables(function, out);
-            collect_kind_variables(argument, out);
+pub(super) fn collect_kind_variables(kind: &Kind, out: &mut Vec<u32>) {
+    fn walk(kind: &Kind, bound: &mut Vec<u32>, out: &mut Vec<u32>) {
+        match kind {
+            Kind::Variable(variable) if !bound.contains(variable) => out.push(*variable),
+            Kind::Variable(_) => {}
+            Kind::App(function, argument) | Kind::Function(function, argument) => {
+                walk(function, bound, out);
+                walk(argument, bound, out);
+            }
+            Kind::RowExtend { field, tail, .. } => {
+                walk(field, bound, out);
+                walk(tail, bound, out);
+            }
+            Kind::ForAll { variable, body } => {
+                bound.push(*variable);
+                walk(body, bound, out);
+                bound.pop();
+            }
+            Kind::Builtin(_) | Kind::Named(_) | Kind::RowEmpty | Kind::TypeVariable(_) => {}
         }
-        Kind::Function(parameter, result) => {
-            collect_kind_variables(parameter, out);
-            collect_kind_variables(result, out);
-        }
-        Kind::Builtin(_) | Kind::Named(_) => {}
     }
+    walk(kind, &mut Vec::new(), out);
 }
 
 fn strip_function(kind: &Kind, arguments: usize) -> (Vec<Kind>, Kind) {

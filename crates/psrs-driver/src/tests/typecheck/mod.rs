@@ -1,7 +1,10 @@
 use super::*;
 
+mod constructor_arity;
+mod holes;
 mod instance_heads;
 mod opaque;
+mod record_properties;
 
 #[test]
 fn typechecks_a_polymorphic_array_signature() {

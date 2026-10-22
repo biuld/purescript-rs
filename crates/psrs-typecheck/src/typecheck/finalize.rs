@@ -20,7 +20,10 @@ impl Checker {
     ) -> Option<thir::Expr> {
         let mut active_generics = generics.clone();
         let mut scope = self.resolve_type(expression.ty.clone());
-        while let InferType::ForAll { variables, body } = scope {
+        while let InferType::ForAll {
+            variables, body, ..
+        } = scope
+        {
             active_generics.extend(variables);
             scope = self.resolve_type(*body);
         }
@@ -34,6 +37,14 @@ impl Checker {
             InferredExprKind::Boolean(value) => thir::ExprKind::Boolean(value),
             InferredExprKind::String(value) => thir::ExprKind::String(value),
             InferredExprKind::Char(value) => thir::ExprKind::Char(value),
+            InferredExprKind::Hole => {
+                self.state.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::HoleInferredType,
+                    expression.span,
+                    "typed hole reached finalization",
+                ));
+                return None;
+            }
             InferredExprKind::Array(elements) => thir::ExprKind::Array(
                 elements
                     .into_iter()
@@ -61,6 +72,14 @@ impl Checker {
                 expression: Box::new(self.finalize_expr(*expression, interner, generics)?),
                 field,
             },
+            InferredExprKind::PendingMethod { .. } => {
+                self.state.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::InvalidHir,
+                    expression.span,
+                    "a class method reached finalization before its dictionary was selected",
+                ));
+                return None;
+            }
             InferredExprKind::Method { method, wanted } => {
                 let evidence = self.wanted_evidence(wanted, interner, generics)?;
                 let dictionary_ty = evidence.ty;

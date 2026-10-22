@@ -29,6 +29,7 @@ fn successful_annotation_probe_rolls_back_solver_scope_and_reports() {
             checker.state.warnings.push(TypeCheckWarning {
                 span,
                 message: "probe warning".into(),
+                code: "UserDefinedWarning",
             });
             Some(())
         }),

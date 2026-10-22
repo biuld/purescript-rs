@@ -14,10 +14,20 @@ impl Checker {
         let actual = self.resolve_type(actual);
         let expected = self.resolve_type(expected);
         match (actual, expected) {
-            (actual, InferType::ForAll { variables, body }) => {
+            (
+                actual,
+                InferType::ForAll {
+                    variables, body, ..
+                },
+            ) => {
                 self.with_skolem_scope(&variables, |checker| checker.subsume(actual, *body, span));
             }
-            (InferType::ForAll { variables, body }, expected) => {
+            (
+                InferType::ForAll {
+                    variables, body, ..
+                },
+                expected,
+            ) => {
                 let mapping = self.instantiate_type_variables(variables, &HashMap::new());
                 self.subsume(substitute(&body, &mapping), expected, span);
             }
@@ -27,21 +37,30 @@ impl Checker {
                 {
                     let actual = self.normalize_row_or_report(actual_row, span);
                     let expected = self.normalize_row_or_report(expected_row, span);
-                    let actual_fields = actual.fields.into_iter().collect::<HashMap<_, _>>();
-                    let expected_fields = expected.fields.into_iter().collect::<HashMap<_, _>>();
-                    let mut actual_remainder = Vec::new();
-                    let mut expected_remainder = Vec::new();
-                    for (label, actual_field) in &actual_fields {
-                        if let Some(expected_field) = expected_fields.get(label) {
-                            self.subsume(actual_field.clone(), expected_field.clone(), span);
-                        } else {
-                            actual_remainder.push((label.clone(), actual_field.clone()));
-                        }
+                    // `{ ts1 | r1 }` subsumes `{ ts2 | r2 }`. Duplicate labels
+                    // stay in the alignment: a map would drop the extra
+                    // occurrence and solve the tail as an empty row.
+                    // A closed candidate that lacks an expected label is
+                    // `PropertyIsMissing`; a closed expected row that cannot
+                    // accept an extra label is `AdditionalProperty`. Those
+                    // reports stop the check, matching `throwError` before
+                    // `unifyTypes`. Every other mismatch is ordinary row
+                    // unification of the leftovers.
+                    let (common, actual_remainder, expected_remainder) =
+                        align_row_fields(actual.fields, expected.fields);
+                    let reported = report_closed_record_properties(
+                        self,
+                        &actual_remainder,
+                        matches!(actual.tail.to_type(), InferType::RowEmpty),
+                        &expected_remainder,
+                        matches!(expected.tail.to_type(), InferType::RowEmpty),
+                        span,
+                    );
+                    if reported {
+                        return;
                     }
-                    for (label, expected_field) in &expected_fields {
-                        if !actual_fields.contains_key(label) {
-                            expected_remainder.push((label.clone(), expected_field.clone()));
-                        }
+                    for (actual_field, expected_field) in common {
+                        self.subsume(actual_field, expected_field, span);
                     }
                     self.unify_rows(
                         row_from_fields(actual_remainder, actual.tail.to_type()),
@@ -71,4 +90,41 @@ impl Checker {
             }
         }
     }
+}
+
+/// Reports at most one missing label and one additional label, matching
+/// `subsumes'` in `TypeChecker/Subsumption.hs`, which keeps the first
+/// difference on each side.
+fn report_closed_record_properties(
+    checker: &mut Checker,
+    actual_remainder: &[(String, InferType)],
+    actual_closed: bool,
+    expected_remainder: &[(String, InferType)],
+    expected_closed: bool,
+    span: TextRange,
+) -> bool {
+    let mut reported = false;
+    if actual_closed && let Some(label) = first_label(expected_remainder) {
+        checker.state.errors.push(TypeCheckError::new(
+            TypeCheckErrorKind::PropertyIsMissing,
+            span,
+            format!("type of expression lacks required label `{label}`"),
+        ));
+        reported = true;
+    }
+    if expected_closed && let Some(label) = first_label(actual_remainder) {
+        checker.state.errors.push(TypeCheckError::new(
+            TypeCheckErrorKind::AdditionalProperty,
+            span,
+            format!("type of expression contains additional label `{label}`"),
+        ));
+        reported = true;
+    }
+    reported
+}
+
+fn first_label(fields: &[(String, InferType)]) -> Option<&str> {
+    // `align_row_fields` leaves each remainder sorted, and `firstMissingProp`
+    // reports the first label of that sorted difference.
+    fields.first().map(|(label, _)| label.as_str())
 }

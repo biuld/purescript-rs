@@ -1,3 +1,7 @@
+mod disagreement;
+mod infinite;
+mod kinds;
+
 fn rejects(sources: &[(&str, &str)], expected_code: &str) {
     let errors = crate::check_program(sources).expect_err("program should be rejected");
     assert!(
@@ -67,7 +71,7 @@ fn a_nominal_data_role_blocks_newtype_coercion_of_its_parameter() {
         bad = coerce\n\
         main :: Int\n\
         main = 0\n";
-    rejects(&[("Main.purs", source)], "NoInstanceFound");
+    rejects(&[("Main.purs", source)], "TypesDoNotUnify");
 }
 
 #[test]
@@ -162,7 +166,7 @@ fn rejects_open_record_rows_with_different_known_labels() {
         bad = coerce\n\
         main :: Int\n\
         main = 0\n";
-    rejects(&[("Main.purs", source)], "NoInstanceFound");
+    rejects(&[("Main.purs", source)], "TypesDoNotUnify");
 }
 
 #[test]
@@ -342,7 +346,7 @@ fn imported_role_metadata_restricts_coercion() {
         main = 0\n";
     rejects(
         &[("Lib.purs", library), ("Main.purs", consumer)],
-        "NoInstanceFound",
+        "TypesDoNotUnify",
     );
 }
 
@@ -355,7 +359,7 @@ fn foreign_data_roles_default_to_nominal_and_accept_explicit_signatures() {
         bad = coerce\n\
         main :: Int\n\
         main = 0\n";
-    rejects(&[("Main.purs", conservative)], "NoInstanceFound");
+    rejects(&[("Main.purs", conservative)], "TypesDoNotUnify");
 
     let annotated = "module Main where\n\
         import Safe.Coerce (coerce)\n\

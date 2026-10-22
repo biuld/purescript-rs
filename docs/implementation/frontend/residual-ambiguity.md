@@ -51,9 +51,9 @@ The six differential sources cover unused and used constraints, conflicting
 monomorphic uses, an explicit polymorphic local, an explicitly constrained local,
 and functional-dependency determination. They run through the installed official
 `purs`; the corpus assertion uses the official case's annotation separately.
-`PolykindGeneralizationLet.purs` remains blocked by an existing P5 kind mismatch
-before reaching its annotated type error; this work does not claim coverage of
-that case or completion of polymorphic kind support.
+`PolykindGeneralizationLet.purs` reaches its annotated `TypesDoNotUnify`
+(measured 2026-10-22, L4 43/50). This note does not claim completion of
+polymorphic kind support.
 
 Reproduce with:
 

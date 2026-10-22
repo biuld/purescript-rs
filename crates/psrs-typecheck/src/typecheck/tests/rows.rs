@@ -116,6 +116,7 @@ fn synonym(id: u32, name: &str, parameters: &[&str], body: HirType) -> psrs_hir:
                 name: (*parameter).into(),
                 name_span: TextRange::new(0, 1),
                 kind: None,
+                visible: false,
             })
             .collect(),
         constructors: Vec::new(),

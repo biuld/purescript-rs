@@ -1,3 +1,4 @@
+mod anonymous;
 mod local_types;
 mod natural_transformation;
 mod opaque_type;

@@ -47,6 +47,7 @@ fn class(
                 name: (*name).to_owned(),
                 name_span: empty_span(),
                 kind: None,
+                visible: false,
             })
             .collect(),
         constructors: Vec::new(),
@@ -123,6 +124,7 @@ fn forall(variable_name: &str, body: Type) -> Type {
                 name: variable_name.to_owned(),
                 name_span: empty_span(),
                 kind: None,
+                visible: false,
             }],
             body: Box::new(body),
         },

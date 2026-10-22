@@ -138,7 +138,8 @@ impl Desugarer {
             | ExprKind::Integer(_)
             | ExprKind::Number(_)
             | ExprKind::String(_)
-            | ExprKind::Char(_)) => leaf,
+            | ExprKind::Char(_)
+            | ExprKind::Hole(_)) => leaf,
         };
         Expr { kind, span }
     }

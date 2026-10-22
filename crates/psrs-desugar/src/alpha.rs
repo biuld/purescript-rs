@@ -154,7 +154,8 @@ fn collect_expr_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
         | ExprKind::Integer(_)
         | ExprKind::Number(_)
         | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
+        | ExprKind::Char(_)
+        | ExprKind::Hole(_) => {}
     }
 }
 
@@ -350,7 +351,8 @@ fn rename_expr(expression: Expr, mapping: &HashMap<LocalId, LocalId>) -> Expr {
         | ExprKind::Integer(_)
         | ExprKind::Number(_)
         | ExprKind::String(_)
-        | ExprKind::Char(_)) => leaf,
+        | ExprKind::Char(_)
+        | ExprKind::Hole(_)) => leaf,
     };
     Expr { kind, span }
 }

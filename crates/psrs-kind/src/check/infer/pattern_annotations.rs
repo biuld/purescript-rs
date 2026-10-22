@@ -73,6 +73,10 @@ impl Checker<'_> {
                     self.collect_written_binders(tail, bound);
                 }
             }
+            psrs_hir::TypeKind::Kinded { expression, kind } => {
+                self.collect_written_binders(expression, bound);
+                self.collect_written_binders(kind, bound);
+            }
             _ => {}
         }
     }
@@ -117,6 +121,10 @@ impl Checker<'_> {
                     self.collect_free_variable_names(tail, bound);
                 }
             }
+            psrs_hir::TypeKind::Kinded { expression, kind } => {
+                self.collect_free_variable_names(expression, bound);
+                self.collect_free_variable_names(kind, bound);
+            }
             _ => {}
         }
     }
@@ -143,17 +151,14 @@ impl Checker<'_> {
                 self.check_expression_annotations(expression, bound);
             }
             ExprKind::TypeApplication { expression, ty } => {
-                // A visible type application's argument is checked against
-                // the kind of the quantifier it instantiates, which is
-                // official `checkKind` in `infer' (VisibleTypeApp ...)` and
-                // not the `Type` equation. This pass still has no kind for
-                // the operand, so it keeps the pre-existing `Type` solve and
-                // waits for quantifier kinds to reach the shared kind state.
-                // The undefined-variable rule the ascription path gained
-                // applies here too, since the kind checking of an argument
-                // names it the same way.
+                // The argument's kind is the quantifier it instantiates.
+                // Official `infer' (VisibleTypeApp)` checks that equation
+                // once the operand's scheme is known, and the type checker
+                // does the same. Solving the argument against `Type` here
+                // rejects a `Symbol` or a higher-kinded argument before that
+                // quantifier exists. An undefined variable is still named
+                // here, the same way an ascription names one.
                 self.check_references(ty, bound);
-                self.check_kind_of_annotation(ty);
                 self.check_expression_annotations(expression, bound);
             }
             ExprKind::Array(elements) => {
@@ -254,7 +259,8 @@ impl Checker<'_> {
             | ExprKind::Integer(_)
             | ExprKind::Number(_)
             | ExprKind::String(_)
-            | ExprKind::Char(_) => {}
+            | ExprKind::Char(_)
+            | ExprKind::Hole(_) => {}
         }
     }
 

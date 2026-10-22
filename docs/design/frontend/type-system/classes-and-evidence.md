@@ -57,10 +57,13 @@ is an orphan type declaration. Member signatures are checked against the class
 method after substituting the instance head. Variables introduced by the
 instance context share the same type identities in method bodies and
 annotations; a context-only variable is valid when the context's functional
-dependencies determine it from the instance head. The implementation supports
-the existing subsumption rules for these annotations; it does not yet solve a
-constrained annotation merely to specialize it to a monomorphic expected method
-type.
+dependencies determine it from the instance head. A constrained annotation
+specializes to a monomorphic expected method type. Invisible binders are
+instantiated, the body subsumes that specialized type, and the exposed
+constraint is solved: by another instance, by a given from the instance
+context, or by the instance being defined when its own context is empty. An
+unsolved constraint is `NoInstanceFound`. A result that does not match the
+specialized method type is `TypesDoNotUnify`.
 
 ## Design
 

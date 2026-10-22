@@ -101,6 +101,7 @@ fn expand_inner(
                             Some(kind) => Some(expand_inner(kind, synonyms, fuel, next_fresh)?),
                             None => None,
                         },
+                        visible: variable.visible,
                     })
                 })
                 .collect::<Option<Vec<_>>>()?,
@@ -123,6 +124,10 @@ fn expand_inner(
                 Some(tail) => Some(Box::new(expand_inner(tail, synonyms, fuel, next_fresh)?)),
                 None => None,
             },
+        },
+        TypeKind::Kinded { expression, kind } => TypeKind::Kinded {
+            expression: Box::new(expand_inner(expression, synonyms, fuel, next_fresh)?),
+            kind: Box::new(expand_inner(kind, synonyms, fuel, next_fresh)?),
         },
         _ => return Some(ty.clone()),
     };

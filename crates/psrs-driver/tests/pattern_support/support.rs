@@ -35,7 +35,10 @@ pub(super) fn type_contains_wildcard(ty: &Type) -> bool {
             fields.iter().any(|field| type_contains_wildcard(&field.ty))
                 || tail.as_deref().is_some_and(type_contains_wildcard)
         }
-        TypeKind::Name(_) | TypeKind::Integer(_) | TypeKind::String(_) => false,
+        TypeKind::Kinded { expression, kind } => {
+            type_contains_wildcard(expression) || type_contains_wildcard(kind)
+        }
+        TypeKind::Name(_) | TypeKind::Hole(_) | TypeKind::Integer(_) | TypeKind::String(_) => false,
         TypeKind::OperatorChain { operands, .. } => operands.iter().any(type_contains_wildcard),
     }
 }
@@ -119,6 +122,7 @@ pub(super) fn visit_expr_patterns<'a>(expression: &'a Expr, output: &mut Vec<&'a
             }
         }
         ExprKind::Name(_)
+        | ExprKind::Hole(_)
         | ExprKind::Integer(_)
         | ExprKind::Number(_)
         | ExprKind::String(_)
@@ -204,6 +208,7 @@ pub(super) fn visit_expr_guards<'a>(expression: &'a Expr, output: &mut Vec<&'a G
             }
         }
         ExprKind::Name(_)
+        | ExprKind::Hole(_)
         | ExprKind::Integer(_)
         | ExprKind::Number(_)
         | ExprKind::String(_)

@@ -17,13 +17,7 @@ impl Checker {
         self.scope.given_rigid.clear();
         for (constraint, (id, _)) in constraints.iter().zip(parameters) {
             for argument in &constraint.arguments {
-                let mut variables = HashSet::new();
-                super::fundeps::collect_infer_variables(argument, &mut variables);
-                for variable in variables {
-                    if self.state.rigid.insert(variable) {
-                        self.scope.given_rigid.push(variable);
-                    }
-                }
+                self.rigidify_given_argument(argument);
             }
             self.scope
                 .givens

@@ -1,7 +1,7 @@
 use crate::denote::{KindScope, denote_kind};
 use crate::kind::{
-    CheckedKindEnv, Kind, KindDiagnostic, KindScheme, collect_type_ids, constraint_kind,
-    detect_cycle,
+    CheckedKindEnv, Kind, KindBinder, KindDiagnostic, KindScheme, collect_type_ids,
+    constraint_kind, detect_cycle, type_kind,
 };
 use crate::solve::KindState;
 use psrs_hir::{self as hir, ModuleId, Role, TypeDeclarationKind, TypeId, TypeKind};
@@ -25,12 +25,30 @@ pub const UNDEFINED_TYPE_VARIABLE: &str = "UndefinedTypeVariable";
 /// with the written type and its kind instead of the kind unifier's own
 /// mismatch.
 pub const EXPECTED_TYPE: &str = "ExpectedType";
+/// A skolem introduced for a quantified kind leaked into a synonym body.
+/// Official `checkEscapedSkolems` (`TypeChecker/Kinds.hs`) reports this when
+/// the generalized synonym still contains that skolem.
+pub const ESCAPED_SKOLEM: &str = "EscapedSkolem";
 /// A referenced type that the program never checked, so no kind is known for
 /// it. This is the code official PureScript reports when `elaborateKind` cannot
 /// resolve a constructor: a missing kind is not an inferable parameter.
 pub const MISSING_KIND_METADATA: &str = "UnknownName";
 /// A type expression that reached kind checking before P4 lowered it.
 pub const UNLOWERED_TYPE_OPERATOR: &str = "UnloweredTypeOperator";
+/// An implicitly generalized kind variable was inserted before an explicit
+/// binder it depends on. Official `checkQuantification`
+/// (`TypeChecker/Kinds.hs`) reports this on each later binder whose kind
+/// mentions that variable.
+pub const QUANTIFICATION_CHECK_FAILURE_IN_KIND: &str = "QuantificationCheckFailureInKind";
+/// A data-constructor field or synonym body still contains a kind unknown.
+/// Official `checkTypeQuantification` (`TypeChecker/Kinds.hs`) rejects that
+/// unknown: those positions cannot implicitly generalize it.
+pub const QUANTIFICATION_CHECK_FAILURE_IN_TYPE: &str = "QuantificationCheckFailureInType";
+/// A generalized type-synonym kind still mentions a type variable. Official
+/// `checkVisibleTypeQuantification` (`TypeChecker/Kinds.hs`) reports this:
+/// visible dependent quantification in a synonym kind is not supported.
+pub const VISIBLE_QUANTIFICATION_CHECK_FAILURE_IN_TYPE: &str =
+    "VisibleQuantificationCheckFailureInType";
 
 /// Checks the kinds of a whole program once, and returns the environment every
 /// module's type check consumes.
@@ -81,6 +99,23 @@ struct Checker<'a> {
     synonyms: synonyms::SynonymMap,
     state: KindState,
     errors: Vec<KindDiagnostic>,
+    /// Set while the body of a type synonym is kind-checked. Official
+    /// `checkEscapedSkolems` runs on that body and nowhere else.
+    in_synonym: bool,
+    /// Set while a data-constructor field or synonym body is kind-checked.
+    /// Official `checkTypeQuantification` rejects a kind unknown left there.
+    in_closed_type: bool,
+    /// Kind variables introduced while [`Self::in_closed_type`] is set.
+    closed_unknowns: Vec<u32>,
+    /// Kind variables of the declaration whose body is being checked. An
+    /// unknown that resolves to one of these is that declaration's own
+    /// parameter, which generalization is allowed to quantify.
+    guarded_kinds: Vec<u32>,
+    /// The declaration whose body is being checked, when there is one.
+    current_type: Option<TypeId>,
+    /// Binding group of each type this module declares. A use outside the
+    /// current declaration's group instantiates an inferred kind.
+    kind_group: HashMap<TypeId, u32>,
 }
 
 impl<'a> Checker<'a> {
@@ -98,6 +133,12 @@ impl<'a> Checker<'a> {
             synonyms: synonyms::collect(modules),
             state: coercible_state(),
             errors: Vec::new(),
+            in_synonym: false,
+            in_closed_type: false,
+            closed_unknowns: Vec::new(),
+            guarded_kinds: Vec::new(),
+            current_type: None,
+            kind_group: HashMap::new(),
         }
     }
 
@@ -117,6 +158,12 @@ impl<'a> Checker<'a> {
             synonyms,
             state: coercible_state(),
             errors: Vec::new(),
+            in_synonym: false,
+            in_closed_type: false,
+            closed_unknowns: Vec::new(),
+            guarded_kinds: Vec::new(),
+            current_type: None,
+            kind_group: HashMap::new(),
         }
     }
 
@@ -295,7 +342,12 @@ impl<'a> Checker<'a> {
                     self.check_references(tail, bound);
                 }
             }
+            TypeKind::Kinded { expression, kind } => {
+                self.check_references(expression, bound);
+                self.check_references(kind, bound);
+            }
             TypeKind::Wildcard
+            | TypeKind::Hole(_)
             | TypeKind::Constructor(_)
             | TypeKind::Named(_)
             | TypeKind::Opaque(_)
@@ -376,6 +428,10 @@ fn coercible_scheme() -> [(TypeId, KindScheme); 1] {
                     Box::new(constraint_kind()),
                 )),
             ),
+            binders: vec![KindBinder {
+                variable,
+                kind: type_kind(),
+            }],
         },
     )]
 }

@@ -31,6 +31,8 @@ struct GroupMember {
     /// The variables the signature's own `forall` binders introduced, which its
     /// scheme quantifies however the solver levelled them.
     quantified: Vec<u32>,
+    /// Parallel to `quantified`. `true` is a source `@` binder.
+    visible: Vec<bool>,
     /// The dictionary parameters the declaration abstracts, one per retained
     /// constraint, in the order the obligations arose.
     parameters: Vec<(LocalId, InferType)>,
@@ -96,19 +98,27 @@ impl Checker {
         declaration: &hir::Declaration,
         annotation_variables: &mut HashMap<String, InferType>,
     ) -> GroupMember {
-        let (scheme, parameters, quantified, declared) = match &declaration.signature {
+        let (scheme, parameters, quantified, visible, declared) = match &declaration.signature {
             Some(signature) => {
                 let signature = self.elaborate_declaration_signature(signature);
                 *annotation_variables = signature.annotation_variables.clone();
                 let scheme = self.declared_scheme(
                     &signature.quantified,
+                    &signature.visible,
                     signature.constraints,
                     signature.ty,
                 );
-                (scheme, signature.parameters, signature.quantified, true)
+                (
+                    scheme,
+                    signature.parameters,
+                    signature.quantified,
+                    signature.visible,
+                    true,
+                )
             }
             None => (
                 Scheme::monomorphic(self.fresh()),
+                Vec::new(),
                 Vec::new(),
                 Vec::new(),
                 false,
@@ -123,6 +133,7 @@ impl Checker {
             symbol: declaration.symbol,
             declared,
             quantified,
+            visible,
             parameters,
             value: None,
             residual: Vec::new(),
@@ -178,7 +189,7 @@ impl Checker {
                     .as_ref()
                     .map(|_| checker.scope.globals[&declaration.symbol].ty.clone());
                 let value = checker.infer_expr_with_expected(&declaration.value, expected);
-                let Some(value) = value else {
+                let Some(mut value) = value else {
                     checker.end_givens();
                     return None;
                 };
@@ -186,6 +197,13 @@ impl Checker {
                     .signature
                     .as_ref()
                     .map_or(declaration.name_span, |signature| signature.span);
+                // An unannotated binding is checked against a fresh unknown,
+                // which instantiates every quantifier before generalization.
+                // A visible binder does not become an inferred scheme's binder.
+                // A written ascription is that type, including its quantifiers.
+                if !declared && !matches!(declaration.value.kind, hir::ExprKind::Typed { .. }) {
+                    value = checker.instantiate_all_expr(value, span);
+                }
                 checker.unify(scheme.ty.clone(), value.ty.clone(), span);
                 // A declared signature may name ambiguous variables for the caller to
                 // instantiate, so only an inferred binding is measured against its
@@ -283,6 +301,8 @@ impl Checker {
         let scheme = self.generalize(&member.quantified, &monomorphic, &retained, TOP_LEVEL);
         let value = self.wrap_dictionary_lambdas(value, &member.parameters);
         let scheme = self.generalize_body(scheme, &value, TOP_LEVEL);
+        let mut scheme = self.retain_visible_binders(scheme, &member.quantified, &member.visible);
+        apply_binder_visibility(&mut scheme, &member.quantified, &member.visible);
         self.state
             .pending_signatures
             .insert(member.symbol, member.parameters.clone());
@@ -296,4 +316,19 @@ impl Checker {
             span: declaration.span,
         });
     }
+}
+
+/// Restores source `@` flags onto a generalized scheme. Body-only variables
+/// stay invisible. Flags follow variable identity, not the sorted position.
+fn apply_binder_visibility(scheme: &mut Scheme, quantified: &[u32], visible: &[bool]) {
+    let flags = quantified
+        .iter()
+        .copied()
+        .zip(visible.iter().copied())
+        .collect::<HashMap<_, _>>();
+    scheme.visible = scheme
+        .variables
+        .iter()
+        .map(|variable| flags.get(variable).copied().unwrap_or(false))
+        .collect();
 }

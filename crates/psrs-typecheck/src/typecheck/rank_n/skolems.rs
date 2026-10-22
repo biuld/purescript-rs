@@ -32,7 +32,9 @@ impl Checker {
                     visit(checker, function, variable_level, bound)
                         .or_else(|| visit(checker, argument, variable_level, bound))
                 }
-                InferType::ForAll { variables, body } => {
+                InferType::ForAll {
+                    variables, body, ..
+                } => {
                     let newly_bound = variables
                         .iter()
                         .filter(|id| !bound.contains(id))

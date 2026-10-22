@@ -160,40 +160,16 @@ impl Checker {
 
     fn unify_flat_rows(&mut self, left: FlatRow, right: FlatRow, span: TextRange) {
         let FlatRow {
-            fields: mut left_fields,
+            fields: left_fields,
             tail: left_tail,
         } = left;
         let FlatRow {
-            fields: mut right_fields,
+            fields: right_fields,
             tail: right_tail,
         } = right;
-        left_fields.sort_by(|left, right| left.0.cmp(&right.0));
-        right_fields.sort_by(|left, right| left.0.cmp(&right.0));
-        let mut left_rest = Vec::new();
-        let mut right_rest = Vec::new();
-        let mut left_fields = left_fields.into_iter().peekable();
-        let mut right_fields = right_fields.into_iter().peekable();
-        loop {
-            match (left_fields.peek(), right_fields.peek()) {
-                (Some((left_label, _)), Some((right_label, _))) => {
-                    match left_label.cmp(right_label) {
-                        std::cmp::Ordering::Equal => {
-                            let (_, left_ty) = left_fields.next().unwrap();
-                            let (_, right_ty) = right_fields.next().unwrap();
-                            self.unify(left_ty, right_ty, span);
-                        }
-                        std::cmp::Ordering::Less => {
-                            left_rest.push(left_fields.next().unwrap());
-                        }
-                        std::cmp::Ordering::Greater => {
-                            right_rest.push(right_fields.next().unwrap());
-                        }
-                    }
-                }
-                (Some(_), None) => left_rest.push(left_fields.next().unwrap()),
-                (None, Some(_)) => right_rest.push(right_fields.next().unwrap()),
-                (None, None) => break,
-            }
+        let (common, left_rest, right_rest) = align_row_fields(left_fields, right_fields);
+        for (left_ty, right_ty) in common {
+            self.unify(left_ty, right_ty, span);
         }
         self.unify_row_tails(left_rest, left_tail, right_rest, right_tail, span);
     }
@@ -380,4 +356,46 @@ fn tail_is_fixed(tail: RowTail, rigid: &HashSet<u32>) -> bool {
         RowTail::Closed => true,
         RowTail::Open(variable) => rigid.contains(&variable),
     }
+}
+
+/// Aligns two rows the way `alignRowsWith` does: a stable sort by label, then
+/// one pair per shared occurrence.
+///
+/// A label that occurs twice stays twice. Collapsing either side to a map
+/// drops that occurrence, so a tail that should absorb the leftover label is
+/// solved as an empty row instead. `sort_by` is stable, matching
+/// `rowToSortedList`'s `sortOn`, so the outer extension of a duplicate is the
+/// one that pairs first.
+pub(super) fn align_row_fields(
+    mut left: Vec<(String, InferType)>,
+    mut right: Vec<(String, InferType)>,
+) -> (
+    Vec<(InferType, InferType)>,
+    Vec<(String, InferType)>,
+    Vec<(String, InferType)>,
+) {
+    left.sort_by(|left, right| left.0.cmp(&right.0));
+    right.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut common = Vec::new();
+    let mut left_rest = Vec::new();
+    let mut right_rest = Vec::new();
+    let mut left = left.into_iter().peekable();
+    let mut right = right.into_iter().peekable();
+    loop {
+        match (left.peek(), right.peek()) {
+            (Some((left_label, _)), Some((right_label, _))) => match left_label.cmp(right_label) {
+                std::cmp::Ordering::Equal => {
+                    let (_, left_ty) = left.next().unwrap();
+                    let (_, right_ty) = right.next().unwrap();
+                    common.push((left_ty, right_ty));
+                }
+                std::cmp::Ordering::Less => left_rest.push(left.next().unwrap()),
+                std::cmp::Ordering::Greater => right_rest.push(right.next().unwrap()),
+            },
+            (Some(_), None) => left_rest.push(left.next().unwrap()),
+            (None, Some(_)) => right_rest.push(right.next().unwrap()),
+            (None, None) => break,
+        }
+    }
+    (common, left_rest, right_rest)
 }

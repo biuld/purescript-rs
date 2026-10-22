@@ -72,6 +72,7 @@ fn solve_warn(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
             "A custom warning occurred while solving type class constraints:\n{}",
             indent(&message, 2)
         ),
+        code: "UserDefinedWarning",
     });
     PrimitiveOutcome::Solved {
         evidence: PrimitiveEvidence::Dictionary { arguments },

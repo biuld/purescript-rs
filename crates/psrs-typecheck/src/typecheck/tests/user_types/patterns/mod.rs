@@ -133,9 +133,10 @@ fn rejects_a_constructor_pattern_with_the_wrong_arity() {
 
     let errors = typecheck_module(resolved).unwrap_err();
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message().contains("expects 1 arguments")),
+        errors.iter().any(|error| {
+            error.kind == TypeCheckErrorKind::IncorrectConstructorArity
+                && error.message().contains("expects 1 arguments")
+        }),
         "{errors:?}"
     );
 }
@@ -229,6 +230,7 @@ fn consumes_a_typed_pattern_after_rank_n_checking() {
                     name: name.into(),
                     name_span: TextRange::new(start, start + name.len() as u32),
                     kind: None,
+                    visible: false,
                 }],
                 body: Box::new(ty),
             },

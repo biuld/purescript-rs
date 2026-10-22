@@ -105,7 +105,7 @@ bad = coerce
 main :: Int
 main = 0
 "#,
-        "NoInstanceFound",
+        "TypesDoNotUnify",
     );
 }
 

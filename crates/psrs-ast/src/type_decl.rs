@@ -64,6 +64,10 @@ pub struct ForeignDataDeclaration {
 pub struct TypeParameter {
     pub name: Name,
     pub kind: Option<Type>,
+    /// `true` for a source `@` binder. Class-head parameters collected from a
+    /// name are not forall binders; method visibility is applied when the
+    /// method type is built.
+    pub visible: bool,
     pub span: TextRange,
 }
 
@@ -290,6 +294,7 @@ fn lower_type_parameters(
             Ok(TypeParameter {
                 name: lower_name(parameter.name),
                 kind: parameter.kind.map(lower_type).transpose()?,
+                visible: parameter.visible,
                 span: parameter.span,
             })
         })
@@ -342,6 +347,7 @@ fn collect_parameters(
                     out.push(TypeParameter {
                         name: lower_name(name.clone()),
                         kind: None,
+                        visible: false,
                         span: name.span,
                     });
                 }
@@ -357,6 +363,7 @@ fn collect_parameters(
                         out.push(TypeParameter {
                             name: lower_name(name.clone()),
                             kind: Some(lower_type(kind.as_ref().clone())?),
+                            visible: false,
                             span: value.span,
                         });
                     }
@@ -375,6 +382,7 @@ fn collect_parameters(
                     out.push(TypeParameter {
                         name: lower_name(field.label.clone()),
                         kind: Some(lower_type(field.type_expr.clone())?),
+                        visible: false,
                         span: field.label.span,
                     });
                 }

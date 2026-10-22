@@ -44,7 +44,8 @@ fn verify_expr_inner(
         | ExprKind::Integer(_)
         | ExprKind::Number(_)
         | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
+        | ExprKind::Char(_)
+        | ExprKind::Hole(_) => {}
         ExprKind::Array(elements) => {
             for element in elements {
                 verify_expr(element, globals, visible_locals, declared_locals, errors);

@@ -32,6 +32,10 @@ fn collect_signature_variables(
             collect_signature_variables(constraint, bound, out)?;
             collect_signature_variables(body, bound, out)?;
         }
+        hir::TypeKind::Kinded { expression, kind } => {
+            collect_signature_variables(expression, bound, out)?;
+            collect_signature_variables(kind, bound, out)?;
+        }
         hir::TypeKind::Forall { variables, body } => {
             let old_len = bound.len();
             bound.extend(variables.iter().map(|variable| variable.name.clone()));
@@ -61,6 +65,7 @@ fn collect_signature_variables(
             }
         }
         hir::TypeKind::Wildcard
+        | hir::TypeKind::Hole(_)
         | hir::TypeKind::Constructor(_)
         | hir::TypeKind::Named(_)
         | hir::TypeKind::Opaque(_)

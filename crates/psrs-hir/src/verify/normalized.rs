@@ -143,7 +143,8 @@ fn check_normalized_expr_inner(expression: &Expr, errors: &mut Vec<VerifyError>)
         | ExprKind::Integer(_)
         | ExprKind::Number(_)
         | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
+        | ExprKind::Char(_)
+        | ExprKind::Hole(_) => {}
     }
 }
 

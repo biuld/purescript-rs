@@ -17,6 +17,7 @@ impl Resolver {
         let span = expression.span;
         let kind = match expression.kind {
             ast::TypeKind::Wildcard => HirTypeKind::Wildcard,
+            ast::TypeKind::Hole(name) => HirTypeKind::Hole(name),
             ast::TypeKind::Name(name) => {
                 if let Some((qualifier, member)) = split_qualified(&name.text) {
                     let reference =
@@ -92,6 +93,10 @@ impl Resolver {
             },
             ast::TypeKind::Integer(value) => HirTypeKind::Integer(value),
             ast::TypeKind::String(value) => HirTypeKind::String(value),
+            ast::TypeKind::Kinded { expression, kind } => HirTypeKind::Kinded {
+                expression: Box::new(self.resolve_type(*expression)?),
+                kind: Box::new(self.resolve_type(*kind)?),
+            },
         };
         Some(HirType { kind, span })
     }
@@ -143,6 +148,7 @@ impl Resolver {
                 Some(kind) => Some(self.resolve_type(kind)?),
                 None => None,
             },
+            visible: parameter.visible,
         })
     }
 

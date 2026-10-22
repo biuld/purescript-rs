@@ -16,6 +16,9 @@ pub struct TypeParameter {
     pub name: String,
     pub name_span: TextRange,
     pub kind: Option<Type>,
+    /// `true` when the source binder was written `@name`. Absent on binders
+    /// that are not forall quantifiers; those stay invisible here.
+    pub visible: bool,
 }
 
 /// A resolved row field used by row and record types.
@@ -50,6 +53,9 @@ pub enum ResolvedTypeHead {
 pub enum TypeKind {
     /// An unresolved anonymous type variable whose type is inferred in P5.
     Wildcard,
+    /// A named type hole `?name`. Elaboration replaces it with one inference
+    /// variable and reports that variable's solved type.
+    Hole(String),
     Variable(String),
     Constructor(BuiltinType),
     /// A user-defined type constructor, synonym, or class identified by ID.
@@ -86,6 +92,12 @@ pub enum TypeKind {
     Integer(String),
     /// A type-level string literal, whose kind is `Symbol`.
     String(String),
+    /// A type ascribed with a kind, `(t :: k)`. The annotation is the kind of
+    /// this type. It is not a `forall` binder annotation.
+    Kinded {
+        expression: Box<Type>,
+        kind: Box<Type>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

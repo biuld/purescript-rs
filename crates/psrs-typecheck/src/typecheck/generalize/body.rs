@@ -27,8 +27,11 @@ impl Checker {
                 && !self.state.generic_variables.contains(variable)
         });
         let mut variables = scheme.variables;
+        let mut visible = scheme.visible;
+        visible.resize(variables.len(), false);
         variables.extend(body_variables.candidates);
-        self.scheme(variables, scheme.constraints, scheme.ty)
+        visible.resize(variables.len(), false);
+        self.scheme(variables, visible, scheme.constraints, scheme.ty)
     }
 
     fn collect_implementation_type(&self, ty: &InferType, level: u32, out: &mut BodyVariables) {
@@ -119,7 +122,9 @@ impl Checker {
             | InferredExprKind::Number(_)
             | InferredExprKind::Boolean(_)
             | InferredExprKind::String(_)
-            | InferredExprKind::Char(_) => {}
+            | InferredExprKind::Char(_)
+            | InferredExprKind::Hole
+            | InferredExprKind::PendingMethod { .. } => {}
             InferredExprKind::Method { wanted, .. } | InferredExprKind::Evidence(wanted) => {
                 self.collect_wanted_variables(*wanted, level, out, &mut HashSet::new());
             }
@@ -226,7 +231,9 @@ impl Checker {
 // skolemized it has ended. Never recapture such a binder from a child node.
 fn collect_structural_binders(ty: &InferType, out: &mut HashSet<u32>) {
     match ty {
-        InferType::ForAll { variables, body } => {
+        InferType::ForAll {
+            variables, body, ..
+        } => {
             out.extend(variables);
             collect_structural_binders(body, out);
         }
