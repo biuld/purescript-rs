@@ -1,5 +1,6 @@
 //! Source cases shared by semantic, differential, and execution acceptance.
 
+mod consumption;
 mod contextual;
 mod reify;
 pub use contextual::{RIGID_NOMINAL_RESULT, RIGID_RESULT};
@@ -36,6 +37,13 @@ main = case Holder (make 0) of
 ];
 
 pub const ACCEPT: &[(&str, &str)] = &[
+    ("inferred_lambda_result", consumption::LAMBDA_RESULT),
+    ("constructor_scrutinee", consumption::CONSTRUCTOR_SCRUTINEE),
+    ("literal_scrutinee", consumption::LITERAL_SCRUTINEE),
+    (
+        "visible_variable_scrutinee",
+        consumption::VISIBLE_VARIABLE_SCRUTINEE,
+    ),
     ("contextual_constant_result", contextual::CONSTANT_RESULT),
     (
         "contextual_returned_evidence",

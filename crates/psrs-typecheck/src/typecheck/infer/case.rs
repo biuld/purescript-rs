@@ -141,7 +141,8 @@ impl Checker {
         requires_monotype: bool,
     ) -> Option<InferredExpr> {
         if requires_monotype {
-            return self.infer_expr(expression);
+            let value = self.infer_expr(expression)?;
+            return Some(self.instantiate_all_expr(value, expression.span));
         }
         let hir::ExprKind::Local(id) = expression.kind else {
             return self.infer_expr(expression);

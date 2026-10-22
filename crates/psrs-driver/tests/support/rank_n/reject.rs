@@ -1,4 +1,12 @@
 pub const REJECT: &[(&str, &str)] = &[
+    (
+        "inferred_lambda_does_not_return_rank_n",
+        r#"module Main where
+make ignored = ((\value -> value) :: forall a. a -> a)
+main :: Int
+main = let identity = make 0 in if identity true then identity 42 else 1
+"#,
+    ),
     ("contextual_rigid_result", super::RIGID_RESULT),
     ("rank_n_record_shares_instantiation", super::reify::RECORD),
     (

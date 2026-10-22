@@ -54,6 +54,13 @@ An unannotated array instantiates each element before unifying its element
 type. Arrays checked against an explicit element type retain the bidirectional
 checking path, including explicitly quantified elements.
 
+An inferred lambda instantiates the leading quantifiers and constraints of its
+body before constructing its arrow type. A declared polymorphic result is
+checked through the expected-result path instead. For case analysis, constructor,
+literal, record, array and monomorphic typed patterns instantiate the scrutinee
+before matching; variable and wildcard patterns do not force that boundary.
+Each independent field of a multi-scrutinee case follows the same rule.
+
 A local signature's written `forall` binders scope over its annotated body,
 including visible type arguments there. They leave scope before the next
 binding and the enclosing `let` body are checked. Kind-reference checking and
@@ -160,6 +167,11 @@ infer_application(function, argument):
     if its arrow is known: check argument against the parameter type
     otherwise infer a monomorphic argument and solve an arrow with fresh result
 
+infer_lambda(parameter, body):
+    bind parameter at a fresh monotype; synthesize body
+    instantiate body's leading quantifiers and constraints
+    construct arrow(parameter_type, instantiated_body_type)
+
 subsume(actual, expected):
     if expected begins with forall:
         enter a fresh scope; skolemize expected; recurse and reject escape
@@ -262,7 +274,7 @@ Track official behavior for partial signatures, and ambiguity/defaulting in exec
 
 Visible type application follows official `TypeChecker/Types.hs`. A binder is visible only when the source wrote `forall @a.`. A plain `forall a.` binder is invisible and is instantiated before a visible application can select it. `@T` kind-checks its argument against the next visible binder and substitutes it; quantifiers the application does not select stay quantified, so a later check against a monotype is what instantiates them. `e @_` makes that binder invisible without substituting, so `f @_ @Int` selects the following one. Value application and a check against a monotype instantiate every leading quantifier. Class parameters are the visible prefix of a method type, not a side table. `failing/VisibleTypeApplications1.purs` and `failing/VisibleTypeApplications2.purs` report `CannotApplyExpressionOfTypeOnType`. `failing/ClassHeadNoVTA3.purs` reports `NoInstanceFound`.
 
-The type checker kind-checks a visible argument against its quantifier. A `Symbol` argument, a higher-kinded argument, and a leading quantified kind are legal when they match, and a mismatch is `KindsDoNotUnify`. A visible binder that the result type does not mention stays quantified, so `identityCheck @Id` and `constCheck @(Const Int)` type-check. Each use of a polykinded constructor instantiates its kind variable. `passing/4500.purs` and `passing/4535.purs` still import library modules this slice does not compile. `passing/VTAsClassHeads.purs` type-checks, including a class-head chain such as `constClass @Int @Number`.
+The type checker kind-checks a visible argument against its quantifier. A `Symbol` argument, a higher-kinded argument, and a leading quantified kind are legal when they match, and a mismatch is `KindsDoNotUnify`. A visible binder that the result type does not mention stays quantified, so `identityCheck @Id` and `constCheck @(Const Int)` type-check. Each use of a polykinded constructor instantiates its kind variable. `passing/4500.purs` and `passing/4535.purs` compile, validate and execute with the locked package; the [Phase 4 review](../../../implementation/frontend/phase-4-acceptance.md) records their public VTA and reflection acceptance. `passing/VTAsClassHeads.purs` type-checks, including a class-head chain such as `constClass @Int @Number`.
 
 ## References
 
