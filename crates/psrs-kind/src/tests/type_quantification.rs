@@ -7,6 +7,29 @@ const FAILURE: &str =
     include_str!("../../../../tests/upstream/failing/QuantificationCheckFailure2.purs");
 
 #[test]
+fn record_fields_constrain_higher_kinded_aliases_to_type() {
+    check_ok(
+        "module Main where\n\
+         type Template col = { bio :: col String }\n\
+         type Identity a = a\n\
+         type Patch = Template Identity\n",
+    );
+}
+
+#[test]
+fn a_record_field_cannot_have_symbol_kind() {
+    let modules = resolve_program(&[(
+        "Main.purs",
+        "module Main where\ntype Bad = { bio :: \"symbol\" }\n",
+    )]);
+    let (_, diagnostics) = check_env(&modules);
+    assert!(
+        codes(&diagnostics).contains(&"KindsDoNotUnify"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
 fn an_unsolved_kind_inside_a_constructor_forall_is_rejected() {
     let modules = resolve_program(&[("Main.purs", FAILURE)]);
     let (_, diagnostics) = check_env(&modules);

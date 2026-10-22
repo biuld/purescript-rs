@@ -51,14 +51,7 @@ impl Checker<'_> {
                 let mut function = self.instantiate_quantified_kind(head_kind);
                 for argument in arguments {
                     let argument_kind = self.infer_type_kind(argument, scope);
-                    self.report_escaped_kind_skolem(ty.span, &function, &argument_kind);
-                    let result = self.fresh();
-                    self.unify(
-                        function,
-                        Kind::Function(Box::new(argument_kind), Box::new(result.clone())),
-                        ty.span,
-                    );
-                    function = self.instantiate_quantified_kind(result);
+                    function = self.apply_kind(function, argument_kind, ty.span);
                 }
                 function
             }
@@ -148,29 +141,10 @@ impl Checker<'_> {
                 self.unify(constraint_kind, super::constraint_kind(), constraint.span);
                 self.infer_type_kind(body, scope)
             }
-            TypeKind::Row { fields, tail } => {
-                let field_kind = self.fresh();
-                for field in fields {
-                    let kind = self.infer_type_kind(&field.ty, scope);
-                    self.unify(kind, field_kind.clone(), field.ty.span);
-                }
-                if let Some(tail) = tail {
-                    let tail_kind = self.infer_type_kind(tail, scope);
-                    self.unify(tail_kind, Kind::row(field_kind.clone()), tail.span);
-                }
-                Kind::row(field_kind)
-            }
+            TypeKind::Row { fields, tail } => self.infer_row_kind(fields, tail.as_deref(), scope),
             TypeKind::Record { fields, tail } => {
-                let field_kind = self.fresh();
-                for field in fields {
-                    let kind = self.infer_type_kind(&field.ty, scope);
-                    self.unify(kind, field_kind.clone(), field.ty.span);
-                }
-                if let Some(tail) = tail {
-                    let tail_kind = self.infer_type_kind(tail, scope);
-                    self.unify(tail_kind, Kind::row(field_kind), tail.span);
-                }
-                type_kind()
+                let row_kind = self.infer_row_kind(fields, tail.as_deref(), scope);
+                self.apply_kind(primitive_kind(BuiltinType::Record), row_kind, ty.span)
             }
             TypeKind::Integer(_) => Kind::Builtin(BuiltinType::Int),
             TypeKind::String(_) => Kind::Builtin(BuiltinType::Symbol),
@@ -194,6 +168,35 @@ impl Checker<'_> {
                 self.state.resolve(expected)
             }
         }
+    }
+
+    fn apply_kind(&mut self, function: Kind, argument: Kind, span: TextRange) -> Kind {
+        self.report_escaped_kind_skolem(span, &function, &argument);
+        let result = self.fresh();
+        self.unify(
+            function,
+            Kind::Function(Box::new(argument), Box::new(result.clone())),
+            span,
+        );
+        self.instantiate_quantified_kind(result)
+    }
+
+    fn infer_row_kind(
+        &mut self,
+        fields: &[hir::TypeField],
+        tail: Option<&hir::Type>,
+        scope: &mut HashMap<String, Kind>,
+    ) -> Kind {
+        let field_kind = self.fresh();
+        for field in fields {
+            let kind = self.infer_type_kind(&field.ty, scope);
+            self.unify(kind, field_kind.clone(), field.ty.span);
+        }
+        if let Some(tail) = tail {
+            let tail_kind = self.infer_type_kind(tail, scope);
+            self.unify(tail_kind, Kind::row(field_kind.clone()), tail.span);
+        }
+        Kind::row(field_kind)
     }
 
     /// Rejects an unsaturated synonym read in a kind annotation.

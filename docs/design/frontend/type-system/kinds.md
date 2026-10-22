@@ -55,6 +55,14 @@ Roles are ordered from most restrictive to most permissive: `Nominal < Represent
 
 ## Design
 
+Record shorthand and an explicit `Record row` application use the same
+primitive kind contract. Infer the row's shared field kind and tail once, then
+check that row as an argument to `Record :: Row Type -> Type`. An ordinary
+record field therefore has kind `Type`, while a bare row may have kind
+`Row Symbol` or another `Row k`. A synonym such as
+`type Template col = { bio :: col String }` constrains `col` to `Type -> Type`;
+it cannot acquire a polymorphic field-result kind from the shorthand path.
+
 Register primitive kinds and declaration heads before checking bodies. Resolve kind signatures, infer missing parameter kinds, instantiate polymorphic kinds at uses, and skolemize expected `forall` kinds when checking annotations. Ordinary type application consumes an arrow kind, while quantified kind arguments are instantiated implicitly from use, because no source form applies a kind argument to a type constructor. `forall @a b .` supplies a binder's kind explicitly and `t :: k` ascribes one; both are ordinary source forms rather than kind application. Check class heads against `Constraint`, value types against `Type`, row entries against their row parameter, and type-level literals against `Symbol` or `Int`.
 
 A declaration's kind scheme quantifies the kind unknowns its own definition leaves undetermined and keeps the kinds that definition determines. `data Tree m = Tree (m Tree)` determines `m`'s kind through its own field, so generalizing `m` instead of inferring it loses the occurs check that rejects the declaration. Quantification must also be well scoped: an implicitly generalized kind variable that mentions a type variable requires that type variable to be quantified explicitly, which is the official `QuantificationCheckFailureInKind` case. A kind unknown that remains inside a constructor field or a synonym body is not generalized there. Official `checkTypeQuantification` reports `QuantificationCheckFailureInType` when a `forall`, a kind application, or a constrained type still contains one. An unknown that occurs in the declaration's own kind is the variable that declaration quantifies, so it is not one of those leftovers: `type Natural f g = forall a. f a -> g a` has kind `forall k. (k -> Type) -> (k -> Type) -> Type`. Inferred parameter kinds are shared inside one binding group and instantiated at a use in another group, so a field cannot solve a different declaration's parameter, and a monomorphic group can still determine its own.

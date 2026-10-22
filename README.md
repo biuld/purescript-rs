@@ -54,7 +54,7 @@ what remains in each layer.
 | L3 kinds | 50/50 failing | official kind `errorCode`s; `QuantificationCheckFailureInKind` 1/1; `QuantificationCheckFailureInType` 1/1; `KindsDoNotUnify` 24/24; reconfirmed 2026-10-23 |
 | L4 types | 65/65 failing | official `errorCode`s; `TypesDoNotUnify` 41/41; `HoleInferredType` 10/10; `IncorrectConstructorArity` 3/3; `PropertyIsMissing` 2/2; `AdditionalProperty` 1/1; reconfirmed 2026-10-23 |
 | L5 classes | 101/101 failing | official `errorCode`s; `NoInstanceFound` 53/53; `PossiblyInfiniteCoercibleInstance` 1/1; `CannotDeriveNewtypeForData` 1/1; reconfirmed 2026-10-23 |
-| L6/M7 runtime | 299/340 programs | all exit 0; 41 do not agree; 74 support sources remain inputs, 25 FFI groups excluded. Remeasured 2026-10-23 serially with the locked library and unchanged runtime limits. `3125` and `922` recover from the Phase 4 measurement, with no lost agreement. BigFunction retains an incomplete compiler verdict after allocation failure under its 8 GiB compiler-only bound. See the [quantifier-consumption review](docs/implementation/frontend/rank-n.md#quantifier-consumption-review-2026-10-23). |
+| L6/M7 runtime | 300/340 programs | all exit 0; 40 do not agree; 74 support sources remain inputs, 25 FFI groups excluded. Remeasured 2026-10-23 serially with the locked library and unchanged runtime limits. `4105` recovers from 299/340, with no lost agreement. BigFunction retains an incomplete compiler verdict after allocation failure under its 8 GiB compiler-only bound. See [record-kind acceptance](docs/implementation/frontend/record-kinds.md). |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Frontend counts use source files; runtime counts use program roots with their
