@@ -39,9 +39,12 @@ impl<'a> Parser<'a> {
             if self.at_raw(&RawTokenKind::LParen) {
                 let checkpoint = self.cursor;
                 self.bump();
-                if self.at_raw(&RawTokenKind::Operator("@".into())) {
+                let visible = if self.at_raw(&RawTokenKind::Operator("@".into())) {
                     self.bump();
-                }
+                    true
+                } else {
+                    false
+                };
                 let is_binder = matches!(
                     &self.current().kind,
                     LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_))
@@ -59,6 +62,7 @@ impl<'a> Parser<'a> {
                 binders.push(TypeVarBinder {
                     name,
                     kind: Some(kind),
+                    visible,
                     span,
                 });
             } else if self.at_raw(&RawTokenKind::Operator("@".into()))
@@ -73,6 +77,7 @@ impl<'a> Parser<'a> {
                 binders.push(TypeVarBinder {
                     name,
                     kind: None,
+                    visible: true,
                     span,
                 });
             } else if let LayoutTokenKind::Raw(RawTokenKind::LowerIdent(name)) =
@@ -84,6 +89,7 @@ impl<'a> Parser<'a> {
                 binders.push(TypeVarBinder {
                     name: CstName::new(name, span),
                     kind: None,
+                    visible: false,
                     span,
                 });
             } else {

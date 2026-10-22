@@ -50,7 +50,12 @@ impl Checker {
             }
             let mut inserted = Vec::new();
             let pattern = self.check_pattern(&branch.pattern, &scrutinee.ty, &mut inserted)?;
-            let value = self.infer_expr_with_expected(&branch.value, result_ty.clone())?;
+            let mut value = self.infer_expr_with_expected(&branch.value, result_ty.clone())?;
+            // The first alternative is inferred. Instantiate it so a visible
+            // quantifier does not become the type later alternatives must match.
+            if result_ty.is_none() {
+                value = self.instantiate_all_expr(value, branch.span);
+            }
             for id in inserted {
                 self.scope.locals.remove(&id);
             }
@@ -267,6 +272,7 @@ mod tests {
                     name: "a".into(),
                     name_span: TextRange::new(0, 1),
                     kind: None,
+                    visible: false,
                 }],
                 body: Box::new(function()),
             },
@@ -288,6 +294,7 @@ mod tests {
                     name: "a".into(),
                     name_span: TextRange::new(0, 1),
                     kind: None,
+                    visible: false,
                 }],
                 body: Box::new(function()),
             },

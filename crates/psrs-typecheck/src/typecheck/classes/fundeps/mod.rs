@@ -136,8 +136,9 @@ impl Checker {
     }
 
     /// Assigns the determined position `wanted` from a fundep source, binding
-    /// only flexible variables. A conflict between two known types is reported
-    /// as a functional-dependency error.
+    /// only flexible variables. A known wanted type teaches a wildcard source.
+    /// A conflict between two known types is reported as a
+    /// functional-dependency error.
     fn assign_determined(
         &mut self,
         wanted: &InferType,
@@ -167,6 +168,16 @@ impl Checker {
                     return false;
                 }
                 self.bind_type_variable(*variable, source, span)
+            }
+            // The wanted position is already known and the source is the
+            // wildcard a given still has. Unifying teaches the wildcard. A
+            // non-wildcard source stays out of this arm so an instance
+            // template cannot leak into the wanted type.
+            (_, InferType::Variable(variable))
+                if self.state.wildcard_variables.contains_key(variable)
+                    && !self.state.rigid.contains(variable) =>
+            {
+                self.bind_type_variable(*variable, wanted, span)
             }
             (InferType::Application(wf, wa), InferType::Application(sf, sa)) => {
                 let mut changed = self.assign_determined(wf, sf, span);
@@ -455,7 +466,9 @@ pub(in crate::typecheck) fn collect_infer_variables(ty: &InferType, out: &mut Ha
             collect_infer_variables(ty, out);
             collect_infer_variables(tail, out);
         }
-        InferType::ForAll { variables, body } => {
+        InferType::ForAll {
+            variables, body, ..
+        } => {
             let mut nested = HashSet::new();
             collect_infer_variables(body, &mut nested);
             nested.retain(|variable| !variables.contains(variable));

@@ -3,7 +3,9 @@
 
 use super::*;
 use crate::kind::{primitive_kind, type_kind};
+use crate::solve::substitute;
 use psrs_hir::BuiltinType;
+use std::collections::HashMap;
 
 impl Checker<'_> {
     // ----- Kind inference ----------------------------------------------
@@ -42,19 +44,21 @@ impl Checker<'_> {
     // expansion must satisfy the declaration's checked parameter kinds.
     fn infer_type_kind(&mut self, ty: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
         match &ty.kind {
-            TypeKind::Wildcard => self.fresh(),
+            TypeKind::Wildcard | TypeKind::Hole(_) => self.fresh(),
             TypeKind::Application(..) => {
                 let (head, arguments) = flatten_spine(ty);
-                let mut function = self.head_kind(head, scope);
+                let head_kind = self.head_kind(head, scope);
+                let mut function = self.instantiate_quantified_kind(head_kind);
                 for argument in arguments {
-                    let argument = self.infer_type_kind(argument, scope);
+                    let argument_kind = self.infer_type_kind(argument, scope);
+                    self.report_escaped_kind_skolem(ty.span, &function, &argument_kind);
                     let result = self.fresh();
                     self.unify(
                         function,
-                        Kind::Function(Box::new(argument), Box::new(result.clone())),
+                        Kind::Function(Box::new(argument_kind), Box::new(result.clone())),
                         ty.span,
                     );
-                    function = result;
+                    function = self.instantiate_quantified_kind(result);
                 }
                 function
             }
@@ -102,7 +106,7 @@ impl Checker<'_> {
         scope: &mut HashMap<String, Kind>,
     ) -> Kind {
         match &ty.kind {
-            TypeKind::Wildcard => self.fresh(),
+            TypeKind::Wildcard | TypeKind::Hole(_) => self.fresh(),
             TypeKind::Variable(name) => scope.get(name).cloned().unwrap_or_else(|| {
                 let kind = self.fresh();
                 scope.insert(name.clone(), kind.clone());
@@ -131,7 +135,7 @@ impl Checker<'_> {
                 for variable in variables {
                     let kind = match &variable.kind {
                         Some(annotation) => self.denote_annotation(annotation, scope),
-                        None => self.fresh(),
+                        None => self.fresh_closed_unknown(),
                     };
                     scope.insert(variable.name.clone(), kind);
                 }
@@ -170,6 +174,25 @@ impl Checker<'_> {
             }
             TypeKind::Integer(_) => Kind::Builtin(BuiltinType::Int),
             TypeKind::String(_) => Kind::Builtin(BuiltinType::Symbol),
+            TypeKind::Kinded { expression, kind } => {
+                // Official `inferKind` for `KindedType`: the annotation is the
+                // kind, and the inner type is checked against it. The
+                // annotation is not reduced to the kind that annotation has.
+                let expected = match crate::denote::denote_kind_annotation(kind, &mut self.state) {
+                    Some(kind) => kind,
+                    None => {
+                        self.report(
+                            UNLOWERED_TYPE_OPERATOR,
+                            kind.span,
+                            "type operator chain reached kind checking before P4",
+                        );
+                        self.fresh()
+                    }
+                };
+                let inferred = self.infer_type_kind(expression, scope);
+                self.unify(inferred, expected.clone(), ty.span);
+                self.state.resolve(expected)
+            }
         }
     }
 
@@ -219,11 +242,16 @@ impl Checker<'_> {
                     self.check_normalized_saturation(tail, use_span);
                 }
             }
+            TypeKind::Kinded { expression, kind } => {
+                self.check_normalized_saturation(expression, use_span);
+                self.check_normalized_saturation(kind, use_span);
+            }
             TypeKind::Named(_) | TypeKind::Opaque(_) => {
                 self.check_partial_synonym(ty, 0, use_span);
             }
             TypeKind::Variable(_)
             | TypeKind::Wildcard
+            | TypeKind::Hole(_)
             | TypeKind::Constructor(_)
             | TypeKind::OperatorChain { .. }
             | TypeKind::Integer(_)
@@ -248,4 +276,80 @@ impl Checker<'_> {
             );
         }
     }
+
+    /// Instantiates a leading quantified kind with a fresh kind variable.
+    ///
+    /// This is the `inferAppKind` arm for a `ForAll` function kind: the
+    /// quantifier is a kind parameter of the constructor being applied, so it
+    /// is replaced, not skolemized. A `forall` nested under an arrow stays
+    /// where it is.
+    fn instantiate_quantified_kind(&mut self, mut kind: Kind) -> Kind {
+        loop {
+            kind = self.state.resolve(kind);
+            let Kind::ForAll { variable, body } = &kind else {
+                return kind;
+            };
+            let fresh = self.fresh();
+            kind = substitute(body, &HashMap::from([(*variable, fresh)]));
+        }
+    }
+
+    /// Reports `EscapedSkolem` when a synonym body captures a quantified kind.
+    ///
+    /// Official `checkEscapedSkolems` walks the elaborated synonym and rejects
+    /// a skolem left behind by subsuming a polymorphic kind into an inferred
+    /// parameter. That happens when the argument's kind still has a `forall`
+    /// in a negative position after the argument's own leading quantifiers
+    /// would have been instantiated, and the parameter waiting for it is a
+    /// flexible unknown (`type B = Proxy A`).
+    fn report_escaped_kind_skolem(&mut self, span: TextRange, function: &Kind, argument: &Kind) {
+        if !self.in_synonym {
+            return;
+        }
+        let function = self.state.resolve(function.clone());
+        let Kind::Function(parameter, _) = function else {
+            return;
+        };
+        let Kind::Variable(parameter) = self.state.resolve(*parameter) else {
+            return;
+        };
+        if self.state.is_rigid(parameter) {
+            return;
+        }
+        if forall_in_negative_position(&self.state, argument) {
+            self.report(
+                ESCAPED_SKOLEM,
+                span,
+                "a quantified kind escapes its scope in this type synonym",
+            );
+        }
+    }
+}
+
+/// Whether `kind` has a `forall` in a negative position.
+///
+/// A leading quantifier is instantiated, so it does not count. A quantifier
+/// under the domain of an arrow is what subsumption skolemizes.
+fn forall_in_negative_position(state: &crate::solve::KindState, kind: &Kind) -> bool {
+    fn go(state: &crate::solve::KindState, kind: &Kind, negative: bool) -> bool {
+        match state.resolve(kind.clone()) {
+            Kind::ForAll { .. } if negative => true,
+            Kind::ForAll { body, .. } => go(state, &body, false),
+            Kind::Function(parameter, result) => {
+                go(state, &parameter, !negative) || go(state, &result, negative)
+            }
+            Kind::App(function, argument) => {
+                go(state, &function, negative) || go(state, &argument, negative)
+            }
+            Kind::RowExtend { field, tail, .. } => {
+                go(state, &field, negative) || go(state, &tail, negative)
+            }
+            Kind::Variable(_)
+            | Kind::Builtin(_)
+            | Kind::Named(_)
+            | Kind::RowEmpty
+            | Kind::TypeVariable(_) => false,
+        }
+    }
+    go(state, kind, false)
 }

@@ -36,10 +36,14 @@ pub(crate) fn contains_wildcard(ty: &hir::Type) -> bool {
         hir::TypeKind::Constrained { constraint, body } => {
             contains_wildcard(constraint) || contains_wildcard(body)
         }
+        hir::TypeKind::Kinded { expression, kind } => {
+            contains_wildcard(expression) || contains_wildcard(kind)
+        }
         hir::TypeKind::Constructor(_)
         | hir::TypeKind::Named(_)
         | hir::TypeKind::Opaque(_)
         | hir::TypeKind::Variable(_)
+        | hir::TypeKind::Hole(_)
         | hir::TypeKind::Integer(_)
         | hir::TypeKind::String(_) => false,
     }
@@ -73,7 +77,11 @@ pub(super) fn contains_parameter(ty: &hir::Type, parameter: &str) -> bool {
         hir::TypeKind::Constrained { constraint, body } => {
             contains_parameter(constraint, parameter) || contains_parameter(body, parameter)
         }
+        hir::TypeKind::Kinded { expression, kind } => {
+            contains_parameter(expression, parameter) || contains_parameter(kind, parameter)
+        }
         hir::TypeKind::Wildcard
+        | hir::TypeKind::Hole(_)
         | hir::TypeKind::Constructor(_)
         | hir::TypeKind::Named(_)
         | hir::TypeKind::Opaque(_)
@@ -208,6 +216,13 @@ fn normalize_type(
                 tail: tail
                     .as_deref()
                     .map(|tail| Box::new(normalize_type(tail, synonyms, expanding))),
+            },
+            span: ty.span,
+        },
+        hir::TypeKind::Kinded { expression, kind } => hir::Type {
+            kind: hir::TypeKind::Kinded {
+                expression: Box::new(normalize_type(expression, synonyms, expanding)),
+                kind: Box::new(normalize_type(kind, synonyms, expanding)),
             },
             span: ty.span,
         },

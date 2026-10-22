@@ -34,9 +34,19 @@ impl Checker {
             }
             let mut inferred = Vec::with_capacity(bindings.len());
             for (binding, mut binder) in bindings.iter().zip(binders) {
-                let value = checker.infer_expr(&binding.value)?;
-                checker.unify(binder.scheme.ty, value.ty.clone(), binding.span);
-                binder.scheme = Scheme::monomorphic(value.ty.clone());
+                let mut value = checker.infer_expr(&binding.value)?;
+                // A visible binder left by a preceding `@T` is instantiated,
+                // and so is a constraint at the head. A leading invisible
+                // quantifier is the value's rank-N type (`make 0` returning
+                // `forall a. a -> a`) and each use instantiates it. A binder
+                // annotation or a value ascription is that written type.
+                if local_annotation(binding).is_none()
+                    && !matches!(binding.value.kind, hir::ExprKind::Typed { .. })
+                {
+                    value = checker.instantiate_binding_expr(value, binding.span);
+                }
+                checker.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
+                binder.scheme = Scheme::monomorphic(checker.resolve_type(value.ty.clone()));
                 checker
                     .scope
                     .locals

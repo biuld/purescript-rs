@@ -19,7 +19,7 @@ use std::collections::HashSet;
 /// declares one of these and nothing outside the M4 set is measured here; a case
 /// that mixes codes across milestones is left to the milestone that owns all of
 /// them, because a case only agrees when every code it declares is reported.
-const M4_CODES: [&str; 8] = [
+const M4_CODES: [&str; 11] = [
     "TypesDoNotUnify",
     "HoleInferredType",
     "EscapedSkolem",
@@ -28,10 +28,13 @@ const M4_CODES: [&str; 8] = [
     "CannotApplyExpressionOfTypeOnType",
     "AmbiguousTypeVariables",
     "IntOutOfRange",
+    "IncorrectConstructorArity",
+    "PropertyIsMissing",
+    "AdditionalProperty",
 ];
 
 /// The `errorCode`s the M5 milestone is accountable for, from D-04.
-const M5_CODES: [&str; 12] = [
+const M5_CODES: [&str; 14] = [
     "NoInstanceFound",
     "OverlappingInstances",
     "OrphanInstance",
@@ -40,10 +43,12 @@ const M5_CODES: [&str; 12] = [
     "ClassInstanceArityMismatch",
     "MissingClassMember",
     "PossiblyInfiniteInstance",
+    "PossiblyInfiniteCoercibleInstance",
     "DuplicateTypeClass",
     "DuplicateInstance",
     "CycleInTypeClassDeclaration",
     "CannotDeriveInvalidConstructorArg",
+    "CannotDeriveNewtypeForData",
 ];
 
 /// One board's tally: agreement, and agreement per declared code.

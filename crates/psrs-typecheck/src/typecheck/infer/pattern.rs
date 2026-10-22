@@ -105,7 +105,7 @@ impl Checker {
                 self.unify(expected.clone(), result, span);
                 if arguments.len() != fields.len() {
                     self.state.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::TypeMismatch,
+                        TypeCheckErrorKind::IncorrectConstructorArity,
                         span,
                         format!(
                             "constructor `{}` expects {} arguments but the pattern has {}",

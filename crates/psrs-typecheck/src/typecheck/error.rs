@@ -11,6 +11,16 @@ pub enum TypeCheckErrorKind {
     SkolemEscape,
     UnconstrainedType,
     IntegerOutOfRange,
+    /// A constructor pattern has a different number of arguments than the
+    /// constructor's type. `purs` raises this in `TypeChecker.Types.inferBinder`
+    /// for a `ConstructorBinder`; see `failing/1169.purs`.
+    IncorrectConstructorArity,
+    /// A closed record lacks a label the expected row requires. `purs` raises
+    /// this from record subsumption; see `failing/Object.purs`.
+    PropertyIsMissing,
+    /// A record has a label the expected closed row does not allow. `purs`
+    /// raises this from record subsumption; see `failing/ExtraRecordField.purs`.
+    AdditionalProperty,
     NumberOutOfRange,
     UnsupportedExpression,
     UnsupportedType,
@@ -48,6 +58,12 @@ pub enum TypeCheckErrorKind {
     /// unchanging shape. `purs` raises this in `Entailment`'s `go` when the
     /// subgoal chain exceeds its work bound; see `failing/438.purs`.
     PossiblyInfiniteInstance,
+    /// A `Coercible` wanted that unwraps a newtype and decomposes back into
+    /// itself. `purs` raises this from `solveWanteds` when that work queue
+    /// crosses its bound; see `failing/PossiblyInfiniteCoercibleInstance.purs`.
+    /// A newtype that wraps itself directly is not this case: unwrapping is
+    /// declined and ordinary decomposition still runs.
+    PossiblyInfiniteCoercibleInstance,
     /// A class's superclasses form a cycle, so the class environment is
     /// unsatisfiable and dictionary construction would not terminate. `purs`
     /// raises this for the class declaration that reintroduces an ancestor; see
@@ -83,6 +99,11 @@ pub enum TypeCheckErrorKind {
     CannotApplyExpressionOfTypeOnType,
     /// `e @_` where `e`'s type has no quantifier left to skip.
     CannotSkipTypeApplication,
+    /// A typed hole whose inference variable was solved. `purs` records this
+    /// while inferring the hole (`TypeChecker/Types.hs`) and while replacing a
+    /// named type wildcard (`replaceTypeWildcards`), then substitutes the
+    /// solved type into the message.
+    HoleInferredType,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,12 +120,15 @@ pub struct TypeCheckError {
 pub struct TypeCheckWarning {
     pub span: TextRange,
     pub message: String,
+    /// Official `errorCode`. `Prim.Warn` stays `UserDefinedWarning`. A solved
+    /// type wildcard is `WildcardInferredType`.
+    pub code: &'static str,
 }
 
 impl TypeCheckWarning {
-    /// The official PureScript `errorCode` for a user-defined warning.
+    /// The official PureScript `errorCode` for this warning.
     pub fn error_code(&self) -> &'static str {
-        "UserDefinedWarning"
+        self.code
     }
 }
 
@@ -148,6 +172,7 @@ impl TypeCheckErrorKind {
             TypeCheckErrorKind::NoInstance
                 | TypeCheckErrorKind::OverlappingInstances
                 | TypeCheckErrorKind::PossiblyInfiniteInstance
+                | TypeCheckErrorKind::PossiblyInfiniteCoercibleInstance
                 | TypeCheckErrorKind::TypeMismatch
                 | TypeCheckErrorKind::KindsDoNotUnify
         )
@@ -188,6 +213,9 @@ impl TypeCheckErrorKind {
             TypeCheckErrorKind::OccursCheck => "InfiniteType",
             TypeCheckErrorKind::SkolemEscape => "EscapedSkolem",
             TypeCheckErrorKind::IntegerOutOfRange => "IntOutOfRange",
+            TypeCheckErrorKind::IncorrectConstructorArity => "IncorrectConstructorArity",
+            TypeCheckErrorKind::PropertyIsMissing => "PropertyIsMissing",
+            TypeCheckErrorKind::AdditionalProperty => "AdditionalProperty",
             TypeCheckErrorKind::NoInstance => "NoInstanceFound",
             TypeCheckErrorKind::MissingInstanceMethod => "MissingClassMember",
             TypeCheckErrorKind::OverlappingInstances => "OverlappingInstances",
@@ -201,6 +229,9 @@ impl TypeCheckErrorKind {
             }
             TypeCheckErrorKind::InvalidInstanceHead => "InvalidInstanceHead",
             TypeCheckErrorKind::PossiblyInfiniteInstance => "PossiblyInfiniteInstance",
+            TypeCheckErrorKind::PossiblyInfiniteCoercibleInstance => {
+                "PossiblyInfiniteCoercibleInstance"
+            }
             TypeCheckErrorKind::CycleInTypeClassDeclaration => "CycleInTypeClassDeclaration",
             TypeCheckErrorKind::TransitiveExport => "TransitiveExportError",
             TypeCheckErrorKind::CannotDerive => "CannotDerive",
@@ -218,6 +249,7 @@ impl TypeCheckErrorKind {
                 "CannotApplyExpressionOfTypeOnType"
             }
             TypeCheckErrorKind::CannotSkipTypeApplication => "CannotSkipTypeApplication",
+            TypeCheckErrorKind::HoleInferredType => "HoleInferredType",
             TypeCheckErrorKind::InvalidHir
             | TypeCheckErrorKind::UnconstrainedType
             | TypeCheckErrorKind::NumberOutOfRange

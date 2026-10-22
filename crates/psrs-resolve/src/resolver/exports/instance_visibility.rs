@@ -63,7 +63,12 @@ fn collect_named_type_ids(ty: &hir::Type, out: &mut Vec<TypeId>) {
                 collect_named_type_ids(tail, out);
             }
         }
+        hir::TypeKind::Kinded { expression, kind } => {
+            collect_named_type_ids(expression, out);
+            collect_named_type_ids(kind, out);
+        }
         hir::TypeKind::Wildcard
+        | hir::TypeKind::Hole(_)
         | hir::TypeKind::Variable(_)
         | hir::TypeKind::Constructor(_)
         | hir::TypeKind::Integer(_)

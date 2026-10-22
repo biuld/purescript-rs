@@ -45,7 +45,7 @@ polymorphism-and-erasure design.
 
 ## Source and runtime coverage
 
-Source tests cover role inference and declaration diagnostics, representational
+Non-FFI `failing` role annotations agree 12/12 on 2026-10-22 (`RoleMismatch` 5/5, `RoleDeclarationArityMismatch` 1/1, `UnsupportedRoleDeclaration` 2/2, `OrphanRoleDeclaration` 3/3, `DuplicateRoleDeclaration` 1/1). Files that contain `foreign import` stay out of that count, and the codes stay outside the L3 denominator. Source tests cover role inference and declaration diagnostics, representational
 and phantom coercion, local and imported nominal rejection, weakened roles,
 hidden newtype constructors, imported aliases in data fields, higher-kinded
 given rewriting, kind mismatch, open-row alignment, and recursive given

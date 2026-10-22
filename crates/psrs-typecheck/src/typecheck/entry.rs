@@ -156,6 +156,8 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
     }
 
     super::checked_exports::check(&module, &inferred, &mut checker.state.errors);
+    checker.report_solved_holes();
+    checker.report_inferred_wildcards();
 
     if !checker.state.errors.is_empty() {
         return Err(checker.state.errors);

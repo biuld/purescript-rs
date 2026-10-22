@@ -164,7 +164,8 @@ fn validate_expr(expression: &Expr, errors: &mut Vec<DesugarError>) {
         | ExprKind::Integer(_)
         | ExprKind::Number(_)
         | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
+        | ExprKind::Char(_)
+        | ExprKind::Hole(_) => {}
     }
 }
 
@@ -255,7 +256,12 @@ fn validate_type(ty: &Type, errors: &mut Vec<DesugarError>) {
                 validate_type(tail, errors);
             }
         }
+        TypeKind::Kinded { expression, kind } => {
+            validate_type(expression, errors);
+            validate_type(kind, errors);
+        }
         TypeKind::Wildcard
+        | TypeKind::Hole(_)
         | TypeKind::Variable(_)
         | TypeKind::Constructor(_)
         | TypeKind::Named(_)

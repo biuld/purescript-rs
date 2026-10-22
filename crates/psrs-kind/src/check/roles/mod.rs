@@ -213,11 +213,13 @@ fn walk(
         }
         TypeKind::Variable(_)
         | TypeKind::Wildcard
+        | TypeKind::Hole(_)
         | TypeKind::Constructor(_)
         | TypeKind::Named(_)
         | TypeKind::Opaque(_)
         | TypeKind::Integer(_)
         | TypeKind::String(_) => {}
+        TypeKind::Kinded { expression, .. } => walk(expression, bound, roles, occurrences),
         TypeKind::Application(..) => {
             let (head, arguments) = flatten_spine(ty);
             if let Some(constructor_roles) = role_of_head(head, roles) {
@@ -313,6 +315,7 @@ fn mark_free_nominal(
                 mark_free_nominal(tail, bound, occurrences);
             }
         }
+        TypeKind::Kinded { expression, .. } => mark_free_nominal(expression, bound, occurrences),
         _ => {}
     }
 }

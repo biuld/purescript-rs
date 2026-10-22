@@ -4,11 +4,13 @@ use super::deriving::{KnownClass, contains_wildcard};
 use super::fundeps::collect_infer_variables;
 mod compiler;
 mod method;
+mod variables;
 
 use method::validate_method_signature;
 mod instance_head;
 
 use instance_head::validate_head_shapes;
+use variables::{collect_variables, head_variables};
 
 impl Checker {
     /// Records every class in the program with its parameters, superclass
@@ -449,52 +451,4 @@ fn superclass_cycle(
     }
     status.insert(id, 2);
     false
-}
-
-/// The set of type-variable names used anywhere in a class or context type.
-fn collect_variables(ty: &hir::Type, out: &mut Vec<String>) {
-    match &ty.kind {
-        hir::TypeKind::Variable(name) => out.push(name.clone()),
-        hir::TypeKind::Application(function, argument) => {
-            collect_variables(function, out);
-            collect_variables(argument, out);
-        }
-        hir::TypeKind::OperatorChain { operands, .. } => {
-            for operand in operands {
-                collect_variables(operand, out);
-            }
-        }
-        hir::TypeKind::Function { parameter, result } => {
-            collect_variables(parameter, out);
-            collect_variables(result, out);
-        }
-        hir::TypeKind::Record { fields, tail } | hir::TypeKind::Row { fields, tail } => {
-            for field in fields {
-                collect_variables(&field.ty, out);
-            }
-            if let Some(tail) = tail {
-                collect_variables(tail, out);
-            }
-        }
-        hir::TypeKind::Forall { body, .. } => collect_variables(body, out),
-        hir::TypeKind::Constrained { constraint, body } => {
-            collect_variables(constraint, out);
-            collect_variables(body, out);
-        }
-        hir::TypeKind::Wildcard
-        | hir::TypeKind::Constructor(_)
-        | hir::TypeKind::Named(_)
-        | hir::TypeKind::Opaque(_)
-        | hir::TypeKind::Integer(_)
-        | hir::TypeKind::String(_) => {}
-    }
-}
-
-/// The type-variable names appearing in an instance head's arguments.
-fn head_variables(arguments: &[&hir::Type]) -> Vec<String> {
-    let mut names = Vec::new();
-    for argument in arguments {
-        collect_variables(argument, &mut names);
-    }
-    names
 }

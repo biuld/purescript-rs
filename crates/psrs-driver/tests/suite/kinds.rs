@@ -1,7 +1,10 @@
 //! The L3 kind-agreement scoreboard.
 //!
-//! A `failing` case is resolved leniently and then kind-checked, so a case
-//! agrees when every M3 `errorCode` it declares is reported.
+//! A `failing` case is resolved leniently, kind-checked, and type-checked.
+//! A kind error raised while checking a term is an M3 code, so the board
+//! observes both stages. `check_program_kinds_lenient` stays kind-only for
+//! tests that assert the kind pass in isolation. A case agrees when every
+//! M3 `errorCode` it declares is reported.
 
 use super::corpus::{
     annotation_codes, collected_files, corpus_root, diagnostic_codes, is_ffi_excluded, load_case,
@@ -9,14 +12,26 @@ use super::corpus::{
 use std::collections::BTreeMap;
 
 /// The `errorCode`s the M3 milestone is accountable for, from D-04.
-const M3_CODES: [&str; 7] = [
+const M3_CODES: [&str; 9] = [
     "KindsDoNotUnify",
     "PartiallyAppliedSynonym",
     "CycleInTypeSynonym",
     "CycleInKindDeclaration",
     "UndefinedTypeVariable",
     "InfiniteKind",
+    "QuantificationCheckFailureInKind",
+    "QuantificationCheckFailureInType",
     "UnsupportedTypeInKind",
+];
+
+/// Role `errorCode`s produced while lowering or kind-checking a declaration.
+/// These are not part of the L3 kind denominator.
+const ROLE_CODES: [&str; 5] = [
+    "RoleMismatch",
+    "RoleDeclarationArityMismatch",
+    "UnsupportedRoleDeclaration",
+    "OrphanRoleDeclaration",
+    "DuplicateRoleDeclaration",
 ];
 
 #[test]
@@ -55,7 +70,7 @@ fn l3_kind_scoreboard_with_annotations() {
 
         failing_total += 1;
         let case = load_case(&path, &failing_dir, &text);
-        let result = psrs_driver::check_program_kinds_lenient_with_prelude(&case.inputs());
+        let result = psrs_driver::check_program_types_lenient_with_prelude(&case.inputs());
         let ours = match &result {
             Ok(()) => Default::default(),
             Err(errors) => diagnostic_codes(case.own_diagnostics(errors)),
@@ -88,6 +103,83 @@ fn l3_kind_scoreboard_with_annotations() {
     }
     if !mismatches.is_empty() {
         println!("failing mismatches ({}):", mismatches.len());
+        for (path, expected, produced) in mismatches.iter().take(40) {
+            let relative = path.strip_prefix(&repo).unwrap_or(path);
+            println!(
+                "  {}: expected [{expected}], produced [{produced}]",
+                relative.display()
+            );
+        }
+    }
+}
+
+/// Role annotations on the vendored `failing` corpus. A file agrees when every
+/// role `errorCode` it declares is reported. Files with `foreign import` stay
+/// out, the same way the kind board excludes them.
+#[test]
+#[ignore = "requires the vendored corpus"]
+fn role_annotation_scoreboard_with_annotations() {
+    let Some(repo) = corpus_root() else {
+        eprintln!("skipping: vendored corpus not found and PURESCRIPT_REPO is unset");
+        return;
+    };
+
+    let mut per_code: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut mismatches = Vec::new();
+    let mut agree = 0usize;
+    let mut total = 0usize;
+    let failing_dir = repo.join("failing");
+    for path in collected_files(&failing_dir, None) {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if is_ffi_excluded(&path, &text) {
+            continue;
+        }
+        let all_codes = annotation_codes(&text);
+        let expected: Vec<String> = all_codes
+            .iter()
+            .filter(|code| ROLE_CODES.contains(&code.as_str()))
+            .cloned()
+            .collect();
+        if expected.is_empty() || expected.len() != all_codes.len() {
+            continue;
+        }
+        total += 1;
+        let case = load_case(&path, &failing_dir, &text);
+        let result = psrs_driver::check_program_types_lenient_with_prelude(&case.inputs());
+        let ours = match &result {
+            Ok(()) => Default::default(),
+            Err(errors) => diagnostic_codes(case.own_diagnostics(errors)),
+        };
+        let mut matched_all = true;
+        for code in &expected {
+            let entry = per_code.entry(code.clone()).or_insert((0, 0));
+            entry.1 += 1;
+            if ours.contains(code.as_str()) {
+                entry.0 += 1;
+            } else {
+                matched_all = false;
+            }
+        }
+        if matched_all {
+            agree += 1;
+        } else {
+            mismatches.push((path.clone(), expected.join(","), {
+                let mut produced: Vec<&str> = ours.into_iter().collect();
+                produced.sort_unstable();
+                produced.join(",")
+            }));
+        }
+    }
+
+    println!("Role failing agreement: {agree}/{total}");
+    println!("per-code agreement:");
+    for (code, (matched, count)) in &per_code {
+        println!("  {code}: {matched}/{count}");
+    }
+    if !mismatches.is_empty() {
+        println!("role mismatches ({}):", mismatches.len());
         for (path, expected, produced) in mismatches.iter().take(40) {
             let relative = path.strip_prefix(&repo).unwrap_or(path);
             println!(

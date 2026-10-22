@@ -42,7 +42,9 @@ When one CST node produces several AST nodes, each gets a source origin.
 Fixity declarations retain their namespace, associativity, precedence, target,
 alias, and spans. Expression and type operator chains retain source order, and
 operator sections retain which side supplies their operand using explicit
-anonymous arguments such as `(_ + 1)` and `(1 + _)`. Parenthesized unary
+anonymous arguments such as `(_ + 1)` and `(1 + _)`. The hole is an immediate
+operand of that parenthesized operator: `(_ + 2 * 3)` is a section because
+`*` binds tighter than `+`, and `(_ * 4 + 1)` is not. Parenthesized unary
 negation remains a negation expression; it is not interpreted as a section.
 Backticked value sections such as ``(_ `eq` value)`` retain the same section
 side and unresolved value identity, including local names.
@@ -68,7 +70,8 @@ scope. P2 gives generated binders source-inexpressible names and preserves
 each underscore's span. An immediate `_` in an `if` condition, then branch,
 or else branch is a lambda parameter in that written order, as a `case`
 scrutinee already is. An underscore in any other expression position
-stays an unresolved name. These rules follow the official compiler's
+stays an unresolved name. Resolution reports `IncorrectAnonymousArgument`
+for that name; it is not a value lookup. These rules follow the official compiler's
 `Sugar.ObjectWildcards` conversion and require no resolved names or types.
 AST update fields explicitly distinguish an expression from a nested path.
 P3 projects a nested path from its enclosing base, while resolving explicit

@@ -110,6 +110,8 @@ pub enum ExprKind {
     },
     /// Guarded RHS form retained through name resolution and eliminated by P4.
     Guarded(Vec<GuardedExpr>),
+    /// A typed hole `?name`. Inference gives it a fresh type of kind `Type`.
+    Hole(String),
 }
 
 impl Clone for Expr {

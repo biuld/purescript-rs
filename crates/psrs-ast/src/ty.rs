@@ -21,6 +21,8 @@ pub struct TypeField {
 pub enum TypeKind {
     /// An anonymous type variable inferred from this source annotation.
     Wildcard,
+    /// A named type hole `?name`. The name is the hole's identity, not a type.
+    Hole(String),
     Name(Name),
     Application(Box<Type>, Box<Type>),
     OperatorChain {
@@ -49,6 +51,13 @@ pub enum TypeKind {
     },
     Integer(String),
     String(String),
+    /// A type ascribed with a kind, `(t :: k)`. This is a type-position
+    /// annotation, not a binder annotation. The inner type is checked at `k`,
+    /// and `k` is the kind of the type.
+    Kinded {
+        expression: Box<Type>,
+        kind: Box<Type>,
+    },
 }
 
 pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> {
@@ -112,11 +121,12 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
             expression.span = span;
             return Ok(expression);
         }
-        CstTypeExprKind::KindAnnotation { expression, .. } => {
-            let mut expression = lower_type(*expression)?;
-            expression.span = span;
-            return Ok(expression);
-        }
+        CstTypeExprKind::KindAnnotation {
+            expression, kind, ..
+        } => TypeKind::Kinded {
+            expression: Box::new(lower_type(*expression)?),
+            kind: Box::new(lower_type(*kind)?),
+        },
         CstTypeExprKind::Operator {
             operator,
             left,
@@ -144,6 +154,7 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
             tail: None,
         },
         CstTypeExprKind::Wildcard(_) => TypeKind::Wildcard,
+        CstTypeExprKind::Hole(name) => TypeKind::Hole(name),
         CstTypeExprKind::PrefixOperator { operator, operand } => {
             // The grammar admits any operator token here, and the only prefix
             // form the type language defines is negation of a type-level
@@ -166,12 +177,6 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
                 ));
             }
             TypeKind::Integer(format!("-{literal}"))
-        }
-        CstTypeExprKind::Hole(_) => {
-            return Err(LowerError::new(
-                span,
-                "this type syntax is not supported yet",
-            ));
         }
     };
     Ok(Type { kind, span })
@@ -230,6 +235,7 @@ fn lower_type_parameter(parameter: cst::TypeVarBinder) -> Result<TypeParameter, 
     Ok(TypeParameter {
         name: lower_name(parameter.name),
         kind: parameter.kind.map(lower_type).transpose()?,
+        visible: parameter.visible,
         span: parameter.span,
     })
 }

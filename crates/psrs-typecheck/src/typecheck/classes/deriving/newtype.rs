@@ -226,10 +226,12 @@ impl Checker {
             InferType::ForAll {
                 variables: source_variables,
                 body: source_body,
+                ..
             },
             InferType::ForAll {
                 variables: target_variables,
                 body: target_body,
+                ..
             },
         ) = (&source, &target)
             && source_variables == target_variables
@@ -369,6 +371,7 @@ fn leading_forall_variables(ty: &InferType, variables: &mut Vec<u32>) {
         InferType::ForAll {
             variables: binders,
             body,
+            ..
         } => {
             variables.extend(binders);
             leading_forall_variables(body, variables);

@@ -156,6 +156,16 @@ impl Resolver {
         let span = expression.span;
         let kind = match expression.kind {
             AstExprKind::Name(name) => {
+                // A leftover expression `_` is not a value. Sections and
+                // object wildcards have already consumed the holes they own.
+                if name.text == "_" {
+                    self.report(
+                        ResolveErrorKind::IncorrectAnonymousArgument,
+                        name.text,
+                        name.span,
+                    );
+                    return None;
+                }
                 if let Some(local) = self.lookup_local(&name.text) {
                     ExprKind::Local(local.id)
                 } else {
@@ -299,6 +309,7 @@ impl Resolver {
             AstExprKind::Guarded(clauses) => {
                 ExprKind::Guarded(self.resolve_guarded_exprs(clauses)?)
             }
+            AstExprKind::Hole(name) => ExprKind::Hole(name),
         };
         Some(Expr { kind, span })
     }

@@ -1,6 +1,6 @@
 //! The one translation from a type expression to a kind.
 
-use crate::kind::{Kind, flatten_spine, type_kind};
+use crate::kind::{Kind, flatten_spine};
 use crate::solve::KindState;
 use psrs_hir::{self as hir, BuiltinType, TypeKind};
 use std::collections::HashMap;
@@ -15,12 +15,19 @@ use std::collections::HashMap;
 pub struct KindScope<'a> {
     bound: HashMap<String, Kind>,
     state: &'a mut KindState,
+    /// A free name in a kind annotation is that type variable. Kind signatures
+    /// leave this off, so an unbound name there is a fresh kind variable.
+    free_names_are_type_variables: bool,
 }
 
 impl<'a> KindScope<'a> {
     /// Starts a scope over `state` with the given binders already in scope.
     pub fn with_bindings(state: &'a mut KindState, bound: HashMap<String, Kind>) -> Self {
-        Self { bound, state }
+        Self {
+            bound,
+            state,
+            free_names_are_type_variables: false,
+        }
     }
 
     /// Starts a scope over `state` with no binder in scope.
@@ -66,6 +73,20 @@ impl<'a> KindScope<'a> {
     }
 }
 
+/// The kind a type-position annotation denotes.
+///
+/// A name bound by `forall` inside the annotation is a kind variable. Any
+/// other name is the type variable itself, so `KProxy k` stays an application
+/// of `KProxy` to `k` and does not collapse to `Type`.
+pub fn denote_kind_annotation(ty: &hir::Type, state: &mut KindState) -> Option<Kind> {
+    let mut scope = KindScope {
+        bound: HashMap::new(),
+        state,
+        free_names_are_type_variables: true,
+    };
+    denote_kind(ty, &mut scope)
+}
+
 /// Reads a resolved type expression as the kind it denotes.
 ///
 /// This is the only translation from a type expression to a kind. A primitive
@@ -76,8 +97,17 @@ impl<'a> KindScope<'a> {
 /// operator chain — and the caller reports it.
 pub fn denote_kind(ty: &hir::Type, scope: &mut KindScope<'_>) -> Option<Kind> {
     Some(match &ty.kind {
-        TypeKind::Wildcard => scope.fresh(),
-        TypeKind::Variable(name) => scope.lookup(name).unwrap_or_else(|| scope.fresh()),
+        TypeKind::Wildcard | TypeKind::Hole(_) => scope.fresh(),
+        TypeKind::Variable(name) => scope.lookup(name).unwrap_or_else(|| {
+            if scope.free_names_are_type_variables {
+                Kind::TypeVariable(name.clone())
+            } else {
+                scope.fresh()
+            }
+        }),
+        // `(t :: k)` read as a kind is `k`. The inner type is checked by the
+        // kind of a type, not by this translation.
+        TypeKind::Kinded { kind, .. } => denote_kind(kind, scope)?,
         TypeKind::Constructor(builtin) => Kind::Builtin(*builtin),
         TypeKind::Named(id) | TypeKind::Opaque(id) => Kind::Named(*id),
         TypeKind::Application(..) => {
@@ -94,25 +124,68 @@ pub fn denote_kind(ty: &hir::Type, scope: &mut KindScope<'_>) -> Option<Kind> {
             Box::new(denote_kind(result, scope)?),
         ),
         TypeKind::Forall { variables, body } => {
+            // A binder in a kind is a variable. Its annotation is the kind of
+            // that variable, not a type the variable is replaced by, so
+            // `forall k. k -> Type` stays quantified instead of collapsing to
+            // `Type -> Type`.
             let saved = scope.bindings().clone();
+            let mut quantified = Vec::with_capacity(variables.len());
             for variable in variables {
-                let kind = match &variable.kind {
-                    Some(annotation) => denote_kind(annotation, scope)?,
-                    None => type_kind(),
+                if let Some(annotation) = &variable.kind {
+                    let _ = denote_kind(annotation, scope)?;
+                }
+                let Kind::Variable(id) = scope.fresh() else {
+                    unreachable!("a fresh kind is a variable")
                 };
-                scope.bind(variable.name.clone(), kind);
+                scope.state().make_rigid(id);
+                scope.bind(variable.name.clone(), Kind::Variable(id));
+                quantified.push(id);
             }
-            let kind = denote_kind(body, scope);
+            let mut kind = denote_kind(body, scope)?;
             scope.restore(saved);
-            kind?
+            for id in quantified.into_iter().rev() {
+                kind = Kind::ForAll {
+                    variable: id,
+                    body: Box::new(kind),
+                };
+            }
+            kind
         }
         TypeKind::Constrained { body, .. } => denote_kind(body, scope)?,
-        // A row or record literal read as a kind is a row of types. Its entries
-        // are checked at their own kind where the expression is read as a type,
-        // which is the only place a row's element kind is decided.
-        TypeKind::Row { .. } => Kind::row(type_kind()),
-        TypeKind::Record { .. } => type_kind(),
+        // A row literal is that row. A record literal is `Record` applied to
+        // it. Collapsing either one to `Row Type` makes `{a :: Int | r}` and
+        // `{b :: Int | r}` the same kind.
+        TypeKind::Row { fields, tail } => denote_row(fields, tail.as_deref(), scope)?,
+        TypeKind::Record { fields, tail } => Kind::app(
+            Kind::Builtin(BuiltinType::Record),
+            denote_row(fields, tail.as_deref(), scope)?,
+        ),
         TypeKind::Integer(_) => Kind::Builtin(BuiltinType::Int),
         TypeKind::String(_) => Kind::Builtin(BuiltinType::Symbol),
     })
+}
+
+/// The row a row or record literal denotes, labels sorted, fields read as kinds.
+fn denote_row(
+    fields: &[hir::TypeField],
+    tail: Option<&hir::Type>,
+    scope: &mut KindScope<'_>,
+) -> Option<Kind> {
+    let mut denoted = Vec::with_capacity(fields.len());
+    for field in fields {
+        denoted.push((field.label.clone(), denote_kind(&field.ty, scope)?));
+    }
+    denoted.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut kind = match tail {
+        Some(tail) => denote_kind(tail, scope)?,
+        None => Kind::RowEmpty,
+    };
+    for (label, field) in denoted.into_iter().rev() {
+        kind = Kind::RowExtend {
+            label,
+            field: Box::new(field),
+            tail: Box::new(kind),
+        };
+    }
+    Some(kind)
 }

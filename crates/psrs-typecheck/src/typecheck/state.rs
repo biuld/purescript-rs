@@ -60,6 +60,12 @@ pub(super) struct InferState {
     pub(super) substitutions: HashMap<u32, InferType>,
     pub(super) levels: HashMap<u32, u32>,
     pub(super) rigid: HashSet<u32>,
+    /// Type wildcards, keyed by the inference variable, with the source range
+    /// of the `_`. A given may mention one, and the body solves it. Treating
+    /// it as rigid reports a fundep conflict where the wildcard is inferred.
+    /// The range is where `WildcardInferredType` is reported once the
+    /// substitution is complete.
+    pub(super) wildcard_variables: HashMap<u32, TextRange>,
     /// Every variable generalization has quantified, for finalization.
     pub(super) generic_variables: HashSet<u32>,
     /// The one kind solver: the substitution over kind variables, the next kind
@@ -75,6 +81,9 @@ pub(super) struct InferState {
     /// contexts that later join the declaration's root worklist.
     pub(super) next_wanted_id: u32,
     pub(super) errors: Vec<TypeCheckError>,
+    /// Typed holes recorded while elaborating or inferring. Reported once the
+    /// substitution for the module is complete.
+    pub(super) holes: Vec<super::holes::TypedHole>,
     /// Reports emitted by accepted primitive rules. They participate in the
     /// same snapshot contract as substitutions and errors.
     pub(super) warnings: Vec<TypeCheckWarning>,
@@ -230,22 +239,34 @@ impl Checker {
         self.scope.givens.extend(givens);
         let previous_rigid = self.state.rigid.clone();
         let previous_given_rigid = std::mem::take(&mut self.scope.given_rigid);
-        for (constraint, _) in &self.scope.givens[previous_givens.len()..] {
-            for argument in &constraint.arguments {
-                let mut variables = HashSet::new();
-                classes::collect_infer_variables(argument, &mut variables);
-                for variable in variables {
-                    if self.state.rigid.insert(variable) {
-                        self.scope.given_rigid.push(variable);
-                    }
-                }
-            }
+        let arguments = self.scope.givens[previous_givens.len()..]
+            .iter()
+            .flat_map(|(constraint, _)| constraint.arguments.clone())
+            .collect::<Vec<_>>();
+        for argument in &arguments {
+            self.rigidify_given_argument(argument);
         }
         let result = f(self);
         self.scope.givens = previous_givens;
         self.state.rigid = previous_rigid;
         self.scope.given_rigid = previous_given_rigid;
         result
+    }
+
+    /// Marks the type variables of one given argument rigid for the given's
+    /// scope. A type wildcard stays flexible: the body solves it, and a fundep
+    /// that determines the same position must agree with that solution.
+    pub(in crate::typecheck) fn rigidify_given_argument(&mut self, argument: &InferType) {
+        let mut variables = HashSet::new();
+        classes::collect_infer_variables(argument, &mut variables);
+        for variable in variables {
+            if self.state.wildcard_variables.contains_key(&variable) {
+                continue;
+            }
+            if self.state.rigid.insert(variable) {
+                self.scope.given_rigid.push(variable);
+            }
+        }
     }
 
     /// Runs `f` with `givens` as the given-evidence chain in scope, and restores

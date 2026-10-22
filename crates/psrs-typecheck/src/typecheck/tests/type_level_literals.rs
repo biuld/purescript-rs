@@ -33,6 +33,7 @@ fn proxy_declaration() -> hir::TypeDeclaration {
             name: "a".into(),
             name_span: TextRange::new(6, 7),
             kind: None,
+            visible: false,
         }],
         constructors: vec![hir::Constructor {
             symbol: PROXY_VALUE,
@@ -126,6 +127,7 @@ fn forall_a(body: HirType, start: u32) -> HirType {
                 name: "a".into(),
                 name_span: TextRange::new(start + 7, start + 8),
                 kind: None,
+                visible: false,
             }],
             body: Box::new(body),
         },

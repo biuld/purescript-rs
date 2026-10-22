@@ -18,8 +18,10 @@ impl Checker {
     /// introduced. They are quantified whatever level the solver recorded for
     /// them, because they are the polymorphism the source declared rather than a
     /// side effect of the level a binder was allocated at. A binder that no
-    /// surviving part of the type or the constraints mentions is not quantified:
-    /// body-only occurrences are handled by `generalize_body` after solving.
+    /// surviving part of the type or the constraints mentions is not quantified
+    /// here: body-only occurrences are handled by `generalize_body` after
+    /// solving, and a visible binder is put back by [`Self::retain_visible_binders`]
+    /// because `@T` selects it even when the result type does not name it.
     ///
     /// `outer_level` is the level the declaration's scope sits at. A variable
     /// at that level or below belongs to the enclosing scope and is left alone,
@@ -46,7 +48,32 @@ impl Checker {
                 variables.push(*variable);
             }
         }
-        self.scheme(variables, constraints.to_vec(), resolved)
+        self.scheme(variables, Vec::new(), constraints.to_vec(), resolved)
+    }
+
+    /// Puts a visible declared binder back onto a scheme that does not mention it.
+    ///
+    /// An invisible binder with no occurrence is not polymorphism: instantiating
+    /// it would leave an ambiguous unknown. A visible binder is chosen by `@T`,
+    /// so `forall (@f :: forall a. a -> a). Int` stays quantified and the
+    /// application `identityCheck @Id` can still check `Id`'s kind.
+    pub(in crate::typecheck) fn retain_visible_binders(
+        &mut self,
+        scheme: Scheme,
+        quantified: &[u32],
+        visible: &[bool],
+    ) -> Scheme {
+        let present = scheme.variables.iter().copied().collect::<HashSet<_>>();
+        let mut variables = scheme.variables.clone();
+        for (variable, is_visible) in quantified.iter().zip(visible.iter().copied()) {
+            if is_visible && !present.contains(variable) {
+                variables.push(*variable);
+            }
+        }
+        if variables.len() == scheme.variables.len() {
+            return scheme;
+        }
+        self.scheme(variables, Vec::new(), scheme.constraints, scheme.ty)
     }
 
     /// Generalizes an instance dictionary over every variable in its head,
@@ -64,7 +91,7 @@ impl Checker {
         let inferred = self.generalize(&[], ty, &[], TOP_LEVEL);
         let mut variables = inferred.variables;
         variables.extend(head_variables.iter().copied());
-        self.scheme(variables, inferred.constraints, inferred.ty)
+        self.scheme(variables, Vec::new(), inferred.constraints, inferred.ty)
     }
 
     /// The scheme a declaration exposes to the uses inside its binding group: the
@@ -74,22 +101,31 @@ impl Checker {
     pub(super) fn declared_scheme(
         &mut self,
         declared: &[u32],
+        visible: &[bool],
         constraints: Vec<ClassConstraint>,
         ty: InferType,
     ) -> Scheme {
-        self.scheme(declared.to_vec(), constraints, ty)
+        self.scheme(declared.to_vec(), visible.to_vec(), constraints, ty)
     }
 
     /// Completes a set of quantified variables into a scheme, recording each
-    /// variable's kind through the kind owner.
+    /// variable's kind through the kind owner. `visible` is parallel to
+    /// `variables` before they are sorted; a missing flag is invisible.
     fn scheme(
         &mut self,
-        mut variables: Vec<u32>,
+        variables: Vec<u32>,
+        visible: Vec<bool>,
         constraints: Vec<ClassConstraint>,
         ty: InferType,
     ) -> Scheme {
-        variables.sort_unstable();
-        variables.dedup();
+        let mut paired = variables
+            .into_iter()
+            .enumerate()
+            .map(|(index, variable)| (variable, visible.get(index).copied().unwrap_or(false)))
+            .collect::<Vec<_>>();
+        paired.sort_by_key(|(variable, _)| *variable);
+        paired.dedup_by_key(|(variable, _)| *variable);
+        let (variables, visible): (Vec<u32>, Vec<bool>) = paired.into_iter().unzip();
         // The kind is read through `kind.rs`, which is the one owner of the kind
         // of an inference type. A variable that reached inference without one
         // gets it recorded here, so a quantified variable always carries a kind.
@@ -102,6 +138,7 @@ impl Checker {
         }
         Scheme {
             variables,
+            visible,
             variable_kinds,
             constraints,
             ty,
@@ -137,7 +174,9 @@ impl Checker {
                 self.collect_generalizable_scoped(function, outer_level, out, bound);
                 self.collect_generalizable_scoped(argument, outer_level, out, bound);
             }
-            InferType::ForAll { variables, body } => {
+            InferType::ForAll {
+                variables, body, ..
+            } => {
                 let newly_bound = variables
                     .iter()
                     .filter(|id| !bound.contains(id))
@@ -197,9 +236,9 @@ fn occurs_below_forall(ty: &InferType, variable: u32) -> bool {
         InferType::RowExtend { ty, tail, .. } => {
             occurs_below_forall(ty, variable) || occurs_below_forall(tail, variable)
         }
-        InferType::ForAll { variables, body } => {
-            !variables.contains(&variable) && occurs_below_forall(body, variable)
-        }
+        InferType::ForAll {
+            variables, body, ..
+        } => !variables.contains(&variable) && occurs_below_forall(body, variable),
         InferType::Constrained { constraints, body } => {
             constraints
                 .iter()

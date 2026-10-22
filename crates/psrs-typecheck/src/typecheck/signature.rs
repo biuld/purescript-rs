@@ -18,6 +18,8 @@ pub(super) struct ElaboratedSignature {
     /// order. These are the declaration's declared polymorphism, so its scheme
     /// quantifies exactly them however the solver levelled them.
     pub(super) quantified: Vec<u32>,
+    /// Parallel to `quantified`. `true` is a source `@` binder.
+    pub(super) visible: Vec<bool>,
 }
 
 impl Checker {
@@ -25,16 +27,31 @@ impl Checker {
     /// variables must be fresh and flexible so each imported use can choose a
     /// different concrete type.
     pub(super) fn elaborate_imported_signature(&mut self, ty: &hir::Type) -> InferType {
-        let (_, body) = self.elaborate_constrained_signature(ty, false);
+        let (_, body) = self.elaborate_imported_constraints(ty);
         body
     }
 
     /// Elaborates an imported signature together with its class constraints.
+    ///
+    /// Invisible binders are instantiated. From the first visible binder, the
+    /// quantifier and the constraints that mention it stay on the type, so a
+    /// visible application can select them.
     pub(super) fn elaborate_imported_constraints(
         &mut self,
         ty: &hir::Type,
     ) -> (Vec<ClassConstraint>, InferType) {
-        self.elaborate_constrained_signature(ty, false)
+        let mut variables = HashMap::new();
+        let mut quantified = Vec::new();
+        let mut visible = Vec::new();
+        let (constraints, body) = self.elaborate_constraint_spine(
+            ty,
+            &mut variables,
+            false,
+            &mut quantified,
+            &mut visible,
+        );
+        self.note_elaborated_kinds(&constraints, &body, ty.span);
+        self.reassociate_quantifiers(quantified, visible, constraints, body)
     }
 
     /// Elaborates a declaration's signature, flattening its constraints and
@@ -45,8 +62,15 @@ impl Checker {
     ) -> ElaboratedSignature {
         let mut variables = HashMap::new();
         let mut quantified = Vec::new();
-        let (constraints, body) =
-            self.elaborate_constraint_spine(ty, &mut variables, true, &mut quantified);
+        let mut visible = Vec::new();
+        let (constraints, body) = self.elaborate_constraint_spine(
+            ty,
+            &mut variables,
+            true,
+            &mut quantified,
+            &mut visible,
+        );
+        self.note_elaborated_kinds(&constraints, &body, ty.span);
         let mut parameters = Vec::with_capacity(constraints.len());
         for constraint in &constraints {
             let dictionary_type = self.dictionary_type(constraint);
@@ -60,33 +84,26 @@ impl Checker {
             ty: body,
             annotation_variables: variables,
             quantified,
+            visible,
         }
     }
 
     /// Walks a signature's `forall`/`=>` spine, elaborating every constraint
     /// before its body. Constraints appear in source order, and the binders of
     /// each `forall` are appended to `quantified` in binding order.
-    pub(super) fn elaborate_constrained_signature(
-        &mut self,
-        ty: &hir::Type,
-        rigid: bool,
-    ) -> (Vec<ClassConstraint>, InferType) {
-        let mut variables = HashMap::new();
-        let mut quantified = Vec::new();
-        self.elaborate_constraint_spine(ty, &mut variables, rigid, &mut quantified)
-    }
-
     fn elaborate_constraint_spine(
         &mut self,
         ty: &hir::Type,
         variables: &mut HashMap<String, InferType>,
         rigid: bool,
         quantified: &mut Vec<u32>,
+        visible: &mut Vec<bool>,
     ) -> (Vec<ClassConstraint>, InferType) {
         if let Some(expanded) = self.env.checked_kinds.expand_synonyms(ty)
             && expanded != *ty
         {
-            return self.elaborate_constraint_spine(&expanded, variables, rigid, quantified);
+            return self
+                .elaborate_constraint_spine(&expanded, variables, rigid, quantified, visible);
         }
         match &ty.kind {
             hir::TypeKind::Forall {
@@ -94,17 +111,24 @@ impl Checker {
                 body,
             } => {
                 let mut scoped_variables = variables.clone();
-                let introduced = self.bind_forall_variables(binders, &mut scoped_variables, rigid);
+                let (introduced, introduced_visible) =
+                    self.bind_forall_variables(binders, &mut scoped_variables, rigid);
                 quantified.extend(introduced);
-                let result =
-                    self.elaborate_constraint_spine(body, &mut scoped_variables, rigid, quantified);
+                visible.extend(introduced_visible);
+                let result = self.elaborate_constraint_spine(
+                    body,
+                    &mut scoped_variables,
+                    rigid,
+                    quantified,
+                    visible,
+                );
                 *variables = scoped_variables;
                 result
             }
             hir::TypeKind::Constrained { constraint, body } => {
                 let class = self.elaborate_constraint(constraint, variables, rigid);
                 let (rest, body_ty) =
-                    self.elaborate_constraint_spine(body, variables, rigid, quantified);
+                    self.elaborate_constraint_spine(body, variables, rigid, quantified, visible);
                 let mut constraints = Vec::new();
                 if let Some(class) = class {
                     constraints.push(class);
@@ -138,7 +162,11 @@ impl Checker {
             return self.elaborate_type_mode(&expanded, variables, rigid_variables);
         }
         match &ty.kind {
-            hir::TypeKind::Wildcard => self.fresh(),
+            hir::TypeKind::Kinded { expression, .. } => {
+                self.elaborate_type_mode(expression, variables, rigid_variables)
+            }
+            hir::TypeKind::Wildcard => self.note_type_wildcard(ty.span),
+            hir::TypeKind::Hole(name) => self.note_type_hole(name, ty.span),
             hir::TypeKind::Variable(name) => {
                 if let Some(variable) = variables.get(name) {
                     return variable.clone();
@@ -234,11 +262,12 @@ impl Checker {
                 body,
             } => {
                 let mut scoped_variables = variables.clone();
-                let quantified =
+                let (quantified, visible) =
                     self.bind_forall_variables(binders, &mut scoped_variables, rigid_variables);
                 let body = self.elaborate_type_mode(body, &mut scoped_variables, rigid_variables);
                 InferType::ForAll {
                     variables: quantified,
+                    visible,
                     body: Box::new(body),
                 }
             }
@@ -359,9 +388,10 @@ impl Checker {
         binders: &[hir::TypeParameter],
         variables: &mut HashMap<String, InferType>,
         rigid: bool,
-    ) -> Vec<u32> {
+    ) -> (Vec<u32>, Vec<bool>) {
         let mut kind_scope = HashMap::new();
         let mut quantified = Vec::with_capacity(binders.len());
+        let mut visible = Vec::with_capacity(binders.len());
         for binder in binders {
             let variable = self.fresh();
             let kind = binder
@@ -378,6 +408,7 @@ impl Checker {
                     .type_variable_names
                     .insert(id, binder.name.clone());
                 quantified.push(id);
+                visible.push(binder.visible);
             }
             // An unannotated forall binder can itself be a kind variable; a
             // later binder annotation may refer to it.
@@ -386,7 +417,7 @@ impl Checker {
             }
             variables.insert(binder.name.clone(), variable);
         }
-        quantified
+        (quantified, visible)
     }
 
     /// Expands a type synonym application by substituting the elaborated

@@ -320,9 +320,9 @@ fn occurs_in(variable: u32, ty: &InferType) -> bool {
         InferType::RowExtend { ty, tail, .. } => {
             occurs_in(variable, ty) || occurs_in(variable, tail)
         }
-        InferType::ForAll { variables, body } => {
-            !variables.contains(&variable) && occurs_in(variable, body)
-        }
+        InferType::ForAll {
+            variables, body, ..
+        } => !variables.contains(&variable) && occurs_in(variable, body),
         InferType::Constrained { constraints, body } => {
             constraints
                 .iter()
@@ -394,11 +394,16 @@ fn rewrite_type_by_role(
                 changed_ty || changed_tail,
             )
         }
-        InferType::ForAll { variables, body } if !variables.contains(&variable) => {
+        InferType::ForAll {
+            variables,
+            visible,
+            body,
+        } if !variables.contains(&variable) => {
             let (body, changed) = rewrite_type_by_role(body, variable, replacement, checker);
             (
                 InferType::ForAll {
                     variables: variables.clone(),
+                    visible: visible.clone(),
                     body: Box::new(body),
                 },
                 changed,

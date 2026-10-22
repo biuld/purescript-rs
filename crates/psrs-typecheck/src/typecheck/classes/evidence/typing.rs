@@ -1,7 +1,5 @@
 use super::super::super::signature::{flatten_spine, nominal_type_id};
-use super::super::super::unify::substitute;
 use super::super::super::*;
-use super::record_field_type;
 
 impl Checker {
     /// Elaborates one constraint type `C τ...` into a class constraint with
@@ -87,8 +85,12 @@ impl Checker {
         record_type(fields, InferType::RowEmpty)
     }
 
-    /// Types a class method at a use site. The class parameters become fresh
-    /// variables and the resulting constraint becomes a wanted dictionary.
+    /// Types a class method at a use site.
+    ///
+    /// Class parameters are the visible quantifier prefix. The class constraint
+    /// stays under that quantifier until a visible application instantiates it,
+    /// so `method @Int` selects the class parameter instead of an already-solved
+    /// unknown.
     pub(in crate::typecheck) fn infer_method_use(
         &mut self,
         class_id: hir::TypeId,
@@ -96,28 +98,44 @@ impl Checker {
         span: TextRange,
     ) -> Option<(InferredExprKind, InferType)> {
         let class = self.env.classes.get(&class_id).cloned()?;
-        let mut variables = HashMap::new();
+        let mut names = HashMap::new();
+        let mut class_variables = Vec::with_capacity(class.parameters.len());
         let mut arguments = Vec::with_capacity(class.parameters.len());
         for parameter in &class.parameters {
-            let variable = self.fresh();
-            variables.insert(parameter.clone(), variable.clone());
-            arguments.push(variable);
+            let InferType::Variable(id) = self.fresh() else {
+                unreachable!("fresh inference types are variables")
+            };
+            self.state.rigid.insert(id);
+            self.scope.type_variable_names.insert(id, parameter.clone());
+            names.insert(parameter.clone(), InferType::Variable(id));
+            class_variables.push(id);
+            arguments.push(InferType::Variable(id));
         }
-        let ty = self.elaborate_type_mode(&method.signature, &mut variables, false);
-        let constraint = ClassConstraint {
+        let elaborated = self.elaborate_type_mode(&method.signature, &mut names, false);
+        // The method body forces kinds onto `a` and `b` before the class
+        // parameter is instantiated, so `f a` cannot later be used at a
+        // different kind from `(a -> b)`.
+        self.note_elaborated_kinds(&[], &elaborated, span);
+        let (method_variables, method_visible, method_constraints, body) =
+            Self::split_quantifier_prefix(elaborated);
+        for id in &method_variables {
+            self.state.rigid.insert(*id);
+        }
+        let mut variables = class_variables;
+        let mut visible = vec![true; variables.len()];
+        variables.extend(method_variables);
+        visible.extend(method_visible);
+        let mut constraints = vec![ClassConstraint {
             class_id,
             arguments,
             span,
-        };
-        let dictionary_type = self.dictionary_type(&constraint);
-        if let Some(dictionary_method_type) = record_field_type(&dictionary_type, &method.name) {
-            self.unify(ty.clone(), dictionary_method_type, span);
-        }
-        let wanted = self.push_wanted(constraint, dictionary_type);
+        }];
+        constraints.extend(method_constraints);
+        let ty = quantify_method(variables, visible, constraints, body);
         Some((
-            InferredExprKind::Method {
+            InferredExprKind::PendingMethod {
                 method: method.name,
-                wanted,
+                class_id,
             },
             ty,
         ))
@@ -134,35 +152,44 @@ impl Checker {
         if constraints.is_empty() {
             return base;
         }
-        let constraints = constraints
-            .into_iter()
-            .map(|mut constraint| {
-                // An obligation becomes wanted when this expression is used.
-                // Imported schemes keep their declaration spans for source
-                // tooling, but diagnostics and warnings belong to the use site.
-                constraint.span = span;
-                constraint
-            })
-            .collect::<Vec<_>>();
-        let mut dictionary_types = Vec::with_capacity(constraints.len());
-        let mut shapes = Vec::with_capacity(constraints.len() + 1);
-        let mut current = base.ty.clone();
-        shapes.push(current.clone());
-        for constraint in constraints.iter().rev() {
+        // A leading class constraint on a method selects that method's
+        // dictionary field. It is not a function argument. Every other
+        // constraint is a dictionary lambda on the declaration, so the inner
+        // expression keeps the whole arrow spine and each application peels one.
+        let mut expression = InferredExpr { span, ..base };
+        let mut dictionaries = Vec::new();
+        for mut constraint in constraints {
+            constraint.span = span;
+            if dictionaries.is_empty()
+                && let InferredExprKind::PendingMethod { method, class_id } = &expression.kind
+                && *class_id == constraint.class_id
+            {
+                let dictionary_type = self.dictionary_type(&constraint);
+                let wanted = self.push_wanted(constraint, dictionary_type);
+                let method = method.clone();
+                expression = InferredExpr {
+                    kind: InferredExprKind::Method { method, wanted },
+                    ty: expression.ty,
+                    span,
+                };
+            } else {
+                dictionaries.push(constraint);
+            }
+        }
+        if dictionaries.is_empty() {
+            return expression;
+        }
+        let mut current = expression.ty.clone();
+        let mut shapes = vec![current.clone()];
+        for constraint in dictionaries.iter().rev() {
             let dictionary_type = self.dictionary_type(constraint);
-            dictionary_types.push(dictionary_type.clone());
             current = arrow(dictionary_type, current);
             shapes.push(current.clone());
         }
-        dictionary_types.reverse();
         shapes.reverse();
-        let mut expression = InferredExpr {
-            kind: base.kind,
-            ty: shapes[0].clone(),
-            span,
-        };
-        for (index, constraint) in constraints.into_iter().enumerate() {
-            let dictionary_type = dictionary_types[index].clone();
+        expression.ty = shapes[0].clone();
+        for (index, constraint) in dictionaries.into_iter().enumerate() {
+            let dictionary_type = self.dictionary_type(&constraint);
             let wanted = self.push_wanted(constraint, dictionary_type);
             expression = InferredExpr {
                 kind: InferredExprKind::DictionaryApplication {
@@ -192,50 +219,6 @@ impl Checker {
         self.apply_constraints(expression, constraints, span)
     }
 
-    /// Instantiates a scheme's quantified variables and returns its constraints
-    /// together with its (constraint-free) type.
-    pub(in crate::typecheck) fn instantiate_use(
-        &mut self,
-        scheme: &Scheme,
-    ) -> (Vec<ClassConstraint>, InferType) {
-        let mapping = self
-            .instantiate_type_variables(scheme.variables.iter().copied(), &scheme.variable_kinds);
-        let substituted = substitute(&scheme.ty, &mapping);
-        let freshened = self.freshen_foralls(&substituted);
-        let mut ty = self.resolve_type(freshened);
-        // A value whose result or local binding type begins with a structural
-        // forall is instantiated independently at each occurrence.
-        let mut nested_constraints = Vec::new();
-        loop {
-            match ty {
-                InferType::ForAll { variables, body } => {
-                    let quantified = self.instantiate_type_variables(variables, &HashMap::new());
-                    ty = self.resolve_type(substitute(&body, &quantified));
-                }
-                InferType::Constrained { constraints, body } => {
-                    nested_constraints.extend(constraints);
-                    ty = self.resolve_type(*body);
-                }
-                _ => break,
-            }
-        }
-        let mut constraints: Vec<ClassConstraint> = scheme
-            .constraints
-            .iter()
-            .map(|constraint| ClassConstraint {
-                class_id: constraint.class_id,
-                arguments: constraint
-                    .arguments
-                    .iter()
-                    .map(|argument| substitute(argument, &mapping))
-                    .collect(),
-                span: constraint.span,
-            })
-            .collect();
-        constraints.extend(nested_constraints);
-        (constraints, ty)
-    }
-
     pub(in crate::typecheck) fn push_wanted(
         &mut self,
         constraint: ClassConstraint,
@@ -255,5 +238,30 @@ impl Checker {
             witness: None,
         });
         index
+    }
+}
+
+fn quantify_method(
+    variables: Vec<u32>,
+    visible: Vec<bool>,
+    constraints: Vec<ClassConstraint>,
+    body: InferType,
+) -> InferType {
+    let body = if constraints.is_empty() {
+        body
+    } else {
+        InferType::Constrained {
+            constraints,
+            body: Box::new(body),
+        }
+    };
+    if variables.is_empty() {
+        body
+    } else {
+        InferType::ForAll {
+            variables,
+            visible,
+            body: Box::new(body),
+        }
     }
 }

@@ -77,7 +77,10 @@ impl Checker {
                 let field = self.elaborate_type(field, &mut variables);
                 ty = arrow(field, ty);
             }
-            let scheme = self.generalize(&[], &ty, &[], TOP_LEVEL);
+            let mut scheme = self.generalize(&[], &ty, &[], TOP_LEVEL);
+            // Data and newtype parameters are visible quantifiers even when the
+            // declaration does not write `@`.
+            scheme.visible = vec![true; scheme.variables.len()];
             self.scope.globals.insert(constructor.symbol, scheme);
         }
     }
@@ -322,8 +325,13 @@ impl Checker {
                 else_branch,
             } => {
                 let condition = self.infer_expr(condition);
+                // An inferred `if` has no expected type, so each branch is
+                // instantiated. A visible quantifier such as `Nothing`'s
+                // parameter does not stay quantified on one branch only.
                 let then_branch = self.infer_expr(then_branch);
+                let then_branch = then_branch.map(|branch| self.instantiate_all_expr(branch, span));
                 let else_branch = self.infer_expr(else_branch);
+                let else_branch = else_branch.map(|branch| self.instantiate_all_expr(branch, span));
                 if let Some(condition) = &condition {
                     self.unify(
                         condition.ty.clone(),
@@ -353,6 +361,10 @@ impl Checker {
                 scrutinee,
                 branches,
             } => return self.infer_case(scrutinee, branches, span),
+            hir::ExprKind::Hole(name) => {
+                let ty = self.note_expr_hole(name, span);
+                (InferredExprKind::Hole, ty)
+            }
             hir::ExprKind::Guarded(_) => {
                 self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::InvalidHir,

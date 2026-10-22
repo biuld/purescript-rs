@@ -159,3 +159,63 @@ fn an_unknown_functional_dependency_variable_is_reported() {
         "unexpected diagnostics: {errors:?}"
     );
 }
+
+#[test]
+fn a_wildcard_in_a_fundep_determined_position_is_inferred() {
+    // `passing/WildcardInInstance.purs`: a wildcard standing for a
+    // fundep-determined argument is inferred. `purs` warns
+    // `WildcardInferredType` with the solved type and accepts. It is not a
+    // fundep conflict.
+    let source = "\
+module Main where
+
+class Ask r m | m -> r where
+  ask :: m r
+
+instance askFun :: Ask r ((->) r) where
+  ask x = x
+
+test :: forall m. Ask _ m => m Int
+test = ask
+";
+    let warnings =
+        crate::check_program_with_warnings(&[("Main.purs", source)]).unwrap_or_else(|errors| {
+            panic!("a fundep-determined wildcard is inferred, not a conflict: {errors:?}")
+        });
+    assert!(
+        warnings.iter().any(|warning| {
+            warning.diagnostic.code == Some("WildcardInferredType")
+                && warning.diagnostic.message.contains("Int")
+        }),
+        "expected WildcardInferredType Int, got {warnings:?}"
+    );
+}
+
+#[test]
+fn a_type_wildcard_warns_with_its_inferred_type() {
+    let source = "module Main where\n\
+        test :: _ -> Int\n\
+        test x = x\n\
+        main :: Int\n\
+        main = test 1\n";
+    let warnings = crate::check_program_with_warnings(&[("Main.purs", source)])
+        .unwrap_or_else(|errors| panic!("a solved type wildcard should be accepted: {errors:?}"));
+    assert!(
+        warnings.iter().any(|warning| {
+            warning.diagnostic.code == Some("WildcardInferredType")
+                && warning.diagnostic.message.contains("Int")
+        }),
+        "expected WildcardInferredType Int, got {warnings:?}"
+    );
+}
+
+#[test]
+fn official_fundep_wildcard_signature_typechecks_with_the_prelude() {
+    // `passing/WildcardInInstance.purs`. The wildcard is inferred, so the
+    // program type-checks. `purs` also warns `WildcardInferredType`.
+    let source =
+        include_str!("../../../../../../../tests/upstream/passing/WildcardInInstance.purs");
+    crate::check_program_types_lenient_with_prelude(&[("Main.purs", source)]).unwrap_or_else(
+        |errors| panic!("the fundep wildcard should be inferred, not rejected: {errors:?}"),
+    );
+}

@@ -360,9 +360,14 @@ evidence, but HIR currently has no producer for its missing-case metadata, so an
 unresolved direct `Partial` still receives the generic no-instance diagnostic.
 
 `Coercible` consumes the shared kind and role environment and produces a checked
-proof boundary. Five Coercible board mismatches remain because this proof has no
-dictionary arguments for the shared relation-decision verification path; the
-proof needs a verified answer contract of its own. [Classes and evidence](classes-and-evidence.md)
+proof boundary. A nominal argument that is not equal, and closed rows whose
+labels do not align, report `TypesDoNotUnify`. Measured 2026-10-22, those six
+files agree and L4 is 59/59. A flexible unknown, a representational mismatch,
+and two different constructors stay `NoInstanceFound`. A newtype that unwraps
+and decomposes back into the same wanted reports
+`PossiblyInfiniteCoercibleInstance`; a direct self-wrap does not, and ordinary
+decomposition still runs. The same day's later run kept L4 at 59/59 and moved
+L5 to 101/101, with that code and `CannotDeriveNewtypeForData` each at 1/1. [Classes and evidence](classes-and-evidence.md)
 owns its search position and evidence use, while [D-04](../../D-04-suite-roadmap.md)
 records corpus coverage for these limitations and the other incomplete primitive
 cases.

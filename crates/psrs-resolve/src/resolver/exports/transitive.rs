@@ -268,7 +268,12 @@ fn collect_named_types(ty: &hir::Type, out: &mut Vec<TypeId>) {
                 collect_named_types(tail, out);
             }
         }
+        hir::TypeKind::Kinded { expression, kind } => {
+            collect_named_types(expression, out);
+            collect_named_types(kind, out);
+        }
         hir::TypeKind::Wildcard
+        | hir::TypeKind::Hole(_)
         | hir::TypeKind::Variable(_)
         | hir::TypeKind::Constructor(_)
         | hir::TypeKind::Integer(_)
@@ -301,6 +306,7 @@ fn expand_value_type(
     }
     let kind = match &ty.kind {
         hir::TypeKind::Wildcard => hir::TypeKind::Wildcard,
+        hir::TypeKind::Hole(name) => hir::TypeKind::Hole(name.clone()),
         hir::TypeKind::Variable(name) => {
             if bound.iter().any(|binder| binder == name) {
                 hir::TypeKind::Variable(name.clone())
@@ -345,6 +351,7 @@ fn expand_value_type(
                         name: variable.name.clone(),
                         name_span: variable.name_span,
                         kind,
+                        visible: variable.visible,
                     }
                 })
                 .collect();
@@ -371,6 +378,10 @@ fn expand_value_type(
         },
         hir::TypeKind::Integer(value) => hir::TypeKind::Integer(value.clone()),
         hir::TypeKind::String(value) => hir::TypeKind::String(value.clone()),
+        hir::TypeKind::Kinded { expression, kind } => hir::TypeKind::Kinded {
+            expression: Box::new(expand_value_type(expression, own, subst, bound, stack)),
+            kind: Box::new(expand_value_type(kind, own, subst, bound, stack)),
+        },
     };
     hir::Type {
         kind,

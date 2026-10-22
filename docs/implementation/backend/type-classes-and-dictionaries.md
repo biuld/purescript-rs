@@ -106,9 +106,10 @@ DICT-01:
     executes a Global Eq dictionary feeding an Instance Ord dictionary.
   Input boundary: verified Typed Core and malformed Typed Core.
   Result: pass; the positive case executed under Wasmtime.
-  Gaps: an instance-member constrained annotation is not yet solved merely to
-  specialize it to a monomorphic expected class-method type; the frontend owns
-  this FE-14 boundary. FE-22 executes structural `Eq`/`Ord`, nested `Functor`,
+  Gaps: a constrained instance-member annotation specializes to the monomorphic
+  method type. Invisible binders are instantiated, the body subsumes that type,
+  and the exposed constraint is solved. The frontend owns this FE-14 behavior.
+  FE-22 executes structural `Eq`/`Ord`, nested `Functor`,
   `Bifunctor`, and newtype-derived dictionaries.
   `Contravariant` and function-result `Functor` have source and upstream
   differential evidence, but no Wasmtime result for the function adapter due
@@ -302,11 +303,12 @@ DICT-11:
 ## Remaining work and blockers
 
 - FE-14/15: class-method quantified parameters and scoped constraints are
-  covered by the rank-N acceptance evidence. An instance-member constrained
-  annotation still cannot be solved solely to specialize it to a monomorphic
-  expected class-method type; see the [frontend class and evidence
+  covered by the rank-N acceptance evidence. A constrained instance-member
+  annotation specializes to the monomorphic method type: invisible binders are
+  instantiated, the body subsumes that type, and the exposed constraint is
+  solved. See the [frontend class and evidence
   design](../../design/frontend/type-system/classes-and-evidence.md).
-  Deriving belongs to FE-22. Source default methods are not part of PureScript
+  Deriving belongs to FE-22. `passing/WildcardInInstance.purs` type-checks. A solved type wildcard warns `WildcardInferredType` with the solved type, including the local fundep shape, and that warning stays under FE-15. Source default methods are not part of PureScript
   syntax; Typed Core default-field fixtures establish only the backend
   dictionary behavior.
 - Official test suite: class/instance upstream cases have not been individually

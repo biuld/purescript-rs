@@ -25,6 +25,7 @@ fn type_var_binder(text: &str, start: u32) -> TypeVarBinder {
     TypeVarBinder {
         name: name(text, start),
         kind: None,
+        visible: false,
         span: TextRange::new(start, start + text.len() as u32),
     }
 }

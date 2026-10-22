@@ -235,10 +235,13 @@ impl Checker {
                 InferType::Variable(_) => MatchState::Unknown,
                 _ => MatchState::Apart,
             },
-            InferType::ForAll { variables, body } => match actual {
+            InferType::ForAll {
+                variables, body, ..
+            } => match actual {
                 InferType::ForAll {
                     variables: actual_variables,
                     body: actual_body,
+                    ..
                 } if variables.len() == actual_variables.len() => {
                     let mapping = actual_variables
                         .into_iter()
@@ -326,10 +329,12 @@ impl Checker {
                 InferType::ForAll {
                     variables: left_variables,
                     body: left_body,
+                    ..
                 },
                 InferType::ForAll {
                     variables: right_variables,
                     body: right_body,
+                    ..
                 },
             ) if left_variables.len() == right_variables.len() => {
                 let mapping = right_variables
@@ -380,9 +385,9 @@ fn contains_variable(ty: &InferType, variable: u32) -> bool {
         InferType::RowExtend { ty, tail, .. } => {
             contains_variable(ty, variable) || contains_variable(tail, variable)
         }
-        InferType::ForAll { variables, body } => {
-            !variables.contains(&variable) && contains_variable(body, variable)
-        }
+        InferType::ForAll {
+            variables, body, ..
+        } => !variables.contains(&variable) && contains_variable(body, variable),
         InferType::Constrained { constraints, body } => {
             constraints
                 .iter()

@@ -84,9 +84,9 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
             occurs(variable, function) || occurs(variable, argument)
         }
         InferType::RowExtend { ty, tail, .. } => occurs(variable, ty) || occurs(variable, tail),
-        InferType::ForAll { variables, body } => {
-            !variables.contains(&variable) && occurs(variable, body)
-        }
+        InferType::ForAll {
+            variables, body, ..
+        } => !variables.contains(&variable) && occurs(variable, body),
         InferType::Constrained { constraints, body } => {
             constraints
                 .iter()
@@ -109,10 +109,12 @@ mod classes;
 mod finalize;
 mod generalize;
 mod group;
+mod holes;
 mod infer;
 mod kind;
 mod order;
 mod prim;
+mod quantifier;
 mod rank_n;
 mod result;
 mod rows;
@@ -121,8 +123,10 @@ mod state;
 mod type_model;
 mod unify;
 mod vocabulary;
+mod wildcards;
 
 use result::*;
+use rows::align_row_fields;
 use state::*;
 use type_model::*;
 use vocabulary::*;

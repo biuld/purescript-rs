@@ -59,6 +59,13 @@ pub(super) enum InferredExprKind {
         expression: Box<InferredExpr>,
         field: String,
     },
+    /// A class method whose dictionary is not wanted yet. Visible type
+    /// application selects the class-parameter prefix first; the class
+    /// constraint becomes a [`Self::Method`] when that prefix is instantiated.
+    PendingMethod {
+        method: String,
+        class_id: hir::TypeId,
+    },
     /// A class method selected from the dictionary solved for `wanted`.
     Method {
         method: String,
@@ -105,6 +112,9 @@ pub(super) enum InferredExprKind {
         scrutinee: Box<InferredExpr>,
         branches: Vec<InferredCaseBranch>,
     },
+    /// A typed hole. It has no runtime value; the module is rejected once the
+    /// hole's type has been solved.
+    Hole,
 }
 
 /// One `case` branch: the pattern it matched and the value it produced.

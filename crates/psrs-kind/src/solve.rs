@@ -62,6 +62,17 @@ impl KindState {
         Kind::Variable(variable)
     }
 
+    /// The next variable id this state will allocate.
+    pub(crate) fn peek_next(&self) -> u32 {
+        self.next_variable
+    }
+
+    /// Reserves every id below `next`. A scratch elaboration allocates from a
+    /// clone and then keeps those ids from being reused by the live state.
+    pub(crate) fn set_next(&mut self, next: u32) {
+        self.next_variable = next;
+    }
+
     /// Marks `variable` rigid, so no use can bind it. A `forall` binder is rigid
     /// for as long as the binder is in scope, which is what makes a skolem escape
     /// an error rather than a silent binding.
@@ -90,6 +101,15 @@ impl KindState {
                 Box::new(self.resolve(*parameter)),
                 Box::new(self.resolve(*result)),
             ),
+            Kind::RowExtend { label, field, tail } => Kind::RowExtend {
+                label,
+                field: Box::new(self.resolve(*field)),
+                tail: Box::new(self.resolve(*tail)),
+            },
+            Kind::ForAll { variable, body } => Kind::ForAll {
+                variable,
+                body: Box::new(self.resolve(*body)),
+            },
             atomic => atomic,
         }
     }
@@ -127,6 +147,7 @@ pub fn unify_kind(
         }
         (Kind::Builtin(a), Kind::Builtin(b)) if a == b => Ok(()),
         (Kind::Named(a), Kind::Named(b)) if a == b => Ok(()),
+        (Kind::TypeVariable(left), Kind::TypeVariable(right)) if left == right => Ok(()),
         (Kind::App(f1, a1), Kind::App(f2, a2)) => {
             unify_kind(state, *f1, *f2, span)?;
             unify_kind(state, *a1, *a2, span)
@@ -134,6 +155,38 @@ pub fn unify_kind(
         (Kind::Function(p1, r1), Kind::Function(p2, r2)) => {
             unify_kind(state, *p1, *p2, span)?;
             unify_kind(state, *r1, *r2, span)
+        }
+        (
+            Kind::ForAll {
+                variable: left_variable,
+                body: left_body,
+            },
+            Kind::ForAll {
+                variable: right_variable,
+                body: right_body,
+            },
+        ) => {
+            let right_body = substitute(
+                &right_body,
+                &HashMap::from([(right_variable, Kind::Variable(left_variable))]),
+            );
+            unify_kind(state, *left_body, right_body, span)
+        }
+        (Kind::RowEmpty, Kind::RowEmpty) => Ok(()),
+        (
+            Kind::RowExtend {
+                label: left_label,
+                field: left_field,
+                tail: left_tail,
+            },
+            Kind::RowExtend {
+                label: right_label,
+                field: right_field,
+                tail: right_tail,
+            },
+        ) if left_label == right_label => {
+            unify_kind(state, *left_field, *right_field, span)?;
+            unify_kind(state, *left_tail, *right_tail, span)
         }
         _ => Err(kinds_do_not_unify(span)),
     }
@@ -163,7 +216,12 @@ pub fn occurs(variable: u32, kind: &Kind) -> bool {
         Kind::Function(parameter, result) => {
             occurs(variable, parameter) || occurs(variable, result)
         }
-        Kind::Builtin(_) | Kind::Named(_) => false,
+        Kind::RowExtend { field, tail, .. } => occurs(variable, field) || occurs(variable, tail),
+        Kind::ForAll {
+            variable: bound,
+            body,
+        } => *bound != variable && occurs(variable, body),
+        Kind::Builtin(_) | Kind::Named(_) | Kind::RowEmpty | Kind::TypeVariable(_) => false,
     }
 }
 
@@ -184,6 +242,30 @@ pub fn substitute(kind: &Kind, mapping: &HashMap<u32, Kind>) -> Kind {
             Box::new(substitute(parameter, mapping)),
             Box::new(substitute(result, mapping)),
         ),
+        Kind::RowExtend { label, field, tail } => Kind::RowExtend {
+            label: label.clone(),
+            field: Box::new(substitute(field, mapping)),
+            tail: Box::new(substitute(tail, mapping)),
+        },
+        Kind::ForAll { variable, body } => {
+            if mapping.contains_key(variable) {
+                // The binder is not free. A mapping that names it was built
+                // for a different variable that happens to share the id, so
+                // the quantifier stays and only the free variables of the
+                // body are replaced.
+                let mut inner = mapping.clone();
+                inner.remove(variable);
+                Kind::ForAll {
+                    variable: *variable,
+                    body: Box::new(substitute(body, &inner)),
+                }
+            } else {
+                Kind::ForAll {
+                    variable: *variable,
+                    body: Box::new(substitute(body, mapping)),
+                }
+            }
+        }
         atomic => atomic.clone(),
     }
 }

@@ -7,8 +7,13 @@ pub(super) enum InferType {
     Application(Box<InferType>, Box<InferType>),
     /// Universally quantified type variables scoped over `body`. These are
     /// structural binders, distinct from variables quantified by a value scheme.
+    ///
+    /// `visible` is parallel to `variables`. `true` means the source wrote `@`.
+    /// A shorter vector treats the missing tail as invisible, which is what a
+    /// rank-N quantifier is.
     ForAll {
         variables: Vec<u32>,
+        visible: Vec<bool>,
         body: Box<InferType>,
     },
     /// A qualified type whose dictionary requirements are in scope only for

@@ -32,6 +32,9 @@ pub enum ResolveErrorKind {
     DuplicateInstance,
     RedefinedIdentifier,
     UnknownName,
+    /// Expression `_` left after section and object-wildcard lowering.
+    /// `purs` reports this from `Sugar.Operators.removeBinaryNoParens`.
+    IncorrectAnonymousArgument,
     UnknownTypeName,
     DuplicateModule,
     CannotDefinePrimModules,
@@ -61,6 +64,7 @@ impl ResolveErrorKind {
             Self::DuplicateDeclaration => "DuplicateValueDeclaration",
             Self::DuplicateLocalBinding => "OverlappingNamesInLet",
             Self::UnknownName | Self::UnknownTypeName => "UnknownName",
+            Self::IncorrectAnonymousArgument => "IncorrectAnonymousArgument",
             Self::DuplicateModule => "DuplicateModule",
             Self::DuplicateTypeClass => "DuplicateTypeClass",
             Self::CannotDefinePrimModules => "CannotDefinePrimModules",
@@ -146,6 +150,9 @@ impl ResolveError {
                 format!("the name `{name}` is declared in more than one type declaration")
             }
             ResolveErrorKind::UnknownName => format!("unknown name `{name}`"),
+            ResolveErrorKind::IncorrectAnonymousArgument => {
+                "an anonymous function argument appears in an invalid context".to_string()
+            }
             ResolveErrorKind::UnknownTypeName => format!("unknown type name `{name}`"),
             ResolveErrorKind::InvalidHir => format!("invalid resolved HIR: {name}"),
         };

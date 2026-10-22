@@ -114,7 +114,7 @@ Evidence in `tests::native_representation`:
 - `run_rejects_an_escaping_st_reference` and `run_rejects_an_escaping_st_action`
   are `EscapedSkolem`.
 - `a_reference_cannot_be_read_in_another_region` is `TypesDoNotUnify`.
-- `nominal_stref_region_rejects_coerce` is `NoInstanceFound`.
+- `nominal_stref_region_rejects_coerce` is `TypesDoNotUnify`. The region parameter is nominal, so unequal regions are a determined mismatch (remeasured 2026-10-22).
 - `host_clock_is_not_an_st_request` is `TypesDoNotUnify`.
 - `the_st_constructor_is_not_exported` is `UnknownName`.
 

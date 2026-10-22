@@ -28,31 +28,6 @@ impl<'a> Parser<'a> {
                 span,
             });
         }
-        if matches!(
-            self.current().kind,
-            LayoutTokenKind::Raw(RawTokenKind::LowerIdent(ref name)) if name == "_"
-        ) && matches!(
-            self.peek(1).kind,
-            LayoutTokenKind::Raw(
-                RawTokenKind::Operator(_) | RawTokenKind::Colon | RawTokenKind::DotDot
-            )
-        ) {
-            self.bump();
-            let operator = self
-                .bump_expression_operator()
-                .expect("operator was checked after an anonymous argument");
-            let operand = self.parse_expression(0)?;
-            let close_paren_span = self.consume_raw(RawTokenKind::RParen)?.span;
-            let span = TextRange::new(open_paren_span.start, close_paren_span.end);
-            return Ok(Expr {
-                kind: ExprKind::OperatorSection {
-                    operator,
-                    operand: Box::new(operand),
-                    side: OperatorSectionSide::Right,
-                },
-                span,
-            });
-        }
         if self.is_expression_operator()
             && !matches!(
                 &self.current().kind,
@@ -85,7 +60,9 @@ impl<'a> Parser<'a> {
 
         // A leading `-` is unary negation here, as in the source grammar. It
         // must not be consumed as a section operator: `(-5)` and `(-x)` are
-        // parenthesized negative expressions. Sections use an explicit `_`.
+        // parenthesized negative expressions. A section hole is an immediate
+        // operand of this parenthesized operator, so `(_ + 2 * 3)` is a
+        // section and `(_ * 4 + 1)` is not.
         let first = self.parse_expression_impl(0, true, true)?;
         if let ExprKind::Operator {
             operator,

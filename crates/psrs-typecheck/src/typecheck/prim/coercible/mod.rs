@@ -20,6 +20,7 @@ use crate::typecheck::kind::CoercionKinds;
 use crate::typecheck::*;
 
 mod givens;
+mod rows;
 
 /// `Coercible`'s entry in the rule table.
 pub(in crate::typecheck) const RULE: PrimitiveRule = PrimitiveRule {
@@ -35,33 +36,71 @@ pub(in crate::typecheck) const RULE: PrimitiveRule = PrimitiveRule {
 /// what the dispatch order is keyed on rather than a coincidence of its
 /// identity: a proof obligation is either derived from the role analysis or it
 /// is not, so there is no partial answer to record and no further obligation to
-/// emit. `Undecided` is therefore this rule's only alternative to `Solved`, and
-/// it is the honest one — an argument that is still an unsolved inference
-/// variable yields `Undecided`, not `Failed`, because a convertible pair is a
-/// claim about determined types and reporting it as impossible while a type is
-/// unknown is the conflation the four-outcome contract exists to prevent.
-/// `Undecided` sends the obligation into instance search, which is where an
-/// assumption about the unknown types would be found.
+/// emit. An argument that is still an unsolved inference variable yields
+/// `Undecided`, not `Failed`, because a convertible pair is a claim about
+/// determined types and reporting it as impossible while a type is unknown is
+/// the conflation the four-outcome contract exists to prevent. `Undecided`
+/// sends the obligation into instance search, which is where an assumption
+/// about the unknown types would be found.
 ///
-/// One answer shape aside from `Solved` is `Failed`, and only for the finding
-/// official solving reports itself: its `Entailment/Coercible.hs` unifies the
-/// kinds of a picked-up constraint's two arguments — including one its role
-/// decomposition just derived — and raises `KindsDoNotUnify` there rather than
-/// falling through to a bare `NoInstanceFound`. A pair whose kinds cannot
-/// unify is the one thing about a coercion there is nothing to search for.
+/// `Failed` is the answer official solving reports itself. Its
+/// `Entailment/Coercible.hs` unifies the kinds of a picked-up constraint and
+/// raises `KindsDoNotUnify` when they disagree. `decompose` raises
+/// `TypesDoNotUnify` for a nominal argument that is not equal, and `canonRow`
+/// raises it when closed rows do not align. A flexible unknown, a
+/// representational mismatch, and two different type constructors stay
+/// `Undecided`, so instance search can still discharge them and otherwise
+/// reports `NoInstanceFound`.
+/// The answers one coercion trial can record.
+///
+/// A kind disagreement is `KindsDoNotUnify`. A determined type disagreement is
+/// `TypesDoNotUnify`. Both stay on this trial so a declined newtype unwrap can
+/// restore the type answer without a second side channel. `infinite` is set
+/// when decomposition re-enters a wanted already on the ancestor path, which
+/// is the `PossiblyInfiniteCoercibleInstance` loop. `from_decomposition`
+/// distinguishes that loop from a direct self-wrap, whose unwrap is declined
+/// so ordinary decomposition can still succeed.
+pub(in crate::typecheck::prim::coercible) struct CoercionVerdict<'a> {
+    pub(in crate::typecheck::prim::coercible) kind: &'a mut Option<psrs_kind::KindError>,
+    pub(in crate::typecheck::prim::coercible) types: &'a mut Option<(InferType, InferType)>,
+    pub(in crate::typecheck::prim::coercible) infinite: &'a mut bool,
+    from_decomposition: bool,
+}
+
 fn solve(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
     let arguments = args.resolved(checker);
     let [source, target] = arguments.as_slice() else {
         return PrimitiveOutcome::Undecided;
     };
     let mut kind_conflict = None;
-    if !checker.proves_coercible(source, target, args.span(), &mut kind_conflict) {
-        return match kind_conflict {
-            Some(error) => PrimitiveOutcome::Failed {
+    let mut type_conflict = None;
+    let mut infinite = false;
+    if !checker.proves_coercible(
+        source,
+        target,
+        args.span(),
+        &mut kind_conflict,
+        &mut type_conflict,
+        &mut infinite,
+    ) {
+        return match (kind_conflict, infinite, type_conflict) {
+            (Some(error), _, _) => PrimitiveOutcome::Failed {
                 code: TypeCheckErrorKind::KindsDoNotUnify,
                 detail: error.message.to_owned(),
             },
-            None => PrimitiveOutcome::Undecided,
+            (None, true, _) => PrimitiveOutcome::Failed {
+                code: TypeCheckErrorKind::PossiblyInfiniteCoercibleInstance,
+                detail: "possibly infinite Coercible instance".to_owned(),
+            },
+            (None, false, Some((left, right))) => {
+                let left = checker.display_type(&left);
+                let right = checker.display_type(&right);
+                PrimitiveOutcome::Failed {
+                    code: TypeCheckErrorKind::TypeMismatch,
+                    detail: format!("type mismatch: expected {left}, found {right}"),
+                }
+            }
+            (None, false, None) => PrimitiveOutcome::Undecided,
         };
     }
     PrimitiveOutcome::Solved {
@@ -80,18 +119,26 @@ impl Checker {
         target: &InferType,
         span: TextRange,
         kind_conflict: &mut Option<psrs_kind::KindError>,
+        type_conflict: &mut Option<(InferType, InferType)>,
+        infinite: &mut bool,
     ) -> bool {
-        self.proves_coercible_inner(source, target, span, 0, &mut HashSet::new(), kind_conflict)
+        let mut verdict = CoercionVerdict {
+            kind: kind_conflict,
+            types: type_conflict,
+            infinite,
+            from_decomposition: false,
+        };
+        self.proves_coercible_inner(source, target, span, 0, &mut HashSet::new(), &mut verdict)
     }
 
-    fn proves_coercible_inner(
+    pub(in crate::typecheck::prim::coercible) fn proves_coercible_inner(
         &mut self,
         source: &InferType,
         target: &InferType,
         span: TextRange,
         depth: usize,
         path: &mut HashSet<(String, String)>,
-        kind_conflict: &mut Option<psrs_kind::KindError>,
+        verdict: &mut CoercionVerdict<'_>,
     ) -> bool {
         if depth > 64 {
             return false;
@@ -131,7 +178,7 @@ impl Checker {
                 span,
                 depth + 1,
                 &mut nested,
-                kind_conflict,
+                verdict,
             );
         }
         // The kinds the pair would have to share. Official solving checks a
@@ -150,8 +197,8 @@ impl Checker {
         match self.coercion_kinds_trial(&source, &target, span) {
             CoercionKinds::Compatible => {}
             CoercionKinds::Mismatch(error) => {
-                if kind_conflict.is_none() {
-                    *kind_conflict = Some(error);
+                if verdict.kind.is_none() {
+                    *verdict.kind = Some(error);
                 }
                 return false;
             }
@@ -160,49 +207,30 @@ impl Checker {
         if self.given_coercible(&source, &target) {
             return true;
         }
-        match (&source, &target) {
-            (InferType::RowEmpty, InferType::RowEmpty) => return true,
-            (
-                InferType::RowExtend {
-                    label: source_label,
-                    ty: source_field,
-                    tail: source_tail,
-                },
-                InferType::RowExtend {
-                    label: target_label,
-                    ty: target_field,
-                    tail: target_tail,
-                },
-            ) if source_label == target_label => {
-                let mut field_path = path.clone();
-                let mut tail_path = path.clone();
-                return self.proves_coercible_inner(
-                    source_field,
-                    target_field,
-                    span,
-                    depth + 1,
-                    &mut field_path,
-                    kind_conflict,
-                ) && self.proves_coercible_inner(
-                    source_tail,
-                    target_tail,
-                    span,
-                    depth + 1,
-                    &mut tail_path,
-                    kind_conflict,
-                );
-            }
-            (InferType::RowExtend { .. }, _)
-            | (_, InferType::RowExtend { .. })
-            | (InferType::RowEmpty, _)
-            | (_, InferType::RowEmpty) => return false,
-            _ => {}
+        if matches!(
+            (&source, &target),
+            (InferType::RowEmpty | InferType::RowExtend { .. }, _)
+                | (_, InferType::RowEmpty | InferType::RowExtend { .. })
+        ) {
+            return self.prove_concrete_rows(&source, &target, span, depth, path, verdict);
         }
         let key = (format!("{source:?}"), format!("{target:?}"));
         if !path.insert(key.clone()) {
+            // Re-entering an ancestor from role decomposition is the solver
+            // loop `solveWanteds` bounds with `PossiblyInfiniteCoercibleInstance`.
+            // The same pair reached by unwrapping a direct self-wrap is not:
+            // that unwrap is declined and decomposition still runs.
+            if verdict.from_decomposition {
+                *verdict.infinite = true;
+            }
             return false;
         }
 
+        // Unwrapping is speculative. Official commits to it only when the
+        // constructor unwraps; a failed attempt must not leak a nominal
+        // disagreement from the underlying type into a later decomposition.
+        // A loop found under the unwrap is the answer, so it is not retried.
+        let saved_conflict = verdict.types.clone();
         if let Some(underlying) = self.unwrap_visible_newtype(&source) {
             let mut nested = path.clone();
             if self.proves_coercible_inner(
@@ -211,11 +239,17 @@ impl Checker {
                 span,
                 depth + 1,
                 &mut nested,
-                kind_conflict,
+                verdict,
             ) {
                 return true;
             }
+            let looping = *verdict.infinite;
+            *verdict.types = saved_conflict;
+            if looping {
+                return false;
+            }
         }
+        let saved_conflict = verdict.types.clone();
         if let Some(underlying) = self.unwrap_visible_newtype(&target) {
             let mut nested = path.clone();
             if self.proves_coercible_inner(
@@ -224,9 +258,14 @@ impl Checker {
                 span,
                 depth + 1,
                 &mut nested,
-                kind_conflict,
+                verdict,
             ) {
                 return true;
+            }
+            let looping = *verdict.infinite;
+            *verdict.types = saved_conflict;
+            if looping {
+                return false;
             }
         }
 
@@ -248,11 +287,32 @@ impl Checker {
         if roles.len() != source_arguments.len() {
             return false;
         }
+        // Official `decompose` emits every role constraint, and a nominal
+        // mismatch aborts that set. An irreducible sibling does not hide a
+        // later argument that walks back to this wanted.
+        let arrived_by_decomposition = verdict.from_decomposition;
+        verdict.from_decomposition = true;
+        let mut irreducible = false;
         for ((source_argument, target_argument), role) in
             source_arguments.iter().zip(&target_arguments).zip(roles)
         {
             let coercible = match role {
-                hir::Role::Nominal => self.infer_types_equal(source_argument, target_argument),
+                hir::Role::Nominal => {
+                    if self.infer_types_equal(source_argument, target_argument) {
+                        true
+                    } else {
+                        // `decompose` compares nominal arguments now and raises
+                        // `TypesDoNotUnify` when they differ. A flexible unknown
+                        // is not that disagreement: instantiation may still
+                        // make the two sides equal.
+                        self.note_determined_disagreement(
+                            source_argument,
+                            target_argument,
+                            verdict.types,
+                        );
+                        false
+                    }
+                }
                 hir::Role::Representational => {
                     let mut nested = path.clone();
                     self.proves_coercible_inner(
@@ -261,16 +321,22 @@ impl Checker {
                         span,
                         depth + 1,
                         &mut nested,
-                        kind_conflict,
+                        verdict,
                     )
                 }
                 hir::Role::Phantom => true,
             };
-            if !coercible {
+            if verdict.kind.is_some() || verdict.types.is_some() {
+                *verdict.infinite = false;
+                verdict.from_decomposition = arrived_by_decomposition;
                 return false;
             }
+            if !coercible && !*verdict.infinite {
+                irreducible = true;
+            }
         }
-        true
+        verdict.from_decomposition = arrived_by_decomposition;
+        !irreducible && !*verdict.infinite
     }
 
     fn roles_for_constructor(&self, constructor: TypeConstructor, arity: usize) -> Vec<hir::Role> {
@@ -325,6 +391,60 @@ impl Checker {
             .zip(arguments)
             .collect::<HashMap<_, _>>();
         Some(self.elaborate_type(&field, &mut variables))
+    }
+
+    /// Records `TypesDoNotUnify` for two determined types. A flexible unknown
+    /// stays undecided so a later instantiation can still make them equal.
+    pub(in crate::typecheck::prim::coercible) fn note_determined_disagreement(
+        &self,
+        left: &InferType,
+        right: &InferType,
+        type_conflict: &mut Option<(InferType, InferType)>,
+    ) {
+        if type_conflict.is_some() || self.mentions_flexible(left) || self.mentions_flexible(right)
+        {
+            return;
+        }
+        *type_conflict = Some((left.clone(), right.clone()));
+    }
+
+    fn mentions_flexible(&self, ty: &InferType) -> bool {
+        self.mentions_flexible_outside(ty, &[])
+    }
+
+    fn mentions_flexible_outside(&self, ty: &InferType, bound: &[u32]) -> bool {
+        match self.resolve_type(ty.clone()) {
+            InferType::Variable(variable) => {
+                !bound.contains(&variable) && !self.state.rigid.contains(&variable)
+            }
+            InferType::Application(function, argument) => {
+                self.mentions_flexible_outside(&function, bound)
+                    || self.mentions_flexible_outside(&argument, bound)
+            }
+            InferType::ForAll {
+                variables, body, ..
+            } => {
+                let mut nested = bound.to_vec();
+                nested.extend(variables);
+                self.mentions_flexible_outside(&body, &nested)
+            }
+            InferType::Constrained { constraints, body } => {
+                constraints.iter().any(|constraint| {
+                    constraint
+                        .arguments
+                        .iter()
+                        .any(|argument| self.mentions_flexible_outside(argument, bound))
+                }) || self.mentions_flexible_outside(&body, bound)
+            }
+            InferType::RowExtend { ty, tail, .. } => {
+                self.mentions_flexible_outside(&ty, bound)
+                    || self.mentions_flexible_outside(&tail, bound)
+            }
+            InferType::Constructor(_)
+            | InferType::RowEmpty
+            | InferType::TypeLevelString(_)
+            | InferType::TypeLevelInt(_) => false,
+        }
     }
 }
 

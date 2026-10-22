@@ -4,6 +4,7 @@ use psrs_cst::{Declaration, ExprKind, PatternKind, TypeExprKind, ValueRhs};
 use psrs_span::SourceFile;
 
 mod qualified_patterns;
+mod sections;
 
 #[test]
 fn parses_qualified_symbolic_operators_with_symbolic_dots_and_sections() {

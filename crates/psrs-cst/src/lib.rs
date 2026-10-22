@@ -40,6 +40,9 @@ impl CstName {
 pub struct TypeVarBinder {
     pub name: CstName,
     pub kind: Option<TypeExpr>,
+    /// `true` when the source wrote `@name`. A plain binder is invisible and is
+    /// instantiated before a visible type application can select it.
+    pub visible: bool,
     pub span: TextRange,
 }
 

@@ -19,8 +19,10 @@ impl Checker {
         expected: Option<InferType>,
     ) -> Option<InferredExpr> {
         let function = self.infer_expr(function)?;
-        let scheme = Scheme::monomorphic(function.ty.clone());
-        let function = self.instantiate_expression_use(function, &scheme, span);
+        // Value application instantiates every leading quantifier, visible or
+        // not, the way `checkFunctionApplication` does. A visible application
+        // is the only form that stops at a visible binder.
+        let function = self.instantiate_all_expr(function, span);
         let function_type = self.resolve_type(function.ty.clone());
         let (parameter, result) = if let InferType::Application(inner, result) =
             function_type.clone()

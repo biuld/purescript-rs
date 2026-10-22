@@ -138,6 +138,48 @@ impl Checker {
         psrs_kind::substitute(&scheme.kind, &mapping)
     }
 
+    /// Instantiates a leading quantified kind with fresh kind variables.
+    ///
+    /// This is the type-checker side of the kind pass's
+    /// `instantiate_quantified_kind`: a leading `forall` is a parameter of the
+    /// kind and is replaced, not skolemized. A `forall` under an arrow stays.
+    /// Visible type application uses it so `identityCheck @Id` checks `Id`'s
+    /// instantiated kind against `forall a. a -> a`.
+    pub(in crate::typecheck) fn instantiate_leading_kind_quantifiers(
+        &mut self,
+        mut kind: Kind,
+    ) -> Kind {
+        loop {
+            kind = self.state.kinds.resolve(kind);
+            let Kind::ForAll { variable, body } = kind else {
+                return kind;
+            };
+            let fresh = self.fresh_kind();
+            kind = psrs_kind::substitute(&body, &HashMap::from([(variable, fresh)]));
+        }
+    }
+
+    /// Solves the kinds an elaborated signature forces onto its binders.
+    ///
+    /// Elaboration records a fresh kind for each `forall` variable. An
+    /// application in the body, such as `TProxy a` next to `data TProxy (t ::
+    /// Type)`, binds that kind. Instantiation reads the binding back through
+    /// the kind substitution, so a later use cannot give the variable a
+    /// different kind.
+    pub(in crate::typecheck) fn note_elaborated_kinds(
+        &mut self,
+        constraints: &[ClassConstraint],
+        body: &InferType,
+        span: TextRange,
+    ) {
+        for constraint in constraints {
+            for argument in &constraint.arguments {
+                let _ = self.kind_of_type(argument, constraint.span);
+            }
+        }
+        let _ = self.kind_of_type(body, span);
+    }
+
     /// The kind of a resolved inference type, read through the one kind
     /// substitution.
     ///

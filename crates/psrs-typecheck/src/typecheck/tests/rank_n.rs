@@ -25,6 +25,7 @@ fn forall(name: &str, body: HirType, span: TextRange) -> HirType {
                 name: name.into(),
                 name_span: TextRange::new(span.start, span.start + name.len() as u32),
                 kind: None,
+                visible: false,
             }],
             body: Box::new(body),
         },
