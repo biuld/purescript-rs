@@ -33,6 +33,13 @@ pub const COMPILER_INTERFACES: &[CompilerInterface] = &[
         classes: &[],
     },
     CompilerInterface {
+        module: "Data.Reflectable",
+        implementation: InterfaceImplementation::Source,
+        values: &[],
+        types: &[],
+        classes: &[("Reflectable", CompilerClass::Reflectable)],
+    },
+    CompilerInterface {
         module: "Data.Symbol",
         implementation: InterfaceImplementation::Source,
         values: &[],

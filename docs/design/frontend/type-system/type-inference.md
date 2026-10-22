@@ -44,8 +44,20 @@ until checking. Its fields are independent pattern scrutinees: a local
 structural `forall` survives variable patterns, and each branch instantiates
 its own bound value at use. Patterns requiring a monotype instantiate only
 that field. The checked product becomes a closed record in THIR. Ordinary
-source record construction continues to instantiate field expressions once.
+source record construction and updates instantiate fields whose source is a
+name, constructor, or visible type application of one. An explicitly annotated
+polymorphic field retains its checked boundary. This is official
+`inferWithinRecord`/`propertyShouldInstantiate`; the rule does not apply to the
+independent scrutinees of a `MatchProduct`.
 Guard fallthrough captures the saved product to preserve the same rule.
+An unannotated array instantiates each element before unifying its element
+type. Arrays checked against an explicit element type retain the bidirectional
+checking path, including explicitly quantified elements.
+
+A local signature's written `forall` binders scope over its annotated body,
+including visible type arguments there. They leave scope before the next
+binding and the enclosing `let` body are checked. Kind-reference checking and
+term checking must observe that same boundary.
 
 Coercion primitives checked against an expected arrow take its parameter and
 result as their exact source and target boundary types. Function variance must

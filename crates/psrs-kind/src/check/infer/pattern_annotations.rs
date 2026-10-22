@@ -148,7 +148,10 @@ impl Checker<'_> {
         match &expression.kind {
             ExprKind::Typed { expression, ty } => {
                 self.check_ascription_annotation(ty, bound);
+                let previous_len = bound.len();
+                self.collect_written_binders(ty, bound);
                 self.check_expression_annotations(expression, bound);
+                bound.truncate(previous_len);
             }
             ExprKind::TypeApplication { expression, ty } => {
                 // The argument's kind is the quantifier it instantiates.

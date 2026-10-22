@@ -28,6 +28,26 @@ fn accepts(source_name: &str, source: &str) {
     }
 }
 
+#[test]
+fn official_visible_application_programs_typecheck_with_the_locked_package() {
+    for (name, source) in [
+        (
+            "VisibleTypeApplications.purs",
+            include_str!("../../../tests/upstream/passing/VisibleTypeApplications.purs"),
+        ),
+        (
+            "VTAsClassHeads.purs",
+            include_str!("../../../tests/upstream/passing/VTAsClassHeads.purs"),
+        ),
+        (
+            "4535.purs",
+            include_str!("../../../tests/upstream/passing/4535.purs"),
+        ),
+    ] {
+        accepts(name, source);
+    }
+}
+
 /// A visible application supplies the argument inference would otherwise leave
 /// open, and it is erased: the value is the operand.
 #[test]

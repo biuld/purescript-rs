@@ -50,11 +50,11 @@ what remains in each layer.
 | Gate | Measured | Scope |
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
-| L2 resolution | 76/76 failing, 403/413 passing | official `errorCode`s; `IncorrectAnonymousArgument` 4/4; 6 passing files stop at P3 and 4 at P0; no harness blockers; measured 2026-10-22 |
-| L3 kinds | 50/50 failing | official kind `errorCode`s; `QuantificationCheckFailureInKind` 1/1; `QuantificationCheckFailureInType` 1/1; `KindsDoNotUnify` 24/24; measured 2026-10-22 |
-| L4 types | 65/65 failing | official `errorCode`s; `TypesDoNotUnify` 41/41; `HoleInferredType` 10/10; `IncorrectConstructorArity` 3/3; `PropertyIsMissing` 2/2; `AdditionalProperty` 1/1; measured 2026-10-22 |
-| L5 classes | 101/101 failing | official `errorCode`s; `NoInstanceFound` 53/53; `PossiblyInfiniteCoercibleInstance` 1/1; `CannotDeriveNewtypeForData` 1/1; measured 2026-10-22 |
-| L6/M7 runtime | 287/340 programs | all exit 0; 53 do not agree; 74 support sources remain inputs, 25 FFI groups excluded. Remeasured 2026-10-21 serially against the official-exception lock, with unchanged agreeing/failing sets. All 365 roots are accounted for; BigFunction remains without a compiler verdict after allocation failure under an 8 GiB compiler-only limit (the earlier run was kernel-OOM killed at 38.7 GB RSS). See [stage 3 acceptance](docs/implementation/backend/effect-exception.md). |
+| L2 resolution | 76/76 failing, 403/413 passing | official `errorCode`s; `IncorrectAnonymousArgument` 4/4; 6 passing files stop at P3 and 4 at P0; no harness blockers; reconfirmed 2026-10-23 |
+| L3 kinds | 50/50 failing | official kind `errorCode`s; `QuantificationCheckFailureInKind` 1/1; `QuantificationCheckFailureInType` 1/1; `KindsDoNotUnify` 24/24; reconfirmed 2026-10-23 |
+| L4 types | 65/65 failing | official `errorCode`s; `TypesDoNotUnify` 41/41; `HoleInferredType` 10/10; `IncorrectConstructorArity` 3/3; `PropertyIsMissing` 2/2; `AdditionalProperty` 1/1; reconfirmed 2026-10-23 |
+| L5 classes | 101/101 failing | official `errorCode`s; `NoInstanceFound` 53/53; `PossiblyInfiniteCoercibleInstance` 1/1; `CannotDeriveNewtypeForData` 1/1; reconfirmed 2026-10-23 |
+| L6/M7 runtime | 297/340 programs | all exit 0; 43 do not agree; 74 support sources remain inputs, 25 FFI groups excluded. Remeasured 2026-10-23 serially with the locked library and unchanged runtime limits. Compared with 2026-10-21: 13 recovered, 3 lost; the 3 losses already reproduce on the starting HEAD. BigFunction retains an incomplete compiler verdict after allocation failure under its 8 GiB compiler-only bound. See the [Phase 4 acceptance review](docs/implementation/frontend/phase-4-acceptance.md). |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Frontend counts use source files; runtime counts use program roots with their

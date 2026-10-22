@@ -152,6 +152,15 @@ Rejected alternatives: a global ban on overlapping heads would reject valid inst
 
 ## Algorithms
 
+For a declaration's wanted list, first improve functional dependencies and
+reach a fixed point of successful searches. A solution can determine an
+argument of an earlier obligation, so source order cannot decide whether that
+earlier obligation is missing or generalizable. Search trials that do not
+succeed restore the complete solver state. Successful trials retain their
+evidence and append any residual obligations to the same worklist. Only after
+this pass stops making progress does the ordinary final search apply the
+declaration's `Retain` or `RequireSolved` policy to unresolved entries.
+
 ```text
 solve(wanted, givens, instances):
     normalize wanted; improve unknowns using class fundeps and givens

@@ -95,6 +95,7 @@ impl Checker {
                 .collect::<Vec<_>>();
         }
         self.improve_wanted(&mut wanted[start..]);
+        self.solve_pending_to_fixed_point(&mut wanted, start, unsolved);
         let mut solved = Vec::with_capacity(wanted.len());
         let mut retained = Vec::new();
         let mut index = 0;
@@ -159,6 +160,50 @@ impl Checker {
             self.check_ambiguity(result, start);
         }
         retained
+    }
+
+    /// Successful obligations can determine types needed by earlier ones.
+    /// Complete that shared worklist before reporting or generalizing a miss.
+    /// A failed search is a full speculative transaction: its substitutions,
+    /// evidence, diagnostics, and residuals cannot escape into the next trial.
+    fn solve_pending_to_fixed_point(
+        &mut self,
+        wanted: &mut Vec<WantedConstraint>,
+        start: usize,
+        policy: UnsolvedPolicy,
+    ) {
+        loop {
+            let mut progress = false;
+            let mut index = start;
+            while index < wanted.len() {
+                if wanted[index].solution.is_none() {
+                    let mut constraint = wanted[index].clone();
+                    constraint.arguments = constraint
+                        .arguments
+                        .iter()
+                        .map(|argument| self.resolve_type(argument.clone()))
+                        .collect();
+                    let found = self.speculate(|checker| {
+                        let errors_before = checker.state.errors.len();
+                        let found =
+                            checker.with_given_chain(constraint.givens.clone(), |checker| {
+                                checker.solve_constraint(&constraint, SolveDepth::new(), policy)
+                            })?;
+                        (checker.state.errors.len() == errors_before).then_some(found)
+                    });
+                    if let Some(solution) = found {
+                        wanted[index].solution = Some(solution);
+                        wanted.extend(std::mem::take(&mut self.state.wanted));
+                        progress = true;
+                    }
+                }
+                index += 1;
+            }
+            if !progress {
+                break;
+            }
+            self.improve_wanted(&mut wanted[start..]);
+        }
     }
 
     /// Whether `unsolved` keeps this constraint instead of reporting it.
