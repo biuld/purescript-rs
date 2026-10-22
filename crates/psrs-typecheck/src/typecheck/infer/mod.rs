@@ -306,6 +306,8 @@ impl Checker {
                 let body = self.infer_expr(body);
                 self.scope.locals.remove(&binder.id);
                 let body = body?;
+                let body_span = body.span;
+                let body = self.instantiate_all_expr(body, body_span);
                 let ty = arrow(binder_ty.clone(), body.ty.clone());
                 (
                     InferredExprKind::Lambda {
