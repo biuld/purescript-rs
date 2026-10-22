@@ -5,12 +5,14 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CompilerClass {
     IsSymbol,
+    Reflectable,
 }
 
 impl CompilerClass {
     pub fn method(self) -> &'static str {
         match self {
             Self::IsSymbol => "reflectSymbol",
+            Self::Reflectable => "reflectType",
         }
     }
 }

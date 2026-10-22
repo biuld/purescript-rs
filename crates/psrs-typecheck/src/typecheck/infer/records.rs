@@ -13,8 +13,11 @@ impl Checker {
             ..
         } = self.normalize_row_or_report(expected_row, span);
         let expected_fields = expected_fields.into_iter().collect::<HashMap<_, _>>();
-        self.infer_record_fields(fields, span, |checker, label, value| {
-            checker.infer_expr_with_expected(value, expected_fields.get(label).cloned())
+        self.infer_record_fields(fields, span, |checker, label, value| match expected_fields
+            .get(label)
+        {
+            Some(expected) => checker.infer_expr_with_expected(value, Some(expected.clone())),
+            None => checker.infer_record_field(value),
         })
     }
 
@@ -23,7 +26,20 @@ impl Checker {
         fields: &[(String, hir::Expr)],
         span: TextRange,
     ) -> Option<(InferredExprKind, InferType)> {
-        self.infer_record_fields(fields, span, |checker, _, value| checker.infer_expr(value))
+        self.infer_record_fields(fields, span, |checker, _, value| {
+            checker.infer_record_field(value)
+        })
+    }
+
+    /// Official `inferWithinRecord` instantiates names and their visible type
+    /// applications. An explicitly typed field keeps its polymorphic boundary.
+    fn infer_record_field(&mut self, value: &hir::Expr) -> Option<InferredExpr> {
+        let inferred = self.infer_expr(value)?;
+        Some(if field_should_instantiate(value) {
+            self.instantiate_all_expr(inferred, value.span)
+        } else {
+            inferred
+        })
     }
 
     pub(super) fn infer_record_fields(
@@ -105,7 +121,7 @@ impl Checker {
                 ));
                 continue;
             }
-            let value = self.infer_expr(value)?;
+            let value = self.infer_record_field(value)?;
             probed.push((label.clone(), self.fresh()));
             inferred.push((label.clone(), value));
         }
@@ -132,5 +148,13 @@ impl Checker {
             },
             record_type(result_fields, InferType::Variable(tail)),
         ))
+    }
+}
+
+fn field_should_instantiate(expression: &hir::Expr) -> bool {
+    match &expression.kind {
+        hir::ExprKind::Local(_) | hir::ExprKind::Global(_) => true,
+        hir::ExprKind::TypeApplication { expression, .. } => field_should_instantiate(expression),
+        _ => false,
     }
 }

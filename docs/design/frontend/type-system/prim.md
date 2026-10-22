@@ -281,9 +281,27 @@ evidence retains the ordinary typed record and method lambda; THIR verifies
 their types and lexical scope, and Core lowers the terms through the normal
 expression path. Unknown symbols decline the rule and may use lexical givens
 or ordinary instances; no default symbol is chosen. Runtime dictionaries never
-authorize a `Coercible` conversion. `Reflectable` remains outside this
-compiler-interface registry; its current library instances use ordinary class
-solving.
+authorize a `Coercible` conversion.
+
+`Data.Reflectable.Reflectable` uses the same interface registry and ordinary
+dictionary evidence. Its checked contract is `forall k. k -> Type -> Constraint`,
+the dependency from its first parameter to its second, and the method
+`reflectType :: Proxy v -> t`. A known Symbol, Int, `Prim.Boolean.True`/`False`,
+or `Prim.Ordering.LT`/`EQ`/`GT` decides both the returned value and its term type.
+Ordering values use the existing validated `Data.Ordering` constructor registry;
+no new representation or runtime operation is introduced. Unknown inputs remain
+ordinary obligations, including obligations discharged by scoped givens.
+The common primitive verifier rejects a requested result type that differs
+from the rule's decided type. A reflected Int must fit the target's signed
+32-bit Int representation; an overflowing literal reports `IntOutOfRange`.
+
+Wanted solving reaches a fixed point of successful searches before reporting
+or generalizing the remaining obligations. This lets a later primitive
+dictionary determine an earlier class argument, such as the `Show` argument in
+`show { asdf: reflect @"asdf" }`. A failed trial restores the complete solver
+and lexical state; residual constraints are appended only for committed
+solutions. The final search retains the existing diagnostic and generalization
+policy. No primitive owns a separate improvement or retry mechanism.
 
 Implementation coverage belongs in [D-04](../../D-04-suite-roadmap.md). A rule for a member whose shared foundations are incomplete is not a local shortcut: the argument types it needs must participate in ordinary instantiation, substitution, unification, generalization, and scope checking first, and a rule that cannot satisfy that reports the limitation rather than approximating the member with a private path.
 

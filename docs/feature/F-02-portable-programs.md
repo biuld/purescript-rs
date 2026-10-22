@@ -150,6 +150,11 @@ referenced declarations from other modules. An annotation may restrict an
 inferred role but cannot weaken it; a foreign type's declared roles are an
 explicit interface promise.
 
+`Data.Reflectable.reflectType` converts a known type-level Symbol, Int,
+Boolean, or Ordering into its corresponding ordinary value. The input
+determines the result type; an incompatible requested result is rejected.
+A reflected integer must fit the signed 32-bit `Int` range.
+
 The `coerce` operation requires a compiler-proven `Coercible` relation. It can
 convert visible newtypes and lift permitted conversions through arrays,
 functions, and data parameters according to their roles. Unwrapping a newtype

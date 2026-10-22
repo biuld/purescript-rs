@@ -358,6 +358,12 @@ fn tail_is_fixed(tail: RowTail, rigid: &HashSet<u32>) -> bool {
     }
 }
 
+type AlignedRowFields = (
+    Vec<(InferType, InferType)>,
+    Vec<(String, InferType)>,
+    Vec<(String, InferType)>,
+);
+
 /// Aligns two rows the way `alignRowsWith` does: a stable sort by label, then
 /// one pair per shared occurrence.
 ///
@@ -369,11 +375,7 @@ fn tail_is_fixed(tail: RowTail, rigid: &HashSet<u32>) -> bool {
 pub(super) fn align_row_fields(
     mut left: Vec<(String, InferType)>,
     mut right: Vec<(String, InferType)>,
-) -> (
-    Vec<(InferType, InferType)>,
-    Vec<(String, InferType)>,
-    Vec<(String, InferType)>,
-) {
+) -> AlignedRowFields {
     left.sort_by(|left, right| left.0.cmp(&right.0));
     right.sort_by(|left, right| left.0.cmp(&right.0));
     let mut common = Vec::new();

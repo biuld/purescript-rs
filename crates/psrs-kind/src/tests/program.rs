@@ -153,6 +153,24 @@ fn written_scoped_type_variables_bind_in_local_annotations() {
     );
 }
 
+#[test]
+fn a_local_signature_scopes_its_visible_binder_only_over_its_body() {
+    check_ok(
+        "module Main where\n\
+         data Proxy a = Proxy\n\
+         foo = let\n  bar :: forall @a. Proxy a\n  bar = Proxy @a\nin bar @Int\n",
+    );
+    let errors = check(
+        "module Main where\n\
+         data Proxy a = Proxy\n\
+         foo = let\n  bar :: forall @a. Proxy a\n  bar = Proxy @a\n  other = Proxy @a\nin bar @Int\n",
+    );
+    assert!(
+        codes(&errors).contains(&"UndefinedTypeVariable"),
+        "{errors:?}"
+    );
+}
+
 /// `let` and guard bindings are subject to the same rule.
 #[test]
 fn checks_undefined_variables_in_let_and_guard_bindings() {

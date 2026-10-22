@@ -234,6 +234,8 @@ impl Checker {
                     let mut element_ty: Option<InferType> = None;
                     for element in elements {
                         let element = self.infer_expr(element)?;
+                        let element_span = element.span;
+                        let element = self.instantiate_all_expr(element, element_span);
                         if let Some(expected) = &element_ty {
                             self.unify(expected.clone(), element.ty.clone(), element.span);
                         } else {
