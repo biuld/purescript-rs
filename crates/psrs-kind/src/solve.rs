@@ -85,31 +85,52 @@ impl KindState {
         self.rigid.contains(&variable)
     }
 
-    /// Applies the substitution as far as it reaches. This is how a recorded
-    /// kind is read back, so the answer accounts for every binding made since.
+    /// Resolves a variable chain without descending beneath binders. Scoped
+    /// conversions supply the lexical identities that must remain untouched.
+    pub(crate) fn resolve_head_with(&self, mut kind: Kind, bound: impl Fn(u32) -> bool) -> Kind {
+        while let Kind::Variable(variable) = kind {
+            if bound(variable) {
+                return Kind::Variable(variable);
+            }
+            match self.substitution.get(&variable) {
+                Some(value) => kind = value.clone(),
+                None => return Kind::Variable(variable),
+            }
+        }
+        kind
+    }
+
+    /// Reads solver solutions while respecting lexical forall scopes.
     pub fn resolve(&self, kind: Kind) -> Kind {
-        match kind {
-            Kind::Variable(variable) => match self.substitution.get(&variable) {
-                Some(kind) => self.resolve(kind.clone()),
-                None => Kind::Variable(variable),
-            },
+        self.resolve_scoped(kind, &mut HashSet::new())
+    }
+
+    fn resolve_scoped(&self, kind: Kind, bound: &mut HashSet<u32>) -> Kind {
+        match self.resolve_head_with(kind, |id| bound.contains(&id)) {
             Kind::App(function, argument) => Kind::App(
-                Box::new(self.resolve(*function)),
-                Box::new(self.resolve(*argument)),
+                Box::new(self.resolve_scoped(*function, bound)),
+                Box::new(self.resolve_scoped(*argument, bound)),
             ),
             Kind::Function(parameter, result) => Kind::Function(
-                Box::new(self.resolve(*parameter)),
-                Box::new(self.resolve(*result)),
+                Box::new(self.resolve_scoped(*parameter, bound)),
+                Box::new(self.resolve_scoped(*result, bound)),
             ),
             Kind::RowExtend { label, field, tail } => Kind::RowExtend {
                 label,
-                field: Box::new(self.resolve(*field)),
-                tail: Box::new(self.resolve(*tail)),
+                field: Box::new(self.resolve_scoped(*field, bound)),
+                tail: Box::new(self.resolve_scoped(*tail, bound)),
             },
-            Kind::ForAll { variable, body } => Kind::ForAll {
-                variable,
-                body: Box::new(self.resolve(*body)),
-            },
+            Kind::ForAll { variable, body } => {
+                let introduced = bound.insert(variable);
+                let body = self.resolve_scoped(*body, bound);
+                if introduced {
+                    bound.remove(&variable);
+                }
+                Kind::ForAll {
+                    variable,
+                    body: Box::new(body),
+                }
+            }
             atomic => atomic,
         }
     }

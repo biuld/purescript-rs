@@ -126,6 +126,8 @@ impl Checker {
                     };
                     let applied = self.synthesize_expression_use(base, &scheme, span);
                     (applied.kind, applied.ty)
+                } else if let Some(signature) = self.env.checked_values.get(symbol).cloned() {
+                    return self.synthesize_checked_use(*symbol, &signature, span);
                 } else if let Some(signature) = self.env.imported.get(symbol).cloned() {
                     let applied = self.synthesize_signature_use(*symbol, &signature, span);
                     (applied.kind, applied.ty)

@@ -12,6 +12,7 @@ impl Checker {
             imported_instances,
             module_names,
             checked_kinds,
+            checked_values,
         } = context;
         let type_declarations = module
             .types
@@ -77,6 +78,7 @@ impl Checker {
                     })
                     .collect(),
                 imported: imported.clone(),
+                checked_values: checked_values.clone(),
                 type_names: module
                     .types
                     .iter()

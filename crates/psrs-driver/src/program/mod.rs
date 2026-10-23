@@ -234,6 +234,8 @@ fn typecheck_resolved_program_with_warnings(
         .collect::<HashMap<_, _>>();
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
     let mut typed = (0..slots.len()).map(|_| None).collect::<Vec<_>>();
+    let mut value_interfaces = HashMap::new();
+    let mut checked_modules = HashSet::new();
     for index in order {
         let Some(module) = slots[index].take() else {
             continue;
@@ -241,7 +243,21 @@ fn typecheck_resolved_program_with_warnings(
         if failed_kind_modules.contains(&module.id) {
             continue;
         }
+        if !graph::dependencies_checked(&dependencies[index], &checked_modules) {
+            if errors.is_empty() {
+                errors.push(ProgramDiagnostic {
+                    source: DiagnosticOrigin::Source(index),
+                    diagnostic: diagnostic(
+                        "P5 typecheck",
+                        module.span,
+                        "module dependency has no successful checked interface".to_owned(),
+                    ),
+                });
+            }
+            continue;
+        }
         let imported = signatures::imported_signatures(&module, &signatures);
+        let checked_values = signatures::imported_signatures(&module, &value_interfaces);
         let imported_instances = imported_instance_declarations(
             &dependencies,
             index,
@@ -260,10 +276,13 @@ fn typecheck_resolved_program_with_warnings(
                     imported_instances: &imported_instances,
                     module_names: &module_names,
                     checked_kinds: &checked_kinds,
+                    checked_values: &checked_values,
                 },
             );
         match check {
             Ok(output) => {
+                value_interfaces.extend(output.values);
+                checked_modules.insert(index);
                 typed[index] = Some(output.module);
                 warnings.extend(output.warnings.into_iter().map(|warning| ProgramWarning {
                     source: DiagnosticOrigin::Source(index),

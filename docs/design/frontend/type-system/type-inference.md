@@ -272,6 +272,31 @@ For `class C a where method :: a -> a`, the declaration `f x = method x` has one
 
 ## Boundaries and interfaces
 
+A successfully checked module publishes immutable value interfaces before
+constraint erasure. Each interface closes its type variables over explicit
+lexical binders, retaining their visibility and checked kinds, structural
+quantifiers, class constraints in dictionary argument order, nominal declaration
+identities, type-level literals and declaration ranges. Kind parameters are
+closed jointly so kinds shared by different binders remain shared. No solver
+substitution, inference unknown or mutable cell crosses the module boundary.
+Only the producer constructs these interfaces, and only after its required
+kind, type, evidence and checked-IR validations succeed.
+
+The program driver threads successful interfaces in dependency order and
+selects imported values by the resolver's export/import identities. Inferred,
+written, qualified, transitive and re-exported values use the same consumer
+instantiation contract. A failed producer publishes no checked interface;
+lenient compilation retains its diagnostic and skips dependent checking rather
+than certifying unavailable metadata. Handwritten signatures can be assumptions
+inside a checked dependency group, but are not substitutes for a failed
+producer's result. Cycle handling must state which assumptions are trusted.
+
+The interface is a P5 semantic artifact, separate from HIR and from
+constraint-erased THIR. Reconstructing an inferred scheme from dictionary arrows,
+adding types to CST, or re-running a dependency's inference in each importer
+would violate this boundary.
+
+
 P5 consumes normalized HIR and the program-wide checked kind environment. It emits verified THIR for [Core lowering](../semantics/core-lowering.md). No inference substitutions, class search state, or runtime layouts cross the boundary. WIT-bound foreign declarations receive ordinary checked PureScript types; ABI validation occurs later.
 
 THIR is verified, and the verification has a stated boundary. `verify_module` checks what THIR alone can decide: every type reference indexes the module's type table, quantified variables are in scope at every use, each expression and binder is typed against its checked type, a local or global reference is a valid instance of its scheme, literals and aggregates match their type's shape, and each evidence node matches the constraint it claims to prove at the expression boundary. Three guarantees are trusted from P5 rather than re-derived, because THIR deliberately does not carry the metadata they need: kind legality of a type, which the checked kind environment established and THIR does not repeat; coherence of instance selection, which the solver established when it chose a branch; and the derivation of a `Coercible` proof from roles and newtype visibility. THIR keeps quantifier identity and variable scope precisely because it does check those, and it retains the checked `Coercible` boundary types so the verifier can reject a proof attached to a different conversion. Any future guarantee that must be verified rather than trusted needs the corresponding immutable metadata added to THIR; the verifier does not claim a check it cannot perform.

@@ -183,6 +183,15 @@ In a program where `ModuleA` declares `data Box :: Type -> Type` and `ModuleB` u
 
 ## Boundaries and interfaces
 
+Closing kinds for a checked value interface preserves lexical `forall` scopes.
+Solver substitutions resolve only free variables, including variable chains;
+a lexical binder shadows an equal numeric solver identity. Kind resolution and
+interface closing share the kind owner's scoped variable-chain operation, so a
+solved template cannot erase its own binder. A joint closed set preserves shared
+kind parameters across type binders, while each consumer opens fresh parameters
+and fresh rigid explicit binders.
+
+
 P5 consumes normalized resolved HIR and emits a checked kind environment for term inference. The environment is the only source of kind and role metadata for a declaration that another module uses, and it is not rebuilt per module. THIR retains checked type structure and kind information needed to verify polymorphic uses, but no mutable kind solver state. Core lowering may erase kind abstractions after type checking.
 
 ## Open questions and future work

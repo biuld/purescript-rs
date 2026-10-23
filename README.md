@@ -54,7 +54,7 @@ what remains in each layer.
 | L3 kinds | 50/50 failing | official kind `errorCode`s; `QuantificationCheckFailureInKind` 1/1; `QuantificationCheckFailureInType` 1/1; `KindsDoNotUnify` 24/24; reconfirmed 2026-10-23 |
 | L4 types | 65/65 failing | official `errorCode`s; `TypesDoNotUnify` 41/41; `HoleInferredType` 10/10; `IncorrectConstructorArity` 3/3; `PropertyIsMissing` 2/2; `AdditionalProperty` 1/1; reconfirmed 2026-10-23 |
 | L5 classes | 101/101 failing | official `errorCode`s; `NoInstanceFound` 53/53; `PossiblyInfiniteCoercibleInstance` 1/1; `CannotDeriveNewtypeForData` 1/1; reconfirmed 2026-10-23 |
-| L6/M7 runtime | 302/340 programs | all exit 0; 38 do not agree; 74 support sources remain inputs, 25 FFI groups excluded. Remeasured 2026-10-23 serially with the locked library and unchanged runtime limits. `2803` and `RowPolyInstanceContext` recover from 300/340, with no lost agreement. BigFunction retains an incomplete compiler verdict after allocation failure under its 8 GiB compiler-only bound. See [inherited-alias acceptance](docs/implementation/frontend/rank-n.md#inherited-local-value-aliases-2026-10-23). |
+| L6/M7 runtime | 308/340 programs | all exit 0; 32 do not agree; 74 support sources remain inputs, 25 FFI groups excluded. Remeasured 2026-10-24 serially with the locked library and unchanged runtime limits. Six import programs recover from 302/340, with no lost agreement. BigFunction retains an incomplete compiler verdict after allocation failure under its 8 GiB compiler-only bound. See [checked-interface acceptance](docs/implementation/frontend/checked-value-interfaces.md). |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Frontend counts use source files; runtime counts use program roots with their

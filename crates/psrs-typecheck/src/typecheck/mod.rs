@@ -21,6 +21,8 @@ use psrs_thir::{self as thir, Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
 mod checked_exports;
+mod interface;
+pub use interface::CheckedValueSignature;
 mod error;
 pub use error::{TypeCheckError, TypeCheckErrorKind, TypeCheckWarning};
 
@@ -30,6 +32,8 @@ pub use error::{TypeCheckError, TypeCheckErrorKind, TypeCheckWarning};
 pub struct TypeCheckOutput {
     pub module: thir::Module,
     pub warnings: Vec<TypeCheckWarning>,
+    /// Closed public value types, published only with successful THIR verification.
+    pub values: HashMap<SymbolId, CheckedValueSignature>,
 }
 
 /// Program-wide semantic inputs needed when checking a module.
@@ -43,6 +47,9 @@ pub struct TypecheckContext<'a> {
     pub imported_instances: &'a [hir::InstanceDeclaration],
     pub module_names: &'a HashMap<hir::ModuleId, String>,
     pub checked_kinds: &'a CheckedKindEnv,
+    /// Successful producer interfaces selected by resolved import identities.
+    /// The caller owns module validation and the association with each symbol.
+    pub checked_values: &'a HashMap<SymbolId, CheckedValueSignature>,
 }
 
 mod entry;

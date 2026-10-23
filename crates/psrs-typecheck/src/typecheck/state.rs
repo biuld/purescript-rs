@@ -34,6 +34,7 @@ pub(super) struct SemanticEnv {
     /// Declared types of values imported from other modules, keyed by the
     /// exporting declaration's symbol.
     pub(super) imported: HashMap<SymbolId, hir::Type>,
+    pub(super) checked_values: HashMap<SymbolId, CheckedValueSignature>,
     pub(super) type_names: HashMap<hir::TypeId, String>,
     pub(super) type_modules: HashMap<hir::TypeId, String>,
     pub(super) type_declarations: HashMap<hir::TypeId, hir::TypeDeclaration>,
