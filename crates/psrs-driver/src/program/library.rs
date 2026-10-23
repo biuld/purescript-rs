@@ -20,6 +20,27 @@ pub fn compile_program_sources_with_prelude(
         false,
         false,
         psrs_backend::TargetCapabilities::default(),
+        false,
+    );
+    match report.artifact {
+        Some(artifact) => Ok(artifact),
+        None => Err(report.diagnostics),
+    }
+}
+
+/// Compiles in the official single-root suite's complete-support mode.
+/// All locked support modules must check successfully before consumers receive
+/// their exported semantic interfaces. Source names still require imports.
+/// Ordinary command compilation uses `compile_program_sources_with_prelude`.
+pub fn compile_program_sources_with_complete_support(
+    sources: &[(&str, &str)],
+) -> Result<Artifact, Vec<ProgramDiagnostic>> {
+    let report = compile_library(
+        sources,
+        false,
+        false,
+        psrs_backend::TargetCapabilities::default(),
+        true,
     );
     match report.artifact {
         Some(artifact) => Ok(artifact),
@@ -34,6 +55,7 @@ pub fn compile_program_sources_with_prelude_report(sources: &[(&str, &str)]) -> 
         true,
         false,
         psrs_backend::TargetCapabilities::default(),
+        false,
     )
 }
 
@@ -46,7 +68,7 @@ pub(crate) fn compile_program_sources_with_prelude_target(
     sources: &[(&str, &str)],
     target: psrs_backend::TargetCapabilities,
 ) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let report = compile_library(sources, false, false, target);
+    let report = compile_library(sources, false, false, target, false);
     match report.artifact {
         Some(artifact) => Ok(artifact),
         None => Err(report.diagnostics),
@@ -63,6 +85,7 @@ pub fn compile_program_sources_with_prelude_diagnosis(
         capture_dumps,
         true,
         psrs_backend::TargetCapabilities::default(),
+        false,
     )
 }
 
@@ -71,8 +94,14 @@ fn compile_library(
     capture_dumps: bool,
     trace: bool,
     target: psrs_backend::TargetCapabilities,
+    complete_support: bool,
 ) -> CompilationReport {
-    let (all_sources, trusted_prefix) = match prelude::prepend_for_command(sources) {
+    let selected = if complete_support {
+        prelude::prepend_complete_support(sources)
+    } else {
+        prelude::prepend_for_command(sources)
+    };
+    let (all_sources, trusted_prefix) = match selected {
         Ok(sources) => sources,
         Err(message) => return package_failure(message),
     };
@@ -87,6 +116,13 @@ fn compile_library(
         trace,
         info.command_runner.as_ref(),
         target,
+        if complete_support {
+            super::SupportEnvironment::Complete {
+                prefix: trusted_prefix,
+            }
+        } else {
+            super::SupportEnvironment::Imports
+        },
     );
     report.diagnostics = shift(report.diagnostics, trusted_prefix);
     report

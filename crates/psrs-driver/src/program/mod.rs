@@ -14,8 +14,9 @@ pub use lenient::{
 pub(crate) use library::compile_program_sources_with_prelude_target;
 pub use library::{
     check_program_kinds_lenient_with_prelude, check_program_lenient_with_prelude,
-    check_program_types_lenient_with_prelude, compile_program_sources_with_prelude,
-    compile_program_sources_with_prelude_diagnosis, compile_program_sources_with_prelude_report,
+    check_program_types_lenient_with_prelude, compile_program_sources_with_complete_support,
+    compile_program_sources_with_prelude, compile_program_sources_with_prelude_diagnosis,
+    compile_program_sources_with_prelude_report,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -27,6 +28,8 @@ mod library;
 mod lowering;
 mod reports;
 mod signatures;
+mod support;
+use support::SupportEnvironment;
 
 pub(crate) use reports::typecheck_warnings;
 pub use reports::{
@@ -135,11 +138,12 @@ pub(super) fn typecheck_program_with_warnings(
     modules: Vec<psrs_hir::Module>,
     _trusted_prefix: usize,
 ) -> Result<(Vec<psrs_thir::Module>, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
-    typecheck_resolved_program_with_warnings(modules)
+    typecheck_resolved_program_with_warnings(modules, SupportEnvironment::Imports)
 }
 
 fn typecheck_resolved_program_with_warnings(
     modules: Vec<psrs_hir::Module>,
+    support: SupportEnvironment,
 ) -> Result<(Vec<psrs_thir::Module>, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
     let true_symbols = psrs_desugar::true_symbols(&modules);
     let mut desugared = Vec::with_capacity(modules.len());
@@ -220,7 +224,8 @@ fn typecheck_resolved_program_with_warnings(
             })
         })
         .collect::<Vec<_>>();
-    let dependencies = module_dependencies(&modules);
+    let mut dependencies = module_dependencies(&modules);
+    support.dependencies(&mut dependencies)?;
     // A re-exported symbol is declared in the module that owns it, so the
     // signature table is global: a module that imports an exported symbol finds
     // its declared type even when it imported it through an umbrella module.
@@ -257,7 +262,8 @@ fn typecheck_resolved_program_with_warnings(
             continue;
         }
         let imported = signatures::imported_signatures(&module, &signatures);
-        let checked_values = signatures::imported_signatures(&module, &value_interfaces);
+        let mut checked_values = signatures::imported_signatures(&module, &value_interfaces);
+        support.values(module.id, &value_interfaces, &mut checked_values);
         let imported_instances = imported_instance_declarations(
             &dependencies,
             index,

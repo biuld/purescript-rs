@@ -1,4 +1,4 @@
-use super::{lower_program_to_core_and_warnings, typecheck_warnings};
+use super::{SupportEnvironment, typecheck_warnings};
 use crate::{
     Artifact, CompilationReport, Diagnostic, DiagnosticOrigin, FrontendPassTrace, IrDumpArtifacts,
     PartialIrDumps, ProgramDiagnostic, backend_warnings,
@@ -23,6 +23,7 @@ pub(crate) fn compile_program_sources_with_trusted_prefix(
         false,
         None,
         psrs_backend::TargetCapabilities::default(),
+        SupportEnvironment::Imports,
     );
     match report.artifact {
         Some(artifact) => Ok(artifact),
@@ -37,16 +38,15 @@ pub(super) fn compile_attempt(
     trace_enabled: bool,
     runner: Option<&crate::prelude::CommandRunner>,
     target: psrs_backend::TargetCapabilities,
+    support: SupportEnvironment,
 ) -> CompilationReport {
-    let (core, source_warnings) = match if let Some(runner) = runner {
-        super::lowering::lower_program_inner(
-            sources,
-            trusted_prefix,
-            Some((&runner.module, &runner.function)),
-        )
-    } else {
-        lower_program_to_core_and_warnings(sources, trusted_prefix)
-    } {
+    let lowered = super::lowering::lower_program_inner(
+        sources,
+        trusted_prefix,
+        runner.map(|runner| (runner.module.as_str(), runner.function.as_str())),
+        support,
+    );
+    let (core, source_warnings) = match lowered {
         Ok(lowered) => lowered,
         Err(diagnostics) => {
             let mut report = CompilationReport::failed(diagnostics, PartialIrDumps::default());

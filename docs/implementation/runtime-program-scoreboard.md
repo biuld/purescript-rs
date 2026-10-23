@@ -11,6 +11,16 @@ same-stem support directory. See `tests/TestUtils.hs::getTestFiles` and
 The latter compiles the group, runs `Main.main`, and requires the final output
 line to be `Done`.
 
+The official runner also distinguishes checking environments: a single-source
+case uses `rebuildModule` with all prechecked support-library externs, whereas a
+multiple-source group uses dependency-ordered `make`. The runtime board selects
+an explicit complete-support environment for single-source groups. Every
+support producer must pass ordinary checking before the root can consume its
+exported semantic values and instances; this adds no source imports or names.
+Multiple-source groups keep ordinary import scope. The [support-environment
+acceptance record](frontend/checked-support-environment.md) records the verified
+312/340 measurement; historical measurements below used the textual library closure.
+
 The runtime board follows those program groups. It retains all support sources
 as compilation inputs, but never runs them again as independent commands.
 Selection does not depend on successful parsing or discovering `main`, so a

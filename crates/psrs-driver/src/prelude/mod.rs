@@ -45,18 +45,26 @@ pub(crate) fn module_names() -> Result<HashSet<String>, String> {
 pub(crate) fn prepend<'a>(
     user_sources: &[(&'a str, &'a str)],
 ) -> Result<PrefixedSources<'a>, String> {
-    prepend_selected(user_sources, false)
+    prepend_selected(user_sources, false, false)
 }
 
 pub(crate) fn prepend_for_command<'a>(
     user_sources: &[(&'a str, &'a str)],
 ) -> Result<PrefixedSources<'a>, String> {
-    prepend_selected(user_sources, true)
+    prepend_selected(user_sources, true, false)
+}
+
+/// Supplies the entire locked support inventory without importing its names.
+pub(crate) fn prepend_complete_support<'a>(
+    user_sources: &[(&'a str, &'a str)],
+) -> Result<PrefixedSources<'a>, String> {
+    prepend_selected(user_sources, true, true)
 }
 
 fn prepend_selected<'a>(
     user_sources: &[(&'a str, &'a str)],
     command: bool,
+    complete: bool,
 ) -> Result<PrefixedSources<'a>, String> {
     let library = sources()?;
     let by_name = library
@@ -65,6 +73,9 @@ fn prepend_selected<'a>(
         .map(|(index, module)| (module.module_name.as_str(), index))
         .collect::<std::collections::HashMap<_, _>>();
     let mut needed = HashSet::new();
+    if complete {
+        needed.extend(0..library.len());
+    }
     let mut pending = VecDeque::new();
     if command && let Some(runner) = &load()?.info.command_runner {
         if !by_name.contains_key(runner.module.as_str()) {
