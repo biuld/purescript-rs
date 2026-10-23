@@ -128,6 +128,16 @@ constraints, kinds, and type-level literals are dedicated structural nodes
 ([type inference](frontend/type-system/type-inference.md),
 [DEC-15](../decision/DEC-15-unified-type-representation.md)).
 
+A successful P5 producer also publishes a closed value interface for importers,
+before constraints are erased into dictionary arrows. This is a semantic
+interface artifact, not another long-lived IR family and not inferred fields
+added to HIR or CST. It retains lexical type binders, their kinds and visibility,
+ordered constraints, stable nominal identities and source ranges. It contains
+no inference solver identities or mutable substitutions. Consumers instantiate
+fresh local variables from it; the driver publishes it only after the producer
+passes its required checks and checked-IR verification. The detailed contract
+is owned by [type inference](frontend/type-system/type-inference.md#boundaries-and-interfaces).
+
 ### Typed Core
 
 Typed Core is the compiler's small functional language and the preferred

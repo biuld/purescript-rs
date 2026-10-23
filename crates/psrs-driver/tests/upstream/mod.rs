@@ -5,6 +5,7 @@ mod coercion;
 mod deriving;
 mod guard_continuations;
 mod import_aliases;
+mod inferred_imports;
 mod library_foreign;
 mod rank_n;
 mod record_instantiation;

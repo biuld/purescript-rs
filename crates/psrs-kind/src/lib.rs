@@ -13,11 +13,13 @@
 //! no kind information escapes into a long-lived IR.
 
 mod check;
+mod closed;
 mod denote;
 mod kind;
 mod solve;
 
 pub use check::{KINDS_DO_NOT_UNIFY, check_module, check_program};
+pub use closed::ClosedKinds;
 pub use denote::{KindScope, denote_kind};
 pub use kind::{
     CheckedKindEnv, Kind, KindBinder, KindDiagnostic, KindScheme, constraint_kind, primitive_kind,

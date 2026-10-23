@@ -95,3 +95,16 @@ fn visit(index: usize, dependencies: &[Vec<usize>], visited: &mut [bool], order:
     }
     order.push(index);
 }
+
+/// Whether a dependency can supply a checked value interface. Compiler-owned
+/// virtual modules are trusted inputs; ordinary modules must have succeeded.
+pub(super) fn dependencies_checked(
+    dependencies: &[usize],
+    checked: &std::collections::HashSet<usize>,
+) -> bool {
+    dependencies.iter().all(|dependency| {
+        *dependency == psrs_hir::ModuleId::INTRINSICS.0 as usize
+            || *dependency == psrs_hir::ModuleId::COMPILER_PRELUDE.0 as usize
+            || checked.contains(dependency)
+    })
+}

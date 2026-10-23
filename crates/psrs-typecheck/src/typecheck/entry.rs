@@ -6,7 +6,9 @@ pub fn typecheck_module(module: hir::Module) -> Result<thir::Module, Vec<TypeChe
 
 /// Type checks a module against the declared types of values it imports from
 /// other modules. Imported symbols resolve to their exporting declaration's
-/// signature, which the caller reads from the exporting module's HIR.
+/// signature, which the caller supplies as a trusted declaration assumption.
+/// This compatibility API does not certify that producer. The program driver
+/// instead threads successful checked value interfaces through TypecheckContext.
 pub fn typecheck_module_with_imports(
     module: hir::Module,
     imported: &HashMap<SymbolId, hir::Type>,
@@ -92,6 +94,7 @@ pub fn typecheck_module_with_checked_kinds(
             imported_instances,
             module_names: &module_names,
             checked_kinds,
+            checked_values: &HashMap::new(),
         },
     )
 }
@@ -163,6 +166,7 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
         return Err(checker.state.errors);
     }
     let inferred = inferred.into_iter().flatten().collect::<Vec<_>>();
+    let values = checker.freeze_value_interfaces(&module, &inferred);
     let mut types = TypeInterner::default();
     let mut generics = checker.state.generic_variables.clone();
     let external_types = module
@@ -312,6 +316,7 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
     match typed.verify() {
         Ok(()) => Ok(TypeCheckOutput {
             module: typed,
+            values,
             warnings: checker.state.warnings,
         }),
         Err(errors) => Err(errors

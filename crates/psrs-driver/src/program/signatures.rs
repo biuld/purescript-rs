@@ -38,10 +38,10 @@ pub(super) fn declared_signatures(
 /// Resolves a module's imported symbols to their declared type from the global
 /// declaration table. A symbol re-exported by an umbrella module keeps the
 /// signature of the declaration that owns it.
-pub(super) fn imported_signatures(
+pub(super) fn imported_signatures<T: Clone>(
     module: &psrs_hir::Module,
-    signatures: &HashMap<psrs_hir::SymbolId, psrs_hir::Type>,
-) -> HashMap<psrs_hir::SymbolId, psrs_hir::Type> {
+    signatures: &HashMap<psrs_hir::SymbolId, T>,
+) -> HashMap<psrs_hir::SymbolId, T> {
     let mut imported = HashMap::new();
     for import in &module.imports {
         for symbol in &import.symbols {

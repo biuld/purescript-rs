@@ -98,31 +98,56 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
         .map(|module| (module.id, module.name.clone()))
         .collect::<HashMap<_, _>>();
 
-    for module in resolved {
-        let source = module.id.0 as usize;
+    let mut value_interfaces = HashMap::new();
+    let mut checked = HashSet::new();
+    let mut slots = module_table(&resolved, None, |module| Some(module.clone()));
+    for source in typecheck_order(&dependencies) {
+        let Some(module) = slots.get_mut(source).and_then(Option::take) else {
+            continue;
+        };
         if failed_kind_modules.contains(&module.id) {
             continue;
         }
+        if !graph::dependencies_checked(&dependencies[source], &checked) {
+            if errors.is_empty() {
+                errors.push(ProgramDiagnostic {
+                    source: DiagnosticOrigin::Source(source),
+                    diagnostic: diagnostic(
+                        "P5 typecheck",
+                        module.span,
+                        "module dependency has no successful checked interface".to_owned(),
+                    ),
+                });
+            }
+            continue;
+        }
         let imported = super::signatures::imported_signatures(&module, &signatures);
+        let checked_values = super::signatures::imported_signatures(&module, &value_interfaces);
         let imported_instances = imported_instance_declarations(
             &dependencies,
             source,
             &instance_sets,
             &exported_instances,
         );
-        let check = psrs_typecheck::typecheck_module_with_checked_kinds_and_module_names(
-            module,
-            &imported,
-            None,
-            false,
-            psrs_typecheck::TypecheckContext {
-                known_types: &known_types,
-                known_values: &known_values,
-                imported_instances: &imported_instances,
-                module_names: &module_names,
-                checked_kinds: &checked_kinds,
-            },
-        );
+        let check =
+            psrs_typecheck::typecheck_module_with_checked_kinds_and_module_names_and_warnings(
+                module,
+                &imported,
+                None,
+                false,
+                psrs_typecheck::TypecheckContext {
+                    known_types: &known_types,
+                    known_values: &known_values,
+                    imported_instances: &imported_instances,
+                    module_names: &module_names,
+                    checked_kinds: &checked_kinds,
+                    checked_values: &checked_values,
+                },
+            );
+        if let Ok(output) = &check {
+            value_interfaces.extend(output.values.clone());
+            checked.insert(source);
+        }
         if let Err(module_errors) = check {
             for error in module_errors {
                 errors.push(ProgramDiagnostic {

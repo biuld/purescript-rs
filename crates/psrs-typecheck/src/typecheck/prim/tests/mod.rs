@@ -365,6 +365,7 @@ fn checker() -> Checker {
             imported_instances: &[],
             module_names: &HashMap::from([(ModuleId(0), "Main".to_owned())]),
             checked_kinds: &psrs_kind::CheckedKindEnv::default(),
+            checked_values: &HashMap::new(),
         },
     )
 }
