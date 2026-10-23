@@ -21,6 +21,8 @@
 //!
 //! Support modules remain inputs of their parent program; they are never
 //! separately compiled as commands. Frontend boards still measure source files.
+//! A single-source group uses the official rebuild-module support environment;
+//! groups with several sources retain ordinary dependency-ordered compilation.
 //!
 //! Every rejection is reported per program with its first blocking stage and
 //! diagnostic, and the categories a later phase recovers are counted apart: a
@@ -137,7 +139,13 @@ fn l6_runtime_scoreboard() {
             continue;
         }
         considered += 1;
-        let outcome = match psrs_driver::compile_program_sources_with_prelude(&case.inputs()) {
+        let inputs = case.inputs();
+        let compiled = if inputs.len() == 1 {
+            psrs_driver::compile_program_sources_with_complete_support(&inputs)
+        } else {
+            psrs_driver::compile_program_sources_with_prelude(&inputs)
+        };
+        let outcome = match compiled {
             Err(errors) => {
                 blockers.record(&case, &errors);
                 let stale = unusable_siblings(&case, &errors);

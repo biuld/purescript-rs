@@ -4,6 +4,7 @@ pub(super) fn lower_program_inner(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
     runner: Option<(&str, &str)>,
+    support: SupportEnvironment,
 ) -> Result<(psrs_core::Module, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
     let resolved = resolve_program_sources(sources)?;
     let selected_runner = runner
@@ -32,7 +33,7 @@ pub(super) fn lower_program_inner(
         })
         .transpose()?;
     let entry = effects::require_unambiguous_entry(effects::select_entry(&resolved))?;
-    let (typed, warnings) = typecheck_resolved_program_with_warnings(resolved)?;
+    let (typed, warnings) = typecheck_resolved_program_with_warnings(resolved, support)?;
     let mut modules = Vec::with_capacity(typed.len());
     for (index, module) in typed.into_iter().enumerate() {
         match psrs_core::lower_module_unverified(module) {
@@ -84,5 +85,5 @@ pub(crate) fn lower_program_to_core_and_warnings(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
 ) -> Result<(psrs_core::Module, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
-    lower_program_inner(sources, trusted_prefix, None)
+    lower_program_inner(sources, trusted_prefix, None, SupportEnvironment::Imports)
 }

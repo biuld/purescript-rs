@@ -138,6 +138,16 @@ fresh local variables from it; the driver publishes it only after the producer
 passes its required checks and checked-IR verification. The detailed contract
 is owned by [type inference](frontend/type-system/type-inference.md#boundaries-and-interfaces).
 
+The official suite's single-root rebuild mode has an explicit complete support
+environment. Its support sources check with their ordinary imports; the root
+then depends on every support producer's success and consumes their exported
+checked value and instance interfaces. This changes P5's available support
+evidence without adding source imports or making unimported names resolvable
+in P3. Generated terms use the same resolved registry and solver as written
+terms. Ordinary commands and multi-module suite groups retain their import
+closure. The [support-environment acceptance record](../implementation/frontend/checked-support-environment.md)
+tracks integration and runtime verification separately.
+
 ### Typed Core
 
 Typed Core is the compiler's small functional language and the preferred
