@@ -104,47 +104,12 @@ impl Checker {
         }
 
         if let InferType::Constrained { constraints, body } = expected.clone() {
-            // Each constraint becomes a given, and its argument variables are
-            // rigid for as long as the given is in scope.
-            let mut binders = Vec::with_capacity(constraints.len());
-            for constraint in &constraints {
-                let dictionary_type = self.dictionary_type(constraint);
-                let id = LocalId(self.state.next_dictionary_local);
-                self.state.next_dictionary_local += 1;
-                binders.push((id, dictionary_type));
-            }
-            let givens = constraints
-                .iter()
-                .cloned()
-                .zip(binders.iter().map(|(id, _)| WantedSolution::Given(*id)))
-                .collect();
-            let checked = self.with_givens(givens, |checker| {
-                checker.infer_expr_with_expected(expression, Some(*body.clone()))
-            });
-            let mut checked = checked?;
-            for (index, (id, dictionary_type)) in binders.into_iter().enumerate().rev() {
-                let ty = InferType::Constrained {
-                    constraints: constraints[index..].to_vec(),
-                    body: body.clone(),
-                };
-                checked = InferredExpr {
-                    kind: InferredExprKind::Lambda {
-                        binder: InferredBinder {
-                            binder: hir::LocalBinder {
-                                id,
-                                name: "dict".into(),
-                                span: expression.span,
-                            },
-                            scheme: Scheme::monomorphic(dictionary_type),
-                        },
-                        body: Box::new(checked),
-                    },
-                    ty,
-                    span: expression.span,
-                };
-            }
-            checked.ty = expected;
-            return Some(checked);
+            return self.abstract_constraint_expression(
+                constraints,
+                *body.clone(),
+                expression.span,
+                |checker| checker.infer_expr_with_expected(expression, Some(*body)),
+            );
         }
 
         if let hir::ExprKind::Lambda { binder, body } = &expression.kind

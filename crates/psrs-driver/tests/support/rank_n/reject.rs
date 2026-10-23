@@ -1,4 +1,5 @@
 pub const REJECT: &[(&str, &str)] = &[
+    ("qualified_alias_missing_instance", super::aliases::MISSING),
     (
         "inferred_lambda_does_not_return_rank_n",
         r#"module Main where

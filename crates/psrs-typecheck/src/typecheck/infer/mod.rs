@@ -8,6 +8,7 @@ mod expected;
 mod intrinsics;
 mod let_expr;
 mod pattern;
+mod qualification;
 mod records;
 mod visible_type_application;
 
@@ -99,7 +100,7 @@ impl Checker {
                         ty: scheme.ty.clone(),
                         span,
                     };
-                    let applied = self.instantiate_expression_use(base, &scheme, span);
+                    let applied = self.synthesize_expression_use(base, &scheme, span);
                     (applied.kind, applied.ty)
                 }
                 None => {
@@ -123,16 +124,10 @@ impl Checker {
                         ty: scheme.ty.clone(),
                         span,
                     };
-                    let applied = self.instantiate_expression_use(base, &scheme, span);
+                    let applied = self.synthesize_expression_use(base, &scheme, span);
                     (applied.kind, applied.ty)
                 } else if let Some(signature) = self.env.imported.get(symbol).cloned() {
-                    let (constraints, ty) = self.elaborate_imported_constraints(&signature);
-                    let base = InferredExpr {
-                        kind: InferredExprKind::Global(*symbol),
-                        ty: ty.clone(),
-                        span,
-                    };
-                    let applied = self.apply_constraints(base, constraints, span);
+                    let applied = self.synthesize_signature_use(*symbol, &signature, span);
                     (applied.kind, applied.ty)
                 } else {
                     let external = self.env.external_kinds.get(symbol).cloned();
@@ -170,8 +165,8 @@ impl Checker {
                                 ));
                                 return None;
                             };
-                            let ty = self.elaborate_imported_signature(&signature);
-                            (InferredExprKind::Global(*symbol), ty)
+                            let applied = self.synthesize_signature_use(*symbol, &signature, span);
+                            (applied.kind, applied.ty)
                         }
                         None => {
                             self.state.errors.push(TypeCheckError::new(
@@ -328,7 +323,10 @@ impl Checker {
                 then_branch,
                 else_branch,
             } => {
-                let condition = self.infer_expr(condition);
+                let condition = self.infer_expr_with_expected(
+                    condition,
+                    Some(InferType::Constructor(TypeConstructor::Boolean)),
+                );
                 // An inferred `if` has no expected type, so each branch is
                 // instantiated. A visible quantifier such as `Nothing`'s
                 // parameter does not stay quantified on one branch only.
@@ -336,13 +334,6 @@ impl Checker {
                 let then_branch = then_branch.map(|branch| self.instantiate_all_expr(branch, span));
                 let else_branch = self.infer_expr(else_branch);
                 let else_branch = else_branch.map(|branch| self.instantiate_all_expr(branch, span));
-                if let Some(condition) = &condition {
-                    self.unify(
-                        condition.ty.clone(),
-                        InferType::Constructor(TypeConstructor::Boolean),
-                        condition.span,
-                    );
-                }
                 if let (Some(then_branch), Some(else_branch)) = (&then_branch, &else_branch) {
                     self.unify(then_branch.ty.clone(), else_branch.ty.clone(), span);
                 }

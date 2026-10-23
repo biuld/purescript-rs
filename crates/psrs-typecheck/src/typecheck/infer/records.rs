@@ -78,6 +78,8 @@ impl Checker {
         span: TextRange,
     ) -> Option<(InferredExprKind, InferType)> {
         let expression = self.infer_expr(expression)?;
+        let expression_span = expression.span;
+        let expression = self.instantiate_all_expr(expression, expression_span);
         let field_ty = self.fresh();
         let tail = match self.fresh() {
             InferType::Variable(variable) => variable,
@@ -109,6 +111,8 @@ impl Checker {
         span: TextRange,
     ) -> Option<(InferredExprKind, InferType)> {
         let expression = self.infer_expr(expression)?;
+        let expression_span = expression.span;
+        let expression = self.instantiate_all_expr(expression, expression_span);
         let mut inferred = Vec::with_capacity(fields.len());
         let mut probed = Vec::with_capacity(fields.len());
         let mut labels = HashSet::new();

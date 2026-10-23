@@ -43,6 +43,12 @@ fn differential_rank_n_rules_against_purs() {
         return;
     }
     assert!(purs_accepts_sources("rank-n-linked", cases::LINKED));
+    assert!(purs_accepts_sources(
+        "imported-aliases",
+        cases::aliases::IMPORTED
+    ));
+    psrs_driver::check_program(cases::aliases::IMPORTED)
+        .expect("imported aliases retain quantifiers");
     psrs_driver::check_program(cases::LINKED).expect("check imported quantified types");
     for (expected, cases) in [
         (true, cases::ACCEPT),

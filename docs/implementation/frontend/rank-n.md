@@ -122,3 +122,67 @@ frontend, focused and lint logs use the `/tmp/psrs-quantifier-` prefix.
 These repairs do not promote RN-12 or the broader frontend/backend feature rows
 to Verified. The kind-quantification loss in `4105` remains independently
 reproduced and unmodified by this repair.
+
+## Inherited local value aliases (2026-10-23)
+
+Issue #169 starts from `6b6f46cf`, preserving untracked `output/`. The unchanged
+`passing/2803.purs` rejects in P5 with `NoInstanceFound (Ring _T355)` at the
+unused local `f = (-)`; `%` still names the top-level addition function. The
+30-second file diagnosis is `/tmp/psrs-operator-alias-before.json`.
+
+Official `inferLetBinding` retains the inferred value type. Variable synthesis,
+including imported and foreign signatures, now freshens the existing scheme without consuming its quantifiers, and locals
+retain those quantifiers regardless of visibility. A retained pending method
+becomes a dictionary lambda using the same given scope and abstraction operation
+as expected qualified types. Ordinary values already carry their dictionary
+function. Fresh local lambda unknowns and obligations still belong to the
+enclosing declaration; no new local HM generalization or defaulting is added.
+
+Eleven shared accepted cases in `tests/support/rank_n/aliases.rs` cover an ordinary
+polymorphic alias, an unused method without instances, distinct method
+instantiations, a qualified global alias, a partially visible application and
+an alias chain, ordinary/method values retained by variable patterns, and
+polymorphic record projection/update and Boolean conditions. A separate shared
+two-module program verifies ordinary and qualified aliases across imports. The
+shared rejection requires an actual missing instance at use. Existing lambda ambiguity and monomorphic identity rejections remain in
+the official differential battery. Mandatory runtime evidence includes those
+accepted values and unchanged official `2803`, whose stdout must be `Done`.
+
+All 23 purs differential test functions and mandatory rank-N executions pass.
+The unchanged official `2803` also compiles and prints `Done` using purs 0.15.16
+and Node; `/tmp/psrs-qualified-alias-purs-2803.json` records every input hash and
+the separate compile/runtime outcomes. The unchanged official
+`RowPolyInstanceContext` also prints `Done` on both runtimes; its unused local
+aliases retain their inherited quantified row constraints. That observation does
+not claim execution of its unused state computations.
+
+Comparable diagnosis `/tmp/psrs-operator-alias-before.json` and
+`/tmp/psrs-operator-alias-final-v3-after.json` uses the same file inputs, locked
+library and 30-second timeout. `/tmp/psrs-qualified-alias-final-v3-compare.json`
+confirms compatible inputs and recovery from P5 rejection to completed
+compilation; canonical artifact-content and expression-lineage comparisons
+remain unavailable.
+
+All 2337 ordinary workspace tests pass with zero test failures; six ignored
+boards run separately. The combined `cargo test --workspace` invocation then
+exited in rustdoc with E0463 (`psrs_linker` metadata unavailable). An isolated
+serial `cargo test --workspace --doc` rerun passes for every workspace crate.
+Formatting and default Clippy pass. The final five frontend boards pass:
+L1 904/908 (four DEC-16 differences), L2 76/76 and 403/413 passing resolution,
+L3 50/50, L4 65/65, L5 101/101 and roles 12/12.
+
+The frozen release harness `/tmp/psrs-qualified-alias-suite-final-v3`, SHA-256
+`6a7f268f727e67bd96fbcc6fb8704fd677f81534fa1e3fdbc55f7819ee0c6017`,
+executes all 365 runtime roots serially: **302/340**, 25 FFI exclusions, all
+agreeing exits zero. Exactly `2803` and `RowPolyInstanceContext` recover from
+300/340; no program loses agreement. The remaining 38 roots are 24 P5 typecheck,
+3 P5 kind check, 5 P3 resolve, 1 P8 closure conversion, 2 P0 lex, the existing
+assertion trap and guest timeout, and BigFunction's incomplete compiler
+allocation verdict. The library lock, Wasmtime 48.0.1, 10-second guest timeout,
+524288-byte engine stack and compiler-only 8 GiB BigFunction bound are unchanged.
+`/tmp/psrs-qualified-alias-runtime-board-final-v3/{measurement,results,summary}.json`
+retains the exact settings, outcomes and name-set comparison. Earlier interrupted
+runs are separate observations. Final workspace/frontend/fmt logs use the
+`final-v3` suffix; the focused and Clippy logs use `boundaries-focused` and
+`boundaries-clippy`. RN-12 and FE-18 remain incomplete; this repair does not
+establish corpus-wide rank-N coverage.
