@@ -3,7 +3,7 @@
 //! directly, like the composite indirect-parameter fixture.
 
 mod fixtures;
-mod storage;
+pub(super) mod storage;
 mod tests;
 
 use super::lower_module_with_registry;

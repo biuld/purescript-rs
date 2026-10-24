@@ -12,6 +12,7 @@ pub(super) mod metadata;
 pub(super) mod record_projection;
 mod record_source;
 mod source;
+pub(crate) mod static_cell;
 pub(super) mod target;
 
 /// Validate all declarations, including unused ones, before lowering/erasure.
@@ -39,6 +40,12 @@ pub(crate) fn validate(module: &Module) -> Result<(), Vec<BackendError>> {
         let error = |message| {
             vec![BackendError::new("P8 runtime linking", span, message).with_module(source_module)]
         };
+        if provider == psrs_runtime::STATIC_CELL_MODULE {
+            let checked = checked
+                .ok_or_else(|| error("runtime binding has no checked source signature".into()))?;
+            static_cell::validate(module, checked.ty, function).map_err(error)?;
+            continue;
+        }
         if provider == psrs_runtime::RECORD_STORAGE_MODULE {
             let operation =
                 psrs_runtime::RecordPrimitive::from_export(function).ok_or_else(|| {

@@ -140,3 +140,45 @@ main = let xs = filled 1 0
     };
     assert_eq!(output.status.code(), Some(42), "{output:?}");
 }
+
+#[test]
+fn static_cells_share_per_binding_and_preserve_independent_bindings() {
+    let source = format!(
+        r#"module Main where
+{IMPORTS}
+foreign import "psrs:runtime-static#cell" first :: Int -> Array Int
+foreign import "psrs:runtime-static#cell" second :: Int -> Array Int
+getFirst :: Unit -> Array Int
+getFirst _ = first 0
+main = let ignored = write (getFirst unit) 0 42
+           other = write (second 0) 0 7
+       in if intEq (read (second 100) 0) 7 then read (getFirst unit) 0 else 1
+"#
+    );
+    let Some(output) = run_program_with_wasmtime(&[("Main.purs", &source)]) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn static_cells_reject_invalid_unused_source_contracts() {
+    for ty in [
+        "forall a. a -> Array a",
+        "Int -> Array Number",
+        "(forall a. a -> a) -> Array (forall a. a -> a)",
+        "Int -> Int",
+    ] {
+        let source = format!(
+            "module Main where\nforeign import \"psrs:runtime-static#cell\" cell :: {ty}\nmain = 0\n"
+        );
+        let errors =
+            compile_program_sources(&[("Main.purs", &source)]).expect_err("invalid static cell");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.diagnostic.stage == "P8 runtime linking"),
+            "{ty}: {errors:?}"
+        );
+    }
+}

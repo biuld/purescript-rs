@@ -6,7 +6,8 @@ impl Instruction {
     /// The value this instruction defines, if it defines one.
     pub fn destination(&self) -> Option<ValueId> {
         match self {
-            Self::Copy { destination, .. }
+            Self::StaticCell { destination, .. }
+            | Self::Copy { destination, .. }
             | Self::ControlEvidence { destination, .. }
             | Self::Constant { destination, .. }
             | Self::NumberConstant { destination, .. }
@@ -42,6 +43,8 @@ impl Instruction {
             | Self::LoadI64 { destination, .. }
             | Self::LoadF32 { destination, .. }
             | Self::LoadF64 { destination, .. }
+            | Self::HighI64 { destination, .. }
+            | Self::JoinI64 { destination, .. }
             | Self::WrapI64 { destination, .. }
             | Self::WidenI64 { destination, .. }
             | Self::Unreachable { destination, .. } => Some(*destination),
@@ -71,6 +74,7 @@ impl Instruction {
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
             Self::Copy { value, .. } => vec![*value],
+            Self::StaticCell { initial, .. } => vec![*initial],
             Self::ControlEvidence {
                 value,
                 implementation,
@@ -160,7 +164,9 @@ impl Instruction {
             | Self::StoreI64 { address, value, .. }
             | Self::StoreF32 { address, value, .. }
             | Self::StoreF64 { address, value, .. } => vec![*address, *value],
-            Self::WrapI64 { value, .. }
+            Self::JoinI64 { high, low, .. } => vec![*high, *low],
+            Self::HighI64 { value, .. }
+            | Self::WrapI64 { value, .. }
             | Self::WidenI64 { value, .. }
             | Self::TrapIf {
                 condition: value, ..
@@ -171,7 +177,8 @@ impl Instruction {
 
     pub fn span(&self) -> TextRange {
         match self {
-            Self::Copy { span, .. }
+            Self::StaticCell { span, .. }
+            | Self::Copy { span, .. }
             | Self::ControlEvidence { span, .. }
             | Self::Constant { span, .. }
             | Self::NumberConstant { span, .. }
@@ -216,6 +223,8 @@ impl Instruction {
             | Self::StoreI64 { span, .. }
             | Self::StoreF32 { span, .. }
             | Self::StoreF64 { span, .. }
+            | Self::HighI64 { span, .. }
+            | Self::JoinI64 { span, .. }
             | Self::WrapI64 { span, .. }
             | Self::WidenI64 { span, .. }
             | Self::TrapIf { span, .. }

@@ -12,6 +12,7 @@ struct RequiredCapabilities {
     multi_value: bool,
     tail_call: bool,
     exceptions: bool,
+    mutable_globals: bool,
 }
 
 /// Checks the capabilities that the current MIR module actually requires.
@@ -84,6 +85,12 @@ pub(super) fn validate_target_capabilities(
     }
 
     let mut errors = Vec::new();
+    if required.mutable_globals && !target.mutable_globals {
+        errors.extend(mir_error(
+            module.span,
+            "the selected target does not support mutable globals required by static cells",
+        ));
+    }
     if required.reference_types && !target.reference_types {
         errors.extend(mir_error(
             module.span,
@@ -161,6 +168,11 @@ fn mark_instruction(instruction: &mir::Instruction, required: &mut RequiredCapab
     use mir::Instruction;
 
     match instruction {
+        Instruction::StaticCell { .. } => {
+            required.mutable_globals = true;
+            required.gc = true;
+            required.reference_types = true;
+        }
         Instruction::RefFunc { .. } | Instruction::CallRef { .. } => {
             required.reference_types = true;
             required.function_references = true;

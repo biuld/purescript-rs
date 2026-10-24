@@ -19,6 +19,7 @@ mod copy;
 mod lists;
 mod memory;
 mod primitive;
+mod static_cell;
 mod unary;
 
 pub(super) fn verify_instruction(
@@ -29,6 +30,9 @@ pub(super) fn verify_instruction(
     defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
     match instruction {
+        Instruction::StaticCell { .. } => {
+            static_cell::verify(function, instruction, definitions, defined)?
+        }
         Instruction::Copy { .. } | Instruction::ControlEvidence { .. } => {
             copy::verify_copy(function, instruction, definitions)?
         }
@@ -473,6 +477,8 @@ pub(super) fn verify_instruction(
         | Instruction::StoreI64 { .. }
         | Instruction::StoreF32 { .. }
         | Instruction::StoreF64 { .. }
+        | Instruction::HighI64 { .. }
+        | Instruction::JoinI64 { .. }
         | Instruction::WrapI64 { .. }
         | Instruction::WidenI64 { .. } => {
             memory::verify_memory_instruction(function, instruction, definitions)?;

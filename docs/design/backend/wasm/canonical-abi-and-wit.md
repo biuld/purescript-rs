@@ -168,7 +168,7 @@ never invents source values.
 | `bool` | `Boolean` | canonical `0`/`1`. |
 | `s8`, `s16`, `s32` | `Int` | signed; a narrower width sign-extends at the boundary. |
 | `u8`, `u16`, `u32` | `Int` | unsigned bits in the low 32 bits; a caller passes the low `bits`. |
-| `s64`, `u64` | `Int` | widened to/from `i64`; `Int` keeps the low 32 bits on return. |
+| `s64`, `u64` | `Int` or `{ high :: Int, low :: Int }` | `Int` keeps the low 32 bits on return. The closed two-word record preserves all 64 bits; each word is an i32 bit pattern. |
 | `f32`, `f64` | `Number` | `f32` narrows/widens at the boundary. |
 | `char` | `Char` | both are canonical `i32`; an `Int` is rejected. |
 | `string` | `String` | a Unicode scalar sequence stored as canonical UTF-8; incoming bytes are strictly validated and valid bytes are copied without transcoding. |
@@ -182,6 +182,17 @@ never invents source values.
 | `option<T>` | `Data.Maybe.Maybe T` | recognized by the qualified type name. |
 | `result<O, E>` | `Data.Either.Either E O` | recognized by the qualified type name; the error is `Left`, the ok value `Right`. |
 | other `variant { ... }` | source data type | constructors in WIT case order. |
+
+The exact two-word carrier is structural and requires exactly `high` and `low`,
+both Int. It applies recursively to parameters and results, including indirect
+calls, aggregate payloads, labelled erased record storage and list elements.
+Joining uses unsigned word extension and bit shifts; splitting uses an unsigned
+high shift and low wrap. Signedness belongs to the canonical s64/u64 value,
+not either word. Memory copies place the low word at byte zero and the high
+word at byte four, reusing the common labelled record copy operations while
+the canonical i64 retains its eight-byte size and alignment. No absolute i64
+counter is rounded through Number to implement this mapping.
+
 
 Two rules follow from the source language having no unsigned or narrowed integer
 types:

@@ -15,6 +15,7 @@ mod handles;
 mod lists;
 mod parameters;
 mod plan;
+mod word64;
 
 pub(super) use bind::BoundFn;
 pub(super) use call_lowerer::WitCallLowerer;
@@ -279,15 +280,34 @@ fn lower_concrete<L: WitCallLowerer>(
                     },
                     span,
                 )?;
-                lowerer.append_wit_instruction(
-                    current,
-                    Instruction::WrapI64 {
-                        destination,
-                        value,
+                if let Some(guest) = bound
+                    .result
+                    .as_ref()
+                    .and_then(|result| result.guest_layout(lowerer))
+                    && crate::abi::word64::is_guest(&guest)
+                {
+                    let (built, next) = word64::unpack(lowerer, value, &guest, current, span)?;
+                    current = next;
+                    lowerer.append_wit_instruction(
+                        current,
+                        Instruction::Copy {
+                            destination,
+                            value: built,
+                            span,
+                        },
                         span,
-                    },
-                    span,
-                )?;
+                    )?;
+                } else {
+                    lowerer.append_wit_instruction(
+                        current,
+                        Instruction::WrapI64 {
+                            destination,
+                            value,
+                            span,
+                        },
+                        span,
+                    )?;
+                }
             }
             Some(ValueType::F32) => {
                 let value = lowerer.fresh_wit_value(ValueType::F32);

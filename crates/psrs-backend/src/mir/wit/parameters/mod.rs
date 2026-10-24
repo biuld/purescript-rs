@@ -135,6 +135,9 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
             )?;
             flat.push(narrowed);
         }
+        CanonicalType::Int { width: 64, .. } if guest.is_some_and(crate::abi::word64::is_guest) => {
+            flat.push(super::word64::pack(lowerer, argument, current, span)?);
+        }
         CanonicalType::Int { width: 64, signed } => {
             let wide = lowerer.fresh_wit_value(ValueType::I64);
             lowerer.append_wit_instruction(

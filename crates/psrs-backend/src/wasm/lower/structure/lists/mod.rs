@@ -122,6 +122,10 @@ impl Structurer<'_> {
             stride,
             depth: 0,
         };
+        // Sequential copies reuse loop locals. A preceding store/load/free
+        // leaves its terminal index behind, so every copy starts explicitly.
+        body.push(Op::Leaf(Instruction::I32Const(0)));
+        body.push(Op::Leaf(Instruction::LocalSet(index_local)));
         let mut loop_body = Body::new();
         loop_body.push(Op::Leaf(Instruction::LocalGet(index_local)));
         self.load(&mut loop_body, *length, *span)?;

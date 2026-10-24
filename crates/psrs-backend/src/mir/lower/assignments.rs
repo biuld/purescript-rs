@@ -276,6 +276,14 @@ impl FunctionLowerer<'_> {
                         })?;
                     if let Some(import) = self.wit_imports.get(function).cloned() {
                         current = self.lower_wit_call(&import, assignment, current)?;
+                    } else if let Some(import) = self.runtime.static_cells.get(function).cloned() {
+                        self.lower_static_cell(
+                            current,
+                            assignment.destination,
+                            &import,
+                            arguments,
+                            assignment.span,
+                        )?;
                     } else if let Some(import) = self.runtime.imports.get(function).cloned() {
                         self.lower_storage_call(
                             current,

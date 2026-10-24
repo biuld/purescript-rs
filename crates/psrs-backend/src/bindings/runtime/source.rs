@@ -7,8 +7,15 @@ pub(super) fn validate(
     ty: TypeId,
     operation: StorageOperation,
 ) -> Result<(), String> {
+    validate_contract(module, ty, operation.source_contract())
+}
+
+pub(super) fn validate_contract(
+    module: &Module,
+    ty: TypeId,
+    contract: psrs_runtime::StorageSourceContract,
+) -> Result<(), String> {
     let (parameters, result) = psrs_core::call_parts(&module.types, ty).map_err(str::to_owned)?;
-    let contract = operation.source_contract();
     if parameters.len() != contract.parameters.len() {
         return Err("runtime storage signature has the wrong parameter count".into());
     }

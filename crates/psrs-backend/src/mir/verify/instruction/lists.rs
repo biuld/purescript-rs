@@ -55,7 +55,10 @@ pub(super) fn verify_list_copy(
                 | CanonicalType::Enum(_)
                 | CanonicalType::Handle { .. }
         );
-    if !erased_scalar && !element_storage_matches(element, &field.storage) {
+    let word64 = matches!(element, CanonicalType::Int { width: 64, .. })
+        && crate::abi::word64::is_guest(element_guest)
+        && matches!(field.storage, StorageType::Ref(_));
+    if !erased_scalar && !word64 && !element_storage_matches(element, &field.storage) {
         return Err(mir_error(
             *span,
             "MIR list copy element does not match the GC array",

@@ -45,12 +45,26 @@ pub(crate) fn canonical_signature(
     if binding.module == super::exception::RUNTIME_EXCEPTION_MODULE {
         return super::exception::canonical_signature(binding, signature, table);
     }
+    if binding.module == psrs_runtime::STATIC_CELL_MODULE {
+        if binding.function != psrs_runtime::STATIC_CELL_EXPORT {
+            return Err(error(binding, "unknown runtime-static export"));
+        }
+        return storage_signature(binding, signature, table, psrs_runtime::STATIC_CELL_SOURCE);
+    }
     if binding.module != psrs_runtime::STORAGE_MODULE {
         return Err(error(binding, "unknown runtime storage provider"));
     }
     let operation = StorageOperation::from_export(&binding.function)
         .ok_or_else(|| error(binding, "unknown runtime storage export"))?;
-    let contract = operation.source_contract();
+    storage_signature(binding, signature, table, operation.source_contract())
+}
+
+fn storage_signature(
+    binding: &RuntimeBinding,
+    signature: &cc::Signature,
+    table: &cc::RepresentationTable,
+    contract: psrs_runtime::StorageSourceContract,
+) -> Result<cc::Signature, Vec<BackendError>> {
     if signature.parameters.len() != contract.parameters.len() {
         return Err(error(
             binding,

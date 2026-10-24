@@ -4,11 +4,13 @@
 mod allocator;
 mod number;
 mod record;
+mod static_cell;
 mod storage;
 
 pub use allocator::*;
 pub use number::*;
 pub use record::*;
+pub use static_cell::*;
 pub use storage::*;
 
 /// The runtime imports the application's canonical memory.

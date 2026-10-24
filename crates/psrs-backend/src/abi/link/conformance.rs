@@ -140,6 +140,7 @@ fn core_matches_kind(module: &CoreModule, id: CoreTypeId, ty: &CanonicalType) ->
         return core_matches_kind(module, inner, ty);
     }
     match ty {
+        CanonicalType::Int { width: 64, .. } if crate::abi::word64::is_source(module, id) => true,
         CanonicalType::Int { .. } => matches!(
             core(module, id),
             Some(CoreType::Constructor(psrs_core::TypeConstructor::Int))

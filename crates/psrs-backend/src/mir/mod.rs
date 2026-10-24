@@ -20,6 +20,7 @@ pub mod opt;
 mod planner;
 mod reachable;
 mod runtime;
+pub(crate) mod static_cells;
 mod tag;
 pub(crate) mod try_region;
 pub(crate) mod unwind;

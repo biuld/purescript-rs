@@ -20,9 +20,12 @@ mod codec;
 mod entry;
 mod extent;
 mod function;
+mod indices;
 mod post_return;
 mod realloc;
 mod runtime;
+mod static_cells;
+use indices::SynthesizedIndices;
 mod structure;
 
 use function::types::collect_function_types;
@@ -90,10 +93,13 @@ pub(crate) fn lower_module_with_plan(
 
     let (data, string_lengths) = collect_strings(module);
     let literal_globals = collect_literal_globals(module);
-    if !literal_globals.globals.is_empty() && !target.mutable_globals {
+    let static_globals = static_cells::collect(module, literal_globals.globals.len())?;
+    if (!literal_globals.globals.is_empty() || !static_globals.globals.is_empty())
+        && !target.mutable_globals
+    {
         return Err(wasm_error(
             module.span,
-            "string literal interning requires mutable WebAssembly globals",
+            "static storage requires mutable WebAssembly globals",
         ));
     }
     extent::verify_static_access_extents(module)?;
@@ -141,7 +147,7 @@ pub(crate) fn lower_module_with_plan(
         defined,
         &mut types,
         &mut tag_defs,
-        literal_globals.globals.len(),
+        literal_globals.globals.len() + static_globals.globals.len(),
     )?;
 
     // Core imports: the WASI imports MIR declared, then `exit-with-code` used
@@ -264,6 +270,7 @@ pub(crate) fn lower_module_with_plan(
             &function_indices,
             &string_lengths,
             &literal_globals.indices,
+            &static_globals.indices,
             module.layout.as_ref(),
             &module.tags,
             budget.as_ref(),
@@ -296,6 +303,7 @@ pub(crate) fn lower_module_with_plan(
     ];
     let minimum = link.plan.memory().minimum_pages;
     let mut globals = literal_globals.globals;
+    globals.extend(static_globals.globals);
     if let Some(budget) = &budget {
         globals.push(Global {
             index: GlobalIndex(budget.depth),
@@ -398,38 +406,6 @@ pub(crate) fn lower_module_with_plan(
     };
     super::verify::verify_module(&wasm)?;
     Ok(wasm)
-}
-
-/// The final Wasm function indices of the synthesized helpers. The encoder
-/// emits the entry, then `cabi_realloc`, then the codec helpers in their
-/// declared order, so every index has exactly one source here.
-struct SynthesizedIndices {
-    realloc: Option<FunctionIndex>,
-    string_to_bytes: Option<FunctionIndex>,
-    bytes_to_string: Option<FunctionIndex>,
-    validate_step: FunctionIndex,
-}
-
-impl SynthesizedIndices {
-    fn new(entry: FunctionIndex, needs_realloc: bool, needs_helpers: bool) -> Self {
-        let realloc = needs_realloc.then_some(FunctionIndex(entry.0 + 1));
-        let helper_base = entry.0 + 1 + u32::from(needs_realloc);
-        if needs_helpers {
-            Self {
-                realloc,
-                string_to_bytes: Some(FunctionIndex(helper_base)),
-                bytes_to_string: Some(FunctionIndex(helper_base + 1)),
-                validate_step: FunctionIndex(helper_base + 2),
-            }
-        } else {
-            Self {
-                realloc,
-                string_to_bytes: None,
-                bytes_to_string: None,
-                validate_step: FunctionIndex(helper_base),
-            }
-        }
-    }
 }
 
 pub(super) fn local_indices(

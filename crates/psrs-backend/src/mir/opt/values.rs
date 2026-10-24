@@ -125,6 +125,14 @@ pub(crate) fn remap_instruction(
         *value = mapping.get(value).copied().unwrap_or(*value);
     };
     match instruction {
+        I::StaticCell {
+            destination,
+            initial,
+            ..
+        } => {
+            replace(destination);
+            replace(initial);
+        }
         I::ControlEvidence {
             destination,
             value,
@@ -187,6 +195,9 @@ pub(crate) fn remap_instruction(
         | I::StringToBytes {
             destination, value, ..
         }
+        | I::HighI64 {
+            destination, value, ..
+        }
         | I::WrapI64 {
             destination, value, ..
         }
@@ -195,6 +206,16 @@ pub(crate) fn remap_instruction(
         } => {
             replace(destination);
             replace(value);
+        }
+        I::JoinI64 {
+            destination,
+            high,
+            low,
+            ..
+        } => {
+            replace(destination);
+            replace(high);
+            replace(low);
         }
         I::Call {
             destination,

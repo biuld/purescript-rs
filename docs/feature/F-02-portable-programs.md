@@ -188,6 +188,13 @@ Unary minus applies the ordinary in-scope `negate` function to its operand, so
 local bindings and imports follow the same name resolution rules as other
 function calls.
 
+
+Console timers preserve named timer lifecycle within one component instance.
+They use a monotonic clock, print elapsed milliseconds to stdout and lifecycle
+warnings to stderr. The stream-only console's clear operation emits nothing
+and preserves timers. `WASI.Clock.nowWords` exposes exact high/low clock words;
+the existing `now` keeps its low-word compatibility behavior. See the [platform contract](../design/backend/wasm/wasi-platform-library.md#console-timer-contract).
+
 ## Acceptance criteria
 
 - A supported source program produces a validated WASI component at the
