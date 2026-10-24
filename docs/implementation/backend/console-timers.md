@@ -6,7 +6,8 @@ Governing contracts: [WASI platform library](../../design/backend/wasm/wasi-plat
 [primitive FFI](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md), and
 [scalar storage](../../decision/DEC-16-scalar-strings-and-utf8-storage.md).
 
-Status: local implementation and acceptance complete; publication and merge pending.
+Status: implementation and local acceptance complete. Publication and merge status
+is tracked in [#160](https://github.com/biuld/purescript-rs/issues/160).
 The broader runtime gate remains Partial.
 
 ## Baseline
