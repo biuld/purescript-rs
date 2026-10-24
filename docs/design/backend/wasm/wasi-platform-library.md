@@ -119,7 +119,7 @@ must not be exported.
 | Console output | `wasi:cli/stdout`, `wasi:cli/stderr`, `wasi:io/streams` | `WASI.Console.log`, `WASI.Console.warn`, `WASI.Console.error :: String -> Effect Unit` |
 | Filesystem | `wasi:filesystem/types`, `wasi:filesystem/preopens` | `WASI.FileSystem`: `preopens`, `openRead`/`openWrite`/`openAppend`, `readFile`/`writeFile`/`readString`/`writeString`, `stat`/`statAt`/`getType`, `readDirectory`, `setTimes`, `withDescriptor` |
 | Network | `wasi:sockets/network`, `wasi:sockets/{instance-network,tcp,udp,tcp-create-socket,udp-create-socket}` | `WASI.Network`: `instanceNetwork`, `createTcpSocket`/`createUdpSocket`, the `tcp*`/`udp*` operations, and the `drop*` helpers |
-| Monotonic and wall clock | `wasi:clocks/monotonic-clock`, `wasi:clocks/wall-clock` | `WASI.Clock`: `now`, `wallNow`, `wallResolution`, `subscribeInstant`, `subscribeDuration` |
+| Monotonic and wall clock | `wasi:clocks/monotonic-clock`, `wasi:clocks/wall-clock` | `WASI.Clock`: `now`, `nowWords`, `wallNow`, `wallResolution`, `subscribeInstant`, `subscribeInstantWords`, `subscribeDuration` |
 | Random bytes | `wasi:random/random`, `wasi:random/insecure`, `wasi:random/insecure-seed` | `WASI.Random`: `randomBytes`, `randomU64`, `insecureBytes`, `insecureU64`, `insecureSeed` |
 | Process exit, arguments, environment | `wasi:cli/exit`, `wasi:cli/environment` | `WASI.Process`: `exitWithCode :: Int -> Effect Unit`, `arguments :: Effect (Array String)`, `environment :: Effect (Array { _1 :: String, _2 :: String })`. `main`'s integer code is still the synthesized `run` entry's call to `exit-with-code`, not this wrapper |
 | Umbrella | all of the above | `WASI` re-exports the curated API |
@@ -140,7 +140,7 @@ wrapper owns the corpus-facing name.
 | `Data.Monoid` | `class Monoid`, `mempty` | `Data.Semigroup`; `String`, `Unit`, and `Array a` identities | FE-14 |
 | `Data.Foldable` | `class Foldable`, `foldr`, `foldl`, `foldMap` | `Data.Monoid` and the array index primitives; `Array`, `Maybe`, and `Either a` instances | FE-14 |
 | `Data.Tuple` | `Tuple`, `fst`, `snd`, `curry`, `uncurry`, `swap` | the closed record `{ _1 :: a, _2 :: b }` that FE-06 already lowers a tuple to; `type Tuple a b` is that record, not an algebraic `data Tuple a b = Tuple a b` | FE-06 |
-| `Effect` | re-exports the `Prelude` surface above | `Prelude` | FE-02 |
+| `Effect` | official Effect type and instances, `untilE`, `whileE`, `forE`, `foreachE` | ordinary native computation facade and checked requests; the compiler-owned Effect protocol is withdrawn | FE-02, BE-21 |
 | `Effect.Console` | `log`, `warn`, `error`, `logShow`, and the timer/clear API; lifecycle and arithmetic are ordinary library code | `WASI.Console`, exact monotonic-clock words, checked static storage, and library rendering | BE-21 |
 | `Test.Assert` | `assert`, `assert'`, `assertEqual`, `assertEqual'`, `assertTrue`, `assertTrue'`, `assertFalse`, `assertFalse'`, `assertThrows`, `assertThrows'` | `Effect.Console.error`, `Prelude.trap`, and the checked `psrs:runtime-exception#checkThrows` channel for `assertThrows` | BE-21, BE-27 |
 | `Type.Proxy` | `Proxy`, `proxy` | the compiler's type spine; `data Proxy (a :: Type)` has no runtime payload | FE-11, FE-17 |
@@ -150,8 +150,8 @@ wrapper owns the corpus-facing name.
 ### Package ownership
 
 The locked package is larger than the wrapper table: `psrs-stdlib/lib/trusted`
-names **312 trusted modules** at lock
-`aef5c233bb67ef271d2b32433f2fdcc681903603`. The platform services (`WASI.*`)
+names **323 trusted modules** at lock
+`b817f3daf34247360216b48f10c14d8d14ccca3e`. The platform services (`WASI.*`)
 and corpus-facing wrappers above carry explicit FE/BE owners. Every other module
 is a pinned official library module, owned by the FE row for the language
 feature it exercises (FE-05 through FE-18) and the shared BE rows in D-04; a
@@ -159,11 +159,62 @@ feature it exercises (FE-05 through FE-18) and the shared BE rows in D-04; a
 package's `upstream-lock.json` records each source package, tag, and commit, so
 a vendored module does not need a separate row here to have an owner. The
 authoritative module list and load order is `psrs-stdlib/lib/trusted`, not this
-table. `Effect.Aff` still carries unimplemented foreigns, tracked as
-[#161](https://github.com/biuld/purescript-rs/issues/161) under Phase 5 / BE-21.
+table. The `Effect.Aff` foreign slots delegate to the typed target library,
+tracked as [#161](https://github.com/biuld/purescript-rs/issues/161) under Phase 5 /
+BE-21; its acceptance is separate from complete corpus/runtime coverage.
 The Console timer slice is tracked as [#160](https://github.com/biuld/purescript-rs/issues/160);
 its requirement and execution evidence is maintained in the
 [timer checklist](../../../implementation/backend/console-timers.md).
+
+### Cooperative Aff contract
+
+`Effect.Aff` preserves its pinned official exports, signatures, roles, instances
+and pure definitions. Seventeen foreign value slots delegate to ordinary target
+code. Aff and ParAff keep their official foreign-data declarations and use the
+existing erased-reference convention for applied opaque types. Only nullary
+Supervisor uses a constructor-free GC representation instead of a WASI resource
+handle; no public constructor is added.
+[DEC-26](../../../decision/DEC-26-cooperative-aff-scheduling.md) records this
+boundary and the [Aff checklist](../../../implementation/backend/effect-aff.md)
+records execution evidence.
+
+A library-owned machine stores explicit computation nodes, continuation/unwind
+frames, memoized fiber results, revocable callbacks and supervisor membership.
+All user continuations execute through a shared Defer/Computing boundary,
+outside state transformations. Publication checks current state, so a callback
+cannot overwrite a reentrant interrupt. Effect construction is deferred under
+the native source handler too: registration-construction exceptions obey the
+same first-result and stale-callback rules as exceptions during execution.
+Acquisition and finalization mask cancellation; kill waits for cleanup, while
+revoking a join only removes that observer. Parallel application/race waits for
+losing cleanup, and supervision snapshots children in registration order.
+
+The command-instance event loop owns ready FIFO work, deferred turns and waiting
+pollables. Nested fiber starts run immediately; callbacks enqueue resumptions.
+Zero delay yields a deferred turn, positive delays subscribe to exact monotonic
+clock deadlines, and blocking poll occurs only when ready work is exhausted.
+The loop examines timers between deferred turns. It releases a pollable once on
+fire/cancel and retains a revocable queued callback after release. This is
+cooperative source scheduling over synchronous WASI 0.2 imports, with no WASI
+0.3 async ABI, threads, stack switching or compiler-recognized Aff intrinsic.
+
+The ordinary `PSRS.Command.run` executes Effect main once, discards its result
+and drains pending events. A pending computation without events is idle and
+receives no invented result. An unsafe embedding under direct Int entry must
+supply its own event-loop boundary. Node's separate timer/immediate phases and
+process warning formatting are not WASI services. Nonzero delay values follow
+Node's integral 1..2147483647 millisecond normalization.
+
+The target retains pinned JS observations for finalizer outcome restoration
+and the left error when both Alt branches fail. Reentrant cancellation while
+registration is installing has an explicit typed target boundary: JS calls a
+temporary node as a function and throws TypeError; the target waits for the real
+canceler and invokes it once. That case is tested separately from JS agreement.
+Twelve source programs execute through library-owned tools, with nine public
+success cases agreeing with official JS output, two target-only scheduler cases
+and one unhandled-error case using the established stackless exception contract.
+A separate fixed-GC-reservation stress execution checks reclamation. This does
+not close the broader BE-21 or L6/M7 gates.
 
 ### Console timer contract
 
@@ -341,8 +392,9 @@ that contract into the component world.
   ([DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md)).
 - **A project-specific runtime ABI (`psrs:runtime`).** Rejected: WASI already
   plays that role and the standard library should be library code.
-- **WASI 0.3 / async components in the stable profile.** Rejected for now: the
-  source language has no async features and the runtime is synchronous.
+- **WASI 0.3 / async components in the stable profile.** Rejected for now:
+  cooperative Aff scheduling uses ordinary library state and WASI 0.2 pollables;
+  a native async component ABI requires a separate target decision.
 - **A syntax-directed list of host functions in the compiler.** Rejected:
   services are ordinary source over WIT imports.
 
@@ -496,8 +548,8 @@ interfaces) and exports `wasi:cli/run@0.2.12`. `wasmtime run hello.wasm` calls
 
 - **More services.** Arguments, environment, and filesystem, then sockets, HTTP,
   and TLS, each behind its own capability flag and source library.
-- **WASI 0.3 / async components**, once the language has async features and the
-  runtime target is revised.
+- **WASI 0.3 / async components**, after an explicit runtime/ABI decision;
+  cooperative source Aff does not enable native async component imports.
 - **Reclamation**, so returned lists and resources do not leak
   ([canonical ABI and WIT](canonical-abi-and-wit.md)).
 

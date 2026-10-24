@@ -5,7 +5,8 @@
 [linking and runtime (Draft)](../design/backend/wasm/linking-and-runtime.md),
 [algebraic effects and handlers (Draft proposal)](../design/backend/fp/algebraic-effects-and-handlers.md),
 [native Effect/ST handlers (Draft proposal)](../design/backend/fp/native-effect-and-st-handlers.md),
-[exceptions as effects](../design/backend/fp/exceptions-as-effects.md)
+[exceptions as effects](../design/backend/fp/exceptions-as-effects.md),
+[WASI platform library](../design/backend/wasm/wasi-platform-library.md)
 
 ## User need
 
@@ -18,13 +19,14 @@ A proposed library-level algebraic effects API would let programs describe
 operations and supply different handlers for production and testing, using
 existing PureScript syntax and types. The representation for the generic handler
 mechanism is recorded as a decision ([DEC-19](../decision/DEC-19-compiler-generated-resumable-frames.md));
-a separate draft proposes implementing the official Effect/ST APIs over library
-native handlers while preserving their public contracts. The low-level control surface now supports closed and open interpretation,
+the official Effect/ST APIs now execute through the locked package while their
+native-handler design retains its separate acceptance scope. The low-level
+control surface now supports closed and open interpretation,
 persistent multi-shot continuations, and explicit one-shot owners. Calling or
 interpreting an expired continuation, reusing a spent owner, or resuming a
-cancelled owner traps. Full library APIs, host interpretation and official-suite
-acceptance remain incomplete; this does not restore the former `Effect Unit`
-entry capability.
+cancelled owner traps. Broader generic-handler APIs, host interpretation and
+official-suite acceptance remain incomplete; the former compiler-owned Effect
+entry is withdrawn.
 
 The typed-failure library provides abortive requests and recovery. Recovery
 starts after the failed computation's scope has completed, leaving its retained
@@ -76,10 +78,10 @@ an ordinary runner to adapt its source entry to that integer command boundary.
 The runner's implementation determines execution behavior; the compiler does
 not discover an Effect type or synthesize its operations.
 
-The former `Effect Unit` entry adaptation and lexical `runEffect` restriction
-were removed on 2026-10-11. Their replacement remains a draft proposal. Earlier platform
-coverage below does not establish current execution of package sources that
-depend on the withdrawn Effect or State mechanisms.
+The former compiler-owned `Effect Unit` entry adaptation and lexical
+`runEffect` restriction were removed on 2026-10-11. The locked package now
+provides an ordinary runner for Effect entries: it executes main once,
+discards the result and processes pending asynchronous events before exit.
 
 The compiler emits a WASI 0.2 Component Model artifact. The legacy WASI
 Preview 1 module ABI is not part of the supported output contract.
@@ -195,6 +197,15 @@ warnings to stderr. The stream-only console's clear operation emits nothing
 and preserves timers. `WASI.Clock.nowWords` exposes exact high/low clock words;
 the existing `now` keeps its low-word compatibility behavior. See the [platform contract](../design/backend/wasm/wasi-platform-library.md#console-timer-contract).
 
+`Effect.Aff` provides cooperative asynchronous computations. Delays use real
+monotonic time while sibling fibers can progress. Suspended fibers begin when
+joined; joins reuse their result. Cancellation waits for protected acquisition
+and cleanup, parallel races wait for losing cleanup, and supervision cleans
+children when the parent exits. A command can become idle while
+a computation remains pending without scheduled events. These behaviors use the WASI 0.2
+platform; native asynchronous WASI services and Node event-loop phase ordering
+have separate contracts. See the [Aff platform contract](../design/backend/wasm/wasi-platform-library.md#cooperative-aff-contract).
+
 ## Acceptance criteria
 
 - A supported source program produces a validated WASI component at the
@@ -223,5 +234,5 @@ Synchronous `Effect.Exception` preserves the official public API with a
 message-only Error: name is Error, stack is Nothing, and Show uses the stackless
 error-string fallback. Throw/catch actions execute when interpreted. Source
 catches recover source errors only; stack exhaustion and engine traps propagate.
-Source stack traces and asynchronous exceptions remain separate work. See the
-[exception contract](../design/backend/fp/effect-exception.md).
+Source stack traces and host-delivered asynchronous exceptions remain separate
+work. See the [exception contract](../design/backend/fp/effect-exception.md).
