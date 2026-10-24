@@ -9,7 +9,9 @@
 use psrs_hir::{TypeId as HirTypeId, TypeVariableId};
 
 mod call;
+mod compact;
 mod variables;
+mod visit;
 pub use call::call_parts;
 pub(crate) use variables::{collect_free_variables, free_variables};
 

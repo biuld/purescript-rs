@@ -40,4 +40,6 @@ jobs:
           echo "$RUNNER_TEMP/wasmtime-v48.0.2-x86_64-linux" >> "$GITHUB_PATH"
       - run: wasmtime --version
       - run: cargo fmt --all --check
+      - name: Check runtime measurement orchestration
+        run: python3 -m unittest discover -s crates/psrs-driver/tests/suite -p test_runtime_runner.py -v
       - run: cargo test --workspace

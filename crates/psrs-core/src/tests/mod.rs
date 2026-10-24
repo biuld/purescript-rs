@@ -11,6 +11,7 @@ mod patterns;
 mod rank_n;
 mod record_scope;
 mod rows;
+mod type_compaction;
 
 /// Appends an arrow `parameter -> result` as the application spine and returns
 /// its type id.

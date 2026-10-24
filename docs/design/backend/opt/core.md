@@ -121,6 +121,17 @@ External declarations and binding metadata are validated independently of
 reachability; P7 cannot hide a malformed declaration by dropping its last use.
 The final binding side table is checked at the P8 boundary.
 
+After program reachability pruning, the driver compacts the Core type table
+before entering P7. `Module::compact_types` verifies the complete input,
+including unused type nodes, retains the transitive type graph rooted in every
+remaining expression, binder, pattern, cast, constructor field and checked
+external signature, and remaps every retained reference in one operation.
+Quantifier identities, declaration identities, spans and graph structure are
+preserved; only table positions change. The result is verified again. Invalid
+input leaves the module unchanged, so an unused cycle or dangling reference
+cannot disappear through compaction. External signatures remain roots even
+when no executable expression uses them.
+
 ## Code map
 
 `crates/psrs-core/src/opt/` owns P7. `mod.rs` defines

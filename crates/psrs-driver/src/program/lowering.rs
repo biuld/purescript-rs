@@ -69,7 +69,7 @@ pub(super) fn lower_program_inner(
         linked.entry = Some(symbol);
         psrs_core::prune_unreachable(&mut linked, symbol);
     }
-    if let Err(errors) = linked.verify() {
+    if let Err(errors) = linked.compact_types() {
         return Err(errors
             .into_iter()
             .map(|error| ProgramDiagnostic {

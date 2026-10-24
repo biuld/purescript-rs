@@ -5,6 +5,40 @@ change. It creates reproducible evidence, locates the earliest observed
 boundary, and checks the same inputs after a change. Compile evidence and
 runtime evidence answer different questions and must be recorded separately.
 
+## Bounded runtime measurements
+
+Build the release suite with `cargo test --release -p psrs-driver --test suite
+--no-run`, and copy the executable reported by Cargo to a stable artifact path.
+The runtime runner accepts that frozen executable:
+
+```sh
+python3 crates/psrs-driver/tests/suite/run_runtime.py /tmp/psrs-suite-frozen \
+  --workers 4 --out /tmp/psrs-runtime-measurement
+```
+
+Use repeated `--case NAME.purs` arguments for a comparable small cohort and
+`--baseline PATH/results.json` for the agreement name-set comparison. Each case
+has its own process and temporary directory. `--repo` names the checkout used
+to build the executable; it does not redirect the executable to another corpus.
+Inherited corpus and development-library overrides are removed. The runner archives compiler
+sources, records executable and source hashes, captures every root's log, and
+rejects changes to compiler inputs during a run. Results are retained after
+each completed root. A full-inventory summary is written only after all roots
+complete; a filtered or interrupted run does not establish a full gate count.
+
+The guest still has the suite's 10-second timeout and 524288-byte engine stack.
+Normal case processes have a 110-second outer bound. `BigFunction` runs after
+the worker pool exits, with the existing 90-second compiler bound and 8 GiB
+compiler-only address-space limit; the engine wrapper releases that limit for
+Wasmtime. An allocation failure is an incomplete compiler verdict, never a
+passing program. Compare a serial and parallel cohort before changing worker
+settings, and audit exclusions, recoveries, losses and stage counts before
+publishing a replacement measurement.
+
+The runner's operational-failure tests run in the required CI workflow and can
+also be invoked with `python3 -m unittest discover -s
+crates/psrs-driver/tests/suite -p test_runtime_runner.py -v`.
+
 For roadmap work, first select an issue using the phase and dependency rules in
 [`AGENTS.md`](../../AGENTS.md#choosing-the-next-item), then read its references
 and validation requirements. Diagnosis helps investigate the selected work; it

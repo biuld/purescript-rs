@@ -223,7 +223,7 @@ matching purs. The source counterexample is part of the shared rejection battery
 | AS-04 | Dictionary-bearing and imported annotations share normal checking and use operations | Qualified/specialized cases and a two-module producer/consumer execute with distinct Boolean and Int dictionaries | Verified for covered cases |
 | AS-05 | Adaptation preserves evaluation count and source order | Effect.Ref history 123 and result 42 under mandatory Wasmtime and independent purs/Node | Verified for covered case |
 | AS-06 | Original official roots compile, validate and execute without source edits | All three original paths compile and execute through the public CLI; stdout/stderr/exits match purs/Node; full runtime board is separate | Verified for three roots |
-| AS-07 | Full native and official gates are reconciled without losing prior agreement | Five frontend boards and the corrected integrated workspace pass; full runtime measurement pending | Unverified |
+| AS-07 | Full native and official gates are reconciled without losing prior agreement | Five frontend boards, 2373 workspace tests and the complete audited 315/340 runtime board pass; exactly three recoveries and no losses | Verified for measured inventory |
 
 Nine shared accepted programs in `tests/support/rank_n/annotations.rs` cover
 written and nested scopes, records, constraints, specialization, full/partial/
@@ -295,7 +295,27 @@ compiler allocation verdict under its 8 GiB compiler-only bound.
 The corrected implementation also incorporates the merged aggregate ABI tests
 from master. Its replacement workspace completes 77 test targets with 2369 passed, zero
 failed and seven ignored under mandatory Wasmtime. Formatting, full Clippy,
-the focused purs comparison and replacement frontend boards pass. The complete
-runtime run remains required before publishing a new gate count. The runtime limits, library lock and
-checking environments remain unchanged. Published acceptance stays 312/340;
-RN-12 and FE-18 remain incomplete.
+the focused purs comparison and replacement frontend boards pass. Its serial
+runtime replacement was stopped after 83 roots to address its validation cost;
+that partial run does not establish a gate count.
+
+The integrated [Core type-compaction follow-up](../backend/core-type-compaction.md)
+passes 2373 workspace tests, zero failures and seven ignored, formatting, full
+Clippy, the explicit complete-support execution and two runner tests. The frozen
+release suite `/tmp/psrs-suite-perf-suite-final`, SHA-256
+`032d7275b03bceade76e5fb77e66a0900f6698c201b810e8f3e4c1edcb33debd`,
+completes all 365 roots in 2022.533 seconds with four workers: **315/340**,
+25 identical FFI exclusions, all agreeing exits zero. Exactly `2941`,
+`CheckTypeClass` and `ScopedTypeVariables` recover from 312/340; none loses
+agreement. The remaining 25 are 11 P5 typecheck, 3 P5 kind check, 5 P3 resolve,
+1 P8 closure conversion, 2 P0 lex, the TCOMutRec trap, the 2288 guest timeout,
+and BigFunction's incomplete allocation verdict under its compiler-only 8 GiB
+bound. Runtime limits, library lock and checking environments remain unchanged.
+The driver exits zero and the executed audit verifies 1183 archived build
+inputs, all 439 corpus sources, exact exclusions, recoveries and failure-stage
+counts. Evidence is in
+`/tmp/psrs-suite-perf-runtime-board-final-v2/{measurement,results,summary,acceptance-audit}.json`.
+Fresh public-CLI/native/Node comparisons after compaction are in
+`/tmp/psrs-suite-perf-original-execution/comparison.json`. The temporary-disk
+failure attempt is retained separately and is not acceptance. RN-12 and FE-18
+remain incomplete.
