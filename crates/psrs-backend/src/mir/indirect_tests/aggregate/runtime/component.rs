@@ -47,17 +47,17 @@ fn assemble(guest: &wasm::Module, host: &str) -> String {
         );
         let ty = &guest.types[(import.type_index.0 - guest.defined_type_count()) as usize];
         let sig = signature(ty);
+        let is_allocator = import.module == psrs_runtime::ALLOCATOR_MODULE;
         write!(shim, "(type $t{index} (func {sig}))").unwrap();
         write!(shim, "(func (export {:?}) {sig} ", import.name).unwrap();
+        if !is_allocator {
+            shim.push_str("global.get $calls i32.const 1 i32.add global.set $calls ");
+        }
         for parameter in 0..ty.parameters.len() {
             write!(shim, "local.get {parameter} ").unwrap();
         }
         write!(shim, "i32.const {index} call_indirect (type $t{index}))").unwrap();
-        let provider = if import.module == psrs_runtime::ALLOCATOR_MODULE {
-            "allocator"
-        } else {
-            "host"
-        };
+        let provider = if is_allocator { "allocator" } else { "host" };
         write!(
             install,
             "(import {provider:?} {:?} (func $f{index} {sig}))",
@@ -95,6 +95,8 @@ fn assemble(guest: &wasm::Module, host: &str) -> String {
     format!(
         r#"(component
       (core module $shim-module
+        (global $calls (mut i32) (i32.const 0))
+        (func (export "observed-calls") (result i32) global.get $calls)
         (table (export "table") {count} funcref) {shim})
       (core instance $shim (instantiate $shim-module))
       {guest_module}
@@ -110,8 +112,17 @@ fn assemble(guest: &wasm::Module, host: &str) -> String {
       (core instance $installed (instantiate $install-module
         (with "shim" (instance $shim)) (with "host" (instance $host))
         (with "allocator" (instance $allocator))))
+      (core module $check-module
+        (import "guest" {run:?} (func $run (result i32)))
+        (import "shim" "observed-calls" (func $observed (result i32)))
+        (func (export "check") (result i32) (local $result i32)
+          call $run local.set $result
+          call $observed i32.const 1 i32.ne if unreachable end
+          local.get $result))
+      (core instance $check (instantiate $check-module
+        (with "guest" (instance $guest)) (with "shim" (instance $shim))))
       (func (export "check") (result s32)
-        (canon lift (core func $guest {run:?}))))"#,
+        (canon lift (core func $check "check"))))"#,
         count = guest.imports.len(),
         guest_module = core_module("guest-module", &bytes),
         run = abi::RUN_CORE_EXPORT,

@@ -350,6 +350,9 @@ functions and the pinned production allocator. A forwarding table resolves the
 host function's dependency on guest memory after guest instantiation. The
 exported scalar check is lifted and invoked by Wasmtime; a mismatched host
 parameter traps, and recovered results are observed by guest projections.
+A shim counter additionally requires exactly one canonical test-function call
+per component, excluding allocator calls; a zero-valued main cannot hide a
+removed parameter call.
 No source front end, official corpus, library or runtime implementation changes.
 
 All ten tests pass under mandatory Wasmtime 48.0.1, with 17 component calls:
@@ -386,12 +389,21 @@ A separate mandatory execution retains all 17 component WAT files and SHA-256
 hashes under `/tmp/psrs-aggregate-evidence/`; `execution.log` records ten passing
 tests and `artifacts.json` inventories every executed component. The capture
 wrapper copies the input and delegates unchanged to `/usr/bin/wasmtime`.
-Final validation passes `cargo fmt --all --check`,
+A retained negative component replaces the guest invocation with a zero result;
+it traps at the call-count guard. This is an observation experiment, not an
+original fixture acceptance case. The earlier artifacts before the counter
+addition remain separately under `/tmp/psrs-aggregate-evidence-c8c85e06/`.
+
+At `c8c85e06`, validation passes `cargo fmt --all --check`,
 `PSRS_REQUIRE_WASMTIME=1 RUST_TEST_THREADS=2 cargo test --workspace` and
 `cargo clippy --workspace --all-targets -- -D warnings`. Across 76 targets,
 including doc-tests, the workspace reports **2366 passed, zero failed, seven
 ignored**. Final logs are `/tmp/psrs-aggregate-{workspace,format,clippy}-final.log`.
 The complete aggregate selection separately passes 33/33 with mandatory Wasmtime.
+The subsequent call-count witness passes the same 33/33 selection and full
+formatting/Clippy; `/tmp/psrs-aggregate-counter-{focused,format,clippy}.log`
+records those checks. Full workspace validation of this commit runs in the required CI job and must
+pass before merging.
 The seven ignored targets (six suite boards and the expensive complete-support
 acceptance) were not rerun for this test-only change: their implementations and
 official inputs are unchanged, and no new corpus-wide measurement is claimed.
