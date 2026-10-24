@@ -186,3 +186,116 @@ runs are separate observations. Final workspace/frontend/fmt logs use the
 `final-v3` suffix; the focused and Clippy logs use `boundaries-focused` and
 `boundaries-clippy`. RN-12 and FE-18 remain incomplete; this repair does not
 establish corpus-wide rank-N coverage.
+
+## Written annotation scopes (2026-10-24)
+
+Issue [#175](https://github.com/biuld/purescript-rs/issues/175) starts from a
+clean isolated `b2351e5b`. A written annotation was first probed, then its body
+was checked again at the outer use type. This lost its own binder scope when
+nested annotations renamed variables. Independently, consuming a compound
+polymorphic expression changed its root type without retaining the quantifiers
+needed by its internal types and dictionaries.
+
+Leading expected quantifiers and givens now enter their ordinary scope before
+an inner annotation is checked. The written value is checked once and retained
+in an administrative local binding; the ordinary variable checker adapts a use
+of that binding. The same preservation operation serves full instantiation,
+head-constraint consumption and visible type application. Definitions keep their
+original nested types and evidence, while references and wrapper result types
+use distinct scopes from the shared scheme/kind freshener. This introduces no
+new impredicative inference or relaxed escape rule.
+
+The former discard-on-success annotation probe is removed. Failed speculation
+now restores both solver state and lexical scope through the common owner,
+retaining diagnostics only when the caller requests them. The speculation
+regressions exercise kind/level/wanted allocations, dictionary local IDs,
+annotation variables, givens, warnings and diagnostic retention. Additional
+scope tests require lexical locals to be restored and newly introduced skolems
+to remain rigid after leaving a given. A functional-dependency counterexample
+that both the baseline and first prototype incorrectly accepted is now rejected,
+matching purs. The source counterexample is part of the shared rejection battery.
+
+| ID | Requirement | Evidence | State |
+| --- | --- | --- | --- |
+| AS-01 | Written forall binders scope the checked body and shadow outer binders correctly | Single, nested, record and shadowing cases; scope-exit and rigid escape rejections agree with purs | Verified for covered cases |
+| AS-02 | Compound values retain definition scope at every quantifier-consumption entry | Full/partial/skipped visible applications and ordinary monomorphic uses execute; existing returned-value regression remains valid | Verified for covered cases |
+| AS-03 | Failed adaptations restore the complete solver and lexical environment | Four shared scope tests preserve allocation counters, kinds, levels, annotations, givens and diagnostics; lexical locals restore and body skolems remain rigid | Verified for covered cases |
+| AS-04 | Dictionary-bearing and imported annotations share normal checking and use operations | Qualified/specialized cases and a two-module producer/consumer execute with distinct Boolean and Int dictionaries | Verified for covered cases |
+| AS-05 | Adaptation preserves evaluation count and source order | Effect.Ref history 123 and result 42 under mandatory Wasmtime and independent purs/Node | Verified for covered case |
+| AS-06 | Original official roots compile, validate and execute without source edits | All three original paths compile and execute through the public CLI; stdout/stderr/exits match purs/Node; full runtime board is separate | Verified for three roots |
+| AS-07 | Full native and official gates are reconciled without losing prior agreement | Five frontend boards and the corrected integrated workspace pass; full runtime measurement pending | Unverified |
+
+Nine shared accepted programs in `tests/support/rank_n/annotations.rs` cover
+written and nested scopes, records, constraints, specialization, full/partial/
+skipped visible application and shadowing. Three shared rejections keep binders
+from leaking, reject a rigid specialization, and keep nested skolems rigid after
+a given scope exits. The same native and purs
+battery also checks the two-module annotation program. Mandatory rank-N
+execution passes all four test functions, including these additions and the
+existing corpus alias execution. The source/observable comparisons use installed
+purs 0.15.16; full Clippy, formatting and the five frontend boards pass for the corrected
+implementation after incorporating the aggregate ABI tests.
+
+`tests/annotation_scope.rs` separately compiles ordinary Prelude, Effect.Ref and
+Effect.Unsafe wrappers. Its nested annotated value must evaluate once between
+writes 1 and 3, then work at Boolean and Int. Native execution returns 42.
+`/tmp/psrs-annotation-order-oracle/measurement.json` records the exact same user
+source and all 280 official compile inputs, their hashes, compile exit zero,
+and Node's `42\n`, empty stderr and exit zero. This compares values under the
+project's Int command protocol; it does not assert identical output protocols.
+
+The exact 30-second diagnoses
+`/tmp/psrs-annotation-isolated-{before,after}-{single,nested,record,2941}.json`
+retain complete source sets and requested traces. All four comparisons verify
+identical inputs and library fingerprints. Original `2941` recovers from P5
+rejection to complete compilation. The three main-less reductions instead
+reach P10's missing-entry diagnostic: their type checks recover, but they are
+not executable acceptance cases. Corrected-version repeats under
+`/tmp/psrs-annotation-scope-v2-{after,compare}-` verify the same four input
+sets and lock, with the same recovered stages and no timeout. Canonical
+artifact-content and expression lineage comparisons remain unavailable.
+
+The preserved clean-baseline executable also reproduces the original P5
+monotype-finalization blockers in `CheckTypeClass` and `ScopedTypeVariables`;
+both compile after the repair. All three unchanged original paths also compile
+through the public CLI and execute under Wasmtime with a 524288-byte stack and
+10-second guest bound. Their stdout is exactly `Done\n`, stderr empty and exit
+zero, matching separate purs/Node executions. Retained components, official JS,
+source hashes and the comparison are in
+`/tmp/psrs-annotation-scope-v2-original-execution/comparison.json`; unchanged
+official JS remains in the original execution directory. This observes the
+original main programs; the shared value-sensitive cases separately exercise
+the annotated functions and dictionaries. Their paired reports use the
+`/tmp/psrs-annotation-adjacent-` prefix. Later baseline invocations observe a
+dirty checkout, so their recorded executable identity, matching the earlier
+clean baseline, is authoritative for which compiler ran. Controlled reductions
+under `/tmp/psrs-annotation-adjacent-reductions` remove the relevant annotation:
+both controls pass both compilers; both annotated forms fail before and pass
+after; purs accepts all four. These are diagnosis experiments, not modifications
+to official acceptance inputs.
+
+The complete-support value/order acceptance also executes successfully with
+all 309 locked support sources. Five frontend boards pass: L1 904/908 (four
+DEC-16 differences), L2 76/76 with 403/413 passing resolution, L3 50/50,
+L4 65/65, L5 101/101, and roles 12/12. Logs use the
+`/tmp/psrs-annotation-` prefix. The initial workspace attempt caught an invalid
+flat module filename; it is corrected by grouping `expected/mod.rs` and
+`expected/value.rs`. No verifier or source-layout rule is weakened.
+
+The first frozen release harness `/tmp/psrs-annotation-suite-final`, SHA-256
+`79a71bf4a03aa73fb2a2f86a8c7472029fa967595357d9e80129eedffefee9ba`,
+completed all 365 roots and passed its complete inventory audit: **315/340**,
+exactly the three named recoveries and no lost agreement. This is evidence for
+the first prototype, before the final lexical/given-scope corrections. It does
+not establish acceptance of the corrected implementation. Its archived sources,
+layout normalization and result decomposition remain under
+`/tmp/psrs-annotation-runtime-board-final`; BigFunction retains an incomplete
+compiler allocation verdict under its 8 GiB compiler-only bound.
+
+The corrected implementation also incorporates the merged aggregate ABI tests
+from master. Its replacement workspace completes 77 test targets with 2369 passed, zero
+failed and seven ignored under mandatory Wasmtime. Formatting, full Clippy,
+the focused purs comparison and replacement frontend boards pass. The complete
+runtime run remains required before publishing a new gate count. The runtime limits, library lock and
+checking environments remain unchanged. Published acceptance stays 312/340;
+RN-12 and FE-18 remain incomplete.

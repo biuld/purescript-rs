@@ -20,6 +20,7 @@ pub(in crate::typecheck) fn infer_type_application(
     let mut variables = checker.scope.annotation_variables.clone();
     let argument = checker.elaborate_type(ty, &mut variables);
     let operand = checker.infer_expr(expression)?;
+    let (binding, operand) = checker.prepare_expression_use(operand);
     let mut operand = checker.instantiate_until_visible_expr(operand);
     let resolved = checker.resolve_type(operand.ty.clone());
     let InferType::ForAll {
@@ -42,7 +43,7 @@ pub(in crate::typecheck) fn infer_type_application(
             body,
         };
         operand.span = span;
-        return Some(operand);
+        return Some(checker.finish_expression_use(binding, operand));
     }
     let quantifier = variables[0];
     if let (Some(expected), Some(actual)) = (
@@ -67,7 +68,8 @@ pub(in crate::typecheck) fn infer_type_application(
     }
     operand.ty = checker.resolve_type(result);
     operand.span = span;
-    Some(checker.instantiate_head_constraints(operand, span))
+    let operand = checker.instantiate_head_constraints(operand, span);
+    Some(checker.finish_expression_use(binding, operand))
 }
 
 fn report_unapplicable(checker: &mut Checker, skip: bool, span: TextRange) -> Option<InferredExpr> {

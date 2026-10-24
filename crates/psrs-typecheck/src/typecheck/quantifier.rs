@@ -128,9 +128,10 @@ impl Checker {
     /// this; visibility does not stop it.
     pub(in crate::typecheck) fn instantiate_all_expr(
         &mut self,
-        mut expression: InferredExpr,
+        expression: InferredExpr,
         span: TextRange,
     ) -> InferredExpr {
+        let (binding, mut expression) = self.prepare_expression_use(expression);
         loop {
             let ty = self.resolve_type(expression.ty.clone());
             match ty {
@@ -147,34 +148,33 @@ impl Checker {
                 _ => break,
             }
         }
-        expression
+        self.finish_expression_use(binding, expression)
     }
 
     /// Instantiates a leading invisible quantifier prefix and stops at the
     /// first visible binder. Constraints are left for the caller.
     pub(in crate::typecheck) fn instantiate_until_visible_expr(
         &mut self,
-        mut expression: InferredExpr,
+        expression: InferredExpr,
     ) -> InferredExpr {
+        let (binding, mut expression) = self.prepare_expression_use(expression);
         let span = expression.span;
         let (constraints, ty) = self.peel_until_visible(self.resolve_type(expression.ty.clone()));
         expression.ty = ty;
-        if constraints.is_empty() {
-            expression
-        } else {
-            // An invisible prefix can expose a constraint that does not depend
-            // on a still-visible binder. That constraint is wanted now.
-            self.apply_constraints(expression, constraints, span)
-        }
+        // An invisible prefix may expose constraints independent of the
+        // still-visible binders. Apply them to the reference, retaining its value.
+        let expression = self.apply_constraints(expression, constraints, span);
+        self.finish_expression_use(binding, expression)
     }
 
     /// `instantiateConstraint`: peel leading constraints and stop at the next
     /// quantifier or monotype.
     pub(in crate::typecheck) fn instantiate_head_constraints(
         &mut self,
-        mut expression: InferredExpr,
+        expression: InferredExpr,
         span: TextRange,
     ) -> InferredExpr {
+        let (binding, mut expression) = self.prepare_expression_use(expression);
         loop {
             let ty = self.resolve_type(expression.ty.clone());
             let InferType::Constrained { constraints, body } = ty else {
@@ -183,7 +183,7 @@ impl Checker {
             expression.ty = *body;
             expression = self.apply_constraints(expression, constraints, span);
         }
-        expression
+        self.finish_expression_use(binding, expression)
     }
 
     /// The leading quantifiers and constraints of an elaborated method type.

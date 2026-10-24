@@ -12,7 +12,7 @@ use super::*;
 
 mod coercible;
 mod outcomes;
-mod probe;
+mod speculation;
 mod symbol_rules;
 use crate::typecheck::classes::SolveDepth;
 use crate::typecheck::{ClassConstraint, TypeConstructor, TypecheckContext};

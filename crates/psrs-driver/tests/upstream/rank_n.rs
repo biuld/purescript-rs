@@ -49,6 +49,12 @@ fn differential_rank_n_rules_against_purs() {
     ));
     psrs_driver::check_program(cases::aliases::IMPORTED)
         .expect("imported aliases retain quantifiers");
+    assert!(purs_accepts_sources(
+        "imported-annotations",
+        cases::annotations::IMPORTED
+    ));
+    psrs_driver::check_program(cases::annotations::IMPORTED)
+        .expect("imported annotations preserve scopes and dictionaries");
     psrs_driver::check_program(cases::LINKED).expect("check imported quantified types");
     for (expected, cases) in [
         (true, cases::ACCEPT),
