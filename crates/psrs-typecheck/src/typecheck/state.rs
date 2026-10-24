@@ -149,8 +149,7 @@ impl InferState {
 
 impl Checker {
     /// Runs `f` as a candidate whose effects must not survive a failure: an
-    /// instance match, a subsumption trial, or an annotation that has to be
-    /// re-checked.
+    /// instance match, a subsumption trial, or an annotated expression adaptation.
     ///
     /// On success the candidate's substitutions, kinds, evidence, and
     /// diagnostics all stay. On failure the whole mutable state is restored,
@@ -172,40 +171,13 @@ impl Checker {
         self.speculate_impl(true, f)
     }
 
-    /// Checks a candidate and always restores its solver and lexical effects.
-    ///
-    /// A successful probe contributes no substitutions, evidence, warnings, or
-    /// diagnostics to the caller. A failed probe keeps its diagnostics, because
-    /// the caller is checking an annotation whose failure is itself reportable.
-    pub(super) fn probe_reporting(
-        &mut self,
-        f: impl FnOnce(&mut Self) -> Option<()>,
-    ) -> Option<()> {
-        let state = self.state.snapshot();
-        let scope = self.scope.clone();
-        let errors_before = self.state.errors.len();
-        let warnings_before = self.state.warnings.len();
-        let result = f(self);
-        let errors = self.state.errors.split_off(errors_before);
-        let warnings = self.state.warnings.split_off(warnings_before);
-        self.state.restore(state);
-        self.scope = scope;
-        match result {
-            Some(value) if errors.is_empty() => Some(value),
-            _ => {
-                self.state.errors.extend(errors);
-                self.state.warnings.extend(warnings);
-                None
-            }
-        }
-    }
-
     fn speculate_impl<T>(
         &mut self,
         keep_diagnostics: bool,
         f: impl FnOnce(&mut Self) -> Option<T>,
     ) -> Option<T> {
         let snapshot = self.state.snapshot();
+        let scope = self.scope.clone();
         let errors_before = self.state.errors.len();
         let warnings_before = self.state.warnings.len();
         match f(self) {
@@ -214,6 +186,7 @@ impl Checker {
                 let kept = self.state.errors.split_off(errors_before);
                 let kept_warnings = self.state.warnings.split_off(warnings_before);
                 self.state.restore(snapshot);
+                self.scope = scope;
                 if keep_diagnostics {
                     self.state.errors.extend(kept);
                     self.state.warnings.extend(kept_warnings);
@@ -249,8 +222,13 @@ impl Checker {
         }
         let result = f(self);
         self.scope.givens = previous_givens;
-        self.state.rigid = previous_rigid;
-        self.scope.given_rigid = previous_given_rigid;
+        let introduced = std::mem::replace(&mut self.scope.given_rigid, previous_given_rigid);
+        for variable in introduced {
+            self.state.rigid.remove(&variable);
+        }
+        // A skolem created by the body outlives this given scope. Remove only
+        // the temporary rigidity this scope introduced, retaining all skolems.
+        self.state.rigid.extend(previous_rigid);
         result
     }
 
@@ -321,7 +299,7 @@ impl Checker {
     }
 
     /// Runs `f` in a nested lexical scope and restores what that scope owns: the
-    /// annotation variables in scope and the solver level. Entering and leaving
+    /// local bindings, annotation variables and solver level. Entering and leaving
     /// is this operation's whole contract, so a signature scope cannot leave an
     /// annotation variable behind for the next declaration to pick up.
     ///
@@ -331,8 +309,10 @@ impl Checker {
     /// instead.
     pub(super) fn with_scope<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let annotation_variables = self.scope.annotation_variables.clone();
+        let locals = self.scope.locals.clone();
         let level = self.state.level;
         let result = f(self);
+        self.scope.locals = locals;
         self.scope.annotation_variables = annotation_variables;
         self.state.level = level;
         result

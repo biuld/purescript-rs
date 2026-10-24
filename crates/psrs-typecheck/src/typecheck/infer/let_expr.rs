@@ -15,8 +15,7 @@ impl Checker {
         body: &hir::Expr,
         expected: Option<InferType>,
     ) -> Option<(InferredExprKind, InferType)> {
-        let previous_locals = self.scope.locals.clone();
-        let result = self.with_scope(|checker| {
+        self.with_scope(|checker| {
             let mut binders = Vec::with_capacity(bindings.len());
             for binding in bindings {
                 // An annotated local is predeclared at its written type so a
@@ -64,9 +63,7 @@ impl Checker {
                 },
                 ty,
             ))
-        });
-        self.scope.locals = previous_locals;
-        result
+        })
     }
 
     /// The scheme a local binder is predeclared with. An explicit annotation is

@@ -1,5 +1,7 @@
 use super::super::*;
 
+mod value;
+
 impl Checker {
     /// Checks an expression against an expected type. Leading quantifiers are
     /// checked rigidly; lambdas, records, and arrays receive their expected
@@ -23,63 +25,6 @@ impl Checker {
             return self.infer_expr(expression);
         };
         let expected = self.resolve_type(expected);
-
-        if let hir::ExprKind::Typed {
-            expression: inner,
-            ty,
-        } = &expression.kind
-        {
-            let mut checked = self.speculate_reporting(|checker| {
-                let errors_before = checker.state.errors.len();
-                let mut annotation_variables = checker.scope.annotation_variables.clone();
-                let annotation = checker.elaborate_type(ty, &mut annotation_variables);
-                checker.probe_reporting(|trial| {
-                    let errors_before = trial.state.errors.len();
-                    trial.infer_expr_with_expected(inner, Some(annotation.clone()))?;
-                    (trial.state.errors.len() == errors_before).then_some(())
-                })?;
-
-                let polymorphic_expected = matches!(&expected, InferType::ForAll { .. });
-                let used = if polymorphic_expected {
-                    checker.subsume(annotation.clone(), expected.clone(), expression.span);
-                    checker.infer_expr_with_expected(inner, Some(expected.clone()))?
-                } else {
-                    let (constraints, body) =
-                        checker.instantiate_use(&Scheme::monomorphic(annotation));
-                    checker.subsume(body.clone(), expected.clone(), expression.span);
-                    let constraints = constraints
-                        .into_iter()
-                        .map(|mut constraint| {
-                            constraint.arguments = constraint
-                                .arguments
-                                .iter()
-                                .map(|argument| checker.resolve_type(argument.clone()))
-                                .collect();
-                            constraint
-                        })
-                        .collect::<Vec<_>>();
-                    let body = checker.resolve_type(body);
-                    let use_type = if constraints.is_empty() {
-                        body.clone()
-                    } else {
-                        InferType::Constrained {
-                            constraints: constraints.clone(),
-                            body: Box::new(body.clone()),
-                        }
-                    };
-                    let inferred = checker.infer_expr_with_expected(inner, Some(use_type))?;
-                    let base = InferredExpr {
-                        kind: inferred.kind,
-                        ty: body,
-                        span: expression.span,
-                    };
-                    checker.apply_constraints(base, constraints, expression.span)
-                };
-                (checker.state.errors.len() == errors_before).then_some(used)
-            })?;
-            checked.ty = self.resolve_type(expected);
-            return Some(checked);
-        }
 
         if let InferType::ForAll {
             variables, body, ..
@@ -110,6 +55,19 @@ impl Checker {
                 expression.span,
                 |checker| checker.infer_expr_with_expected(expression, Some(*body)),
             );
+        }
+
+        if let hir::ExprKind::Typed {
+            expression: inner,
+            ty,
+        } = &expression.kind
+        {
+            return self.speculate_reporting(|checker| {
+                let errors_before = checker.state.errors.len();
+                let checked = checker.infer_ascription(inner, ty, expression.span)?;
+                let adapted = checker.check_inferred_expression(checked, expected)?;
+                (checker.state.errors.len() == errors_before).then_some(adapted)
+            });
         }
 
         if let hir::ExprKind::Lambda { binder, body } = &expression.kind

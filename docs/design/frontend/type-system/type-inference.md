@@ -66,6 +66,24 @@ including visible type arguments there. They leave scope before the next
 binding and the enclosing `let` body are checked. Kind-reference checking and
 term checking must observe that same boundary.
 
+An expression ascription checks its body in the scope of its written binders
+and constraints, then adapts the checked value to its surrounding expected type.
+Leading expected quantifiers and givens enter their scope before an inner
+ascription is checked. A nested written quantifier shadows the outer one by
+identity. Adaptation does not recheck that body under different binders: it
+retains the whole checked value in a local binding and checks a reference using
+the ordinary instantiation, subsumption and dictionary operations.
+
+The same preservation boundary applies when a compound polymorphic expression
+is consumed by an application, monomorphic check or visible type application.
+Its original definition keeps its quantified types and evidence; a freshened
+reference consumes the required binders. A wrapper's quantified result has its
+own alpha-equivalent binder scope, distinct from the definition and reference.
+Freshening uses the shared scheme and kind operations, and the value is
+evaluated exactly once in its original position. Atomic references already
+have a declaration boundary; a pending method retains its explicit dictionary
+selection contract.
+
 Coercion primitives checked against an expected arrow take its parameter and
 result as their exact source and target boundary types. Function variance must
 not instantiate a quantified input and leave the cast's stored source at an
@@ -154,6 +172,9 @@ Rejected alternatives: pure HM cannot check higher-rank signatures; unifying a `
 check(expr, expected):
     if expected begins with forall: skolemize binder, check body, reject escape
     if expected begins with constraint: bind given evidence, check body
+    if expr has a written annotation:
+        check its body at that annotation within the written binder scope
+        retain the checked value and check a reference against expected
     if expr is lambda and expected is arrow: bind parameter, check result
     if expr is record: check each field against its expected field type
     if expr is application and expected is monomorphic:
@@ -208,12 +229,17 @@ bind_type_variable(variable, ty, span):
         report KindsDoNotUnify when they differ
 
 speculate(f):
-    snapshot the mutable InferState
-    run f; on failure restore the snapshot and report no progress
+    snapshot the mutable InferState and lexical Scope
+    run f; on failure restore both snapshots and report no progress
     on success keep the result, including any diagnostic the caller must preserve
 
 with_scope(f):
-    push the lexical Scope; run f; pop it, restoring the rigids and givens it added
+    save locals, annotation variables and solver level; run f; restore them
+
+with_givens(givens, f):
+    add evidence and temporary argument rigidity; run f
+    restore prior evidence and remove only the temporary rigidity
+    retain skolems allocated by f
 ```
 
 Occurs checks traverse applications, rows, quantifiers, and constraints. Type errors retain both expected and actual types and the originating source range. Row normalization reports an invalid shape rather than returning a partial row; see [rows](rows-and-records.md). A speculative candidate uses `speculate`, so a failed match leaves no substitution, level, kind, or diagnostic behind, and a diagnostic a caller must keep is re-emitted deliberately instead of surviving by accident.
@@ -247,8 +273,10 @@ The state is split so the split is visible in the types:
   kinds, wanted constraints, solved evidence, and diagnostics. `InferState::snapshot`
   and `restore` are the only way state is saved, so a speculative path cannot
   accidentally omit the kind table that a later binding depends on.
-- `Scope` holds globals, locals, givens, rigid variables, and annotation variables,
-  and is changed only through `with_scope`, which restores what it added.
+- `Scope` holds globals, locals, givens, given-rigidity tracking and annotation
+  variables. `with_scope` restores locals, annotation variables and solver level;
+  `with_givens` restores evidence and temporary argument rigidity. Skolem
+  rigidity belongs to `InferState` and persists after lexical scope exit.
 
 The higher-rank owner provides `check_expr(expr, expected)`,
 `subsume(actual, expected, evidence_mode)`, and scoped
@@ -428,15 +456,19 @@ The three state owners are declared in `typecheck/state.rs`: `SemanticEnv`,
 `InferState`, and `Scope`, with `Checker` owning all three. `InferState::snapshot`
 and `restore` are the only way solver state is saved, and the operations that use
 them are named for what they do rather than for their caller:
-`speculate` discards a failed candidate's diagnostics, `speculate_reporting`
-re-emits them, `probe_reporting` restores all effects even on success and retains
-failed annotation diagnostics, and `without_diagnostics` keeps everything a re-elaboration solved
-while dropping only what it reported — the three the earlier code had written out
-by hand and had made disagree. `with_scope`, `with_givens`, `with_given_chain`,
+`speculate` discards a failed candidate's diagnostics and `speculate_reporting`
+re-emits them. Both restore the complete solver and lexical scope on failure;
+success retains their results. `without_diagnostics` keeps solved state while
+dropping only the diagnostics it reported. Annotation bodies are checked once,
+so the former discard-on-success annotation probe is no longer needed.
+`with_scope`, `with_givens`, `with_given_chain`,
 `with_skolem_scope`, and `in_nested_level` are the only ways a scope is entered
-and left; a given's argument variables are rigid only inside their given, while a
-skolem stays rigid after its scope, so those two are separate operations rather
-than one scope that restores everything. `rigid` lives in `InferState` rather than
+and left. Lexical scope restores locals and annotation variables through the
+common operation. A given's newly rigid argument variables are released on
+leaving that given; skolems introduced by its body remain rigid. Restoring an
+old copy of the entire rigid set would silently release those skolems, so the
+given scope removes only the temporary rigidity it introduced. `rigid` lives in
+`InferState` rather than
 in `Scope` because it is keyed by an identity the solver allocates, so a rollback
 that recycles a variable has to recycle its rigidity with it.
 
@@ -445,10 +477,12 @@ row, and it carries the range of the operation that reached the shape because
 `InferType` holds no ranges of its own. Finalization discharges `Constrained` into
 dictionary arrows, which matches the boundary stated above.
 
-Constrained forall expression annotations use that complete rollback probe to
-check the written scheme, then recheck the body at the expected use type.
-Monomorphic uses instantiate the scheme and apply its actual dictionary
-obligations; rank-N uses preserve the expected polymorphism. Both paths share
-ordinary constraint application rather than replacing only the expression root
-type. Empty rows have kind `Row k` with a fresh element kind constrained by the
+Forall expression annotations retain the value checked at the written scheme.
+Their adapter and the shared quantifier consumers preserve that complete value
+in an administrative local binding before checking or instantiating a reference.
+Monomorphic uses apply the actual dictionary obligations; rank-N uses preserve
+the expected polymorphism. All paths use ordinary scope, scheme freshening and
+constraint application, preserving nested expression, binder, cast and evidence
+types rather than replacing only the expression root type. Empty rows have kind
+`Row k` with a fresh element kind constrained by the
 surrounding row or application; they do not force `k` to `Type`.

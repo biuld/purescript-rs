@@ -32,6 +32,9 @@ fn source_rank_n_acceptance_and_rejection() {
     if let Err(errors) = psrs_driver::check_program(cases::aliases::IMPORTED) {
         failures.push(format!("imported aliases: {errors:?}"));
     }
+    if let Err(errors) = psrs_driver::check_program(cases::annotations::IMPORTED) {
+        failures.push(format!("imported annotations: {errors:?}"));
+    }
     for (name, source) in cases::ACCEPT.iter().chain(cases::CHECK_ONLY) {
         if let Err(errors) = psrs_driver::check_source(name, source) {
             failures.push(format!("{name}: {errors:?}"));
@@ -78,6 +81,14 @@ fn executes_rank_n_values_at_distinct_instantiations() {
             }
         }
         Err(errors) => failures.push(format!("imported aliases: {errors:?}")),
+    }
+    match psrs_driver::compile_program_sources(cases::annotations::IMPORTED) {
+        Ok(artifact) => {
+            if let Err(error) = expect_execution("imported_annotations", &artifact.wasm) {
+                failures.push(error);
+            }
+        }
+        Err(errors) => failures.push(format!("imported annotations: {errors:?}")),
     }
     // The intrinsic indexer is target-specific; CHECK_ONLY compares the
     // annotated polymorphic element boundary with the official compiler.

@@ -1,6 +1,7 @@
 //! Source cases shared by semantic, differential, and execution acceptance.
 
 pub mod aliases;
+pub mod annotations;
 mod consumption;
 mod contextual;
 mod reify;
@@ -38,6 +39,15 @@ main = case Holder (make 0) of
 ];
 
 pub const ACCEPT: &[(&str, &str)] = &[
+    ("written_annotation_scope", annotations::SINGLE),
+    ("nested_annotation_scopes", annotations::NESTED),
+    ("record_annotation_scope", annotations::RECORD),
+    ("qualified_annotation_scope", annotations::QUALIFIED),
+    ("specialized_annotation_scope", annotations::SPECIALIZED),
+    ("visible_annotation_scope", annotations::VISIBLE),
+    ("partial_annotation_scope", annotations::PARTIAL),
+    ("skipped_annotation_scope", annotations::SKIPPED),
+    ("shadowed_annotation_scope", annotations::SHADOWED),
     ("ordinary_polymorphic_alias", aliases::ORDINARY),
     ("polymorphic_record_projection", aliases::RECORD_PROJECT),
     ("polymorphic_record_update", aliases::RECORD_UPDATE),

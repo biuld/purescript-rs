@@ -1,4 +1,13 @@
 pub const REJECT: &[(&str, &str)] = &[
+    (
+        "annotation_given_does_not_release_nested_skolem",
+        super::annotations::GIVEN_SKOLEM,
+    ),
+    (
+        "annotation_binder_scope_exit",
+        super::annotations::SCOPE_EXIT,
+    ),
+    ("annotation_rigid_escape", super::annotations::RIGID),
     ("qualified_alias_missing_instance", super::aliases::MISSING),
     (
         "inferred_lambda_does_not_return_rank_n",

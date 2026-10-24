@@ -37,7 +37,7 @@ fn arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
     full
 }
 
-fn identity(module_id: u32, symbol: u32) -> Module {
+pub(super) fn identity(module_id: u32, symbol: u32) -> Module {
     let variable = TypeVariableId(0);
     let mut types = vec![Type::Variable(variable)];
     let body = arrow(&mut types, TypeId(0), TypeId(0));

@@ -2,7 +2,7 @@ use crate::{ExternalType, Module, Type, TypeConstructor, TypeId};
 use psrs_hir::{ExternalKind, ExternalSymbol, ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 
-fn fixture() -> Module {
+pub(super) fn fixture() -> Module {
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
     Module {
         id: ModuleId(2),
