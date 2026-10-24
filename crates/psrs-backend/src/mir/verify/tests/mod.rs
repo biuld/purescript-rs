@@ -488,3 +488,5 @@ fn backend_error_kinds_distinguish_invalid_ir_from_unsupported_source() {
         BackendErrorKind::UnsupportedSource
     );
 }
+
+mod static_cells;

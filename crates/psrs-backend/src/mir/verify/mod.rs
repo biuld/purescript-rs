@@ -34,6 +34,7 @@ struct Signature {
 }
 
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
+    super::static_cells::collect(module)?;
     let mut errors = Vec::new();
     super::control::verify(module, &mut errors);
     verify_defined_types(module, &mut errors);

@@ -184,6 +184,32 @@ impl Structurer<'_> {
                 }));
                 self.store(body, *destination, *span)?;
             }
+            MirInstruction::HighI64 {
+                destination,
+                value,
+                span,
+            } => {
+                self.load(body, *value, *span)?;
+                body.push(Op::Leaf(Instruction::I64Const(32)));
+                body.push(Op::Leaf(Instruction::I64ShrU));
+                body.push(Op::Leaf(Instruction::I32WrapI64));
+                self.store(body, *destination, *span)?;
+            }
+            MirInstruction::JoinI64 {
+                destination,
+                high,
+                low,
+                span,
+            } => {
+                self.load(body, *high, *span)?;
+                body.push(Op::Leaf(Instruction::I64ExtendI32U));
+                body.push(Op::Leaf(Instruction::I64Const(32)));
+                body.push(Op::Leaf(Instruction::I64Shl));
+                self.load(body, *low, *span)?;
+                body.push(Op::Leaf(Instruction::I64ExtendI32U));
+                body.push(Op::Leaf(Instruction::I64Or));
+                self.store(body, *destination, *span)?;
+            }
             _ => unreachable!("memory instruction lowering received another instruction"),
         }
         Ok(())

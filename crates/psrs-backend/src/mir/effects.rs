@@ -73,6 +73,12 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
             ),
             ..InstructionEffects::default()
         },
+        I::StaticCell { .. } => InstructionEffects {
+            may_trap: true,
+            reads_memory: true,
+            writes_memory: true,
+            ..InstructionEffects::default()
+        },
         I::ClosureNew { .. } => InstructionEffects {
             may_trap: true,
             writes_memory: true,
@@ -122,6 +128,8 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
         | I::RefIsNull { .. }
         | I::RefTest { .. }
         | I::I31New { .. }
+        | I::HighI64 { .. }
+        | I::JoinI64 { .. }
         | I::WrapI64 { .. }
         | I::WidenI64 { .. } => InstructionEffects::default(),
     }

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 pub(in crate::mir) struct RuntimeContext {
     pub(in crate::mir) imports: HashMap<SymbolId, Import>,
+    pub(in crate::mir) static_cells: HashMap<SymbolId, Import>,
     pub(in crate::mir) record_primitives: HashMap<SymbolId, psrs_runtime::RecordPrimitive>,
     /// Provider bindings discharged by the MIR lowering into inline try
     /// regions; they plan no import because the provider has no host ABI.
@@ -52,9 +53,14 @@ impl RuntimeContext {
             None
         };
         let mut imports = HashMap::new();
+        let mut static_cells = HashMap::new();
         let mut record_primitives = HashMap::new();
         let mut exception_providers = HashMap::new();
         for binding in bindings {
+            if binding.module == psrs_runtime::STATIC_CELL_MODULE {
+                super::static_cell::plan(binding, physical, layout, &mut static_cells)?;
+                continue;
+            }
             if binding.module == crate::bindings::RUNTIME_EXCEPTION_MODULE {
                 // The provider has no host ABI: plan_import plans no import.
                 // P9 rechecks the CC shape here and the function lowerer
@@ -129,6 +135,7 @@ impl RuntimeContext {
         };
         Ok(Self {
             imports,
+            static_cells,
             record_primitives,
             exception_providers,
             exception_tags,

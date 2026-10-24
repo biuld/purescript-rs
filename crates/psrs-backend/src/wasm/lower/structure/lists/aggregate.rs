@@ -27,6 +27,19 @@ impl Structurer<'_> {
         path: &[Projection],
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
+        if matches!(canonical, CanonicalType::Int { width: 64, .. })
+            && crate::abi::word64::is_guest(guest)
+        {
+            return self.emit_store_node(
+                body,
+                context,
+                offset,
+                &crate::abi::word64::memory_view(),
+                guest,
+                path,
+                span,
+            );
+        }
         if canonical.is_byte_list() {
             return self.emit_string_node_store(body, context, offset, guest, path, span);
         }
@@ -105,6 +118,18 @@ impl Structurer<'_> {
         guest: &GuestLayout,
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
+        if matches!(canonical, CanonicalType::Int { width: 64, .. })
+            && crate::abi::word64::is_guest(guest)
+        {
+            return self.emit_load_node(
+                body,
+                context,
+                offset,
+                &crate::abi::word64::memory_view(),
+                guest,
+                span,
+            );
+        }
         if canonical.is_byte_list() {
             return self.emit_string_node_load(body, context, offset, span);
         }

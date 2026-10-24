@@ -19,6 +19,7 @@ mod ops;
 #[cfg(test)]
 mod reducible_tests;
 mod region;
+mod static_cell;
 #[cfg(test)]
 mod switch_tests;
 #[cfg(test)]
@@ -55,6 +56,7 @@ pub(super) struct Structurer<'a> {
     /// The interned global for each string literal, allocated by `runtime`.
     pub(super) literal_globals: &'a HashMap<DataId, GlobalIndex>,
     /// Loop index and scratch locals, present when the function copies a list.
+    pub(super) static_globals: &'a HashMap<SymbolId, GlobalIndex>,
     pub(super) list_locals: Option<super::ListLocals>,
     /// The concrete target layout, used to resolve a list element's recursive
     /// guest layout and representation type indices. `None` for a hand-built

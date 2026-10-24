@@ -4,6 +4,7 @@ use crate::bindings::plan_runtime_import as plan_import;
 use crate::{BackendError, RuntimeBinding, cc};
 
 mod context;
+mod static_cell;
 pub(in crate::mir) use context::RuntimeContext;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

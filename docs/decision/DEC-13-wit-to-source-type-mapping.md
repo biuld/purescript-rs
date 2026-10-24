@@ -38,6 +38,7 @@ declaration's resolved Core type.
 
 | WIT form | Source type |
 | --- | --- |
+| `s64`, `u64` | `Int` (low-word compatibility) or closed `{ high :: Int, low :: Int }` (exact bits) |
 | `tuple<A, B, ...>` | a closed record `{ _1 :: A, _2 :: B, ... }` |
 | `option<T>` | `Data.Maybe.Maybe T` |
 | `result<O, E>` | `Data.Either.Either E O` |

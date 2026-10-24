@@ -20,7 +20,10 @@ pub(super) fn build_payload<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<(Option<ValueId>, BlockId), Vec<BackendError>> {
     let erased = is_erased(stored);
-    if direct_shape(kind).is_some() {
+    if direct_shape(kind).is_some()
+        && !(matches!(kind, CanonicalType::Int { width: 64, .. })
+            && crate::abi::word64::is_guest(value_node))
+    {
         if kind.is_byte_list() {
             let value = read_string(lowerer, address, offset, block, span)?;
             let value = if erased {
@@ -100,6 +103,10 @@ fn build_concrete<L: WitCallLowerer>(
             labels,
             fields,
         } => match kind {
+            CanonicalType::Int { width: 64, .. } if crate::abi::word64::is_guest(guest) => {
+                let value = load_i64(lowerer, address, offset, block, span)?;
+                super::super::word64::unpack(lowerer, value, guest, block, span)
+            }
             CanonicalType::Record(wit_fields) => read_record(
                 lowerer, *repr, labels, fields, wit_fields, address, offset, block, span,
             ),

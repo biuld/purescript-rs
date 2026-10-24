@@ -284,7 +284,7 @@ Commands:
 - `conformance/native-effect.mjs`: **13/13 accepted** (`PureBind`, `GlobalCells`, `Modify`, `Self`, `Unpublished`, `Deep`, `Allocation`, `Arrays`, `Algebraic`, `Command`, `CommandTrap`, `Identity`, `HostOrder`); `/private/tmp/psrs-native-effect-oracle/native.json` (241.41s).
 - `conformance/native-uncurried.mjs`: **21/21 accepted**; `/private/tmp/psrs-native-uncurried-oracle-2/uncurried.json` (281.61s).
 
-Explicit unsupported JavaScript foreigns, left unimplemented: `Test.Assert.checkThrows` (a trap aborts the instance and cannot return `Boolean`), `Effect.Console` timers and `Effect.Aff`. Per-IR machine recognizers stay retired. DEC-21's trust boundary stays in place. `unsafeThaw` shares the array reference inside a new cell; JavaScript object identity of that thaw is a documented target difference.
+The original unsupported-foreign list is historical: `Test.Assert.checkThrows` now uses the native exception channel, and Console timers use the ordinary library implementation in the [timer checklist](console-timers.md). `Effect.Aff` remains unimplemented. Per-IR machine recognizers stay retired. DEC-21's trust boundary stays in place. `unsafeThaw` shares the array reference inside a new cell; JavaScript object identity of that thaw is a documented target difference.
 
 Current synchronous exception support is recorded by [EX-01..EX-18](effect-exception.md).
 The former Effect.Exception unsupported entry is superseded by that separate

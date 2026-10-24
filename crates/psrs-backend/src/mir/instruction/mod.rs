@@ -19,6 +19,15 @@ pub enum ListDirection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
+    /// One mutable single-element array per resolved binding and instance.
+    /// The initializer is strict; only the first successful allocation wins.
+    StaticCell {
+        destination: ValueId,
+        binding: SymbolId,
+        type_index: DefinedTypeId,
+        initial: ValueId,
+        span: TextRange,
+    },
     /// Source proof retained beside an already represented runtime value.
     ControlEvidence {
         destination: ValueId,
@@ -373,6 +382,19 @@ pub enum Instruction {
         destination: ValueId,
         value: ValueId,
         signed: bool,
+        span: TextRange,
+    },
+    /// High 32 bits of an i64 bit pattern, without a signed interpretation.
+    HighI64 {
+        destination: ValueId,
+        value: ValueId,
+        span: TextRange,
+    },
+    /// Assemble an i64 bit pattern from its high and low i32 words.
+    JoinI64 {
+        destination: ValueId,
+        high: ValueId,
+        low: ValueId,
         span: TextRange,
     },
     /// Element-wise copy between a GC array and a canonical `list<T>` buffer.

@@ -8,6 +8,7 @@ impl Structurer<'_> {
     ) -> Result<(), Vec<BackendError>> {
         for instruction in instructions {
             match instruction {
+                MirInstruction::StaticCell { .. } => self.emit_static_cell(instruction, body)?,
                 MirInstruction::Copy {
                     destination,
                     value,
@@ -370,6 +371,8 @@ impl Structurer<'_> {
                 | MirInstruction::StoreI64 { .. }
                 | MirInstruction::StoreF32 { .. }
                 | MirInstruction::StoreF64 { .. }
+                | MirInstruction::HighI64 { .. }
+                | MirInstruction::JoinI64 { .. }
                 | MirInstruction::WrapI64 { .. }
                 | MirInstruction::WidenI64 { .. }) => {
                     self.emit_memory_instruction(instruction, body)?;

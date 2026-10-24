@@ -57,6 +57,7 @@ fn rejects_an_acyclic_branch_to_a_missing_target() {
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
         None,
         &[],
         None,

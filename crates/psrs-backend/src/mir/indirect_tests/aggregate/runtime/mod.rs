@@ -4,6 +4,7 @@ mod collections;
 mod component;
 mod parameters;
 mod results;
+mod word64;
 
 use super::fixtures::parameter_fixture;
 

@@ -2,6 +2,45 @@
 use super::*;
 
 impl FunctionLowerer<'_> {
+    pub(super) fn lower_static_cell(
+        &mut self,
+        block: BlockId,
+        destination: ValueId,
+        import: &crate::mir::Import,
+        arguments: &[ValueId],
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        let [initial] = arguments else {
+            return Err(vec![BackendError::invalid_ir(
+                "P9 static storage",
+                span,
+                "static cell requires one initializer",
+            )]);
+        };
+        let Some(ValueType::Ref(crate::types::RefType {
+            nullable: false,
+            heap: HeapType::Index(type_index),
+        })) = import.result
+        else {
+            return Err(vec![BackendError::invalid_ir(
+                "P9 static storage",
+                span,
+                "static cell requires a concrete array result",
+            )]);
+        };
+        self.append_instruction(
+            block,
+            Instruction::StaticCell {
+                destination,
+                binding: import.symbol,
+                type_index,
+                initial: *initial,
+                span,
+            },
+            span,
+        )
+    }
+
     pub(super) fn lower_storage_call(
         &mut self,
         block: BlockId,

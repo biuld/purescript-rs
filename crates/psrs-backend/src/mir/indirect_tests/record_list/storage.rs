@@ -6,7 +6,7 @@ use crate::cc::{
 };
 use crate::types::ValueId;
 
-fn erased_array(mut module: cc::Module) -> cc::Module {
+pub(in crate::mir::indirect_tests) fn erased_array(mut module: cc::Module) -> cc::Module {
     let external = &module.externals[0];
     let signature = external.signature.as_ref().unwrap();
     let result = signature.parameters.is_empty();
@@ -42,8 +42,8 @@ fn erased_array(mut module: cc::Module) -> cc::Module {
         }
     } else {
         ExternalProjection {
-            parameters: vec![guest],
-            result: None,
+            parameters: vec![guest.clone()],
+            result: (signature.result == array).then_some(guest),
         }
     });
     if !result {

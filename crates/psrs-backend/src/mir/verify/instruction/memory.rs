@@ -148,7 +148,12 @@ pub(super) fn verify_memory_instruction(
                 ));
             }
         }
-        Instruction::WrapI64 {
+        Instruction::HighI64 {
+            destination,
+            value,
+            span,
+        }
+        | Instruction::WrapI64 {
             destination,
             value,
             span,
@@ -174,6 +179,22 @@ pub(super) fn verify_memory_instruction(
                 return Err(mir_error(
                     *span,
                     "MIR i64.extend_i32 operand or result type is invalid",
+                ));
+            }
+        }
+        Instruction::JoinI64 {
+            destination,
+            high,
+            low,
+            span,
+        } => {
+            if require_value(definitions, *high, *span)? != ValueType::I32
+                || require_value(definitions, *low, *span)? != ValueType::I32
+                || value_type(function, *destination) != Some(ValueType::I64)
+            {
+                return Err(mir_error(
+                    *span,
+                    "MIR i64 word assembly has invalid operand or result types",
                 ));
             }
         }
