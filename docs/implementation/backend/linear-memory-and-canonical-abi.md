@@ -18,9 +18,9 @@ wasm32 memory. ABI-02 is Verified, including `own`/`borrow` handle drop;
 scalar, enum, flags, char, and GC string mapping already has tests. ABI-08's
 non-byte `list<T>` / `Array` is lowered for scalars, `bool`, `char`,
 and `string`/`list<u8>` elements, with an execution test for `list<string>`;
-`option`/`result`/`variant` and tuples remain out because they are not compiler
-source types
-([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
+synthesized `option`/`result`/`variant`, record and list fixtures now execute in
+both directions as recorded below. Broader source coverage and the remaining
+nested fixtures are still unverified.
 The reclaiming allocator, transient buffer free, `post-return`, and buffer
 ownership moved to
 [canonical buffer allocation](canonical-buffer-allocation.md).
@@ -58,7 +58,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | `list<u8>` and direct (including nested) records flatten in WIT field order and recover into GC values: a `list<u8>` recovers into `Array Int`, not into text ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). | WIT record/flags flattening tests, the indirect composite fixture, GC `list<u8>` recovery, and a driver execution test passing a recovered byte array to another import. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, a non-byte-list payload, a record with an aggregate field (both directions), `list<record>` payloads, and a large record result whose return area is allocated through `cabi_realloc`. An indirect parameter record carries a mapped aggregate as its discriminant and joined payload. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md) the compiler no longer drops or releases a handle: a source-declared `[resource-drop]<resource>` import lowers to the canonical drop, a handle nested in a result aggregate is an ordinary value, and a `borrow<T>` result is rejected. `list<option<T>>`, `list<result<O, E>>`, and `list<variant>` elements, nested `list<list<T>>`, multi-word flags as list elements and inside aggregates, non-byte `list<T, N>`, and `list<own<T>>` results are now classified and lowered (recursively from the canonical element and its guest layout), and a unit-success `result<_, E>` maps to `Either E Unit` (the error on `Left`), sizes its return area from the error payload, and decodes the error into `Left`; the aggregate, nested, fixed-length, and owned-handle-list shapes have synthesized lower/encode/validate fixtures and the source-reachable aggregate list runs under Wasmtime. | In progress |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, a non-byte-list payload, a record with an aggregate field (both directions), `list<record>` payloads, and a large record result whose return area is allocated through `cabi_realloc`. An indirect parameter record carries a mapped aggregate as its discriminant and joined payload. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md) the compiler no longer drops or releases a handle: a source-declared `[resource-drop]<resource>` import lowers to the canonical drop, a handle nested in a result aggregate is an ordinary value, and a `borrow<T>` result is rejected. `list<option<T>>`, `list<result<O, E>>`, and `list<variant>` elements, nested `list<list<T>>`, multi-word flags as list elements and inside aggregates, non-byte `list<T, N>`, and `list<own<T>>` results are now classified and lowered (recursively from the canonical element and its guest layout), and a unit-success `result<_, E>` maps to `Either E Unit` (the error on `Left`), sizes its return area from the error payload, and decodes the error into `Left`; the aggregate, nested, fixed-length, and owned-handle-list shapes have synthesized lower/encode/validate fixtures and the source-reachable aggregate list runs under Wasmtime. Ten synthesized execution tests additionally run 17 self-contained component calls for option/result/variant, record and list parameters and results, asserting canonical tags and payload values as recorded below. | In progress |
 
 ## Evidence record and completion rule
 
@@ -330,10 +330,78 @@ ABI-08:
     a handle in a result is an ordinary value, the compiler exposes
     `resource.drop` to source, and a borrow result is rejected. Aggregate,
     nested, fixed-length, and `list<own<T>>` shapes are not source-reachable, so
-    they have synthesized lower/encode/validate evidence rather than a Wasmtime
-    run; the source-reachable aggregate list (`list<tuple<string, string>>`) runs
-    under Wasmtime. This keeps BE-19 `Partial`.
+    they retain synthesized lower/encode/validate evidence. The bounded
+    option/result/variant, record and list cases below now also have actual
+    execution evidence; the remaining nested, wide, fixed-length and resource
+    cases are not covered by those runs. The source-reachable aggregate list
+    (`list<tuple<string, string>>`) runs under Wasmtime. BE-19 stays `Partial`.
 ```
+
+## Synthesized aggregate execution (2026-10-24)
+
+[#73](https://github.com/biuld/purescript-rs/issues/73) starts at `b2351e5b`.
+The pre-existing aggregate fixtures lowered, encoded and validated, but their
+external canonical functions had no executing implementation. This change
+adds a self-contained component harness under
+`crates/psrs-backend/src/mir/indirect_tests/aggregate/runtime/`.
+It verifies the CC fixture, then lowers it through ordinary MIR optimization and Wasm emission,
+validates the guest, and instantiates it with independent canonical test
+functions and the pinned production allocator. A forwarding table resolves the
+host function's dependency on guest memory after guest instantiation. The
+exported scalar check is lifted and invoked by Wasmtime; a mismatched host
+parameter traps, and recovered results are observed by guest projections.
+No source front end, official corpus, library or runtime implementation changes.
+
+All ten tests pass under mandatory Wasmtime 48.0.1, with 17 component calls:
+
+| Tests in `mir::indirect_tests::aggregate::runtime` | Executed observations |
+| --- | --- |
+| `option_parameter_executes_with_its_tag_and_payload` | None, Just (-37), Just 42; canonical tags and payload slots |
+| `parameters::result_parameters_execute_both_source_constructors_with_swapped_tags` | Left and Right map to canonical error and success respectively |
+| `parameters::variant_parameters_execute_both_constructors_in_wit_order` | Both tags and scalar payloads |
+| `record_parameter_executes_with_field_order_and_boolean_payload` | Option record tag, ordered Int and Boolean fields |
+| `parameters::list_parameter_executes_with_length_and_signed_elements` | Length three and elements 7, 42, -5 in linear memory |
+| `results::option_results_execute_both_tags_and_observe_the_payload` | None sentinel and Just 42 after erased-field unboxing |
+| `results::result_results_execute_success_and_error_in_source_constructor_order` | Both canonical tags recover the expected Either constructor and boxed value |
+| `results::variant_results_execute_each_tag_and_observe_the_payload` | Both tags and erased scalar recovery |
+| `collections::record_result_executes_and_observes_a_field` | Recovered nested record field equals 73 |
+| `collections::list_result_executes_and_observes_length_and_element` | Recovered array length three plus second element 42 equals 45 |
+
+```sh
+PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend --lib mir::indirect_tests::aggregate -- --nocapture
+```
+
+The complete aggregate selection passes **33 tests**, zero failed or skipped;
+`/tmp/psrs-aggregate-verified-focused.log` retains the strict CC-verified run. An initial focused attempt
+found concurrent temporary-file collisions; unique process/counter paths fix
+that harness defect before the successful replacement. Enabling the ordinary
+CC verifier additionally exposed two old parameter fixtures whose call arguments
+used a generic Aggregate shape despite a concrete variant signature. Their
+value declarations now retain that concrete representation; the call contract
+and verifier are unchanged. The parameter/result
+observations exercise independent directions rather than relying only on a
+round trip that could cancel two adapter errors. The existing scalar fixture
+tests move into `scalars.rs` to keep the aggregate module below 500 lines.
+A separate mandatory execution retains all 17 component WAT files and SHA-256
+hashes under `/tmp/psrs-aggregate-evidence/`; `execution.log` records ten passing
+tests and `artifacts.json` inventories every executed component. The capture
+wrapper copies the input and delegates unchanged to `/usr/bin/wasmtime`.
+Final validation passes `cargo fmt --all --check`,
+`PSRS_REQUIRE_WASMTIME=1 RUST_TEST_THREADS=2 cargo test --workspace` and
+`cargo clippy --workspace --all-targets -- -D warnings`. Across 76 targets,
+including doc-tests, the workspace reports **2366 passed, zero failed, seven
+ignored**. Final logs are `/tmp/psrs-aggregate-{workspace,format,clippy}-final.log`.
+The complete aggregate selection separately passes 33/33 with mandatory Wasmtime.
+The seven ignored targets (six suite boards and the expensive complete-support
+acceptance) were not rerun for this test-only change: their implementations and
+official inputs are unchanged, and no new corpus-wide measurement is claimed.
+
+This verifies the requested synthesized execution paths, not every recursive
+shape in ABI-08. In particular, wide payloads, nested aggregate/record/list
+combinations, indirect parameter records, fixed-length lists, multi-word flags
+and owned-handle paths retain their separate obligations. ABI-08 remains
+In progress, BE-19 and BE-27 stay Partial, and the official runtime scoreboard
+remains 312/340; these fixture executions do not add corpus agreement.
 
 ## Remaining work and blockers
 

@@ -2,8 +2,8 @@
 
 use super::fixtures::{erased, reference, span};
 use crate::cc::{
-    self, AggregateConvert, Assignment, AssignmentKind, External, RefShape, Reference, ReprId,
-    Representation, Signature, ValueConversion, ValueDecl, ValueShape, VariantCase,
+    self, AggregateConvert, Assignment, AssignmentKind, External, ReprId, Representation,
+    Signature, ValueConversion, ValueDecl, ValueShape, VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -277,10 +277,6 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
-    let aggregate = ValueShape::Reference(Reference {
-        nullable: false,
-        heap: RefShape::Aggregate,
-    });
     let values = vec![
         ValueDecl {
             id: ValueId(0),
@@ -300,7 +296,7 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
         },
         ValueDecl {
             id: ValueId(4),
-            ty: aggregate,
+            ty: reference(1),
         },
         ValueDecl {
             id: ValueId(5),

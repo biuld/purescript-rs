@@ -176,10 +176,6 @@ pub(super) fn parameter_fixture() -> (cc::Module, ExternalBindings, Resolve) {
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
-    let aggregate = ValueShape::Reference(Reference {
-        nullable: false,
-        heap: RefShape::Aggregate,
-    });
     let values = vec![
         ValueDecl {
             id: ValueId(0),
@@ -191,7 +187,7 @@ pub(super) fn parameter_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         },
         ValueDecl {
             id: ValueId(2),
-            ty: aggregate,
+            ty: reference(1),
         },
         ValueDecl {
             id: ValueId(3),
