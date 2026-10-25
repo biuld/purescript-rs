@@ -34,7 +34,11 @@ pub(in crate::mir) fn rewrite(
     // `try_table`. A self-call's back edge would also discard the current
     // activation's protection, so it must retain its ordinary call as well.
     let protected = crate::mir::try_region::plan(function, "P9 MIR lowering")?.protected_blocks();
-    let returned = return_forwarded_values(function);
+    let blocks = function
+        .blocks
+        .iter()
+        .map(|block| (block.id, block))
+        .collect::<HashMap<_, _>>();
     let uses = use_counts(function);
     let symbol = function.symbol;
 
@@ -52,7 +56,7 @@ pub(in crate::mir) fn rewrite(
             | Instruction::ClosureCall { destination, .. } => *destination,
             _ => continue,
         };
-        if !returned.contains(&destination) {
+        if !returns_without_work(&blocks, block, destination) {
             continue;
         }
         if uses.get(&destination).copied().unwrap_or(0) != 1 {
@@ -338,45 +342,47 @@ fn loopify_self_calls(
     Ok(())
 }
 
-/// Values that are returned unchanged, either directly by a `Return` or passed
-/// through one-parameter joins to a returned block parameter.
-fn return_forwarded_values(function: &Function) -> HashSet<ValueId> {
-    let mut returned = HashSet::new();
-    for block in &function.blocks {
-        if let Some(Terminator::Return { value, .. }) = &block.terminator {
-            returned.insert(*value);
-        }
-    }
-    let blocks = function
-        .blocks
-        .iter()
-        .map(|block| (block.id, block))
-        .collect::<HashMap<_, _>>();
+/// A call may replace its continuation only when that entire continuation is
+/// an unconditional chain of empty blocks returning the identical value.
+/// Merely finding the value at a return is insufficient: a join may still
+/// write memory, trap, or choose another control-flow path before returning.
+fn returns_without_work(
+    blocks: &HashMap<BlockId, &BasicBlock>,
+    start: &BasicBlock,
+    value: ValueId,
+) -> bool {
+    let mut current = start;
+    let mut aliases = HashSet::from([value]);
+    let mut visited = HashSet::new();
     loop {
-        let mut changed = false;
-        for block in &function.blocks {
-            let Some(Terminator::Jump {
+        match &current.terminator {
+            Some(Terminator::Return { value, .. }) => return aliases.contains(value),
+            Some(Terminator::Jump {
                 target, arguments, ..
-            }) = &block.terminator
-            else {
-                continue;
-            };
-            let Some(target) = blocks.get(target) else {
-                continue;
-            };
-            for (index, parameter) in target.parameters.iter().enumerate() {
-                if returned.contains(parameter)
-                    && let Some(argument) = arguments.get(index)
-                {
-                    changed |= returned.insert(*argument);
+            }) => {
+                if !visited.insert(*target) {
+                    return false;
                 }
+                let Some(next) = blocks.get(target) else {
+                    return false;
+                };
+                if !next.instructions.is_empty() {
+                    return false;
+                }
+                let incoming = next
+                    .parameters
+                    .iter()
+                    .zip(arguments)
+                    .filter_map(|(parameter, argument)| {
+                        aliases.contains(argument).then_some(*parameter)
+                    })
+                    .collect::<Vec<_>>();
+                aliases.extend(incoming);
+                current = next;
             }
-        }
-        if !changed {
-            break;
+            _ => return false,
         }
     }
-    returned
 }
 
 fn use_counts(function: &Function) -> HashMap<ValueId, usize> {
@@ -422,3 +428,6 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
 fn invalid_ir(span: psrs_span::TextRange, message: &'static str) -> Vec<BackendError> {
     vec![BackendError::invalid_ir("P9 MIR lowering", span, message)]
 }
+
+#[cfg(test)]
+mod tests;

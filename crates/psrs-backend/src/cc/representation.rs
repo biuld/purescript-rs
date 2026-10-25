@@ -243,6 +243,8 @@ pub struct RepresentationTable {
     pub(in crate::cc) control: super::control::ControlPlanning,
     /// The record owner publishes the schema; consumers use its checked handles.
     pub(in crate::cc) record: super::record::RecordPlanning,
+    pub(in crate::cc) recursion:
+        std::collections::HashMap<ValueShape, super::lower::RecursiveLayout>,
     pub representations: Vec<Representation>,
     pub signatures: Vec<Signature>,
     /// Canonical logical labels for record products; positional products do

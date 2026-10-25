@@ -124,7 +124,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
             id: crate::types::ValueId(0),
             ty: ValueShape::Integer,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,

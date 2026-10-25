@@ -340,3 +340,24 @@ its verifier rules, and the enabled/disabled profile behavior are exercised by
 the negative fixtures in `mir/verify/tests/tail.rs`. The stable profile still
 keeps `tail_call` disabled, so enabling `return_call*` by default remains a
 profile revision rather than a code gap.
+
+## Continuation-safety correction (2026-10-25)
+
+The common tail producer now lives in `mir/lower/tail/mod.rs`. The historical
+paths above identify the implementation at their recorded revisions.
+`returns_without_work` replaces the old global returned-value propagation:
+returning a call's result is insufficient if its continuation still writes,
+calls, branches or traps. Only empty unconditional joins returning the same
+value may be discarded, for self, direct, reference and closure calls alike.
+
+Three MIR regressions in `mir/lower/tail/tests.rs` retain an effectful join, an
+effectful continuation returning a dominating value, and a conditional trap.
+The source-level `successful_scalar_memos_finish_after_recursive_initializer_calls`
+regression observes the required initialization-state write after a recursive
+callee returns; the previous pass skipped that write and caused a later trap.
+All three MIR checks, all seven recursive-value Wasmtime cases, and the existing
+deep direct/indirect/profile tail regressions pass in the required-runtime
+workspace run: 78 targets, 2,395 tests passed, zero failures, seven ignored.
+Formatting and workspace/all-target Clippy with warnings denied also pass.
+The [recursive-value record](recursive-local-values.md) retains the runtime
+comparison and the separate full-corpus evidence.

@@ -42,7 +42,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
     let mut lowerer = FunctionLowerer {
         next_value: 0,
         values: Vec::new(),
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,

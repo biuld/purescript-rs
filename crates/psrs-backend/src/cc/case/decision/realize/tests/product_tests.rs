@@ -120,7 +120,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
             id: crate::types::ValueId(0),
             ty: root_shape,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,

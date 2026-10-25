@@ -251,22 +251,25 @@ fn rejects_ambiguous_program_entries_instead_of_using_source_order() {
 
 #[test]
 fn attributes_backend_errors_to_their_declaring_module() {
-    // The result uses `x`, so dead-binding cleanup cannot delete the cycle
-    // before closure conversion. The entry stays `Int`.
+    // A scalar cannot masquerade as array storage. Keep a genuine P8 rejection
+    // in the second input so the diagnostic cannot default to source zero.
     let a = (
         "A.purs",
-        "module A where\nmain :: Int\nmain = let x = x in x\n",
+        "module A where\nforeign import \"psrs:intrinsic#__psrs_unsafe_coerce\" unsafeCoerce :: forall a b. a -> b\nmain :: Int\nmain = arrayLength (unsafeCoerce 1 :: Array Int)\n",
     );
     let b = ("B.purs", "module B where\nanswer = 0\n");
-    let errors = compile_program_sources(&[a, b]).unwrap_err();
-    assert!(errors.iter().any(|error| {
-        error.source == DiagnosticOrigin::Source(0)
-            && error.diagnostic.stage == "P8 closure conversion"
-            && error
-                .diagnostic
-                .message
-                .contains("recursive local binding is not a function")
-    }));
+    let errors = compile_program_sources(&[b, a]).unwrap_err();
+    assert!(
+        errors.iter().any(|error| {
+            error.source == DiagnosticOrigin::Source(1)
+                && error.diagnostic.stage == "P8 closure conversion"
+                && error
+                    .diagnostic
+                    .message
+                    .contains("closure capture is not representable in the current runtime slice")
+        }),
+        "{errors:?}"
+    );
 }
 
 #[test]

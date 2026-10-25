@@ -135,7 +135,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
             id: ValueId(0),
             ty: ValueShape::Integer,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,

@@ -184,7 +184,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
             id: crate::types::ValueId(0),
             ty: root_shape,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,

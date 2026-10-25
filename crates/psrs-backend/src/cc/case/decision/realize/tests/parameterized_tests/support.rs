@@ -51,7 +51,7 @@ pub(super) fn lower_and_verify(
             id: crate::types::ValueId(0),
             ty: scrutinee_shape,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: context.representations,
         module,

@@ -82,7 +82,7 @@ impl FunctionLowerer<'_> {
                 let value = self.lower_value(&branches[*branch].value, &mut assignments);
                 for (id, old, old_type) in previous.into_iter().rev() {
                     if let Some(value) = old {
-                        self.locals.insert(id, value);
+                        self.locals.bind(id, value);
                     } else {
                         self.locals.remove(&id);
                     }

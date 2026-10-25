@@ -576,7 +576,7 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
   CFGs use the dispatcher fallback documented in
   [control flow and tail calls](control-flow-and-tail-calls.md). Tail-call
   marking (including self-recursion loopification) and lowering to
-  `ReturnCall`/`ReturnCallRef` are implemented in `mir/lower/tail.rs` and gated
+  `ReturnCall`/`ReturnCallRef` are implemented in `mir/lower/tail/mod.rs` and gated
   on the target's `tail_call` flag.
 - **Multi-value.** The type model admits multiple function results, but functions
   and calls currently have one. Tuples are represented as products in the

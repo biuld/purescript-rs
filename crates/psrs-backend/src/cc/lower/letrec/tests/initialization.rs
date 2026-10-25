@@ -13,12 +13,22 @@ fn observable_recursive_initializer_is_not_delayed_until_a_call() {
         then_branch: Box::new(expression(ExprKind::Trap, ty, 21, 22)),
         else_branch: Box::new(original),
     };
-    let errors = crate::cc::lower_module(module)
-        .expect_err("an observable recursive initializer requires eager evaluation");
+    let backend = crate::cc::lower_module(module)
+        .expect("observable recursive initializers use eager memo getters");
+    let main = &backend.cc.functions[0];
     assert!(
-        errors
+        main.assignments
             .iter()
-            .any(|error| error.message.contains("eager recursive value support")),
-        "{errors:?}"
+            .filter(|a| matches!(a.kind, AssignmentKind::IndirectCall { .. }))
+            .count()
+            >= 2
     );
+    assert!(
+        backend
+            .cc
+            .functions
+            .iter()
+            .any(|f| f.name.contains("_memo_"))
+    );
+    crate::mir::lower_module(backend.cc).expect("memo getters lower through P9");
 }
