@@ -47,8 +47,22 @@ number. Runtime location rendering still requires an authoritative source
 catalogue, validated identity lookup and in-bounds coordinates. In particular,
 `SourceFile::line_column` clamps offsets for rendering convenience and cannot
 serve as a source-range validity check. Missing real metadata must not become
-a fabricated location. That catalogue and the getter read-context transport
-remain separate implementation obligations.
+a fabricated location.
+
+The driver supplies Core's `SourceCatalogue` from each actual source unit and
+its resolved module name before linking, including the trusted prefix. Linking
+combines the immutable, shared source units; cloning and optimization preserve
+them. The catalogue retains duplicate identities so a lookup rejects ambiguity
+rather than overwriting a file. Location lookup checks source identity, byte
+ordering/bounds and both UTF-8 boundaries before mapping a line. Semantic Core
+verification trusts producer-assigned provenance; rendering validates the
+catalogue/range contract it actually needs. Missing real metadata is an explicit
+compiler-IR error at that use, including low-level Core entry points.
+
+P8's recursive getter-force contract carries a String message for each force.
+The local access entry retains immutable binding-name/module context through
+capture; the message uses the read's preserved range. The getter uses this
+operand only on Initializing. It does not cache the exception or retry work.
 
 ## Consequences
 

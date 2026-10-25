@@ -190,6 +190,11 @@ pub enum AssignmentKind {
         exception: ValueId,
         handler: Region,
     },
+    /// Raise the native source-error channel with a String payload. This is
+    /// bottom: its declared destination shape has no normal produced value.
+    RaiseSourceError {
+        message: ValueId,
+    },
     /// An explicit trap result used by impossible decision-DAG edges.
     Unreachable,
 }

@@ -49,16 +49,19 @@ CC publication rechecks operand shapes and result agreement. P9 retains checked
 binding identity, signature and payload layout; missing facts are errors.
 The provider has no host ABI and creates no Wasm imports.
 
-A module with a live throw/catch call plans one local `psrs:source-error` tag
-at TagId(0) with one non-null GC String payload. CheckThrows-only modules and
-unused throw/catch declarations add no tag. Unused physical signatures are
+A module with a live throw/catch call or compiler-generated `RaiseSourceError`
+plans one local `psrs:source-error` tag at TagId(0) with one non-null GC String
+payload. CheckThrows and unused throw/catch declarations do not request a tag;
+without any live source raise or throw/catch call, the module adds none.
+Unused physical signatures are
 still checked. The budget appends its distinct payload-less stack-exhaustion
 tag after the module's tags. Final Wasm type-index remapping includes the
 String tag signature; no resource handle or erased Any substitutes for it.
 
 ## Lowering and dynamic behavior
 
-Throw discharges to a Throw terminator carrying the message. It defines no
+Throw and CC `RaiseSourceError` share payload validation and discharge to a
+Throw terminator carrying the message. They define no
 normal destination. P9 stops its assignment sequence and appends function,
 if/switch and protection exits only when the block remains open. After the CFG
 is complete, P9 uses the shared try-region partition to resolve its matching
@@ -71,6 +74,14 @@ result-parameterized join. The body closure takes fabricated erased Unit; the
 handler block receives the real String payload and calls the handler closure.
 Returning body and handler paths supply the same typed destination at the join.
 There is no catch-all clause and no verifier or structurer relaxation.
+
+Recursive local-value getters use this source channel when read during
+initialization. P8 passes a message for the actual read, preserving binding
+name/module and read line through inlining and capture. An initializer that
+throws remains Initializing; later reads raise at their own read sites and do
+not retry work or replay a cached exception. Impossible state tags retain their
+engine trap. The target Error remains message-only, default-name Error and
+stackless; this does not synthesize JS ReferenceError names or stacks.
 
 The library constructs both requests with Native.perform. Construction is
 inert; the catch is armed only while Native.run interprets the action. A handler
@@ -100,5 +111,6 @@ source span; there is no host fallback.
 Source-level stack traces need a separate shadow-call-stack design. Entry-level
 stderr diagnostics, asynchronous Aff behavior, engine-trap recovery, automatic
 resource release and transactional rollback remain separate topics. This topic
-does not reproduce JS deferred-module-initialization ReferenceError behavior or
-upstream's tail-call classification, and does not close BE-21 or the corpus gate.
+does not reproduce JS module-initialization timing, ReferenceError object names
+or source stacks, or upstream's tail-call classification, and does not close
+BE-21 or the corpus gate.

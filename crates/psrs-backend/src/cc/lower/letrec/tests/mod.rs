@@ -336,6 +336,14 @@ fn module(types: Vec<Type>, declaration: Declaration, entry: SymbolId) -> Module
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: {
+            let mut sources = psrs_span::SourceCatalogue::default();
+            sources.insert(
+                psrs_span::SourceId(0),
+                psrs_span::SourceFile::new("Fixture", " ".repeat(200)),
+            );
+            sources
+        },
         constructors: Vec::new(),
         declarations: vec![declaration],
         entry: Some(entry),
@@ -352,7 +360,7 @@ fn expression(kind: ExprKind, ty: TypeId, start: u32, end: u32) -> Expr {
 }
 
 fn range(start: u32, end: u32) -> TextRange {
-    TextRange::new(start, end)
+    TextRange::new(start, end).in_source(psrs_span::SourceId(0))
 }
 
 fn contains_indirect_call(assignments: &[crate::cc::Assignment]) -> bool {

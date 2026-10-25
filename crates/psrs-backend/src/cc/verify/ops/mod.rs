@@ -441,6 +441,15 @@ pub(super) fn verify_assignments(
                     function_name,
                 )?;
             }
+            AssignmentKind::RaiseSourceError { message } => {
+                if declared_shape(declared, *message, assignment)? != ValueShape::String {
+                    return Err(assignment_error(
+                        assignment,
+                        "source-error payload must be String",
+                    ));
+                }
+                uses.push(*message);
+            }
             AssignmentKind::Unreachable => {}
         }
         if uses.iter().any(|value| !available.contains(value)) {

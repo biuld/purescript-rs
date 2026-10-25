@@ -3,12 +3,14 @@ use super::plan::RecursiveLayout;
 use super::*;
 use crate::cc::lower::scope::LocalBinding;
 use crate::cc::{ReprId, TagCase};
+use std::rc::Rc;
 
 struct Member<'a> {
     binding: &'a Binding,
     symbol: SymbolId,
     layout: RecursiveLayout,
     shape: ValueShape,
+    prefix: Rc<str>,
 }
 
 impl FunctionLowerer<'_> {
@@ -36,11 +38,28 @@ impl FunctionLowerer<'_> {
             self.generated_signatures.borrow_mut().insert(
                 symbol,
                 Signature {
-                    parameters: vec![aggregate_shape()],
+                    parameters: vec![aggregate_shape(), ValueShape::String],
                     result: shape,
                 },
             );
+            let location =
+                self.module
+                    .sources
+                    .location(binding.binder.span)
+                    .map_err(|message| {
+                        vec![BackendError::invalid_ir(
+                            "P8 source location",
+                            binding.binder.span,
+                            message,
+                        )]
+                    })?;
+            let prefix = format!(
+                "{} was needed before it finished initializing (module {}, line ",
+                binding.binder.name, location.name
+            )
+            .into();
             members.push(Member {
+                prefix,
                 binding,
                 symbol,
                 layout,
@@ -70,7 +89,7 @@ impl FunctionLowerer<'_> {
             captures.push(
                 self.locals
                     .get(local)
-                    .copied()
+                    .cloned()
                     .ok_or_else(|| lowering_error(span, "recursive value capture is unavailable"))?
                     .storage(),
             );
@@ -86,10 +105,11 @@ impl FunctionLowerer<'_> {
         // Within an SCC, force initializers in their original binding order.
         // Force every initializer now, even when the let body never reads it.
         for member in &members {
-            let binding = *self
+            let binding = self
                 .locals
                 .get(&member.binding.binder.id)
-                .expect("installed getter");
+                .expect("installed getter")
+                .clone();
             self.read_local_binding(binding, member.binding.span, assignments)?;
         }
         Ok(())
@@ -116,6 +136,7 @@ impl FunctionLowerer<'_> {
             self.locals.bind(
                 member.binding.binder.id,
                 LocalBinding::Getter {
+                    prefix: Rc::clone(&member.prefix),
                     value: destination,
                     signature: member.layout.getter,
                 },
@@ -134,6 +155,7 @@ impl FunctionLowerer<'_> {
     ) -> Result<(), Vec<BackendError>> {
         let mut nested = self.child_lowerer();
         let closure = nested.fresh(aggregate_shape());
+        let context = nested.fresh(ValueShape::String);
         let span = member.binding.span;
         let mut body = Vec::new();
         let mut captures = Vec::new();
@@ -151,7 +173,7 @@ impl FunctionLowerer<'_> {
         }
         for (local, value) in external.iter().zip(&captures[members.len()..]) {
             let binding =
-                self.locals.get(local).copied().ok_or_else(|| {
+                self.locals.get(local).cloned().ok_or_else(|| {
                     lowering_error(span, "memo capture access mode is unavailable")
                 })?;
             let ty =
@@ -221,6 +243,12 @@ impl FunctionLowerer<'_> {
             span,
             &mut initialize,
         );
+        let raised = nested.fresh(member.shape);
+        let failure = vec![Assignment {
+            destination: raised,
+            span,
+            kind: AssignmentKind::RaiseSourceError { message: context },
+        }];
         let trapped = nested.fresh(member.shape);
         let trap = vec![Assignment {
             destination: trapped,
@@ -240,6 +268,11 @@ impl FunctionLowerer<'_> {
                         value: result,
                     },
                     TagCase {
+                        tag: 1,
+                        assignments: failure,
+                        value: raised,
+                    },
+                    TagCase {
                         tag: 2,
                         assignments: ready,
                         value: cached,
@@ -252,7 +285,7 @@ impl FunctionLowerer<'_> {
         let function = Function {
             symbol: member.symbol,
             name: format!("{}_memo_{}", member.binding.binder.name, span.start),
-            parameters: vec![closure],
+            parameters: vec![closure, context],
             values: nested.values,
             assignments: body,
             result: destination,

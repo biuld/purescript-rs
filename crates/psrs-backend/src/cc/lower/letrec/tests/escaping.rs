@@ -28,7 +28,7 @@ fn recursive_function_captures_an_earlier_same_let_value_and_escapes() {
         .iter()
         .find_map(|assignment| match assignment.kind {
             AssignmentKind::Constant(17) => {
-                assert_eq!(assignment.span, TextRange::new(22, 23));
+                assert_eq!(assignment.span, range(22, 23));
                 Some(assignment.destination)
             }
             _ => None,
@@ -42,7 +42,7 @@ fn recursive_function_captures_an_earlier_same_let_value_and_escapes() {
                 function, captures, ..
             } if *function == recursive.symbol => {
                 assert_eq!(captures, &[seed_value]);
-                assert_eq!(assignment.span, TextRange::new(30, 92));
+                assert_eq!(assignment.span, range(30, 92));
                 Some(assignment.destination)
             }
             _ => None,
@@ -78,7 +78,7 @@ fn recursive_function_captures_an_earlier_same_let_value_and_escapes() {
         unreachable!("the selected assignment is a function reference");
     };
     assert_eq!(captures, &[recursive_value]);
-    assert_eq!(escaping_reference.span, TextRange::new(100, 124));
+    assert_eq!(escaping_reference.span, range(100, 124));
     assert!(escaped.assignments.iter().any(|assignment| {
         matches!(
             assignment.kind,
@@ -112,9 +112,9 @@ fn recursive_function_captures_an_earlier_same_let_value_and_escapes() {
             &assignment.kind,
             AssignmentKind::FunctionRef { function, captures, .. }
                 if *function == recursive.symbol && captures == &[captured_seed]
-        ) && assignment.span == TextRange::new(30, 92)
+        ) && assignment.span == range(30, 92)
     }));
-    assert_eq!(recursive.span, TextRange::new(40, 90));
+    assert_eq!(recursive.span, range(40, 90));
     assert_eq!(
         value_shape(recursive, captured_seed),
         Some(ValueShape::Integer)

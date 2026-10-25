@@ -9,10 +9,10 @@
 
 This is a vertical slice of #101 under the Phase 5 backend epic #78. It does
 not complete either issue. Successful recursive-value initialization and a
-shared tail-continuation repair have execution evidence. Catchable failure on
-initialization demand remains open. The [RV-08 investigation](recursive-initialization-errors.md)
-records the actual guard state, exception-channel prototype and read-site
-location requirement.
+shared tail-continuation repair have execution evidence. Initialization demand
+now raises a catchable source error with binding-module/read-line context;
+failed initializers are never retried. The [RV-08 acceptance](recursive-initialization-errors.md)
+records the baseline, implementation and actual Node/Wasmtime comparisons.
 
 ## Baseline and semantic ownership
 
@@ -51,11 +51,12 @@ verifiers do not claim to derive that protocol from arbitrary array operations.
 `ArraySet` mutates its existing source identity, as in private Control cells and
 checked unsafe library storage. Pure source array updates clone first.
 
-An initializing read currently executes an explicit trap. It never fabricates
-a value or retries initialization. **Incomplete:** the official reference
-throws a catchable initialization-demand error; mapping this failure to the
-source exception channel remains required by the design. This slice does not
-redefine that contract or close the broad backend issue.
+An initializing read executes `RaiseSourceError` on the shared native source
+channel. The getter takes the current read's checked String message; capture
+restoration retains binding-name/module context. The source catalogue validates
+the range before line mapping. An initializer failure leaves Initializing set:
+later reads raise their own messages without retrying work. Impossible state
+tags retain a trap. This does not close the broad backend issue.
 
 ## Initialization continuation repair
 
@@ -83,11 +84,11 @@ is the seventh maintained Wasmtime case and now returns 42.
 | RV-02 | Delayed reads and nested escaping closures retain access mode | `recursive_data_escapes_through_nested_closures` | Verified |
 | RV-03 | Mixed function/value groups initialize eagerly once | `mixed_function_value_group_preserves_eager_once_only_initialization`; mutable counter and repeated reads; additional ordinary Ref observations | Verified |
 | RV-04 | Cached mutable objects retain identity | `memoized_values_retain_shared_array_identity` | Verified |
-| RV-05 | Demand during initialization fails, including an unused binding | `demand_during_initialization_traps_even_when_body_ignores_value`; accepted dynamic thunk shape | Verified for trap guard; source exception agreement remains RV-08 |
+| RV-05 | Demand during initialization fails, including an unused binding | `demand_during_initialization_raises_even_when_body_ignores_value`; accepted dynamic thunk shape, uncaught-source-error exit 1 | Verified |
 | RV-06 | Callable aliases initialize before use | `callable_alias_is_initialized_before_its_first_call` | Verified |
 | RV-07 | Recursive function capture restores memo access | `recursive_function_restores_a_captured_memo_access_mode` | Verified |
-| RV-08 | Initialization-demand failure agrees with source exception recovery | Accepted dynamic `try` comparison: Node catches; Wasmtime traps | Open: measured disagreement |
-| RV-09 | Full workspace and official runtime measurement | Required-runtime workspace, fmt and Clippy pass; audited 365-root board is 316/340, recovering Stream without losses | Verified measurement; broader gate remains incomplete |
+| RV-08 | Initialization-demand failure agrees with source exception recovery | Four actual Node/Wasmtime comparisons; five maintained driver tests, including distinct escaped reads/no retry and Control cleanup | Verified for message-only target Error; see RV-08 acceptance |
+| RV-09 | Full workspace and official runtime measurement | Required-runtime workspace, fmt and Clippy pass; final initialization-error board remains 316/340 with no gained/lost agreement | Verified measurement; broader gate remains incomplete |
 | RV-10 | Typed scalar initialization completes after recursive calls | `successful_scalar_memos_finish_after_recursive_initializer_calls`; three MIR continuation regressions | Verified |
 
 The seven source execution cases are maintained in
@@ -122,8 +123,9 @@ rather than introducing identifier-specific backend cases.
 
 The accepted `demand-probe/Main.purs` keeps thunk forcing in an ordinary
 top-level `applyThunk`. Official purs compiles it; Node's `Effect.Exception.try`
-catches the initialization-demand error and prints its message. Wasmtime traps
-at `unreachable`. The accepted unused-binding variant also fails during Node
+catches the initialization-demand error and prints its message. The baseline
+Wasmtime artifact trapped at `unreachable`; the new comparison catches and
+prints the identical message. The accepted unused-binding variant also fails during Node
 initialization. An earlier direct `force`/`value` recursive group is rejected
 by official purs as `CycleInDeclaration`; it is not a public runtime oracle.
 
@@ -132,6 +134,11 @@ the target entry returns process code 42. It is separate from the official
 runtime board's successful zero exits.
 
 ## Validation and retained artifacts
+
+The final RV-08 continuation passes 2,409 workspace tests and the full runtime
+board remains 316/340. See the [current acceptance](recursive-initialization-errors.md)
+for the 2211.729-second run and four source-error comparisons. The following
+artifacts retain the earlier successful-initialization baseline.
 
 Artifacts are under `/tmp/psrs-stream/`:
 
@@ -182,7 +189,9 @@ after P7 inlining, a P8 diagnostic reports Helper's bytes 153..165 as belonging
 to Main, whose entire source is only 58 bytes. `origin-audit.json` retains both
 source hashes and the actual out-of-bounds diagnostic. Source provenance must
 survive linking and inlining before runtime initialization errors can claim
-accurate source module/line information. This known gap is not closed here.
+accurate source module/line information. Commit `3c14a07a` repairs general
+provenance; the RV-08 implementation adds the validated source catalogue and
+per-force message contract.
 
 The first board was stopped at 236/365 roots on discovering the continuation
 bug. `runtime-board-pre-scalar-fix/` has an explicit incomplete marker and is

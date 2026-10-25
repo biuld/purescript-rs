@@ -219,6 +219,7 @@ mod type_kind_tests {
             ordinary_data_ids: vec![id],
             opaque_ids: Vec::new(),
             callable_types: Vec::new(),
+            sources: Default::default(),
             constructors: Vec::new(),
             declarations: Vec::new(),
             type_names: vec![(id, "Carrier.Cell".into())],

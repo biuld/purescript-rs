@@ -260,6 +260,10 @@ CC operations are semantic operations over `ReprId`s, spelled by
   recursive conversion plan (`Identity`, scalar box/unbox, reference erasure or
   recovery, `ArrayMap`, `ProductMap`, or a function adapter);
 - structured control: `If`, which nests a then and an else assignment list;
+- native protection: `Protect` with explicit normal or exceptional region exits;
+- source failure: `RaiseSourceError` with one checked String operand and no
+  normal result. Like `Unreachable`, its declared destination can have any
+  result shape because evaluation never produces that value;
 - closed tag dispatch: `TagSwitch`, a multi-way choice over an integer-tagged
   value with branch-local assignment lists and a default arm, plus `Unreachable`
   for an impossible decision-DAG edge.
@@ -278,9 +282,13 @@ source and destination `ValueShape`s, and recursive conversion plan. P8 builds
 the plan from typed Core substitutions; P9 resolves abstract representation
 handles. It carries no Wasm type or physical field offset.
 
-`If` and the closed tag switch `TagSwitch` are the only control constructs in
-CC. Neither is a CFG: the branch assignment lists are nested and produce a
-value, and P9 converts them into basic blocks. `Unreachable` marks a branch
+`If`, the closed tag switch `TagSwitch`, and native protection regions remain
+structured in CC. Their assignment lists are nested; P9 converts them into
+basic blocks. `RaiseSourceError` lowers to a native Throw terminator on the
+same source-error channel as checked source throw/catch providers, including
+when no provider is live. Its payload cannot be erased Any or an opaque native
+exception token. It requires exception capability; it creates no host import.
+`Unreachable` marks a branch
 that cannot be taken, such as an impossible decision-DAG edge. This is
 deliberate — CC stays expression-shaped until the last
 moment so that evaluation order and capture structure can be verified before

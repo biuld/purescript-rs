@@ -90,7 +90,7 @@ main =
 }
 
 #[test]
-fn demand_during_initialization_traps_even_when_body_ignores_value() {
+fn demand_during_initialization_raises_even_when_body_ignores_value() {
     if let Some(output) = run(r"module Main where
 import Prelude
 applyThunk :: (Unit -> Int) -> Int
@@ -104,8 +104,9 @@ main =
             !output.status.success(),
             "an eagerly demanded cycle must fail: {output:?}"
         );
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("unreachable"),
+            output.stdout.is_empty() && output.stderr.is_empty(),
             "{output:?}"
         );
     }

@@ -112,6 +112,7 @@ fn fixture(unrelated: bool, sibling: bool) -> Module {
         ordinary_data_ids: Vec::new(),
         opaque_ids: vec![],
         callable_types: vec![],
+        sources: Default::default(),
         constructors: vec![],
         declarations: vec![identity, dictionary],
         entry: None,

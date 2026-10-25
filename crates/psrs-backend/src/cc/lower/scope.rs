@@ -3,20 +3,21 @@ use crate::cc::ValueId;
 use psrs_hir::LocalId;
 use std::collections::HashMap;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::cc) enum LocalBinding {
     Value(ValueId),
     Getter {
         value: ValueId,
         signature: crate::cc::SignatureId,
+        prefix: std::rc::Rc<str>,
     },
 }
 
 impl LocalBinding {
     /// The value physically carried by a closure capture.
-    pub(in crate::cc) fn storage(self) -> ValueId {
+    pub(in crate::cc) fn storage(&self) -> ValueId {
         match self {
-            Self::Value(value) | Self::Getter { value, .. } => value,
+            Self::Value(value) | Self::Getter { value, .. } => *value,
         }
     }
 
@@ -24,7 +25,13 @@ impl LocalBinding {
     pub(in crate::cc) fn with_storage(self, value: ValueId) -> Self {
         match self {
             Self::Value(_) => Self::Value(value),
-            Self::Getter { signature, .. } => Self::Getter { value, signature },
+            Self::Getter {
+                signature, prefix, ..
+            } => Self::Getter {
+                value,
+                signature,
+                prefix,
+            },
         }
     }
 }
@@ -65,7 +72,25 @@ impl super::FunctionLowerer<'_> {
     ) -> Result<ValueId, Vec<crate::BackendError>> {
         match binding {
             LocalBinding::Value(value) => Ok(value),
-            LocalBinding::Getter { value, signature } => {
+            LocalBinding::Getter {
+                value,
+                signature,
+                prefix,
+            } => {
+                let location = self.module.sources.location(span).map_err(|message| {
+                    vec![crate::BackendError::invalid_ir(
+                        "P8 source location",
+                        span,
+                        message,
+                    )]
+                })?;
+                let message = format!("{prefix}{})", location.line);
+                let context = self.fresh(crate::cc::ValueShape::String);
+                assignments.push(crate::cc::Assignment {
+                    destination: context,
+                    span,
+                    kind: crate::cc::AssignmentKind::StringConstant(message),
+                });
                 let result = self
                     .representations
                     .signature(signature)
@@ -84,7 +109,7 @@ impl super::FunctionLowerer<'_> {
                     kind: crate::cc::AssignmentKind::IndirectCall {
                         function: value,
                         signature,
-                        arguments: vec![],
+                        arguments: vec![context],
                     },
                 });
                 Ok(destination)

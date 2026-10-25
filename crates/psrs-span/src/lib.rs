@@ -1,9 +1,12 @@
 use std::{fmt, sync::Arc};
 
+mod catalogue;
+pub use catalogue::{SourceCatalogue, SourceLocation};
+
 /// An opaque source-file identity within a compilation. It carries no resolved
 /// declaration or type information. Producers assign it when file-local ranges
 /// enter a representation shared by several source files.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourceId(pub u32);
 
 /// A half-open byte range, optionally qualified by its original source file.
@@ -61,7 +64,7 @@ impl<T> Spanned<T> {
 }
 
 /// Source text plus a line index used to turn byte offsets into human locations.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceFile {
     name: Arc<str>,
     text: Arc<str>,

@@ -88,7 +88,7 @@ impl FunctionLowerer<'_> {
             captures
                 .iter()
                 .map(|local| {
-                    self.locals.get(local).copied().map(|binding| binding.storage()).ok_or_else(|| {
+                    self.locals.get(local).cloned().map(|binding| binding.storage()).ok_or_else(|| {
                     vec![BackendError::new(
                         "P8 closure conversion",
                         definition_span,
@@ -216,7 +216,7 @@ impl FunctionLowerer<'_> {
             if let Some(source_type) = self.local_types.get(local).copied() {
                 nested.local_types.insert(*local, source_type);
             }
-            let binding = self.locals.get(local).copied().ok_or_else(|| {
+            let binding = self.locals.get(local).cloned().ok_or_else(|| {
                 lowering_error(
                     function.binding.value.span,
                     "recursive capture access mode is unavailable",
@@ -233,7 +233,7 @@ impl FunctionLowerer<'_> {
                 nested
                     .locals
                     .get(local)
-                    .copied()
+                    .cloned()
                     .map(|binding| binding.storage())
                     .ok_or_else(|| {
                         lowering_error(

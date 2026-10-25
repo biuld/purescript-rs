@@ -51,7 +51,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
         let captures = lambda_captures(body, binder.id);
         let mut capture_values = Vec::with_capacity(captures.len());
         for capture in &captures {
-            let Some(value) = self.locals.get(capture).copied() else {
+            let Some(value) = self.locals.get(capture).cloned() else {
                 return Err(capture_error(expression));
             };
             capture_values.push(value.storage());
@@ -178,7 +178,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             nested.locals.insert(local, bound_value);
         }
         for (index, capture) in captures.into_iter().enumerate() {
-            let Some(outer_value) = self.locals.get(&capture).copied() else {
+            let Some(outer_value) = self.locals.get(&capture).cloned() else {
                 return Err(capture_error(expression));
             };
             let Some(capture_type) = self

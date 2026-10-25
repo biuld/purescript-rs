@@ -4,13 +4,14 @@ use psrs_hir::SymbolId;
 use std::collections::HashMap;
 
 pub(in crate::mir) struct RuntimeContext {
+    pub(in crate::mir) source_error: Option<(crate::mir::TagId, crate::types::ValueType)>,
     pub(in crate::mir) imports: HashMap<SymbolId, Import>,
     pub(in crate::mir) static_cells: HashMap<SymbolId, Import>,
     pub(in crate::mir) record_primitives: HashMap<SymbolId, psrs_runtime::RecordPrimitive>,
     /// Provider bindings discharged by the MIR lowering into inline try
     /// regions; they plan no import because the provider has no host ABI.
     pub(in crate::mir) exception_providers: HashMap<SymbolId, crate::bindings::ExceptionProvider>,
-    /// The module's planned exception tags. Empty unless a live binding raises
+    /// The module's planned exception tags. Empty unless a live operation raises
     /// or recovers the source error tag; `checkThrows`-only modules therefore
     /// never gain a tag section.
     pub(in crate::mir) exception_tags: Vec<crate::mir::Tag>,
@@ -30,15 +31,16 @@ impl RuntimeContext {
             )]
         })?;
         // The source error tag is planned once, before any provider is
-        // checked, so every live `throw`/`catch` binding shares it. A module
+        // checked, so compiler raises and live `throw`/`catch` bindings share it. A module
         // that only uses `checkThrows` plans none and keeps its tag section
         // empty.
-        let source_error = if bindings.iter().any(|binding| {
-            binding.module == crate::bindings::RUNTIME_EXCEPTION_MODULE
-                && live.direct_calls.contains(&binding.symbol)
-                && crate::bindings::ExceptionOperation::from_export(&binding.function)
-                    .is_some_and(crate::bindings::ExceptionOperation::uses_source_error_tag)
-        }) {
+        let source_error = if live.raises_source_error
+            || bindings.iter().any(|binding| {
+                binding.module == crate::bindings::RUNTIME_EXCEPTION_MODULE
+                    && live.direct_calls.contains(&binding.symbol)
+                    && crate::bindings::ExceptionOperation::from_export(&binding.function)
+                        .is_some_and(crate::bindings::ExceptionOperation::uses_source_error_tag)
+            }) {
             let payload = layout
                 .value_type(&cc::ValueShape::String)
                 .map_err(|error| {
@@ -134,6 +136,7 @@ impl RuntimeContext {
             None => Vec::new(),
         };
         Ok(Self {
+            source_error,
             imports,
             static_cells,
             record_primitives,

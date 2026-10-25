@@ -482,6 +482,9 @@ impl FunctionLowerer<'_> {
                     )?;
                     current = merge;
                 }
+                AssignmentKind::RaiseSourceError { message } => {
+                    self.lower_source_error(current, *message, assignment.span)?;
+                }
                 AssignmentKind::Unreachable => self.append_instruction(
                     current,
                     Instruction::Unreachable {

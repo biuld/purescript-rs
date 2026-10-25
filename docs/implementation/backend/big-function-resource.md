@@ -39,6 +39,23 @@ owning-stage backtrace or completed-pass record, so it cannot identify a Core,
 solver, pattern, or backend allocation as the cause. In particular, the earlier
 million-node unused Core type-table defect is not proof of this case's cause.
 
+## Initialization-error follow-up
+
+The subsequent complete 365-root initialization-error regression run retains the
+same incomplete verdict: -6 after 36.377 seconds, with `memory allocation of 56
+bytes failed`, under the unchanged compiler-only 8 GiB / 90-second bounds. No
+guest execution or owning-stage conclusion is added. This run was required for
+the compiler change's full-inventory validation, not a repeat investigation of
+the already recorded allocation failure.
+
+Evidence is `/tmp/psrs-stream/runtime-board-initialization/`, including the raw
+case log, measurement, results, summary, terminal status and acceptance audit.
+The frozen harness SHA-256 is
+`cb8d2fb49b2329a8e405a5926ea78921c34e64cb38a2e8441787bbd30558f4bc`.
+The full board remains 316/340 with unchanged agreement names and limits.
+The original table above retains the earlier comparable observation; neither
+56-byte request establishes total or peak memory use.
+
 ## Reuse before rerunning
 
 Read the retained result and log first. The frozen executable and full archived

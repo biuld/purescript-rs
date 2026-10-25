@@ -19,6 +19,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         || TextRange::new(0, 0),
         |module| module.span.in_source(SourceId(module.id.0)),
     );
+    let mut sources = psrs_span::SourceCatalogue::default();
     let mut types = Vec::new();
     let mut newtype_ids = Vec::new();
     let mut ordinary_data_ids = Vec::new();
@@ -36,6 +37,7 @@ pub fn link(modules: Vec<Module>) -> Module {
     let mut type_variable_offset = 0u32;
     for module in modules {
         let source = SourceId(module.id.0);
+        sources.extend(module.sources.clone());
         let offset = types.len() as u32;
         let variable_span = variables::variable_span(&module);
         let module_variable_offset = type_variable_offset;
@@ -93,6 +95,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         }
     }
     Module {
+        sources,
         id: ModuleId(0),
         name,
         externals,

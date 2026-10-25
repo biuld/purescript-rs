@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 pub(super) fn add_assignments(
     assignments: &[Assignment],
     direct_calls: &mut HashSet<SymbolId>,
+    raises_source_error: &mut bool,
     value_types: &HashMap<ValueId, ValueShape>,
     needs_integer_box: &mut bool,
     needs_number_box: &mut bool,
@@ -20,6 +21,7 @@ pub(super) fn add_assignments(
 ) {
     for assignment in assignments {
         match &assignment.kind {
+            AssignmentKind::RaiseSourceError { .. } => *raises_source_error = true,
             AssignmentKind::Record { .. } | AssignmentKind::RecordPrimitive { .. } => {
                 // The record value shape reaches the registered header and its
                 // two array children through ordinary representation traversal.
@@ -80,6 +82,7 @@ pub(super) fn add_assignments(
                     add_assignments(
                         &region.assignments,
                         direct_calls,
+                        raises_source_error,
                         value_types,
                         needs_integer_box,
                         needs_number_box,
@@ -98,6 +101,7 @@ pub(super) fn add_assignments(
                 add_assignments(
                     then_assignments,
                     direct_calls,
+                    raises_source_error,
                     value_types,
                     needs_integer_box,
                     needs_number_box,
@@ -109,6 +113,7 @@ pub(super) fn add_assignments(
                 add_assignments(
                     else_assignments,
                     direct_calls,
+                    raises_source_error,
                     value_types,
                     needs_integer_box,
                     needs_number_box,
@@ -126,6 +131,7 @@ pub(super) fn add_assignments(
                 add_assignments(
                     default_assignments,
                     direct_calls,
+                    raises_source_error,
                     value_types,
                     needs_integer_box,
                     needs_number_box,
@@ -138,6 +144,7 @@ pub(super) fn add_assignments(
                     add_assignments(
                         &case.assignments,
                         direct_calls,
+                        raises_source_error,
                         value_types,
                         needs_integer_box,
                         needs_number_box,

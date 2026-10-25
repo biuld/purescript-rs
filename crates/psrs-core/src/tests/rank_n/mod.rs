@@ -46,6 +46,7 @@ fn module(types: Vec<Type>, declarations: Vec<Declaration>) -> Module {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations,
         entry: None,

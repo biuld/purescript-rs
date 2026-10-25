@@ -64,6 +64,8 @@ pub struct ExternalType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
+    /// Immutable source units supplied by the producer, preserved through linking.
+    pub sources: psrs_span::SourceCatalogue,
     pub id: ModuleId,
     pub name: String,
     pub externals: Vec<ExternalSymbol>,

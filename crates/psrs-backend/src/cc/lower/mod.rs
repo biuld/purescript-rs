@@ -323,7 +323,7 @@ impl FunctionLowerer<'_> {
     ) -> Result<ValueId, Vec<BackendError>> {
         match &expression.kind {
             ExprKind::Local(local) => {
-                let value = self.locals.get(local).copied().ok_or_else(|| {
+                let value = self.locals.get(local).cloned().ok_or_else(|| {
                     vec![BackendError::new(
                         "P8 closure conversion",
                         expression.span,

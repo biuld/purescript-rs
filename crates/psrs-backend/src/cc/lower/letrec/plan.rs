@@ -79,7 +79,7 @@ pub(in crate::cc) fn plan_recursive_values(
                                 },
                             );
                             let getter = table.add_signature(Signature {
-                                parameters: vec![],
+                                parameters: vec![crate::cc::ValueShape::String],
                                 result: shape,
                             });
                             table.recursion.insert(

@@ -64,6 +64,7 @@ fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 1),

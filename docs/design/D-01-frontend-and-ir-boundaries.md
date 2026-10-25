@@ -67,8 +67,13 @@ the current containing function owns the source text.
 
 This is ordinary source metadata, not name resolution, typing or a backend
 layout field in CST. Source naming and line mapping require a separate validated
-source catalogue; an absent catalogue does not justify inventing a runtime
-location. [DEC-27](../decision/DEC-27-source-qualified-ranges.md) records the range
+source catalogue. The driver attaches actual source text and resolved module
+names to Core's immutable source catalogue before linking. Core transformations
+preserve it; P8 validates identity, bounds and UTF-8 boundaries before rendering
+a runtime location. Source text is shared metadata, not semantic fields on
+syntax nodes. Hand-built Core can omit it until an operation requires a real
+location; that operation then rejects missing metadata rather than inventing a
+line. [DEC-27](../decision/DEC-27-source-qualified-ranges.md) records the range
 API, ownership, compatibility and synthetic/unlinked input boundary.
 
 ## The six IR families

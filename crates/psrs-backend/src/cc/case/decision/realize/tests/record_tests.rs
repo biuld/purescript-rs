@@ -49,6 +49,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![
             ConstructorInfo {
                 symbol: true_symbol,
@@ -256,6 +257,7 @@ fn open_record_patterns_find_their_field_label_in_the_labelled_store() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

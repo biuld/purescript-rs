@@ -20,6 +20,7 @@ fn module_with(
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors,
         declarations,
         entry: None,

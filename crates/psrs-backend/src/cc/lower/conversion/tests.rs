@@ -24,6 +24,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

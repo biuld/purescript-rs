@@ -34,6 +34,7 @@ fn parameterized_array_field_projection_uses_its_stored_canonical_array() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![ConstructorInfo {
             symbol: wrap,
             name: "Wrap".into(),
@@ -188,6 +189,7 @@ fn nested_parameterized_projection_keeps_each_canonical_field() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![
             ConstructorInfo {
                 symbol: inner,
@@ -342,6 +344,7 @@ fn generic_record_pattern_projects_its_canonical_array_field() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

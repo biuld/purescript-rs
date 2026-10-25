@@ -191,7 +191,31 @@ impl FunctionLowerer<'_> {
         let payload = provider
             .payload
             .ok_or_else(|| missing_contract(span, "payload"))?;
-        if self.value_type(*message) != Some(payload) {
+        if self.runtime.source_error != Some((tag, payload)) {
+            return Err(missing_contract(span, "shared source-error channel"));
+        }
+        self.lower_source_error(block, *message, span)
+    }
+
+    /// Both compiler-generated raises and checked providers use this channel.
+    pub(super) fn lower_source_error(
+        &mut self,
+        block: BlockId,
+        message: ValueId,
+        span: TextRange,
+    ) -> Result<BlockId, Vec<BackendError>> {
+        if !self.target.exceptions {
+            return Err(vec![BackendError::new(
+                "P9 MIR lowering",
+                span,
+                "source-error raising requires the WebAssembly exception-handling proposal, which the selected target disables",
+            )]);
+        }
+        let (tag, payload) = self
+            .runtime
+            .source_error
+            .ok_or_else(|| missing_contract(span, "source-error channel"))?;
+        if self.value_type(message) != Some(payload) {
             return Err(vec![BackendError::invalid_ir(
                 "P9 runtime binding",
                 span,
@@ -202,7 +226,7 @@ impl FunctionLowerer<'_> {
             block,
             Terminator::Throw {
                 tag,
-                arguments: vec![*message],
+                arguments: vec![message],
                 handler: None,
                 span,
             },
