@@ -10,7 +10,9 @@
 This is a vertical slice of #101 under the Phase 5 backend epic #78. It does
 not complete either issue. Successful recursive-value initialization and a
 shared tail-continuation repair have execution evidence. Catchable failure on
-initialization demand remains open.
+initialization demand remains open. The [RV-08 investigation](recursive-initialization-errors.md)
+records the actual guard state, exception-channel prototype and read-site
+location requirement.
 
 ## Baseline and semantic ownership
 
