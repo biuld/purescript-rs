@@ -171,7 +171,7 @@ Artifacts are under `/tmp/psrs-stream/`:
 The remaining 24 are eleven P5 type errors, three P5 kind errors, five P3
 resolution errors, two P0 lexing errors, the unchanged `TCOMutRec` assertion
 trap and `2288` guest timeout, and BigFunction's incomplete compilation. The
-last case aborts after 36.244 seconds with an observed allocation failure under
+[last case](big-function-resource.md) aborts after 36.244 seconds with an observed allocation failure under
 the compiler-only 8 GiB bound; it is neither a passing case nor a source
 rejection. No remaining first blocker is P8 closure conversion.
 

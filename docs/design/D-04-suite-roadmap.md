@@ -836,7 +836,8 @@ non-FFI programs compile, validate and run, all exiting zero. The complete
 same four-worker, guest timeout, stack and compiler resource limits. The
 remaining 24 are 11 P5 typecheck, 3 P5 kind check, 5 P3 resolve, 2 P0 lex,
 `TCOMutRec`'s unchanged assertion trap, `2288`'s unchanged guest timeout, and
-BigFunction without a compiler verdict after allocation failure under 8 GiB.
+[BigFunction remains without a compiler verdict](../implementation/backend/big-function-resource.md)
+after allocation failure under 8 GiB.
 No remaining first blocker is P8 closure conversion. The
 [recursive-value acceptance](../implementation/backend/recursive-local-values.md)
 audits all 439 corpus sources, 1202 compiler input files and 479 unchanged package
