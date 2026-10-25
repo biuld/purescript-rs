@@ -247,6 +247,7 @@ pub(super) fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Ve
         ordinary_data_ids: module.ordinary_data_ids,
         opaque_ids: module.opaque_ids,
         callable_types: module.callable_types,
+        sources: Default::default(),
         constructors: module
             .constructors
             .iter()

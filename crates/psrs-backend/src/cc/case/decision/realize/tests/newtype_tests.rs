@@ -34,6 +34,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![
             ConstructorInfo {
                 symbol: wrapper,
@@ -124,7 +125,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
             id: crate::types::ValueId(0),
             ty: ValueShape::Integer,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,

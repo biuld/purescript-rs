@@ -157,7 +157,7 @@ pub struct CaseAlternative {
 pub enum CaseRhs {
     Plain {
         arrow_span: TextRange,
-        value: Expr,
+        value: Box<Expr>,
         where_block: Option<DeclarationBlock>,
     },
     Guarded(Vec<GuardedCaseRhs>),

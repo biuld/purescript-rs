@@ -15,6 +15,7 @@ use assignments::add_assignments;
 use projection::add_projection;
 
 pub(in crate::mir) struct ReachableHandles {
+    pub(in crate::mir) raises_source_error: bool,
     pub(in crate::mir) direct_calls: HashSet<psrs_hir::SymbolId>,
     pub(in crate::mir) representations: Vec<ReprId>,
     pub(in crate::mir) signatures: Vec<SignatureId>,
@@ -33,6 +34,7 @@ impl ReachableHandles {
         let mut representation_work = Vec::new();
         let mut signature_work = Vec::new();
         let mut direct_calls = HashSet::new();
+        let mut raises_source_error = false;
         let mut needs_integer_box = false;
         let mut needs_number_box = false;
 
@@ -61,6 +63,7 @@ impl ReachableHandles {
             add_assignments(
                 &function.assignments,
                 &mut direct_calls,
+                &mut raises_source_error,
                 &value_types,
                 &mut needs_integer_box,
                 &mut needs_number_box,
@@ -209,6 +212,7 @@ impl ReachableHandles {
                     .is_some_and(signature_has_string)
             });
         Ok(Self {
+            raises_source_error,
             direct_calls,
             representations,
             signatures,

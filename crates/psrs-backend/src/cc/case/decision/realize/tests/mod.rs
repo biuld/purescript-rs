@@ -36,6 +36,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![
             ConstructorInfo {
                 symbol: true_symbol,
@@ -135,7 +136,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
             id: ValueId(0),
             ty: ValueShape::Integer,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,

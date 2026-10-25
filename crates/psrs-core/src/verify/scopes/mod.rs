@@ -96,11 +96,7 @@ pub(super) fn enter(
         .iter()
         .any(|variable| !local.insert(*variable) || scope.contains(variable))
     {
-        errors.push(VerifyError {
-            module,
-            span,
-            message,
-        });
+        errors.push(VerifyError::new(module, span, message));
     }
     scope.extend(local);
 }
@@ -119,9 +115,5 @@ pub(super) fn leading_foralls(module: &Module, mut id: TypeId) -> Vec<TypeVariab
 }
 
 pub(super) fn error(module: &Module, span: TextRange, message: &'static str) -> VerifyError {
-    VerifyError {
-        module: module.id,
-        span,
-        message,
-    }
+    VerifyError::new(module.id, span, message)
 }

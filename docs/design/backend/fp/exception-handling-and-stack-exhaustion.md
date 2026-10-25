@@ -100,7 +100,7 @@ The budget is a counter of *estimated native stack bytes* maintained in the dept
 - the board protocol records the engine's *default* limit for the pinned wasmtime baseline (wasmtime's `Config` documents `max_wasm_stack` defaulting to 512 KiB) and never relies on it silently: an execution helper running budget-dependent evidence passes the limit explicitly;
 - leaving the limit to host defaults is the recorded hazard: a different engine version or embedder moves the real limit under a fixed budget, in either direction — the compiler's throw may stop firing (budget above the limit) or fire long before the engine's own limit would matter.
 
-The depth reached is measured at runtime; compile time computes only `W_f`, a recursion classification (the same category as the static tail-call classification of `mir/lower/tail.rs`), and the constants.
+The depth reached is measured at runtime; compile time computes only `W_f`, a recursion classification (the same category as the static tail-call classification of `mir/lower/tail/mod.rs`), and the constants.
 
 ### Composition with the control machine
 
@@ -139,7 +139,7 @@ The structuring machinery of [control flow and tail calls](control-flow-and-tail
 
 ### Tail calls inside try regions
 
-Wasm pops the caller's frame at a `return_call`, discarding every handler armed in that frame — including this function's `try_table`. A `Throw` whose statically attributed innermost region was discarded would then unwind past it, contradicting the MIR semantics. Therefore: **no `ReturnCall`/`ReturnCallRef` terminator may exist in a protected block.** The tail-call rewrite (`mir/lower/tail.rs`) must skip calls in protected blocks, and the MIR verifier rejects a forced tail terminator in a protected region. Tail calls outside the region, and tail calls inside callees (which replace *callee* frames, leaving the guard's frame intact), are unaffected. Self-calls inside a protected region must also remain ordinary calls. A loop back edge can discard the current activation's dynamic handler, and can create an illegal back edge to a try block. A callee's handler may rethrow into that older activation, so allocating no new frame is not a sufficient justification for loopification. Self-loopification outside protection remains available.
+Wasm pops the caller's frame at a `return_call`, discarding every handler armed in that frame — including this function's `try_table`. A `Throw` whose statically attributed innermost region was discarded would then unwind past it, contradicting the MIR semantics. Therefore: **no `ReturnCall`/`ReturnCallRef` terminator may exist in a protected block.** The tail-call rewrite (`mir/lower/tail/mod.rs`) must skip calls in protected blocks, and the MIR verifier rejects a forced tail terminator in a protected region. Tail calls outside the region, and tail calls inside callees (which replace *callee* frames, leaving the guard's frame intact), are unaffected. Self-calls inside a protected region must also remain ordinary calls. A loop back edge can discard the current activation's dynamic handler, and can create an illegal back edge to a try block. A callee's handler may rethrow into that older activation, so allocating no new frame is not a sufficient justification for loopification. Self-loopification outside protection remains available.
 
 ### The stack-exhaustion budget
 

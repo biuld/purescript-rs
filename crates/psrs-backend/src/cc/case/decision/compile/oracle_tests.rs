@@ -43,6 +43,7 @@ fn module() -> Module {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![
             psrs_core::ConstructorInfo {
                 symbol: symbol(0),

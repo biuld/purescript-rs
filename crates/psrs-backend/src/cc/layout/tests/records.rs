@@ -48,6 +48,7 @@ fn parameter_dependent_record_field_keeps_its_canonical_template_in_the_adt_slot
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![ConstructorInfo {
             symbol: wrap,
             name: "Wrap".into(),
@@ -126,6 +127,7 @@ fn a_variant_case_may_carry_a_record_payload() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![ConstructorInfo {
             symbol: wrap,
             name: "Wrap".into(),

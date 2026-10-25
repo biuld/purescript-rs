@@ -34,6 +34,7 @@ fn empty_module(types: Vec<Type>) -> Module {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,
@@ -229,6 +230,7 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: vec![
             lambda(f_int, SymbolId::new(ModuleId(0), 0), "fInt"),
@@ -348,6 +350,7 @@ fn integer_capture_module(capture: Type) -> Module {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol,
@@ -438,6 +441,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: vec![opaque],
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

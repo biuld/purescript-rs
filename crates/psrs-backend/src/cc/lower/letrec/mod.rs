@@ -12,6 +12,9 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
 mod groups;
+mod plan;
+mod values;
+pub(in crate::cc) use plan::{RecursiveLayout, plan_recursive_values};
 
 #[cfg(test)]
 mod tests;
@@ -70,6 +73,9 @@ impl FunctionLowerer<'_> {
         group: &[usize],
         assignments: &mut Vec<Assignment>,
     ) -> Result<(), Vec<BackendError>> {
+        if !functions_only(self.module, self.function_types, bindings, group) {
+            return self.lower_recursive_values(bindings, group, assignments);
+        }
         let recursive = group.iter().copied().collect::<HashSet<_>>();
         let recursive_ids = group
             .iter()
@@ -78,18 +84,19 @@ impl FunctionLowerer<'_> {
         let functions = self.recursive_functions(bindings, &recursive)?;
         let captures = recursive_captures(bindings, &recursive, &recursive_ids);
         let definition_span = bindings[group[0]].span;
-        let capture_values = captures
-            .iter()
-            .map(|local| {
-                self.locals.get(local).copied().ok_or_else(|| {
+        let capture_values =
+            captures
+                .iter()
+                .map(|local| {
+                    self.locals.get(local).cloned().map(|binding| binding.storage()).ok_or_else(|| {
                     vec![BackendError::new(
                         "P8 closure conversion",
                         definition_span,
                         "recursive local function capture is not initialized at this binding",
                     )]
                 })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+                })
+                .collect::<Result<Vec<_>, _>>()?;
         let shapes = capture_values
             .iter()
             .map(|value| self.local_value_shape(*value, definition_span))
@@ -145,12 +152,6 @@ impl FunctionLowerer<'_> {
                 ));
             };
             let (parameters, body) = peel_parameters(&binding.value, signature.parameters.len());
-            if parameters.is_empty() && !psrs_core::opt::evaluation_is_inert(&binding.value) {
-                return Err(lowering_error(
-                    binding.span,
-                    "observable recursive initializer requires eager recursive value support",
-                ));
-            }
             let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
             functions.push(RecursiveFunction {
                 binding,
@@ -215,18 +216,31 @@ impl FunctionLowerer<'_> {
             if let Some(source_type) = self.local_types.get(local).copied() {
                 nested.local_types.insert(*local, source_type);
             }
-            nested.locals.insert(*local, destination);
+            let binding = self.locals.get(local).cloned().ok_or_else(|| {
+                lowering_error(
+                    function.binding.value.span,
+                    "recursive capture access mode is unavailable",
+                )
+            })?;
+            nested
+                .locals
+                .bind(*local, binding.with_storage(destination));
         }
 
         let nested_capture_values = captures
             .iter()
             .map(|local| {
-                nested.locals.get(local).copied().ok_or_else(|| {
-                    lowering_error(
-                        function.binding.value.span,
-                        "recursive local function capture was not restored",
-                    )
-                })
+                nested
+                    .locals
+                    .get(local)
+                    .cloned()
+                    .map(|binding| binding.storage())
+                    .ok_or_else(|| {
+                        lowering_error(
+                            function.binding.value.span,
+                            "recursive local function capture was not restored",
+                        )
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
         for member in group {
@@ -435,4 +449,24 @@ fn erased_shape() -> ValueShape {
 
 fn lowering_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
     vec![BackendError::new("P8 closure conversion", span, message)]
+}
+
+fn functions_only(
+    module: &psrs_core::Module,
+    function_types: &HashMap<psrs_core::TypeId, SignatureId>,
+    bindings: &[Binding],
+    group: &[usize],
+) -> bool {
+    group.iter().all(|index| {
+        let binding = &bindings[*index];
+        function_type_signature(module, function_types, binding.binder.ty).is_some()
+            && matches!(binding.value.kind, ExprKind::Lambda { .. })
+    })
+}
+
+fn repr(id: super::super::ReprId) -> ValueShape {
+    ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Repr(id),
+    })
 }

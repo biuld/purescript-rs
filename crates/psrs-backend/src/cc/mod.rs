@@ -251,6 +251,13 @@ pub(crate) fn lower_module_with_relations(
         })
         .collect::<HashMap<_, _>>();
     let control_functions = lower::plan_control_helpers(&mut layout, &generated_symbols);
+    lower::plan_recursive_values(
+        &module,
+        &mut layout,
+        &enum_types,
+        &aggregate_types,
+        &newtype_ids,
+    )?;
     let boundary = BoundaryEvidence::new(
         relations,
         &module,

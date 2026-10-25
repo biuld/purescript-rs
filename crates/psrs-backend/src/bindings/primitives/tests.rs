@@ -42,6 +42,7 @@ fn fixture(types: &[TypeId]) -> Module {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         type_names: Vec::new(),

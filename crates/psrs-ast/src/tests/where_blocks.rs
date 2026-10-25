@@ -64,7 +64,7 @@ fn lowers_a_case_where_block_to_a_let_in_the_branch() {
         patterns: vec![pattern_var("x", 33)],
         rhs: cst::CaseRhs::Plain {
             arrow_span: TextRange::new(35, 37),
-            value: cst_expr(CstExprKind::Name(name("y", 38)), 38, 39),
+            value: Box::new(cst_expr(CstExprKind::Name(name("y", 38)), 38, 39)),
             where_block: Some(declaration_block(vec![binding], 40, 50)),
         },
         span: TextRange::new(33, 50),

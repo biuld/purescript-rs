@@ -293,9 +293,5 @@ pub(super) fn restore_local(locals: &mut Locals, id: LocalId, previous: Option<S
 }
 
 pub(super) fn error(module: ModuleId, span: TextRange, message: &'static str) -> VerifyError {
-    VerifyError {
-        module,
-        span,
-        message,
-    }
+    VerifyError::new(module, span, message)
 }

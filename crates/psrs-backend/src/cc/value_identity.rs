@@ -18,7 +18,7 @@ pub(crate) fn reference_origin<'a>(
             return Some(value);
         }
         let result = match definition(value) {
-            Some(AssignmentKind::Unreachable) => None,
+            Some(AssignmentKind::Unreachable | AssignmentKind::RaiseSourceError { .. }) => None,
             Some(
                 AssignmentKind::RepresentationCast { value, .. }
                 | AssignmentKind::ArraySet { value, .. },

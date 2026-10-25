@@ -829,7 +829,30 @@ the code reference and an immutable capture array.
   per program. Runtime output is recorded, not compared with upstream goldens.
 - **Prerequisite:** M2–M6.
 
-**Progress (remeasured 2026-10-25, Aff integration):** **315 of 340**
+**Progress (remeasured 2026-10-25, catchable initialization errors):** **316 of 340**
+non-FFI programs compile, validate and run, all exiting zero. The complete
+365-root measurement has no gained or lost agreement relative to the earlier
+recursive-value board: `Stream` remains accepted, with unchanged 25 FFI
+exclusions and 74 support sources. It takes 2211.729 seconds under the same
+four-worker, guest timeout, stack and compiler resource limits. The remaining
+24 are 11 P5 typecheck, 3 P5 kind check, 5 P3 resolve, 2 P0 lex, `TCOMutRec`'s
+unchanged assertion trap, `2288`'s unchanged guest timeout, and
+[BigFunction without a compiler verdict](../implementation/backend/big-function-resource.md)
+after allocation failure under 8 GiB (36.377 seconds). No remaining first
+blocker is P8 closure conversion. The
+[RV-08 acceptance](../implementation/backend/recursive-initialization-errors.md)
+audits all 439 corpus sources, 1205 compiler input files and 479 unchanged package
+payload files. Its four actual Node/Wasmtime comparisons agree on catchable
+messages and distinct escaped read locations without initializer retries; five
+maintained driver tests include Control cleanup and fresh runners. The seven
+recursive-value executions, required-runtime workspace tests and twelve Aff
+regression programs pass. Source provenance survives cross-module inlining.
+The final package lock remains `b817f3d` / `fnv1a64-v1:acd7fdd2f2a78577`.
+#101 is not complete. Its current `Corpus cases` count remains two: the
+first-execution blockers `TCOMutRec` and `2288`. BigFunction is not assigned to a
+compiler stage while its verdict is incomplete.
+
+**Previous progress (remeasured 2026-10-25, Aff integration):** **315 of 340**
 non-FFI programs compile, validate and run, all exiting zero. The complete
 365-root measurement preserves the preceding agreement and FFI-exclusion sets,
 with 74 support sources and no gained/lost agreement. It takes 2107.098 seconds
@@ -1365,7 +1388,7 @@ for matrix status.
 | L3 | Kinds and higher-kinded types | **50/50** failing cases. `KindsDoNotUnify` 24/24, `PartiallyAppliedSynonym` 12/12, `CycleInTypeSynonym` 4/4, `CycleInKindDeclaration` 2/2, `InfiniteKind` 2/2, `UndefinedTypeVariable` 4/4, and both quantification codes 1/1. Reconfirmed 2026-10-23. | 100% agreement for the mapped kind cases. |
 | L4 | Core type checking | **65/65** failing cases. `TypesDoNotUnify` 41/41, `PropertyIsMissing` 2/2, `AdditionalProperty` 1/1, `IntOutOfRange` 1/1, `InfiniteType` 2/2, `HoleInferredType` 10/10, `ExpectedType` 2/2, `EscapedSkolem` 2/2, `CannotApplyExpressionOfTypeOnType` 2/2, `AmbiguousTypeVariables` 1/1, and `IncorrectConstructorArity` 3/3. Reconfirmed 2026-10-23. | 100% agreement for the mapped type cases. |
 | L5 | Classes and instances | **101/101** failing cases. `NoInstanceFound` 53/53, `OverlappingInstances` 8/8, `OrphanInstance` 7/7, `CannotDeriveInvalidConstructorArg` 7/7, `InvalidInstanceHead` 7/7, `InvalidNewtypeInstance` 6/6, `ClassInstanceArityMismatch` 4/4, `MissingClassMember` 2/2, `CycleInTypeClassDeclaration` 2/2, and `PossiblyInfiniteInstance`, `PossiblyInfiniteCoercibleInstance`, `CannotDeriveNewtypeForData`, `DuplicateTypeClass`, and `DuplicateInstance` each 1/1. Reconfirmed 2026-10-23; L4/L5 total 166 measured cases. | 100% agreement for the mapped class cases. |
-| L6/M7 | Runtime and standard library | **315/340** non-FFI programs compile, validate and run; all exit 0. Remeasured 2026-10-25 after Aff integration: all 365 roots, 25 FFI exclusions and 74 support sources are accounted for, with no gained or lost agreement. The remaining 25 retain the preceding decomposition: 11 P5 typecheck, 3 P5 kind check, 5 P3 resolve, 1 P8 closure conversion, 2 P0 lex, `TCOMutRec` assertion trap, `2288` guest timeout, and BigFunction without a compiler verdict under the compiler-only 8 GiB bound. The four-worker run takes 2107.098 seconds. The measured/final revisions share payload `fnv1a64-v1:acd7fdd2f2a78577`; final lock `b817f3d` differs from measured `88b62f1` only in documentation. Aff has separate public JS/Wasmtime evidence because no passing root imports it. See [Aff acceptance](../implementation/backend/effect-aff.md). | Every in-scope program compiles, validates, and runs. |
+| L6/M7 | Runtime and standard library | **316/340** non-FFI programs compile, validate and run; all exit 0. Remeasured 2026-10-25 after catchable initialization errors: no gained or lost agreement; `Stream` remains accepted. All 365 roots, 25 unchanged FFI exclusions and 74 support sources are accounted for. The remaining 24 are 11 P5 typecheck, 3 P5 kind check, 5 P3 resolve, 2 P0 lex, the unchanged `TCOMutRec` assertion trap and `2288` guest timeout, and BigFunction without a compiler verdict under the compiler-only 8 GiB bound. The four-worker run takes 2211.729 seconds. Lock `b817f3d` / `fnv1a64-v1:acd7fdd2f2a78577` is unchanged. See [recursive-value acceptance](../implementation/backend/recursive-local-values.md). | Every in-scope program compiles, validates, and runs. |
 | M8-W | Warnings | 67 non-FFI warning files are in scope; no warning-code scoreboard exists | Warning-code agreement reaches 100% for the tracked warning corpus. |
 | M8-O | Optimization | 10 optimize files are in scope; they are not vendored and their goldens are JavaScript output | Expected optimize/CoreFn output agrees for all tracked optimize files. |
 
@@ -1479,7 +1502,7 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | ID | Feature | Current support | Status | Next landing |
 | --- | --- | --- | --- | --- |
 | BE-01 | ANF and explicit evaluation order | Direct-style CC/ANF lowering is implemented and tested for the bootstrap expression set. | Partial | Extend the lowering to every frontend expression form and pass the L6/M7 gate. |
-| BE-02 | Closure conversion, captures, direct calls, and closure calls | Top-level functions, local lambdas, scalar and concrete aggregate captures, generic calls, annotated rank-N parameters and fields, captured polymorphic values, returned closure boundaries, and explicit adapters between concrete and erased higher-order closures work. | Partial | Reconcile remaining partial applications and the complete official runtime gate. |
+| BE-02 | Closure conversion, captures, direct calls, and closure calls | Top-level functions, local lambdas, scalar and concrete aggregate captures, generic calls, annotated rank-N parameters and fields, captured polymorphic values, returned closure boundaries, and explicit adapters between concrete and erased higher-order closures work. Recursive local values use typed eager memo cells, preserving identity and capture access modes; `Stream` now executes and the full runtime board remains 316/340 after catchable initialization errors. The common tail pass preserves work after initializer calls. Initialization demand raises a catchable source error with preserved read context, without retrying failed initializers. See [recursive-value evidence](../implementation/backend/recursive-local-values.md). | Partial | Reconcile remaining partial applications and the complete official runtime gate; initialization-demand recovery and inlined provenance are verified in RV-08. |
 | BE-03 | MIR/CFG, block parameters, terminators, and verification | Typed basic blocks, explicit instructions/terminators, runtime layouts, and MIR verification work; a verified tag `Switch` is supported for nullary ADT dispatch. | Partial | Extend control flow beyond enum-tag switches and current merge diamonds, then grow the instruction set for remaining language/runtime constructs and pass the L6/M7 gate. |
 | BE-04 | Primitive runtime representation and calling conventions | `Int`, `Number` as Wasm `f64`, `Boolean`, `Char` as an integer-valued scalar, `String`, `Unit`, direct calls, and the current closure ABI work in compiler/runtime tests. The currently exposed integer, number, boolean, and character primitive subset lowers from Typed Core through CC. | Partial | Add official-suite evidence, remaining primitive/literal semantics, richer values, and stable ABI coverage before changing the status. |
 | BE-05 | Nullary ADT tags and case lowering | Nullary constructors use integer tags; enum-style case dispatch lowers through verified MIR `Switch` to Wasm `br_table` and is validated and executed under WASI. | Partial | Extend case lowering beyond nullary enums, integrate with the complete pattern model, and pass the L6/M7 gate. |

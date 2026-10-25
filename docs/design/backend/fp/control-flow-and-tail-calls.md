@@ -342,8 +342,16 @@ emit_dispatcher(blocks, entry):
 
 ### Tail-call classification
 
-A call is in tail position when its result is returned directly and no later
-use observes it. The analysis runs on MIR blocks after P9 has built the CFG:
+A call is in tail position only when its complete continuation returns the
+identical result without further computation, mutation, trapping, control-flow
+choices, or dynamic protection to retain. A returned value's dataflow alone
+does not prove this: a merge block may perform a required write before returning
+its parameter. The analysis runs on MIR blocks after P9 has built the CFG.
+It accepts a direct return or an unconditional chain of instruction-free joins,
+tracking the result through their block arguments. A cycle or any other
+continuation retains the ordinary call. This rule applies equally to self,
+direct, reference and closure calls:
+
 
 ```text
 mark_tail(function):
@@ -354,7 +362,8 @@ mark_tail(function):
     for each reachable block b:
         for each final instruction a in b:
             d = a.destination
-            if a is Call/ClosureCall and b's terminator is Return(d)
+            if a is Call/CallRef/ClosureCall and b's complete continuation
+               only returns d through empty unconditional joins
                and d has no other use:
                 if callee == function.symbol:
                     rewrite to a Jump(loop_header, a.arguments) // header has block params
@@ -427,7 +436,7 @@ Required types and entry points:
   values and a span. `mir/instruction.rs` must hold the `Instruction` forms
   that tail-position analysis and lowerers inspect (`Call`, `CallRef`, and the
   value-producing instructions).
-- `mir/lower/tail.rs` must expose the tail-call rewriting entry point:
+- `mir/lower/tail/mod.rs` must expose the tail-call rewriting entry point:
 
   ```rust
   fn mark_tail(function: &mut MirFunction) -> Result<(), MirError>;
@@ -620,9 +629,11 @@ specific areas:
 - Duplicate constructor alternatives retain source-order first-match behavior
   by using the existing chain of `If` decisions instead of `TagSwitch`.
 - `TargetCapabilities::tail_call` controls Wasm validation and gates the MIR
-  rewrite. `mir/lower/tail.rs::mark_tail` recognizes calls whose result is
-  returned unchanged through one-parameter joins. Outside protection, a self call becomes a back
-  edge to a fresh loop header, so deep self-recursion runs in constant stack on
+  rewrite. `mir/lower/tail/mod.rs::mark_tail` recognizes calls whose result is
+  returned unchanged through instruction-free unconditional joins, including
+  zero-argument edges that preserve a dominating value. A later write, call,
+  branch or trap prevents conversion, even when the same result eventually
+  reaches `Return`. Outside protection, a self call becomes a back edge to a fresh loop header, so deep self-recursion runs in constant stack on
   every profile. A non-self direct call becomes `ReturnCall`; a `CallRef` or
   closure call becomes `ReturnCallRef` after projecting the code reference and
   passing the closure as the receiver. When the flag is disabled, the call is

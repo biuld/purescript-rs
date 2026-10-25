@@ -64,6 +64,8 @@ pub struct ExternalType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
+    /// Immutable source units supplied by the producer, preserved through linking.
+    pub sources: psrs_span::SourceCatalogue,
     pub id: ModuleId,
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
@@ -244,10 +246,20 @@ pub struct CaseBranch {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyError {
-    /// The source module owning the declaration; linked Core maps diagnostics back to it.
+    /// The original source of the range, even after its expression is inlined.
     pub module: ModuleId,
     pub span: TextRange,
     pub message: &'static str,
+}
+
+impl VerifyError {
+    pub(crate) fn new(module: ModuleId, span: TextRange, message: &'static str) -> Self {
+        Self {
+            module: span.source().map_or(module, |source| ModuleId(source.0)),
+            span,
+            message,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

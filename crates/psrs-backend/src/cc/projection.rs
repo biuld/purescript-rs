@@ -385,6 +385,7 @@ mod tests {
             ordinary_data_ids: Vec::new(),
             opaque_ids: Vec::new(),
             callable_types: Vec::new(),
+            sources: Default::default(),
             type_names: vec![(maybe, "Data.Maybe.Maybe".into())],
             constructors: vec![
                 ConstructorInfo {

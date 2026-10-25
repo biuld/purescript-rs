@@ -251,22 +251,25 @@ fn rejects_ambiguous_program_entries_instead_of_using_source_order() {
 
 #[test]
 fn attributes_backend_errors_to_their_declaring_module() {
-    // The result uses `x`, so dead-binding cleanup cannot delete the cycle
-    // before closure conversion. The entry stays `Int`.
+    // A scalar cannot masquerade as array storage. Keep a genuine P8 rejection
+    // in the second input so the diagnostic cannot default to source zero.
     let a = (
         "A.purs",
-        "module A where\nmain :: Int\nmain = let x = x in x\n",
+        "module A where\nforeign import \"psrs:intrinsic#__psrs_unsafe_coerce\" unsafeCoerce :: forall a b. a -> b\nmain :: Int\nmain = arrayLength (unsafeCoerce 1 :: Array Int)\n",
     );
     let b = ("B.purs", "module B where\nanswer = 0\n");
-    let errors = compile_program_sources(&[a, b]).unwrap_err();
-    assert!(errors.iter().any(|error| {
-        error.source == DiagnosticOrigin::Source(0)
-            && error.diagnostic.stage == "P8 closure conversion"
-            && error
-                .diagnostic
-                .message
-                .contains("recursive local binding is not a function")
-    }));
+    let errors = compile_program_sources(&[b, a]).unwrap_err();
+    assert!(
+        errors.iter().any(|error| {
+            error.source == DiagnosticOrigin::Source(1)
+                && error.diagnostic.stage == "P8 closure conversion"
+                && error
+                    .diagnostic
+                    .message
+                    .contains("closure capture is not representable in the current runtime slice")
+        }),
+        "{errors:?}"
+    );
 }
 
 #[test]
@@ -281,4 +284,55 @@ fn runs_a_linked_program_when_wasmtime_is_available() {
         return;
     };
     assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn inlined_backend_errors_keep_the_callee_source_and_byte_range() {
+    let main = (
+        "Main.purs",
+        "module Main where\nimport Helper (broken)\nmain = broken 42\n",
+    );
+    let helper = (
+        "Helper.purs",
+        "module Helper where\nforeign import \"psrs:intrinsic#__psrs_unsafe_coerce\" unsafeCoerce :: forall a b. a -> b\nbroken :: Int -> Int\nbroken n = arrayLength (unsafeCoerce n :: Array Int)\n",
+    );
+    let errors = compile_program_sources(&[main, helper]).unwrap_err();
+    let error = errors
+        .iter()
+        .find(|error| error.diagnostic.stage == "P8 closure conversion")
+        .expect("incompatible scalar/array representation must fail in P8");
+    assert_eq!(error.source, DiagnosticOrigin::Source(1), "{errors:?}");
+    let span = error.diagnostic.span;
+    assert_eq!(
+        &helper.1[span.start as usize..span.end as usize],
+        "unsafeCoerce"
+    );
+    assert_eq!(span.source(), Some(psrs_span::SourceId(1)));
+}
+
+#[test]
+fn inlined_backend_warnings_keep_the_original_alternative_source() {
+    let main = (
+        "Main.purs",
+        "module Main where\nimport Helper (pick, opaque)\nmain = pick (opaque 1)\n",
+    );
+    let helper = (
+        "Helper.purs",
+        "module Helper where\nopaque n = if intEq n 0 then 0 else opaque (intSub n 1)\npick n = case n of\n  0 -> 40\n  0 -> 41\n  _ -> 42\n",
+    );
+    let artifact = compile_program_sources(&[main, helper]).expect("redundancy is a warning");
+    let warning = artifact
+        .warnings
+        .iter()
+        .find(|warning| {
+            warning
+                .diagnostic
+                .message
+                .contains("redundant case alternative")
+        })
+        .expect("inlined redundant alternative retains its warning");
+    assert_eq!(warning.source, 1);
+    let span = warning.diagnostic.span;
+    assert_eq!(&helper.1[span.start as usize..span.end as usize], "0 -> 41");
+    assert_eq!(span.source(), Some(psrs_span::SourceId(1)));
 }

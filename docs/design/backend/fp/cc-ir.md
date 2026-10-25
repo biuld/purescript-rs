@@ -61,10 +61,24 @@ ordinary lambdas. When a written function body returns a closure before binding
 all arrow parameters, generated CC parameters feed the remaining closure call.
 Lambda and recursive-group lowering share that adaptation and use signatures
 reserved before lowering. Inert local aliases may participate in a recursive
-group and preserve its capture environment. A zero-binder recursive initializer
-that may call, trap or write still requires eager recursive-value support;
-current lowering rejects it rather than delaying its evaluation. The Core
-optimizer's conservative evaluation summary owns this distinction.
+group and preserve its capture environment. Groups containing a value initializer
+or callable alias use typed memo getters instead. Every member has a private
+one-element array holding a three-case variant: uninitialized, initializing,
+or ready with its declared runtime value shape. All cells exist before any
+initializer runs; getters capture the cells and external locals. Initializers
+are forced eagerly in their checked Core binding order within the
+dependency-ordered component. A recursive read invokes its getter, initializes an uninitialized
+member once, or returns the identical cached ready value. An initializing read
+must raise a catchable source initialization-demand error. The acceptance
+record identifies the current trap boundary as an implementation gap. See the
+[recursive-value acceptance record](../../../implementation/backend/recursive-local-values.md).
+
+The lowering scope owns each local's access mode (ordinary value or memo getter)
+together with its storage identity. Closure capture carries that storage without
+forcing it, and capture restoration preserves the access mode. The existing
+declared-type scope remains the owner of use-site instantiation. These are P8
+lowering facts; emitted CC contains ordinary arrays, variants, closures and calls,
+without source type IDs or a special recursive-value runtime intrinsic.
 
 **Evaluation order.** Because Core is strict, the order in which operands are
 evaluated is observable as soon as effects exist. CC makes Core's defined order
@@ -104,10 +118,12 @@ not a source name. Source spans are retained on every assignment because it can
 produce a diagnostic.
 
 A function's `parameters` must be the first `ValueDecl`s and are the only values
-available at entry; every assignment defines exactly one new value. `ArraySet`
-produces the updated array as a distinct value after a clone, preserving the
-source operation's purity. The list of
-assignments is ordered so that the reader sees evaluation order.
+available at entry. Value-producing assignments define one new value. `ArraySet`
+is the explicit storage mutation exception: it writes an existing array and its
+destination names that same array, without defining a new SSA identity. Pure
+source array updates emit `ArrayClone` first; private runtime cells and checked
+unsafe library writes deliberately retain shared identity. Assignments are
+ordered so that the reader sees evaluation order.
 
 ### Representation requirements
 
@@ -244,6 +260,10 @@ CC operations are semantic operations over `ReprId`s, spelled by
   recursive conversion plan (`Identity`, scalar box/unbox, reference erasure or
   recovery, `ArrayMap`, `ProductMap`, or a function adapter);
 - structured control: `If`, which nests a then and an else assignment list;
+- native protection: `Protect` with explicit normal or exceptional region exits;
+- source failure: `RaiseSourceError` with one checked String operand and no
+  normal result. Like `Unreachable`, its declared destination can have any
+  result shape because evaluation never produces that value;
 - closed tag dispatch: `TagSwitch`, a multi-way choice over an integer-tagged
   value with branch-local assignment lists and a default arm, plus `Unreachable`
   for an impossible decision-DAG edge.
@@ -262,9 +282,13 @@ source and destination `ValueShape`s, and recursive conversion plan. P8 builds
 the plan from typed Core substitutions; P9 resolves abstract representation
 handles. It carries no Wasm type or physical field offset.
 
-`If` and the closed tag switch `TagSwitch` are the only control constructs in
-CC. Neither is a CFG: the branch assignment lists are nested and produce a
-value, and P9 converts them into basic blocks. `Unreachable` marks a branch
+`If`, the closed tag switch `TagSwitch`, and native protection regions remain
+structured in CC. Their assignment lists are nested; P9 converts them into
+basic blocks. `RaiseSourceError` lowers to a native Throw terminator on the
+same source-error channel as checked source throw/catch providers, including
+when no provider is live. Its payload cannot be erased Any or an opaque native
+exception token. It requires exception capability; it creates no host import.
+`Unreachable` marks a branch
 that cannot be taken, such as an impossible decision-DAG edge. This is
 deliberate — CC stays expression-shaped until the last
 moment so that evaluation order and capture structure can be verified before
@@ -565,8 +589,9 @@ The CC verifier (`verify_module`, `verify_table`, `verify_function_inner`,
 - capture count, order, and representations match the lifted function;
 - product fields and array elements match their abstract representation, while
   variant cases are validated in the representation table;
-- `ArraySet`'s destination is a fresh array value; its source array remains
-  available and unchanged;
+- `ArraySet`'s destination is its existing source array, the index is an integer,
+  and the written value matches the array element shape; source-pure updates
+  obtain a fresh array through an explicit preceding `ArrayClone`;
 - both branches of a value-producing conditional yield the declared
   representation, and every `TagSwitch` arm (including the default) does too;
   `TagSwitch` cases have unique tags; and
@@ -680,22 +705,18 @@ The current code has `Constant`, `NumberConstant`, `StringConstant`,
 `ArrayGet`, `ArrayClone`, `ArraySet`, and `If`. Pattern lowering uses the shared
 matrix compiler and decision DAG described in
 [pattern matching](pattern-matching.md). P8 detects cyclic dependencies among
-local `Let` bindings and lifts cyclic function bindings into target-neutral CC
-functions. Each cyclic member must be a lambda chain that binds every parameter
-in its CC signature. The lifted functions capture the ordered union of their
-external free locals; each function reconstructs the group's function values
-from those captures, so recursive calls and closures that escape through a
-nested lambda use ordinary `FunctionRef`, `ClosureGetCapture`, and
-`IndirectCall` operations. Regressions cover mutually recursive functions and
-a recursive function that captures an earlier non-recursive value from the
-same `Let` and escapes through a nested closure. They check source-order
-assignments and preserved source ranges, and verify that both outputs lower
-through P9. Captures are resolved when lowering reaches the first recursive
-binding, after earlier bindings have been lowered. A capture that depends on a
-same-`Let` value appearing after that point still receives a source-spanned
-diagnostic: strict source-order evaluation has not produced a value for the
-explicit closure environment at the point the recursive closure is formed.
-Recursive non-function bindings still receive source-spanned diagnostics.
+local `Let` bindings into dependency-ordered strongly connected components.
+Components containing only syntactic functions use lifted recursive closures,
+including the shared flattened-arity adaptation. Other cyclic components use
+typed memo getters with eager initialization and a shared state cell per member.
+External captures are available because predecessor components have already
+been lowered. Both ordinary lambdas and lifted recursive functions preserve
+memo access modes across capture restoration. The generic CC verifier checks
+storage shapes, variant tags/fields, closure signatures, captures, SSA identity
+and branch results; it trusts P8's three-state memo protocol and eager forcing
+order. It does not independently prove once-only initialization. The acceptance
+record identifies runtime evidence and the remaining initialization-error
+exception obligation.
 `AggregateConvert` and its recursive plans are implemented and verified for
 canonical generic arrays and closed records. The
 [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)

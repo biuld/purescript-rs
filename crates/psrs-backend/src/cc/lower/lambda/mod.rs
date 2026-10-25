@@ -51,10 +51,10 @@ impl LambdaLowering for FunctionLowerer<'_> {
         let captures = lambda_captures(body, binder.id);
         let mut capture_values = Vec::with_capacity(captures.len());
         for capture in &captures {
-            let Some(value) = self.locals.get(capture).copied() else {
+            let Some(value) = self.locals.get(capture).cloned() else {
                 return Err(capture_error(expression));
             };
-            capture_values.push(value);
+            capture_values.push(value.storage());
         }
         // A lambda chain `\x -> \y -> e` is one callable value. Peel binders
         // while the current lambda's result is itself an arrow, so the lifted
@@ -178,13 +178,13 @@ impl LambdaLowering for FunctionLowerer<'_> {
             nested.locals.insert(local, bound_value);
         }
         for (index, capture) in captures.into_iter().enumerate() {
-            let Some(outer_value) = self.locals.get(&capture).copied() else {
+            let Some(outer_value) = self.locals.get(&capture).cloned() else {
                 return Err(capture_error(expression));
             };
             let Some(capture_type) = self
                 .values
                 .iter()
-                .find(|decl| decl.id == outer_value)
+                .find(|decl| decl.id == outer_value.storage())
                 .map(|decl| decl.ty)
             else {
                 return Err(capture_error(expression));
@@ -204,7 +204,9 @@ impl LambdaLowering for FunctionLowerer<'_> {
             if let Some(source_type) = self.local_types.get(&capture).copied() {
                 nested.local_types.insert(capture, source_type);
             }
-            nested.locals.insert(capture, destination);
+            nested
+                .locals
+                .bind(capture, outer_value.with_storage(destination));
         }
         let result = nested
             .lower_value(body, &mut nested_assignments)
@@ -292,7 +294,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
         FunctionLowerer {
             next_value: 0,
             values: Vec::new(),
-            locals: HashMap::new(),
+            locals: Default::default(),
             signatures: self.signatures,
             representations: self.representations,
             module: self.module,

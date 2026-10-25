@@ -15,6 +15,7 @@ fn module(types: Vec<Type>, field: TypeId, parameters: Vec<TypeVariableId>) -> M
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![ConstructorInfo {
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "Action".into(),

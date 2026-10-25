@@ -149,7 +149,7 @@ impl<'a> Parser<'a> {
                     patterns,
                     rhs: CaseRhs::Plain {
                         arrow_span,
-                        value,
+                        value: Box::new(value),
                         where_block,
                     },
                     span: TextRange::new(start, end),
@@ -239,7 +239,7 @@ impl<'a> Parser<'a> {
             };
             CaseRhs::Plain {
                 arrow_span,
-                value,
+                value: Box::new(value),
                 where_block,
             }
         } else if self.at_raw(&RawTokenKind::Pipe) {

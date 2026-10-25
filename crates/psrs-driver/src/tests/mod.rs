@@ -227,3 +227,4 @@ mod exception_library;
 mod symbol_reflection;
 
 mod recursive_closures;
+mod recursive_initialization;

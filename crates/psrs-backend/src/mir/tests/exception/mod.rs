@@ -14,6 +14,7 @@ mod execution;
 mod protected_recursion;
 mod references;
 mod regions;
+mod source_raise;
 mod structuring;
 mod tail;
 mod throw_destination;

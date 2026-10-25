@@ -37,7 +37,15 @@ pub(super) fn lower_program_inner(
     let mut modules = Vec::with_capacity(typed.len());
     for (index, module) in typed.into_iter().enumerate() {
         match psrs_core::lower_module_unverified(module) {
-            Ok(core) => modules.push(core),
+            Ok(mut core) => {
+                let source_id = psrs_span::SourceId(core.id.0);
+                let (_, text) = sources[core.id.0 as usize];
+                core.sources.insert(
+                    source_id,
+                    psrs_span::SourceFile::new(core.name.clone(), text),
+                );
+                modules.push(core);
+            }
             Err(errors) => {
                 return Err(errors
                     .into_iter()

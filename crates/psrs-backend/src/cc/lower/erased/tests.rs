@@ -246,6 +246,7 @@ fn module(types: Vec<Type>, declaration: Declaration, entry: SymbolId) -> Module
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: Vec::new(),
         declarations: vec![declaration],
         entry: Some(entry),

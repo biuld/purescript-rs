@@ -33,6 +33,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![ConstructorInfo {
             symbol: constructor,
             name: "Product".into(),
@@ -120,7 +121,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
             id: crate::types::ValueId(0),
             ty: root_shape,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,

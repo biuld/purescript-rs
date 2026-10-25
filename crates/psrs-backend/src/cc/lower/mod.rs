@@ -24,6 +24,8 @@ mod lambda;
 mod letrec;
 mod literals;
 mod record;
+mod scope;
+use scope::LocalScope;
 mod string_bytes;
 mod symbols;
 use call::ApplicationLowering;
@@ -33,6 +35,7 @@ pub(in crate::cc) use conversion::VariantFieldConversion;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
 use letrec::LetLowering;
+pub(in crate::cc) use letrec::{RecursiveLayout, plan_recursive_values};
 pub(in crate::cc) use symbols::GeneratedSymbolAllocator;
 
 pub(super) struct LoweringContext<'a> {
@@ -73,7 +76,7 @@ pub(super) fn lower_function(
     let mut state = FunctionLowerer {
         next_value: 0,
         values: Vec::new(),
-        locals: HashMap::new(),
+        locals: Default::default(),
         local_types: HashMap::new(),
         signatures: context.signatures,
         representations: context.representations,
@@ -220,7 +223,7 @@ pub(super) fn lower_function(
 pub(super) struct FunctionLowerer<'a> {
     pub(super) next_value: u32,
     pub(super) values: Vec<ValueDecl>,
-    pub(super) locals: HashMap<LocalId, ValueId>,
+    pub(super) locals: LocalScope,
     /// The declared source type of every local binder in scope. Erased
     /// adaptation is derived from this scope rather than from a side table:
     /// a use of a local whose lowered representation is erased is adapted from
@@ -320,13 +323,14 @@ impl FunctionLowerer<'_> {
     ) -> Result<ValueId, Vec<BackendError>> {
         match &expression.kind {
             ExprKind::Local(local) => {
-                let value = self.locals.get(local).copied().ok_or_else(|| {
+                let value = self.locals.get(local).cloned().ok_or_else(|| {
                     vec![BackendError::new(
                         "P8 closure conversion",
                         expression.span,
                         "local value is unavailable before its binding is lowered",
                     )]
                 })?;
+                let value = self.read_local_binding(value, expression.span, assignments)?;
                 self.adapt_erased_function_use(
                     *local,
                     value,

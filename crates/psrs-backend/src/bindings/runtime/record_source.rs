@@ -166,6 +166,7 @@ mod tests {
             ordinary_data_ids: vec![SLOT_ID],
             opaque_ids: Vec::new(),
             callable_types: Vec::new(),
+            sources: Default::default(),
             constructors: Vec::new(),
             declarations: Vec::new(),
             entry: None,

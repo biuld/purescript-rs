@@ -38,6 +38,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
         ordinary_data_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
+        sources: Default::default(),
         constructors: vec![
             ConstructorInfo {
                 symbol: pick,
@@ -184,7 +185,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
             id: crate::types::ValueId(0),
             ty: root_shape,
         }],
-        locals: HashMap::new(),
+        locals: Default::default(),
         signatures: &signatures,
         representations: &representations,
         module: &module,
