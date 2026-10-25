@@ -56,6 +56,21 @@ encoding: a module skeleton plus structured control-flow regions whose leaf
 opcodes are delegated to the Wasm encoder. That form is produced and consumed
 within the backend and is not a long-lived IR family.
 
+## Source identity across representations
+
+Byte ranges are file-relative until a representation combines source units.
+Core linking qualifies ranges with their original compilation-local `SourceId`
+during its existing conversion. Moving or inlining a node preserves that source
+and its coordinates. Binders, case branches and nested patterns follow the same
+rule. Later errors and warnings use qualified provenance rather than assuming
+the current containing function owns the source text.
+
+This is ordinary source metadata, not name resolution, typing or a backend
+layout field in CST. Source naming and line mapping require a separate validated
+source catalogue; an absent catalogue does not justify inventing a runtime
+location. [DEC-27](../decision/DEC-27-source-qualified-ranges.md) records the range
+API, ownership, compatibility and synthetic/unlinked input boundary.
+
 ## The six IR families
 
 | Family | Main representation | Entry invariant |

@@ -285,3 +285,54 @@ fn runs_a_linked_program_when_wasmtime_is_available() {
     };
     assert_eq!(output.status.code(), Some(42));
 }
+
+#[test]
+fn inlined_backend_errors_keep_the_callee_source_and_byte_range() {
+    let main = (
+        "Main.purs",
+        "module Main where\nimport Helper (broken)\nmain = broken 42\n",
+    );
+    let helper = (
+        "Helper.purs",
+        "module Helper where\nforeign import \"psrs:intrinsic#__psrs_unsafe_coerce\" unsafeCoerce :: forall a b. a -> b\nbroken :: Int -> Int\nbroken n = arrayLength (unsafeCoerce n :: Array Int)\n",
+    );
+    let errors = compile_program_sources(&[main, helper]).unwrap_err();
+    let error = errors
+        .iter()
+        .find(|error| error.diagnostic.stage == "P8 closure conversion")
+        .expect("incompatible scalar/array representation must fail in P8");
+    assert_eq!(error.source, DiagnosticOrigin::Source(1), "{errors:?}");
+    let span = error.diagnostic.span;
+    assert_eq!(
+        &helper.1[span.start as usize..span.end as usize],
+        "unsafeCoerce"
+    );
+    assert_eq!(span.source(), Some(psrs_span::SourceId(1)));
+}
+
+#[test]
+fn inlined_backend_warnings_keep_the_original_alternative_source() {
+    let main = (
+        "Main.purs",
+        "module Main where\nimport Helper (pick, opaque)\nmain = pick (opaque 1)\n",
+    );
+    let helper = (
+        "Helper.purs",
+        "module Helper where\nopaque n = if intEq n 0 then 0 else opaque (intSub n 1)\npick n = case n of\n  0 -> 40\n  0 -> 41\n  _ -> 42\n",
+    );
+    let artifact = compile_program_sources(&[main, helper]).expect("redundancy is a warning");
+    let warning = artifact
+        .warnings
+        .iter()
+        .find(|warning| {
+            warning
+                .diagnostic
+                .message
+                .contains("redundant case alternative")
+        })
+        .expect("inlined redundant alternative retains its warning");
+    assert_eq!(warning.source, 1);
+    let span = warning.diagnostic.span;
+    assert_eq!(&helper.1[span.start as usize..span.end as usize], "0 -> 41");
+    assert_eq!(span.source(), Some(psrs_span::SourceId(1)));
+}

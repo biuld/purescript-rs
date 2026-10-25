@@ -1,9 +1,6 @@
-use crate::{
-    Binding, ConstructorInfo, Declaration, Expr, ExprKind, ExternalType, Module, PatternKind, Type,
-    TypeId,
-};
+use crate::{ConstructorInfo, Expr, ExprKind, ExternalType, Module, PatternKind, Type, TypeId};
 use psrs_hir::{ModuleId, SymbolId, TypeVariableId};
-use psrs_span::TextRange;
+use psrs_span::{SourceId, TextRange};
 use std::collections::HashSet;
 
 mod shift;
@@ -18,9 +15,10 @@ pub fn link(modules: Vec<Module>) -> Module {
         .first()
         .map(|module| module.name.clone())
         .unwrap_or_default();
-    let span = modules
-        .first()
-        .map_or_else(|| TextRange::new(0, 0), |module| module.span);
+    let span = modules.first().map_or_else(
+        || TextRange::new(0, 0),
+        |module| module.span.in_source(SourceId(module.id.0)),
+    );
     let mut types = Vec::new();
     let mut newtype_ids = Vec::new();
     let mut ordinary_data_ids = Vec::new();
@@ -37,6 +35,7 @@ pub fn link(modules: Vec<Module>) -> Module {
     let mut seen_type_names = HashSet::new();
     let mut type_variable_offset = 0u32;
     for module in modules {
+        let source = SourceId(module.id.0);
         let offset = types.len() as u32;
         let variable_span = variables::variable_span(&module);
         let module_variable_offset = type_variable_offset;
@@ -70,12 +69,9 @@ pub fn link(modules: Vec<Module>) -> Module {
                 ..constructor
             });
         }
-        declarations.extend(
-            module
-                .declarations
-                .into_iter()
-                .map(|declaration| shift_declaration(declaration, offset, module_variable_offset)),
-        );
+        declarations.extend(module.declarations.into_iter().map(|declaration| {
+            shift::shift_declaration(declaration, offset, module_variable_offset, source)
+        }));
         for external in module.externals {
             if seen_externals.insert(external.symbol) {
                 externals.push(external);
@@ -149,91 +145,6 @@ fn shift_type(ty: &Type, offset: u32, variable_offset: u32) -> Type {
             result: shift_id(*result, offset),
         },
         other => other.clone(),
-    }
-}
-
-fn shift_binding(binding: Binding, offset: u32, variable_offset: u32) -> Binding {
-    Binding {
-        binder: crate::Binder {
-            id: binding.binder.id,
-            name: binding.binder.name,
-            ty: shift_id(binding.binder.ty, offset),
-            span: binding.binder.span,
-        },
-        quantified: binding
-            .quantified
-            .into_iter()
-            .map(|variable| shift_variable(variable, variable_offset))
-            .collect(),
-        value: shift_expr(binding.value, offset, variable_offset),
-        span: binding.span,
-    }
-}
-
-fn shift_declaration(declaration: Declaration, offset: u32, variable_offset: u32) -> Declaration {
-    Declaration {
-        symbol: declaration.symbol,
-        name: declaration.name,
-        name_span: declaration.name_span,
-        quantified: declaration
-            .quantified
-            .into_iter()
-            .map(|variable| shift_variable(variable, variable_offset))
-            .collect(),
-        ty: shift_id(declaration.ty, offset),
-        value: shift_expr(declaration.value, offset, variable_offset),
-        span: declaration.span,
-    }
-}
-
-fn shift_expr(expression: Expr, offset: u32, variable_offset: u32) -> Expr {
-    psrs_span::with_sufficient_stack(|| shift_expr_inner(expression, offset, variable_offset))
-}
-
-fn shift_expr_inner(expression: Expr, offset: u32, variable_offset: u32) -> Expr {
-    Expr {
-        kind: shift::shift_kind(expression.kind, offset, variable_offset),
-        ty: shift_id(expression.ty, offset),
-        span: expression.span,
-    }
-}
-
-fn shift_pattern(pattern: crate::Pattern, offset: u32) -> crate::Pattern {
-    let kind = match pattern.kind {
-        PatternKind::Wildcard => PatternKind::Wildcard,
-        PatternKind::Literal { value } => PatternKind::Literal { value },
-        PatternKind::Array { elements } => PatternKind::Array {
-            elements: elements
-                .into_iter()
-                .map(|element| shift_pattern(element, offset))
-                .collect(),
-        },
-        PatternKind::Named { id, pattern } => PatternKind::Named {
-            id,
-            pattern: Box::new(shift_pattern(*pattern, offset)),
-        },
-        PatternKind::Var { id, ty } => PatternKind::Var {
-            id,
-            ty: shift_id(ty, offset),
-        },
-        PatternKind::Constructor { symbol, arguments } => PatternKind::Constructor {
-            symbol,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| shift_pattern(argument, offset))
-                .collect(),
-        },
-        PatternKind::Record { fields } => PatternKind::Record {
-            fields: fields
-                .into_iter()
-                .map(|(label, pattern)| (label, shift_pattern(pattern, offset)))
-                .collect(),
-        },
-    };
-    crate::Pattern {
-        kind,
-        ty: shift_id(pattern.ty, offset),
-        span: pattern.span,
     }
 }
 

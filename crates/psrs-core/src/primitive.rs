@@ -54,11 +54,11 @@ pub fn expand_primitive_globals(
             &mut fresh,
         )
         .map_err(|message| {
-            vec![VerifyError {
-                module: declaration.symbol.module,
-                span: declaration.span,
+            vec![VerifyError::new(
+                declaration.symbol.module,
+                declaration.span,
                 message,
-            }]
+            )]
         })?;
     }
     Ok(())

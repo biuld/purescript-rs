@@ -96,6 +96,38 @@ Helper's bytes 153..165 to a 58-byte Main file. Inferring a location from the
 current enclosing function therefore gives a provably wrong result. This is a
 shared representation problem, not a recursion-only lookup-table problem.
 
+### Provenance prerequisite
+
+[DEC-27](../../decision/DEC-27-source-qualified-ranges.md) defines source-qualified
+ranges. Core linking now qualifies expression, declaration, binder and pattern
+ranges in its existing conversion. Subsequent copying preserves that origin;
+the shared Core verifier and backend error/warning constructors consume it.
+
+The retained `origin-probe` uses unchanged Main and Helper inputs. Before the
+change the public diagnosis reports Main bytes 153..165 (outside its 58 bytes).
+The rebuilt public CLI now reports Helper bytes 153..165, exactly `unsafeCoerce`,
+with the same P8 rejection and diagnostic message. This corrects attribution;
+it does not make the incompatible representation supported. The after-report
+is `/tmp/psrs-stream/origin-probe/after.json`.
+
+Maintained regressions check both an inlined callee error and an inlined
+redundant-alternative warning against the original source text. Range tests
+check that moving an already qualified range cannot change its file. The source
+catalogue and failing-read context remain open; no runtime gate is re-measured
+or changed by this prerequisite alone.
+
+Provenance validation on 2026-10-25: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and the final serial
+`cargo test --workspace` pass (78 targets, 2,398 passed, zero failed, seven
+ignored). The retained workspace log is
+`/tmp/psrs-stream/origin-workspace-serial.log`. An earlier run's executable
+tests passed but rustdoc could not load a dependency after an overlapping CLI
+build; all doc tests and then the full workspace passed when rerun serially.
+`PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --test
+recursive_values_execution` also passes all seven executions. That inventory
+still contains the known initialization-demand trap expectation; passing it
+preserves current behavior and does not close RV-08.
+
 ## Required implementation boundaries
 
 1. Preserve authoritative source identity/range through linking, substitution,

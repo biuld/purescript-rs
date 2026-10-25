@@ -1,15 +1,38 @@
 use std::{fmt, sync::Arc};
 
-/// A half-open byte range in a source file.
+/// An opaque source-file identity within a compilation. It carries no resolved
+/// declaration or type information. Producers assign it when file-local ranges
+/// enter a representation shared by several source files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SourceId(pub u32);
+
+/// A half-open byte range, optionally qualified by its original source file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct TextRange {
     pub start: u32,
     pub end: u32,
+    source: Option<SourceId>,
 }
 
 impl TextRange {
     pub const fn new(start: u32, end: u32) -> Self {
-        Self { start, end }
+        Self {
+            start,
+            end,
+            source: None,
+        }
+    }
+
+    /// Retain an already qualified origin when a range is moved or inlined.
+    pub const fn in_source(mut self, source: SourceId) -> Self {
+        if self.source.is_none() {
+            self.source = Some(source);
+        }
+        self
+    }
+
+    pub const fn source(self) -> Option<SourceId> {
+        self.source
     }
 
     pub const fn empty(at: u32) -> Self {
@@ -138,5 +161,13 @@ mod tests {
         let source = SourceFile::new("test", "α\nxyz");
         assert_eq!(source.line_column(2), (1, 2));
         assert_eq!(source.line_column(4), (2, 2));
+    }
+    #[test]
+    fn qualification_keeps_the_original_file_when_ranges_move() {
+        let original = TextRange::new(12, 27).in_source(SourceId(3));
+        assert_eq!(original.in_source(SourceId(9)), original);
+        assert_eq!(original.source(), Some(SourceId(3)));
+        assert_ne!(original, TextRange::new(12, 27).in_source(SourceId(9)));
+        assert_eq!(TextRange::new(12, 27).source(), None);
     }
 }

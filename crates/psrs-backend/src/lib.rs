@@ -61,13 +61,17 @@ impl BackendWarning {
             pass,
             span,
             message: message.into(),
-            module: None,
+            module: span.source().map(|source| ModuleId(source.0)),
         }
     }
 
     pub(crate) fn with_module(mut self, module: ModuleId) -> Self {
         if self.module.is_none() {
-            self.module = Some(module);
+            self.module = Some(
+                self.span
+                    .source()
+                    .map_or(module, |source| ModuleId(source.0)),
+            );
         }
         self
     }
@@ -79,7 +83,7 @@ impl BackendError {
             pass,
             span,
             message: message.into(),
-            module: None,
+            module: span.source().map(|source| ModuleId(source.0)),
             kind: BackendErrorKind::UnsupportedSource,
         }
     }
@@ -95,14 +99,18 @@ impl BackendError {
             pass,
             span,
             message: message.into(),
-            module: None,
+            module: span.source().map(|source| ModuleId(source.0)),
             kind: BackendErrorKind::InvalidCompilerIr,
         }
     }
 
     pub(crate) fn with_module(mut self, module: ModuleId) -> Self {
         if self.module.is_none() {
-            self.module = Some(module);
+            self.module = Some(
+                self.span
+                    .source()
+                    .map_or(module, |source| ModuleId(source.0)),
+            );
         }
         self
     }

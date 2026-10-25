@@ -133,13 +133,13 @@ fn intern(types: &mut Vec<Type>, ty: Type) -> TypeId {
 }
 
 fn error(module: &Module, symbol: SymbolId, message: &'static str) -> Vec<VerifyError> {
-    vec![VerifyError {
-        module: symbol.module,
-        span: module
+    vec![VerifyError::new(
+        symbol.module,
+        module
             .declarations
             .iter()
             .find(|decl| decl.symbol == symbol)
             .map_or(module.span, |decl| decl.name_span),
         message,
-    }]
+    )]
 }

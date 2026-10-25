@@ -295,7 +295,7 @@ fn lower_expr_inner(expression: cst::Expr) -> Result<Expr, LowerError> {
                 let value = match alternative.rhs {
                     cst::CaseRhs::Plain {
                         value, where_block, ..
-                    } => wrap_where(where_block, lower_expr(value)?)?,
+                    } => wrap_where(where_block, lower_expr(*value)?)?,
                     cst::CaseRhs::Guarded(clauses) => Expr {
                         kind: ExprKind::Guarded(
                             clauses
